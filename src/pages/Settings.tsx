@@ -144,7 +144,8 @@ const Settings = () => {
 
     const { error } = await supabase
       .from('app_settings')
-      .update({
+      .upsert({
+        id: 1,
         external_db_url: connectionMethod === 'url' ? formData.external_db_url : null,
         external_db_host: connectionMethod === 'host' ? formData.external_db_host : null,
         external_db_port: connectionMethod === 'host' ? formData.external_db_port : null,
@@ -152,8 +153,7 @@ const Settings = () => {
         external_db_user: connectionMethod === 'host' ? formData.external_db_user : null,
         external_db_password: connectionMethod === 'host' ? formData.external_db_password : null,
         external_db_ssl: connectionMethod === 'host' ? formData.external_db_ssl : null,
-      })
-      .eq('id', 1);
+      });
 
     if (error) {
       console.error('Error saving settings:', error);
