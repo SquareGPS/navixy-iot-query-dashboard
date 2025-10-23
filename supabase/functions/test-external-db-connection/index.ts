@@ -6,33 +6,65 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function parsePostgresUrl(url: string) {
+  const urlObj = new URL(url);
+  const sslmode = urlObj.searchParams.get('sslmode');
+  
+  return {
+    user: decodeURIComponent(urlObj.username),
+    password: decodeURIComponent(urlObj.password),
+    database: urlObj.pathname.slice(1),
+    hostname: urlObj.hostname,
+    port: parseInt(urlObj.port) || 5432,
+    tls: sslmode ? { enabled: true, enforce: sslmode === 'require' } : undefined,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { host, port, database, user, password } = await req.json();
+    const body = await req.json();
+    const { url, host, port, database, user, password } = body;
 
-    if (!host || !database || !user) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          message: 'Host, database, and user are required' 
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    let config;
+    
+    if (url) {
+      console.log('Testing connection with URL');
+      config = parsePostgresUrl(url);
+    } else {
+      if (!host || !database || !user) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            message: 'Host, database, and user are required' 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log('Testing connection with individual parameters');
+      config = {
+        user,
+        password: password || '',
+        database,
+        hostname: host,
+        port: port || 5432,
+        tls: { enabled: true, enforce: false },
+      };
     }
 
-    console.log('Testing connection to:', { host, port: port || 5432, database, user });
-
-    const client = new Client({
-      user,
-      password: password || '',
-      database,
-      hostname: host,
-      port: port || 5432,
+    console.log('Connection config:', { 
+      hostname: config.hostname, 
+      port: config.port, 
+      database: config.database, 
+      user: config.user,
+      tls: config.tls?.enabled ? 'enabled' : 'disabled'
     });
+
+    const client = new Client(config);
 
     try {
       await client.connect();

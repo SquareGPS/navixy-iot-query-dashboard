@@ -7,6 +7,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function parsePostgresUrl(url: string) {
+  const urlObj = new URL(url);
+  const sslmode = urlObj.searchParams.get('sslmode');
+  
+  return {
+    user: decodeURIComponent(urlObj.username),
+    password: decodeURIComponent(urlObj.password),
+    database: urlObj.pathname.slice(1),
+    hostname: urlObj.hostname,
+    port: parseInt(urlObj.port) || 5432,
+    tls: sslmode ? { enabled: true, enforce: sslmode === 'require' } : undefined,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -56,7 +70,7 @@ serve(async (req) => {
     // Fetch external DB configuration from app_settings
     const { data: settings, error: settingsError } = await supabase
       .from('app_settings')
-      .select('external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
       .single();
 
     if (settingsError) {
@@ -67,7 +81,20 @@ serve(async (req) => {
       );
     }
 
-    if (!settings?.external_db_host || !settings?.external_db_name || !settings?.external_db_user) {
+    let config;
+    
+    if (settings?.external_db_url) {
+      config = parsePostgresUrl(settings.external_db_url);
+    } else if (settings?.external_db_host && settings?.external_db_name && settings?.external_db_user) {
+      config = {
+        user: settings.external_db_user,
+        password: settings.external_db_password || '',
+        database: settings.external_db_name,
+        hostname: settings.external_db_host,
+        port: settings.external_db_port || 5432,
+        tls: { enabled: true, enforce: false },
+      };
+    } else {
       return new Response(
         JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'External database not configured' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -75,13 +102,7 @@ serve(async (req) => {
     }
 
     // Connect to external PostgreSQL database
-    const client = new Client({
-      user: settings.external_db_user,
-      password: settings.external_db_password || '',
-      database: settings.external_db_name,
-      hostname: settings.external_db_host,
-      port: settings.external_db_port || 5432,
-    });
+    const client = new Client(config);
 
     try {
       await client.connect();

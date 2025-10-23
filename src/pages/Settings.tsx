@@ -18,7 +18,9 @@ const Settings = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   
+  const [useUrl, setUseUrl] = useState(false);
   const [formData, setFormData] = useState({
+    external_db_url: '',
     external_db_host: '',
     external_db_port: 5432,
     external_db_name: '',
@@ -45,7 +47,7 @@ const Settings = () => {
   const fetchSettings = async () => {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
       .single();
 
     if (error) {
@@ -54,7 +56,10 @@ const Settings = () => {
     }
 
     if (data) {
+      const hasUrl = !!data.external_db_url;
+      setUseUrl(hasUrl);
       setFormData({
+        external_db_url: data.external_db_url || '',
         external_db_host: data.external_db_host || '',
         external_db_port: data.external_db_port || 5432,
         external_db_name: data.external_db_name || '',
@@ -71,11 +76,12 @@ const Settings = () => {
     const { error } = await supabase
       .from('app_settings')
       .update({
-        external_db_host: formData.external_db_host,
-        external_db_port: formData.external_db_port,
-        external_db_name: formData.external_db_name,
-        external_db_user: formData.external_db_user,
-        external_db_password: formData.external_db_password,
+        external_db_url: useUrl ? formData.external_db_url : null,
+        external_db_host: useUrl ? null : formData.external_db_host,
+        external_db_port: useUrl ? null : formData.external_db_port,
+        external_db_name: useUrl ? null : formData.external_db_name,
+        external_db_user: useUrl ? null : formData.external_db_user,
+        external_db_password: useUrl ? null : formData.external_db_password,
       })
       .eq('id', 1);
 
@@ -95,7 +101,9 @@ const Settings = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke('test-external-db-connection', {
-        body: {
+        body: useUrl ? {
+          url: formData.external_db_url,
+        } : {
           host: formData.external_db_host,
           port: formData.external_db_port,
           database: formData.external_db_name,
@@ -154,59 +162,93 @@ const Settings = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="host">Host</Label>
-                  <Input
-                    id="host"
-                    placeholder="e.g., localhost or db.example.com"
-                    value={formData.external_db_host}
-                    onChange={(e) => setFormData({ ...formData, external_db_host: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="port">Port</Label>
-                  <Input
-                    id="port"
-                    type="number"
-                    placeholder="5432"
-                    value={formData.external_db_port}
-                    onChange={(e) => setFormData({ ...formData, external_db_port: parseInt(e.target.value) || 5432 })}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="database">Database Name</Label>
-                  <Input
-                    id="database"
-                    placeholder="e.g., myapp_production"
-                    value={formData.external_db_name}
-                    onChange={(e) => setFormData({ ...formData, external_db_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="user">Username</Label>
-                  <Input
-                    id="user"
-                    placeholder="Database user"
-                    value={formData.external_db_user}
-                    onChange={(e) => setFormData({ ...formData, external_db_user: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Database password"
-                    value={formData.external_db_password}
-                    onChange={(e) => setFormData({ ...formData, external_db_password: e.target.value })}
-                  />
-                </div>
+              <div className="flex items-center gap-4 pb-4">
+                <Button
+                  type="button"
+                  variant={!useUrl ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseUrl(false)}
+                >
+                  Individual Parameters
+                </Button>
+                <Button
+                  type="button"
+                  variant={useUrl ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseUrl(true)}
+                >
+                  Connection URL
+                </Button>
               </div>
+
+              {useUrl ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="url">Connection URL</Label>
+                  <Input
+                    id="url"
+                    placeholder="postgresql://user:password@host:port/database?sslmode=require"
+                    value={formData.external_db_url}
+                    onChange={(e) => setFormData({ ...formData, external_db_url: e.target.value })}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Include sslmode=require in the URL for SSL connections
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="host">Host</Label>
+                    <Input
+                      id="host"
+                      placeholder="e.g., localhost or db.example.com"
+                      value={formData.external_db_host}
+                      onChange={(e) => setFormData({ ...formData, external_db_host: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="port">Port</Label>
+                    <Input
+                      id="port"
+                      type="number"
+                      placeholder="5432"
+                      value={formData.external_db_port}
+                      onChange={(e) => setFormData({ ...formData, external_db_port: parseInt(e.target.value) || 5432 })}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="database">Database Name</Label>
+                    <Input
+                      id="database"
+                      placeholder="e.g., myapp_production"
+                      value={formData.external_db_name}
+                      onChange={(e) => setFormData({ ...formData, external_db_name: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="user">Username</Label>
+                    <Input
+                      id="user"
+                      placeholder="Database user"
+                      value={formData.external_db_user}
+                      onChange={(e) => setFormData({ ...formData, external_db_user: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Database password"
+                      value={formData.external_db_password}
+                      onChange={(e) => setFormData({ ...formData, external_db_password: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
 
               {testResult && (
                 <Alert variant={testResult.success ? 'default' : 'destructive'}>
@@ -222,7 +264,7 @@ const Settings = () => {
               <div className="flex gap-2 pt-4">
                 <Button
                   onClick={handleTestConnection}
-                  disabled={testing || !formData.external_db_host || !formData.external_db_name || !formData.external_db_user}
+                  disabled={testing || (useUrl ? !formData.external_db_url : (!formData.external_db_host || !formData.external_db_name || !formData.external_db_user))}
                   variant="outline"
                 >
                   {testing ? (
@@ -236,7 +278,7 @@ const Settings = () => {
                 </Button>
                 <Button
                   onClick={handleSave}
-                  disabled={saving || !formData.external_db_host || !formData.external_db_name || !formData.external_db_user}
+                  disabled={saving || (useUrl ? !formData.external_db_url : (!formData.external_db_host || !formData.external_db_name || !formData.external_db_user))}
                 >
                   {saving ? (
                     <>

@@ -20,6 +20,7 @@ export type Database = {
           external_db_name: string | null
           external_db_password: string | null
           external_db_port: number | null
+          external_db_url: string | null
           external_db_user: string | null
           id: number
           organization_name: string | null
@@ -30,6 +31,7 @@ export type Database = {
           external_db_name?: string | null
           external_db_password?: string | null
           external_db_port?: number | null
+          external_db_url?: string | null
           external_db_user?: string | null
           id?: number
           organization_name?: string | null
@@ -40,6 +42,7 @@ export type Database = {
           external_db_name?: string | null
           external_db_password?: string | null
           external_db_port?: number | null
+          external_db_url?: string | null
           external_db_user?: string | null
           id?: number
           organization_name?: string | null
