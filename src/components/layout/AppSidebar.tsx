@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sidebar,
@@ -28,6 +28,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface Report {
   id: string;
@@ -51,6 +57,11 @@ export function AppSidebar() {
   const [sections, setSections] = useState<Section[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editingSectionName, setEditingSectionName] = useState('');
+  const [editingReport, setEditingReport] = useState<string | null>(null);
+  const [editingReportTitle, setEditingReportTitle] = useState('');
   const [showNewSection, setShowNewSection] = useState(false);
   const [showNewReport, setShowNewReport] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
@@ -183,6 +194,58 @@ export function AppSidebar() {
     fetchSectionsAndReports();
   };
 
+  const handleUpdateSectionName = async (sectionId: string, newName: string) => {
+    if (!newName.trim()) {
+      toast.error('Section name cannot be empty');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('sections')
+      .update({ name: newName })
+      .eq('id', sectionId);
+
+    if (error) {
+      toast.error('Failed to update section name');
+      console.error(error);
+    } else {
+      toast.success('Section renamed');
+      fetchSectionsAndReports();
+    }
+    setEditingSection(null);
+  };
+
+  const handleUpdateReportTitle = async (reportId: string, newTitle: string) => {
+    if (!newTitle.trim()) {
+      toast.error('Report title cannot be empty');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('reports')
+      .update({ title: newTitle })
+      .eq('id', reportId);
+
+    if (error) {
+      toast.error('Failed to update report title');
+      console.error(error);
+    } else {
+      toast.success('Report renamed');
+      fetchSectionsAndReports();
+    }
+    setEditingReport(null);
+  };
+
+  const startEditingSection = (sectionId: string, currentName: string) => {
+    setEditingSection(sectionId);
+    setEditingSectionName(currentName);
+  };
+
+  const startEditingReport = (reportId: string, currentTitle: string) => {
+    setEditingReport(reportId);
+    setEditingReportTitle(currentTitle);
+  };
+
   return (
     <>
       <Dialog open={showNewSection} onOpenChange={setShowNewSection}>
@@ -292,27 +355,123 @@ export function AppSidebar() {
                   onOpenChange={() => toggleSection(section.id)}
                 >
                   <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton className="w-full">
-                        {expandedSections.has(section.id) ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                        <FolderOpen className="h-4 w-4" />
-                        {state !== 'collapsed' && <span>{section.name}</span>}
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
+                    <div
+                      className="relative group"
+                      onMouseEnter={() => setHoveredSection(section.id)}
+                      onMouseLeave={() => setHoveredSection(null)}
+                    >
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton className="w-full">
+                          {expandedSections.has(section.id) ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          <FolderOpen className="h-4 w-4" />
+                          {state !== 'collapsed' && (
+                            editingSection === section.id ? (
+                              <Input
+                                value={editingSectionName}
+                                onChange={(e) => setEditingSectionName(e.target.value)}
+                                onBlur={() => handleUpdateSectionName(section.id, editingSectionName)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateSectionName(section.id, editingSectionName);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingSection(null);
+                                  }
+                                }}
+                                className="h-6 px-1 py-0 text-sm"
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+                                  if (canEdit) startEditingSection(section.id, section.name);
+                                }}
+                              >
+                                {section.name}
+                              </span>
+                            )
+                          )}
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      {state !== 'collapsed' && canEdit && hoveredSection === section.id && editingSection !== section.id && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setNewReportSection(section.id);
+                                setShowNewReport(true);
+                              }}
+                            >
+                              <FileText className="mr-2 h-4 w-4" />
+                              New Report
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowNewSection(true);
+                              }}
+                            >
+                              <FolderOpen className="mr-2 h-4 w-4" />
+                              New Section
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                     <CollapsibleContent>
                       {reports.map((report) => (
                         <SidebarMenuItem key={report.id}>
                           <SidebarMenuButton
-                            onClick={() => navigate(`/app/report/${report.id}`)}
+                            onClick={() => !editingReport && navigate(`/app/report/${report.id}`)}
                             isActive={params.reportId === report.id}
                             className="pl-8"
                           >
                             <FileText className="h-4 w-4" />
-                            {state !== 'collapsed' && <span className="truncate">{report.title}</span>}
+                            {state !== 'collapsed' && (
+                              editingReport === report.id ? (
+                                <Input
+                                  value={editingReportTitle}
+                                  onChange={(e) => setEditingReportTitle(e.target.value)}
+                                  onBlur={() => handleUpdateReportTitle(report.id, editingReportTitle)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleUpdateReportTitle(report.id, editingReportTitle);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingReport(null);
+                                    }
+                                  }}
+                                  className="h-6 px-1 py-0 text-sm"
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <span
+                                  className="truncate"
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canEdit) startEditingReport(report.id, report.title);
+                                  }}
+                                >
+                                  {report.title}
+                                </span>
+                              )
+                            )}
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       ))}
@@ -326,11 +485,39 @@ export function AppSidebar() {
                   {ungroupedReports.map((report) => (
                     <SidebarMenuItem key={report.id}>
                       <SidebarMenuButton
-                        onClick={() => navigate(`/app/report/${report.id}`)}
+                        onClick={() => !editingReport && navigate(`/app/report/${report.id}`)}
                         isActive={params.reportId === report.id}
                       >
                         <FileText className="h-4 w-4" />
-                        {state !== 'collapsed' && <span className="truncate">{report.title}</span>}
+                        {state !== 'collapsed' && (
+                          editingReport === report.id ? (
+                            <Input
+                              value={editingReportTitle}
+                              onChange={(e) => setEditingReportTitle(e.target.value)}
+                              onBlur={() => handleUpdateReportTitle(report.id, editingReportTitle)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleUpdateReportTitle(report.id, editingReportTitle);
+                                } else if (e.key === 'Escape') {
+                                  setEditingReport(null);
+                                }
+                              }}
+                              className="h-6 px-1 py-0 text-sm"
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <span
+                              className="truncate"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                if (canEdit) startEditingReport(report.id, report.title);
+                              }}
+                            >
+                              {report.title}
+                            </span>
+                          )
+                        )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -338,29 +525,6 @@ export function AppSidebar() {
               )}
             </SidebarMenu>
           </SidebarGroupContent>
-
-          {state !== 'collapsed' && canEdit && (
-            <div className="px-2 pt-2 space-y-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowNewSection(true)}
-              >
-                <Plus className="h-4 w-4" />
-                New Section
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => setShowNewReport(true)}
-              >
-                <Plus className="h-4 w-4" />
-                New Report
-              </Button>
-            </div>
-          )}
         </SidebarGroup>
       </SidebarContent>
     </Sidebar>
