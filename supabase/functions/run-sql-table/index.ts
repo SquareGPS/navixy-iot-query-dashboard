@@ -109,18 +109,27 @@ serve(async (req) => {
       await client.connect();
       console.log('Connected to external database');
 
+      // Strip any existing LIMIT/OFFSET from the user's query
+      const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?$/i, '');
+      console.log('Original SQL:', sql);
+      console.log('Cleaned SQL:', cleanedSql);
+
       // Get total count
-      const countSql = `SELECT COUNT(*) as total FROM (${sql.trim().replace(/;$/, '')}) as count_query`;
+      const countSql = `SELECT COUNT(*) as total FROM (${cleanedSql}) as count_query`;
+      console.log('Count SQL:', countSql);
       const countResult = await client.queryObject(countSql);
       const total = countResult.rows && countResult.rows.length > 0 
         ? parseInt((countResult.rows[0] as any).total) 
         : 0;
+      console.log('Total rows:', total);
 
       // Apply pagination
       const offset = (page - 1) * pageSize;
-      const paginatedSql = `${sql.trim().replace(/;$/, '')} LIMIT ${pageSize} OFFSET ${offset}`;
+      const paginatedSql = `${cleanedSql} LIMIT ${pageSize} OFFSET ${offset}`;
+      console.log('Paginated SQL:', paginatedSql);
 
       const result = await client.queryObject(paginatedSql);
+      console.log('Query executed successfully, rows returned:', result.rows?.length || 0);
 
       // Extract columns and rows
       const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0] as Record<string, any>) : [];
