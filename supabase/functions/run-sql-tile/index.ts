@@ -72,7 +72,8 @@ serve(async (req) => {
     const { data: settings, error: settingsError } = await supabase
       .from('app_settings')
       .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl')
-      .single();
+      .eq('id', 1)
+      .maybeSingle();
 
     if (settingsError) {
       console.error('Error fetching settings:', settingsError);
