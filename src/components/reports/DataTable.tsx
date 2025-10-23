@@ -120,8 +120,10 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
               <TableRow key={row.id}>
                 <TableCell className="text-muted-foreground text-xs font-mono">{startingRowNumber + index + 1}</TableCell>
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  <TableCell key={cell.id} className="max-w-xs">
+                    <div className="truncate" title={String(cell.getValue())}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </div>
                   </TableCell>
                 ))}
               </TableRow>

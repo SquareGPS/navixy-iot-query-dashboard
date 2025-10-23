@@ -128,6 +128,10 @@ serve(async (req) => {
     try {
       await client.connect();
 
+      // Extract LIMIT from user's query if present
+      const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(\s+OFFSET\s+\d+)?$/i);
+      const userLimit = limitMatch ? parseInt(limitMatch[1]) : null;
+      
       // Strip any existing LIMIT/OFFSET from the user's query
       const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?$/i, '');
 
@@ -138,9 +142,12 @@ serve(async (req) => {
         ? parseInt((countResult.rows[0] as any).total) 
         : 0;
 
+      // Use user's LIMIT if it's smaller than pageSize, otherwise use pageSize
+      const effectiveLimit = userLimit !== null && userLimit < pageSize ? userLimit : pageSize;
+      
       // Apply pagination
-      const offset = (page - 1) * pageSize;
-      const paginatedSql = `${cleanedSql} LIMIT ${pageSize} OFFSET ${offset}`;
+      const offset = (page - 1) * effectiveLimit;
+      const paginatedSql = `${cleanedSql} LIMIT ${effectiveLimit} OFFSET ${offset}`;
 
       const result = await client.queryObject(paginatedSql);
 
@@ -160,7 +167,7 @@ serve(async (req) => {
       await client.end();
 
       return new Response(
-        JSON.stringify({ columns, rows, columnTypes, total, page, pageSize }),
+        JSON.stringify({ columns, rows, columnTypes, total, page, pageSize: effectiveLimit }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } catch (dbError: any) {
