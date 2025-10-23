@@ -57,16 +57,7 @@ export function AppSidebar() {
   const [sections, setSections] = useState<Section[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
-  const [editingSectionName, setEditingSectionName] = useState('');
-  const [editingReport, setEditingReport] = useState<string | null>(null);
-  const [editingReportTitle, setEditingReportTitle] = useState('');
-  const [showNewSection, setShowNewSection] = useState(false);
-  const [showNewReport, setShowNewReport] = useState(false);
-  const [newSectionName, setNewSectionName] = useState('');
-  const [newReportTitle, setNewReportTitle] = useState('');
-  const [newReportSection, setNewReportSection] = useState<string>('');
+  const [editingItem, setEditingItem] = useState<{ id: string; type: 'section' | 'report'; value: string } | null>(null);
   const [creating, setCreating] = useState(false);
 
   const canEdit = userRole === 'admin' || userRole === 'editor';
@@ -111,15 +102,16 @@ export function AppSidebar() {
   const ungroupedReports = filteredReports.filter((r) => !r.section_id);
 
   const handleCreateSection = async () => {
-    if (!newSectionName.trim()) {
+    if (!editingItem?.value.trim()) {
       toast.error('Section name is required');
+      setEditingItem(null);
       return;
     }
 
     setCreating(true);
     const { data, error } = await supabase
       .from('sections')
-      .insert({ name: newSectionName, sort_index: sections.length })
+      .insert({ name: editingItem.value, sort_index: sections.length })
       .select()
       .single();
 
@@ -127,30 +119,30 @@ export function AppSidebar() {
       toast.error('Failed to create section');
       console.error(error);
     } else {
-      toast.success('Section created successfully');
-      setNewSectionName('');
-      setShowNewSection(false);
-      fetchSectionsAndReports();
+      toast.success('Section created');
+      setEditingItem(null);
+      await fetchSectionsAndReports();
+      setExpandedSections(new Set([...expandedSections, data.id]));
     }
     setCreating(false);
   };
 
-  const handleCreateReport = async () => {
-    if (!newReportTitle.trim()) {
+  const handleCreateReport = async (sectionId: string) => {
+    if (!editingItem?.value.trim()) {
       toast.error('Report title is required');
+      setEditingItem(null);
       return;
     }
 
     setCreating(true);
     
-    // Create report
     const { data: reportData, error: reportError } = await supabase
       .from('reports')
       .insert({
-        title: newReportTitle,
-        section_id: newReportSection || null,
-        slug: newReportTitle.toLowerCase().replace(/\s+/g, '-'),
-        sort_index: reports.length,
+        title: editingItem.value,
+        section_id: sectionId,
+        slug: editingItem.value.toLowerCase().replace(/\s+/g, '-'),
+        sort_index: reports.filter(r => r.section_id === sectionId).length,
       })
       .select()
       .single();
@@ -162,168 +154,80 @@ export function AppSidebar() {
       return;
     }
 
-    // Create 3 default tiles
+    // Create default tiles and table
     const tiles = [
       { report_id: reportData.id, position: 1, title: 'Metric 1', sql: 'SELECT 0' },
       { report_id: reportData.id, position: 2, title: 'Metric 2', sql: 'SELECT 0' },
       { report_id: reportData.id, position: 3, title: 'Metric 3', sql: 'SELECT 0' },
     ];
 
-    const { error: tilesError } = await supabase.from('report_tiles').insert(tiles);
-
-    // Create default table
-    const { error: tableError } = await supabase
-      .from('report_tables')
-      .insert({
+    await Promise.all([
+      supabase.from('report_tiles').insert(tiles),
+      supabase.from('report_tables').insert({
         report_id: reportData.id,
         sql: 'SELECT 1 as id, \'Example\' as name',
-      });
+      })
+    ]);
 
-    if (tilesError || tableError) {
-      toast.error('Report created but failed to add default content');
-      console.error(tilesError || tableError);
-    } else {
-      toast.success('Report created successfully');
-      navigate(`/app/report/${reportData.id}`);
-    }
-
-    setNewReportTitle('');
-    setNewReportSection('');
-    setShowNewReport(false);
+    toast.success('Report created');
+    setEditingItem(null);
     setCreating(false);
-    fetchSectionsAndReports();
+    await fetchSectionsAndReports();
+    navigate(`/app/report/${reportData.id}`);
   };
 
-  const handleUpdateSectionName = async (sectionId: string, newName: string) => {
-    if (!newName.trim()) {
-      toast.error('Section name cannot be empty');
+  const handleUpdateItem = async () => {
+    if (!editingItem?.value.trim()) {
+      toast.error('Name cannot be empty');
+      setEditingItem(null);
       return;
     }
 
     const { error } = await supabase
-      .from('sections')
-      .update({ name: newName })
-      .eq('id', sectionId);
+      .from(editingItem.type === 'section' ? 'sections' : 'reports')
+      .update(editingItem.type === 'section' ? { name: editingItem.value } : { title: editingItem.value })
+      .eq('id', editingItem.id);
 
     if (error) {
-      toast.error('Failed to update section name');
+      toast.error(`Failed to update ${editingItem.type}`);
       console.error(error);
     } else {
-      toast.success('Section renamed');
+      toast.success(`${editingItem.type === 'section' ? 'Section' : 'Report'} renamed`);
       fetchSectionsAndReports();
     }
-    setEditingSection(null);
+    setEditingItem(null);
   };
 
-  const handleUpdateReportTitle = async (reportId: string, newTitle: string) => {
-    if (!newTitle.trim()) {
-      toast.error('Report title cannot be empty');
-      return;
+  const startCreatingReport = (sectionId: string) => {
+    setEditingItem({ id: `new-report-${sectionId}`, type: 'report', value: '' });
+  };
+
+  const startCreatingSection = () => {
+    setEditingItem({ id: 'new-section', type: 'section', value: '' });
+  };
+
+  const startEditing = (id: string, type: 'section' | 'report', currentValue: string) => {
+    setEditingItem({ id, type, value: currentValue });
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent, isNew: boolean, sectionId?: string) => {
+    if (e.key === 'Enter') {
+      if (isNew) {
+        if (editingItem?.type === 'section') {
+          handleCreateSection();
+        } else if (sectionId) {
+          handleCreateReport(sectionId);
+        }
+      } else {
+        handleUpdateItem();
+      }
+    } else if (e.key === 'Escape') {
+      setEditingItem(null);
     }
-
-    const { error } = await supabase
-      .from('reports')
-      .update({ title: newTitle })
-      .eq('id', reportId);
-
-    if (error) {
-      toast.error('Failed to update report title');
-      console.error(error);
-    } else {
-      toast.success('Report renamed');
-      fetchSectionsAndReports();
-    }
-    setEditingReport(null);
-  };
-
-  const startEditingSection = (sectionId: string, currentName: string) => {
-    setEditingSection(sectionId);
-    setEditingSectionName(currentName);
-  };
-
-  const startEditingReport = (reportId: string, currentTitle: string) => {
-    setEditingReport(reportId);
-    setEditingReportTitle(currentTitle);
   };
 
   return (
     <>
-      <Dialog open={showNewSection} onOpenChange={setShowNewSection}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Section</DialogTitle>
-            <DialogDescription>
-              Organize your reports by creating a new section
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="section-name">Section Name</Label>
-              <Input
-                id="section-name"
-                placeholder="e.g., Sales Reports"
-                value={newSectionName}
-                onChange={(e) => setNewSectionName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateSection()}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewSection(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateSection} disabled={creating}>
-              {creating ? 'Creating...' : 'Create Section'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showNewReport} onOpenChange={setShowNewReport}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Report</DialogTitle>
-            <DialogDescription>
-              Create a new report with 3 metric tiles and a data table
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="report-title">Report Title</Label>
-              <Input
-                id="report-title"
-                placeholder="e.g., Monthly Sales Overview"
-                value={newReportTitle}
-                onChange={(e) => setNewReportTitle(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="report-section">Section (Optional)</Label>
-              <select
-                id="report-section"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={newReportSection}
-                onChange={(e) => setNewReportSection(e.target.value)}
-              >
-                <option value="">No section</option>
-                {sections.map((section) => (
-                  <option key={section.id} value={section.id}>
-                    {section.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewReport(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateReport} disabled={creating}>
-              {creating ? 'Creating...' : 'Create Report'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     <Sidebar className={state === 'collapsed' ? 'w-14' : 'w-64'} collapsible="icon">
       <SidebarContent>
         <SidebarGroup>
@@ -348,48 +252,39 @@ export function AppSidebar() {
 
           <SidebarGroupContent>
             <SidebarMenu>
-              {groupedReports.map(({ section, reports }) => (
+              {groupedReports.map(({ section, reports: sectionReports }) => (
                 <Collapsible
                   key={section.id}
                   open={expandedSections.has(section.id)}
                   onOpenChange={() => toggleSection(section.id)}
                 >
                   <SidebarMenuItem>
-                    <div
-                      className="relative group"
-                      onMouseEnter={() => setHoveredSection(section.id)}
-                      onMouseLeave={() => setHoveredSection(null)}
-                    >
+                    <div className="group relative">
                       <CollapsibleTrigger asChild>
-                        <SidebarMenuButton className="w-full">
+                        <SidebarMenuButton className="w-full pr-8">
                           {expandedSections.has(section.id) ? (
-                            <ChevronDown className="h-4 w-4" />
+                            <ChevronDown className="h-4 w-4 shrink-0" />
                           ) : (
-                            <ChevronRight className="h-4 w-4" />
+                            <ChevronRight className="h-4 w-4 shrink-0" />
                           )}
-                          <FolderOpen className="h-4 w-4" />
+                          <FolderOpen className="h-4 w-4 shrink-0" />
                           {state !== 'collapsed' && (
-                            editingSection === section.id ? (
+                            editingItem?.id === section.id ? (
                               <Input
-                                value={editingSectionName}
-                                onChange={(e) => setEditingSectionName(e.target.value)}
-                                onBlur={() => handleUpdateSectionName(section.id, editingSectionName)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    handleUpdateSectionName(section.id, editingSectionName);
-                                  } else if (e.key === 'Escape') {
-                                    setEditingSection(null);
-                                  }
-                                }}
-                                className="h-6 px-1 py-0 text-sm"
+                                value={editingItem.value}
+                                onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
+                                onBlur={() => handleUpdateItem()}
+                                onKeyDown={(e) => handleEditKeyDown(e, false)}
+                                className="h-6 px-1 py-0 text-sm flex-1"
                                 autoFocus
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
                               <span
+                                className="flex-1 truncate"
                                 onDoubleClick={(e) => {
                                   e.stopPropagation();
-                                  if (canEdit) startEditingSection(section.id, section.name);
+                                  if (canEdit) startEditing(section.id, 'section', section.name);
                                 }}
                               >
                                 {section.name}
@@ -398,35 +293,32 @@ export function AppSidebar() {
                           )}
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
-                      {state !== 'collapsed' && canEdit && hoveredSection === section.id && editingSection !== section.id && (
+                      
+                      {state !== 'collapsed' && canEdit && !editingItem && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
-                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                              }}
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setNewReportSection(section.id);
-                                setShowNewReport(true);
+                              onClick={() => {
+                                setExpandedSections(new Set([...expandedSections, section.id]));
+                                startCreatingReport(section.id);
                               }}
                             >
                               <FileText className="mr-2 h-4 w-4" />
                               New Report
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowNewSection(true);
-                              }}
-                            >
+                            <DropdownMenuItem onClick={startCreatingSection}>
                               <FolderOpen className="mr-2 h-4 w-4" />
                               New Section
                             </DropdownMenuItem>
@@ -434,38 +326,35 @@ export function AppSidebar() {
                         </DropdownMenu>
                       )}
                     </div>
+                    
                     <CollapsibleContent>
-                      {reports.map((report) => (
+                      {sectionReports.map((report) => (
                         <SidebarMenuItem key={report.id}>
                           <SidebarMenuButton
-                            onClick={() => !editingReport && navigate(`/app/report/${report.id}`)}
+                            onClick={() => {
+                              if (!editingItem) navigate(`/app/report/${report.id}`);
+                            }}
                             isActive={params.reportId === report.id}
                             className="pl-8"
                           >
-                            <FileText className="h-4 w-4" />
+                            <FileText className="h-4 w-4 shrink-0" />
                             {state !== 'collapsed' && (
-                              editingReport === report.id ? (
+                              editingItem?.id === report.id ? (
                                 <Input
-                                  value={editingReportTitle}
-                                  onChange={(e) => setEditingReportTitle(e.target.value)}
-                                  onBlur={() => handleUpdateReportTitle(report.id, editingReportTitle)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleUpdateReportTitle(report.id, editingReportTitle);
-                                    } else if (e.key === 'Escape') {
-                                      setEditingReport(null);
-                                    }
-                                  }}
-                                  className="h-6 px-1 py-0 text-sm"
+                                  value={editingItem.value}
+                                  onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
+                                  onBlur={() => handleUpdateItem()}
+                                  onKeyDown={(e) => handleEditKeyDown(e, false)}
+                                  className="h-6 px-1 py-0 text-sm flex-1"
                                   autoFocus
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               ) : (
                                 <span
-                                  className="truncate"
+                                  className="flex-1 truncate"
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
-                                    if (canEdit) startEditingReport(report.id, report.title);
+                                    if (canEdit) startEditing(report.id, 'report', report.title);
                                   }}
                                 >
                                   {report.title}
@@ -475,43 +364,87 @@ export function AppSidebar() {
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       ))}
+                      
+                      {editingItem?.id === `new-report-${section.id}` && state !== 'collapsed' && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton className="pl-8" disabled>
+                            <FileText className="h-4 w-4 shrink-0" />
+                            <Input
+                              value={editingItem.value}
+                              onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
+                              onBlur={() => {
+                                if (editingItem.value.trim()) {
+                                  handleCreateReport(section.id);
+                                } else {
+                                  setEditingItem(null);
+                                }
+                              }}
+                              onKeyDown={(e) => handleEditKeyDown(e, true, section.id)}
+                              placeholder="Report title..."
+                              className="h-6 px-1 py-0 text-sm flex-1"
+                              autoFocus
+                              disabled={creating}
+                            />
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
                     </CollapsibleContent>
                   </SidebarMenuItem>
                 </Collapsible>
               ))}
+              
+              {editingItem?.id === 'new-section' && state !== 'collapsed' && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton disabled>
+                    <FolderOpen className="h-4 w-4 shrink-0" />
+                    <Input
+                      value={editingItem.value}
+                      onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
+                      onBlur={() => {
+                        if (editingItem.value.trim()) {
+                          handleCreateSection();
+                        } else {
+                          setEditingItem(null);
+                        }
+                      }}
+                      onKeyDown={(e) => handleEditKeyDown(e, true)}
+                      placeholder="Section name..."
+                      className="h-6 px-1 py-0 text-sm flex-1"
+                      autoFocus
+                      disabled={creating}
+                    />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
 
               {ungroupedReports.length > 0 && (
                 <>
                   {ungroupedReports.map((report) => (
                     <SidebarMenuItem key={report.id}>
                       <SidebarMenuButton
-                        onClick={() => !editingReport && navigate(`/app/report/${report.id}`)}
+                        onClick={() => {
+                          if (!editingItem) navigate(`/app/report/${report.id}`);
+                        }}
                         isActive={params.reportId === report.id}
                       >
-                        <FileText className="h-4 w-4" />
+                        <FileText className="h-4 w-4 shrink-0" />
                         {state !== 'collapsed' && (
-                          editingReport === report.id ? (
+                          editingItem?.id === report.id ? (
                             <Input
-                              value={editingReportTitle}
-                              onChange={(e) => setEditingReportTitle(e.target.value)}
-                              onBlur={() => handleUpdateReportTitle(report.id, editingReportTitle)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleUpdateReportTitle(report.id, editingReportTitle);
-                                } else if (e.key === 'Escape') {
-                                  setEditingReport(null);
-                                }
-                              }}
-                              className="h-6 px-1 py-0 text-sm"
+                              value={editingItem.value}
+                              onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
+                              onBlur={() => handleUpdateItem()}
+                              onKeyDown={(e) => handleEditKeyDown(e, false)}
+                              className="h-6 px-1 py-0 text-sm flex-1"
                               autoFocus
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             <span
-                              className="truncate"
+                              className="flex-1 truncate"
                               onDoubleClick={(e) => {
                                 e.stopPropagation();
-                                if (canEdit) startEditingReport(report.id, report.title);
+                                if (canEdit) startEditing(report.id, 'report', report.title);
                               }}
                             >
                               {report.title}
