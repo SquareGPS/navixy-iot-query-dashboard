@@ -1,6 +1,6 @@
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { LogOut, Moon, Sun, Settings } from 'lucide-react';
+import { LogOut, Moon, Sun, Settings, Database } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from 'next-themes';
 import { useNavigate } from 'react-router-dom';
@@ -59,6 +59,10 @@ export function AppHeader() {
                   <DropdownMenuItem onClick={() => navigate('/app/settings')} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/app/query-tester')} className="cursor-pointer">
+                    <Database className="mr-2 h-4 w-4" />
+                    SQL Query Tester
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>

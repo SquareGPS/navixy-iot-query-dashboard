@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import AppPage from "./pages/App";
 import ReportView from "./pages/ReportView";
 import Settings from "./pages/Settings";
+import QueryTester from "./pages/QueryTester";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,8 +28,9 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/app" element={<AppPage />} />
               <Route path="/app/report/:reportId" element={<ReportView />} />
-              <Route path="/app/settings" element={<Settings />} />
-              <Route path="*" element={<NotFound />} />
+          <Route path="/app/settings" element={<Settings />} />
+          <Route path="/app/query-tester" element={<QueryTester />} />
+          <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>
         </BrowserRouter>
