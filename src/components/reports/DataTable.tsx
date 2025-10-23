@@ -30,6 +30,7 @@ interface DataTableProps {
   data: any[];
   columns: ColumnDef<any>[];
   loading?: boolean;
+  columnTypes?: Record<string, string>;
   pagination?: {
     page: number;
     pageSize: number;
@@ -39,7 +40,7 @@ interface DataTableProps {
   };
 }
 
-export function DataTable({ data, columns, loading, pagination }: DataTableProps) {
+export function DataTable({ data, columns, loading, columnTypes, pagination }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const table = useReactTable({
@@ -53,6 +54,9 @@ export function DataTable({ data, columns, loading, pagination }: DataTableProps
     },
     manualPagination: !!pagination,
   });
+
+  // Calculate the starting row number based on pagination
+  const startingRowNumber = pagination ? (pagination.page - 1) * pagination.pageSize : 0;
 
   if (loading) {
     return (
@@ -85,16 +89,24 @@ export function DataTable({ data, columns, loading, pagination }: DataTableProps
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                <TableHead className="w-12">#</TableHead>
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder ? null : (
-                      <div
-                        className={header.column.getCanSort() ? 'cursor-pointer select-none flex items-center gap-2' : ''}
-                        onClick={header.column.getToggleSortingHandler()}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {header.column.getCanSort() && (
-                          <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <div
+                          className={header.column.getCanSort() ? 'cursor-pointer select-none flex items-center gap-2' : 'flex items-center gap-2'}
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.column.getCanSort() && (
+                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        {columnTypes && columnTypes[header.column.id] && (
+                          <div className="text-xs text-muted-foreground font-normal">
+                            {columnTypes[header.column.id]}
+                          </div>
                         )}
                       </div>
                     )}
@@ -104,8 +116,9 @@ export function DataTable({ data, columns, loading, pagination }: DataTableProps
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.map((row) => (
+            {table.getRowModel().rows.map((row, index) => (
               <TableRow key={row.id}>
+                <TableCell className="text-muted-foreground text-xs font-mono">{startingRowNumber + index + 1}</TableCell>
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

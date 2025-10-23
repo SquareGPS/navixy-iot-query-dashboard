@@ -10,7 +10,7 @@ import Login from "./pages/Login";
 import AppPage from "./pages/App";
 import ReportView from "./pages/ReportView";
 import Settings from "./pages/Settings";
-import QueryTester from "./pages/QueryTester";
+import SqlEditor from "./pages/SqlEditor";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,7 +29,7 @@ const App = () => (
               <Route path="/app" element={<AppPage />} />
               <Route path="/app/report/:reportId" element={<ReportView />} />
           <Route path="/app/settings" element={<Settings />} />
-          <Route path="/app/query-tester" element={<QueryTester />} />
+          <Route path="/app/sql-editor" element={<SqlEditor />} />
           <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

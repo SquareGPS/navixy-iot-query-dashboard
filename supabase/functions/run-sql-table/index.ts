@@ -7,6 +7,26 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Map common PostgreSQL OID types to readable names
+function getPostgresTypeName(oid: number): string {
+  const typeMap: Record<number, string> = {
+    16: 'boolean',
+    20: 'bigint',
+    21: 'smallint',
+    23: 'integer',
+    25: 'text',
+    700: 'real',
+    701: 'double precision',
+    1043: 'varchar',
+    1082: 'date',
+    1114: 'timestamp',
+    1184: 'timestamptz',
+    1700: 'numeric',
+    2950: 'uuid',
+  };
+  return typeMap[oid] || `type(${oid})`;
+}
+
 function parsePostgresUrl(url: string) {
   const urlObj = new URL(url);
   const sslmode = urlObj.searchParams.get('sslmode');
@@ -128,10 +148,19 @@ serve(async (req) => {
       const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0] as Record<string, any>) : [];
       const rows = result.rows || [];
 
+      // Get column types from the result metadata
+      const columnTypes: Record<string, string> = {};
+      if (result.rowDescription) {
+        result.rowDescription.columns.forEach((col: any) => {
+          const typeName = col.typeOid ? getPostgresTypeName(col.typeOid) : 'unknown';
+          columnTypes[col.name] = typeName;
+        });
+      }
+
       await client.end();
 
       return new Response(
-        JSON.stringify({ columns, rows, total, page, pageSize }),
+        JSON.stringify({ columns, rows, columnTypes, total, page, pageSize }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } catch (dbError: any) {
