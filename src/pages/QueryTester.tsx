@@ -142,7 +142,11 @@ const QueryTester = () => {
                 {results.rows && results.rows.length > 0 ? (
                   <DataTable
                     data={results.rows}
-                    columns={results.columns || []}
+                    columns={(results.columns || []).map((col: string) => ({
+                      id: col,
+                      accessorKey: col,
+                      header: col,
+                    }))}
                   />
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
