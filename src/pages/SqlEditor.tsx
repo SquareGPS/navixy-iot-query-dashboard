@@ -4,6 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Play, Database, Plus, X, Download } from 'lucide-react';
@@ -43,6 +44,8 @@ const SqlEditor = () => {
     },
   ]);
   const [activeTab, setActiveTab] = useState('1');
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTabName, setEditingTabName] = useState('');
 
   // Redirect if not admin
   if (!loading && (!user || userRole !== 'admin')) {
@@ -83,6 +86,24 @@ const SqlEditor = () => {
 
   const updateTabSql = (tabId: string, sql: string) => {
     setTabs(tabs.map((t) => (t.id === tabId ? { ...t, sql } : t)));
+  };
+
+  const startEditingTab = (tabId: string, currentName: string) => {
+    setEditingTabId(tabId);
+    setEditingTabName(currentName);
+  };
+
+  const saveTabName = (tabId: string) => {
+    if (editingTabName.trim()) {
+      setTabs(tabs.map((t) => (t.id === tabId ? { ...t, name: editingTabName.trim() } : t)));
+    }
+    setEditingTabId(null);
+    setEditingTabName('');
+  };
+
+  const cancelEditingTab = () => {
+    setEditingTabId(null);
+    setEditingTabName('');
   };
 
   const handleExecuteQuery = async (tabId: string) => {
@@ -235,15 +256,41 @@ const SqlEditor = () => {
           <Card>
             <CardContent className="p-0">
               <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <div className="border-b px-4 pt-4 flex items-center justify-between">
-                  <TabsList className="h-auto p-0 bg-transparent">
+                <div className="border-b px-4 pt-4">
+                  <TabsList className="h-auto p-0 bg-transparent flex items-center gap-0">
                     {tabs.map((tab) => (
                       <TabsTrigger
                         key={tab.id}
                         value={tab.id}
-                        className="relative rounded-t-md rounded-b-none data-[state=active]:bg-background data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary"
+                        className="relative rounded-t-md rounded-b-none data-[state=active]:bg-background data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary px-3 py-2"
                       >
-                        <span className="mr-2">{tab.name}</span>
+                        {editingTabId === tab.id ? (
+                          <Input
+                            value={editingTabName}
+                            onChange={(e) => setEditingTabName(e.target.value)}
+                            onBlur={() => saveTabName(tab.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                saveTabName(tab.id);
+                              } else if (e.key === 'Escape') {
+                                cancelEditingTab();
+                              }
+                            }}
+                            className="h-6 w-24 px-1 py-0 text-sm"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span
+                            className="mr-2"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startEditingTab(tab.id, tab.name);
+                            }}
+                          >
+                            {tab.name}
+                          </span>
+                        )}
                         {tabs.length > 1 && (
                           <button
                             onClick={(e) => {
@@ -257,15 +304,15 @@ const SqlEditor = () => {
                         )}
                       </TabsTrigger>
                     ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={addNewTab}
+                      className="h-8 w-8 p-0 ml-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
                   </TabsList>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={addNewTab}
-                    className="mb-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
                 </div>
 
                 {tabs.map((tab) => (
