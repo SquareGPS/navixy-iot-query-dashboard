@@ -128,12 +128,21 @@ serve(async (req) => {
     try {
       await client.connect();
 
+      console.log('=== SQL LIMIT DEBUG ===');
+      console.log('Original SQL:', sql);
+      console.log('Requested pageSize:', pageSize);
+      console.log('Current page:', page);
+      
       // Extract LIMIT from user's query if present
       const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(\s+OFFSET\s+\d+)?$/i);
+      console.log('LIMIT regex match:', limitMatch);
+      
       const userLimit = limitMatch ? parseInt(limitMatch[1]) : null;
+      console.log('Extracted userLimit:', userLimit);
       
       // Strip any existing LIMIT/OFFSET from the user's query
       const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?$/i, '');
+      console.log('Cleaned SQL:', cleanedSql);
 
       // Get total count
       const countSql = `SELECT COUNT(*) as total FROM (${cleanedSql}) as count_query`;
@@ -141,13 +150,21 @@ serve(async (req) => {
       const total = countResult.rows && countResult.rows.length > 0 
         ? parseInt((countResult.rows[0] as any).total) 
         : 0;
+      console.log('Total rows from count:', total);
 
       // Use user's LIMIT if it's smaller than pageSize, otherwise use pageSize
       const effectiveLimit = userLimit !== null && userLimit < pageSize ? userLimit : pageSize;
+      console.log('Effective limit calculation:');
+      console.log('  userLimit:', userLimit);
+      console.log('  pageSize:', pageSize);
+      console.log('  userLimit < pageSize:', userLimit !== null && userLimit < pageSize);
+      console.log('  effectiveLimit:', effectiveLimit);
       
       // Apply pagination
       const offset = (page - 1) * effectiveLimit;
       const paginatedSql = `${cleanedSql} LIMIT ${effectiveLimit} OFFSET ${offset}`;
+      console.log('Final paginated SQL:', paginatedSql);
+      console.log('=== END DEBUG ===');
 
       const result = await client.queryObject(paginatedSql);
 
