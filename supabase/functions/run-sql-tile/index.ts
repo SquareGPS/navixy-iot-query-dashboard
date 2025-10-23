@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -47,41 +48,81 @@ serve(async (req) => {
       );
     }
 
-    // Execute query with LIMIT 1
+    // Create Supabase client to fetch external DB config
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
-    
-    const { data, error } = await supabase.rpc('execute_sql', { query: safeSql });
+    // Fetch external DB configuration from app_settings
+    const { data: settings, error: settingsError } = await supabase
+      .from('app_settings')
+      .select('external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .single();
 
-    if (error) {
-      console.error('SQL execution error:', error);
+    if (settingsError) {
+      console.error('Error fetching settings:', settingsError);
       return new Response(
-        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: error.message } }),
+        JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'Failed to fetch database configuration' } }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Extract first value
-    let value: number | null = null;
-    if (data && Array.isArray(data) && data.length > 0) {
-      const firstRow = data[0];
-      const firstValue = Object.values(firstRow)[0];
-      
-      if (typeof firstValue === 'number') {
-        value = firstValue;
-      } else if (typeof firstValue === 'string' && !isNaN(parseFloat(firstValue))) {
-        value = parseFloat(firstValue);
-      }
+    if (!settings?.external_db_host || !settings?.external_db_name || !settings?.external_db_user) {
+      return new Response(
+        JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'External database not configured' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    return new Response(
-      JSON.stringify({ value }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Connect to external PostgreSQL database
+    const client = new Client({
+      user: settings.external_db_user,
+      password: settings.external_db_password || '',
+      database: settings.external_db_name,
+      hostname: settings.external_db_host,
+      port: settings.external_db_port || 5432,
+    });
+
+    try {
+      await client.connect();
+      console.log('Connected to external database');
+
+      // Execute query with LIMIT 1
+      const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
+      const result = await client.queryObject(safeSql);
+
+      // Extract first value
+      let value: number | null = null;
+      if (result.rows && result.rows.length > 0) {
+        const firstRow = result.rows[0] as Record<string, any>;
+        const firstValue = Object.values(firstRow)[0];
+        
+        if (typeof firstValue === 'number') {
+          value = firstValue;
+        } else if (typeof firstValue === 'string' && !isNaN(parseFloat(firstValue))) {
+          value = parseFloat(firstValue);
+        }
+      }
+
+      await client.end();
+
+      return new Response(
+        JSON.stringify({ value }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (dbError: any) {
+      console.error('Database query error:', dbError);
+      try {
+        await client.end();
+      } catch (e) {
+        console.error('Error closing connection:', e);
+      }
+      return new Response(
+        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: dbError.message } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
   } catch (error: any) {
     console.error('Error in run-sql-tile:', error);
     return new Response(

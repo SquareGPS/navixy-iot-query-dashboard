@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -46,49 +47,81 @@ serve(async (req) => {
       );
     }
 
+    // Create Supabase client to fetch external DB config
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    // Get total count
-    const countSql = `SELECT COUNT(*) as total FROM (${sql.trim().replace(/;$/, '')}) as count_query`;
-    const { data: countData, error: countError } = await supabase.rpc('execute_sql', { query: countSql });
+    // Fetch external DB configuration from app_settings
+    const { data: settings, error: settingsError } = await supabase
+      .from('app_settings')
+      .select('external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .single();
 
-    if (countError) {
-      console.error('Count query error:', countError);
+    if (settingsError) {
+      console.error('Error fetching settings:', settingsError);
       return new Response(
-        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: countError.message } }),
+        JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'Failed to fetch database configuration' } }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const total = countData && Array.isArray(countData) && countData.length > 0 
-      ? parseInt(countData[0].total) 
-      : 0;
-
-    // Apply pagination
-    const offset = (page - 1) * pageSize;
-    const paginatedSql = `${sql.trim().replace(/;$/, '')} LIMIT ${pageSize} OFFSET ${offset}`;
-
-    const { data, error } = await supabase.rpc('execute_sql', { query: paginatedSql });
-
-    if (error) {
-      console.error('SQL execution error:', error);
+    if (!settings?.external_db_host || !settings?.external_db_name || !settings?.external_db_user) {
       return new Response(
-        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: error.message } }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'External database not configured' } }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Extract columns and rows
-    const columns = data && Array.isArray(data) && data.length > 0 ? Object.keys(data[0]) : [];
-    const rows = data || [];
+    // Connect to external PostgreSQL database
+    const client = new Client({
+      user: settings.external_db_user,
+      password: settings.external_db_password || '',
+      database: settings.external_db_name,
+      hostname: settings.external_db_host,
+      port: settings.external_db_port || 5432,
+    });
 
-    return new Response(
-      JSON.stringify({ columns, rows, total, page, pageSize }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    try {
+      await client.connect();
+      console.log('Connected to external database');
+
+      // Get total count
+      const countSql = `SELECT COUNT(*) as total FROM (${sql.trim().replace(/;$/, '')}) as count_query`;
+      const countResult = await client.queryObject(countSql);
+      const total = countResult.rows && countResult.rows.length > 0 
+        ? parseInt((countResult.rows[0] as any).total) 
+        : 0;
+
+      // Apply pagination
+      const offset = (page - 1) * pageSize;
+      const paginatedSql = `${sql.trim().replace(/;$/, '')} LIMIT ${pageSize} OFFSET ${offset}`;
+
+      const result = await client.queryObject(paginatedSql);
+
+      // Extract columns and rows
+      const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0] as Record<string, any>) : [];
+      const rows = result.rows || [];
+
+      await client.end();
+
+      return new Response(
+        JSON.stringify({ columns, rows, total, page, pageSize }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } catch (dbError: any) {
+      console.error('Database query error:', dbError);
+      try {
+        await client.end();
+      } catch (e) {
+        console.error('Error closing connection:', e);
+      }
+      return new Response(
+        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: dbError.message } }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
   } catch (error: any) {
     console.error('Error in run-sql-table:', error);
     return new Response(

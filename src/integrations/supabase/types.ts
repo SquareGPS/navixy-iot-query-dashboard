@@ -16,16 +16,31 @@ export type Database = {
     Tables: {
       app_settings: {
         Row: {
+          external_db_host: string | null
+          external_db_name: string | null
+          external_db_password: string | null
+          external_db_port: number | null
+          external_db_user: string | null
           id: number
           organization_name: string | null
           timezone: string | null
         }
         Insert: {
+          external_db_host?: string | null
+          external_db_name?: string | null
+          external_db_password?: string | null
+          external_db_port?: number | null
+          external_db_user?: string | null
           id?: number
           organization_name?: string | null
           timezone?: string | null
         }
         Update: {
+          external_db_host?: string | null
+          external_db_name?: string | null
+          external_db_password?: string | null
+          external_db_port?: number | null
+          external_db_user?: string | null
           id?: number
           organization_name?: string | null
           timezone?: string | null
