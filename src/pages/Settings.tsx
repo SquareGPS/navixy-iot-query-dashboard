@@ -229,7 +229,7 @@ const Settings = () => {
                 Navixy DataHub Configuration
               </CardTitle>
               <CardDescription>
-                Set up connection to your private telematics data lakehouse for custom analytics and reporting
+                Connect to your private telematics data lakehouse (PostgreSQL-compatible)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
