@@ -379,6 +379,8 @@ export type Database = {
     }
     Functions: {
       execute_sql: { Args: { query: string }; Returns: Json }
+      has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
+      is_admin_or_editor: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
