@@ -226,10 +226,10 @@ const Settings = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Database className="h-5 w-5" />
-                External Database Configuration
+                Navixy DataHub Configuration
               </CardTitle>
               <CardDescription>
-                Configure the PostgreSQL database that will be used for all report queries
+                Set up connection to your private telematics data lakehouse for custom analytics and reporting
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
