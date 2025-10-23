@@ -60,6 +60,10 @@ export function AppSidebar() {
   const canEdit = userRole === 'admin' || userRole === 'editor';
 
   useEffect(() => {
+    console.log('Sidebar - User role:', userRole, 'Can edit:', canEdit);
+  }, [userRole, canEdit]);
+
+  useEffect(() => {
     fetchSectionsAndReports();
   }, []);
 

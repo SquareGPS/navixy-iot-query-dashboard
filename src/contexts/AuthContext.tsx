@@ -55,14 +55,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fetchUserRole = async (userId: string) => {
+    console.log('Fetching role for user:', userId);
     const { data, error } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    if (!error && data) {
+    if (error) {
+      console.error('Error fetching user role:', error);
+      setUserRole(null);
+    } else if (data) {
+      console.log('User role loaded:', data.role);
       setUserRole(data.role as 'admin' | 'editor' | 'viewer');
+    } else {
+      console.log('No role found for user');
+      setUserRole(null);
     }
   };
 
