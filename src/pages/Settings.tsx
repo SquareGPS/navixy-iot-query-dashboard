@@ -26,6 +26,7 @@ const Settings = () => {
     external_db_name: '',
     external_db_user: '',
     external_db_password: '',
+    external_db_ssl: true,
   });
 
   useEffect(() => {
@@ -47,7 +48,7 @@ const Settings = () => {
   const fetchSettings = async () => {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl')
       .single();
 
     if (error) {
@@ -65,6 +66,7 @@ const Settings = () => {
         external_db_name: data.external_db_name || '',
         external_db_user: data.external_db_user || '',
         external_db_password: data.external_db_password || '',
+        external_db_ssl: data.external_db_ssl ?? true,
       });
     }
   };
@@ -82,6 +84,7 @@ const Settings = () => {
         external_db_name: useUrl ? null : formData.external_db_name,
         external_db_user: useUrl ? null : formData.external_db_user,
         external_db_password: useUrl ? null : formData.external_db_password,
+        external_db_ssl: useUrl ? null : formData.external_db_ssl,
       })
       .eq('id', 1);
 
@@ -109,6 +112,7 @@ const Settings = () => {
           database: formData.external_db_name,
           user: formData.external_db_user,
           password: formData.external_db_password,
+          ssl: formData.external_db_ssl,
         },
       });
 
@@ -246,6 +250,19 @@ const Settings = () => {
                       value={formData.external_db_password}
                       onChange={(e) => setFormData({ ...formData, external_db_password: e.target.value })}
                     />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="ssl"
+                      checked={formData.external_db_ssl}
+                      onChange={(e) => setFormData({ ...formData, external_db_ssl: e.target.checked })}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label htmlFor="ssl" className="text-sm font-normal">
+                      Require SSL/TLS connection
+                    </Label>
                   </div>
                 </div>
               )}

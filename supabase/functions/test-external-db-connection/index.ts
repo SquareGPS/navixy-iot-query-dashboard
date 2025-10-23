@@ -27,7 +27,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { url, host, port, database, user, password } = body;
+    const { url, host, port, database, user, password, ssl } = body;
 
     let config;
     
@@ -52,7 +52,7 @@ serve(async (req) => {
         database,
         hostname: host,
         port: port || 5432,
-        tls: { enabled: true, enforce: false },
+        tls: ssl ? { enabled: true, enforce: true } : { enabled: false },
       };
     }
 

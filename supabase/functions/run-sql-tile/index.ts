@@ -71,7 +71,7 @@ serve(async (req) => {
     // Fetch external DB configuration from app_settings
     const { data: settings, error: settingsError } = await supabase
       .from('app_settings')
-      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password')
+      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl')
       .single();
 
     if (settingsError) {
@@ -93,7 +93,7 @@ serve(async (req) => {
         database: settings.external_db_name,
         hostname: settings.external_db_host,
         port: settings.external_db_port || 5432,
-        tls: { enabled: true, enforce: false },
+        tls: settings.external_db_ssl ? { enabled: true, enforce: true } : { enabled: false },
       };
     } else {
       return new Response(
