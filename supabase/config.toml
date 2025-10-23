@@ -1,1 +1,10 @@
 project_id = "yaflxhismcdznuffchpm"
+
+[functions.run-sql-tile]
+verify_jwt = false
+
+[functions.run-sql-table]
+verify_jwt = false
+
+[functions.test-external-db-connection]
+verify_jwt = false

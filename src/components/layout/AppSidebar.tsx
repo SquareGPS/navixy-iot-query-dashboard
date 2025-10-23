@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight } from 'lucide-react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sidebar,
@@ -45,6 +45,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const navigate = useNavigate();
   const params = useParams();
+  const location = useLocation();
   const { userRole } = useAuth();
   const [search, setSearch] = useState('');
   const [sections, setSections] = useState<Section[]>([]);
@@ -357,6 +358,20 @@ export function AppSidebar() {
               >
                 <Plus className="h-4 w-4" />
                 New Report
+              </Button>
+            </div>
+          )}
+
+          {state !== 'collapsed' && userRole === 'admin' && (
+            <div className="px-2 pt-2 mt-auto">
+              <Button
+                variant={location.pathname === '/app/settings' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => navigate('/app/settings')}
+              >
+                <Settings className="h-4 w-4" />
+                Settings
               </Button>
             </div>
           )}
