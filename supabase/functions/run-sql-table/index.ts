@@ -133,15 +133,16 @@ serve(async (req) => {
       console.log('Requested pageSize:', pageSize);
       console.log('Current page:', page);
       
-      // Extract LIMIT from user's query if present
-      const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(\s+OFFSET\s+\d+)?$/i);
+      // Extract LIMIT from user's query if present (before any cleanup)
+      // Match LIMIT with optional semicolon and whitespace at the end
+      const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
       console.log('LIMIT regex match:', limitMatch);
       
       const userLimit = limitMatch ? parseInt(limitMatch[1]) : null;
       console.log('Extracted userLimit:', userLimit);
       
       // Strip any existing LIMIT/OFFSET from the user's query
-      const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?$/i, '');
+      const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
       console.log('Cleaned SQL:', cleanedSql);
 
       // Get total count
