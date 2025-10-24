@@ -145,6 +145,13 @@ const ReportView = () => {
       if (updateError) throw updateError;
 
       console.log('Setting local state with updated schema');
+      
+      // Add timestamp to force React to detect change
+      updatedSchema.meta = {
+        ...updatedSchema.meta,
+        last_updated: new Date().toISOString()
+      };
+      
       setSchema(updatedSchema);
       setEditorValue(JSON.stringify(updatedSchema, null, 2));
       setEditingElement(null);
