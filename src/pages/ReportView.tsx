@@ -371,7 +371,10 @@ const TileWithData = ({
   return (
     <div 
       className="relative"
-      onMouseEnter={() => editMode && setIsHovered(true)}
+      onMouseEnter={() => {
+        console.log('Tile hover - editMode:', editMode);
+        if (editMode) setIsHovered(true);
+      }}
       onMouseLeave={() => setIsHovered(false)}
     >
       <MetricTile
@@ -383,11 +386,20 @@ const TileWithData = ({
       />
       {editMode && isHovered && (
         <button
-          onClick={onEdit}
-          className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all"
+          onClick={(e) => {
+            e.stopPropagation();
+            console.log('Edit button clicked');
+            onEdit();
+          }}
+          className="absolute top-2 right-2 p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50"
         >
           <Pencil className="h-4 w-4" />
         </button>
+      )}
+      {editMode && (
+        <div className="absolute bottom-2 left-2 text-xs bg-yellow-500 text-black px-2 py-1 rounded">
+          Edit Mode Active
+        </div>
       )}
     </div>
   );
