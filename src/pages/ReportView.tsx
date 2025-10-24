@@ -101,36 +101,62 @@ const ReportView = () => {
   };
 
   const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
-    if (!editingElement || !schema) return;
+    console.log('=== handleSaveElement called ===');
+    console.log('Editing element:', editingElement);
+    console.log('New SQL:', sql);
+    console.log('New params:', params);
+    
+    if (!editingElement || !schema) {
+      console.log('Early return - no editing element or schema');
+      return;
+    }
 
     const updatedSchema = { ...schema };
     const row = updatedSchema.rows[editingElement.rowIndex];
     
+    console.log('Row type:', row.type);
+    console.log('Row before update:', JSON.stringify(row, null, 2));
+    
     if (row.type === 'tiles' || row.type === 'table') {
       const visual = row.visuals[editingElement.visualIndex];
+      console.log('Visual before update:', JSON.stringify(visual, null, 2));
+      
       visual.query.sql = sql;
       if (params) {
         visual.query.params = params;
       }
+      
+      console.log('Visual after update:', JSON.stringify(visual, null, 2));
     }
 
+    console.log('Updated schema to save:', JSON.stringify(updatedSchema, null, 2));
+
     try {
-      const { error: updateError } = await supabase
+      console.log('Saving to database with reportId:', reportId);
+      
+      const { data, error: updateError } = await supabase
         .from('reports')
         .update({ report_schema: updatedSchema as any })
-        .eq('id', reportId);
+        .eq('id', reportId)
+        .select();
+
+      console.log('Database update response:', { data, error: updateError });
 
       if (updateError) throw updateError;
 
+      console.log('Setting local state with updated schema');
       setSchema(updatedSchema);
       setEditorValue(JSON.stringify(updatedSchema, null, 2));
       setEditingElement(null);
+      
       toast({
         title: 'Success',
         description: 'Element updated successfully',
       });
+      
+      console.log('=== handleSaveElement completed successfully ===');
     } catch (err: any) {
-      console.error('Error saving element:', err);
+      console.error('=== Error saving element ===', err);
       toast({
         title: 'Error',
         description: err.message || 'Failed to save element',
