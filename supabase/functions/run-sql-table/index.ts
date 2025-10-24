@@ -73,13 +73,16 @@ serve(async (req) => {
       );
     }
 
-    // Block dangerous keywords (ensuring we don't match parts of identifiers like "is_deleted")
+    // Block dangerous keywords (check for standalone SQL commands, not column names)
     const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
+    
+    // Split SQL into tokens and check each one
+    // This avoids false positives with column names like "is_deleted"
+    const sqlTokens = sql.toUpperCase().split(/\s+|[(),;]/);
     const foundDangerous = dangerousKeywords.find(keyword => {
-      // Match keyword not preceded/followed by letters, digits, or underscores
-      const regex = new RegExp(`(?<![a-zA-Z0-9_])${keyword}(?![a-zA-Z0-9_])`, 'i');
-      return regex.test(sql);
+      return sqlTokens.includes(keyword);
     });
+    
     if (foundDangerous) {
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),

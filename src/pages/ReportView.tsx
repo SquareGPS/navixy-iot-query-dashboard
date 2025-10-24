@@ -72,6 +72,25 @@ const ReportView = () => {
     setLoading(false);
   };
 
+  const handleRefresh = () => {
+    toast.info('Refreshing report data...');
+    // Re-fetch tiles
+    if (tiles.length > 0) {
+      fetchTileValues(tiles);
+    }
+    // Re-fetch table by finding the table SQL
+    supabase
+      .from('report_tables')
+      .select('*')
+      .eq('report_id', reportId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          fetchTableData(data.sql);
+        }
+      });
+  };
+
   const fetchTileValues = async (tiles: Tile[]) => {
     // Set all tiles to loading
     const initialLoadingStates: Record<string, boolean> = {};
@@ -172,7 +191,7 @@ const ReportView = () => {
           
           {canEdit && (
             <div className="flex gap-2">
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
               <Button variant="outline" size="icon">
