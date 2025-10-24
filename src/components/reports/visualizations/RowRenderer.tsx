@@ -1,11 +1,13 @@
 import { TileVisualComponent } from './TileVisualComponent';
 import { TableVisualComponent } from './TableVisualComponent';
 import { AnnotationComponent } from './AnnotationComponent';
+import { BarChartComponent } from './BarChartComponent';
+import { PieChartComponent } from './PieChartComponent';
 import { UnsupportedVisualComponent } from './UnsupportedVisualComponent';
-import type { TilesRow, TableRow, AnnotationRow } from '@/types/report-schema';
+import type { TilesRow, TableRow, AnnotationRow, ChartsRow } from '@/types/report-schema';
 
 interface RowRendererProps {
-  row: TilesRow | TableRow | AnnotationRow;
+  row: TilesRow | TableRow | AnnotationRow | ChartsRow;
   rowIndex: number;
   editMode: boolean;
   onEdit: (element: {
@@ -70,6 +72,59 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
 
     case 'annotation':
       return <AnnotationComponent row={row} />;
+
+    case 'charts':
+      return (
+        <div className="space-y-4">
+          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+          
+          <div className={`grid gap-4 ${row.visuals.length === 1 ? 'grid-cols-1' : row.visuals.length === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
+            {row.visuals.map((visual, visualIdx) => {
+              if (visual.kind === 'bar') {
+                return (
+                  <BarChartComponent
+                    key={visualIdx}
+                    visual={visual}
+                    title={visual.label}
+                    editMode={editMode}
+                    onEdit={() => onEdit({
+                      rowIndex,
+                      visualIndex: visualIdx,
+                      label: visual.label,
+                      sql: visual.query.sql,
+                      params: visual.query.params,
+                    })}
+                  />
+                );
+              } else if (visual.kind === 'pie') {
+                return (
+                  <PieChartComponent
+                    key={visualIdx}
+                    visual={visual}
+                    title={visual.label}
+                    editMode={editMode}
+                    onEdit={() => onEdit({
+                      rowIndex,
+                      visualIndex: visualIdx,
+                      label: visual.label,
+                      sql: visual.query.sql,
+                      params: visual.query.params,
+                    })}
+                  />
+                );
+              }
+              return (
+                <UnsupportedVisualComponent 
+                  key={visualIdx}
+                  type={(visual as any).kind || 'unknown'}
+                  label={(visual as any).label || 'Unknown'}
+                />
+              );
+            })}
+          </div>
+        </div>
+      );
 
     default:
       // Unsupported type - show warning

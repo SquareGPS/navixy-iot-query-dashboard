@@ -108,7 +108,7 @@ export interface ValueCheck {
   unique?: boolean;
 }
 
-export type Row = TilesRow | TableRow | AnnotationRow;
+export type Row = TilesRow | TableRow | AnnotationRow | ChartsRow;
 
 export interface TilesRow {
   type: "tiles";
@@ -201,4 +201,62 @@ export interface AnnotationVisual {
     markdown?: boolean;
     design?: Design;
   };
+}
+
+// Charts Row Types
+export interface ChartsRow {
+  type: "charts";
+  title?: string;
+  subtitle?: string;
+  layout?: Layout;
+  design?: Design;
+  visuals: ChartVisual[];
+}
+
+export type ChartVisual = BarVisual | PieVisual;
+
+export interface ChartCommonOptions {
+  category_field: string;
+  value_field: string;
+  series_field?: string;
+  sort_by?: "category" | "value";
+  sort_dir?: "asc" | "desc";
+  top_n?: number;
+  show_legend?: boolean;
+  legend_position?: "top" | "right" | "bottom" | "left" | "none";
+  show_tooltips?: boolean;
+  palette?: HexColor[];
+}
+
+export interface BarVisual {
+  kind: "bar";
+  label: string;
+  hint?: string;
+  color?: HexColor;
+  query: Query;
+  verify?: Verify;
+  options: BarOptions;
+}
+
+export interface BarOptions extends ChartCommonOptions {
+  orientation?: "vertical" | "horizontal";
+  show_value_labels?: boolean;
+  precision?: number;
+}
+
+export interface PieVisual {
+  kind: "pie";
+  label: string;
+  hint?: string;
+  color?: HexColor;
+  query: Query;
+  verify?: Verify;
+  options: PieOptions;
+}
+
+export interface PieOptions extends ChartCommonOptions {
+  donut?: boolean;
+  inner_radius?: number;
+  label_type?: "percent" | "value" | "category" | "none";
+  precision?: number;
 }

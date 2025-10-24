@@ -15,7 +15,7 @@ export function UnsupportedVisualComponent({ type, label }: UnsupportedVisualCom
         The visualization type "{type}"{label ? ` (${label})` : ''} is not yet supported.
         <br />
         <span className="text-xs mt-1 block">
-          Supported types: tiles, table, annotation
+          Supported types: tiles, table, charts (bar, pie), annotation
         </span>
       </AlertDescription>
     </Alert>
