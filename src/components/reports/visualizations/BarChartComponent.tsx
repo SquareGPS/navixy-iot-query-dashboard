@@ -43,6 +43,19 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
             value: Number(row[visual.options.value_field]) || 0,
           }));
 
+          // Filter out outlier dates (more than 1 year in the future)
+          const now = new Date();
+          const oneYearFromNow = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+          
+          processedData = processedData.filter((item) => {
+            const categoryDate = new Date(item.category);
+            if (!isNaN(categoryDate.getTime())) {
+              // If it's a valid date, filter out dates more than 1 year in the future
+              return categoryDate <= oneYearFromNow;
+            }
+            return true; // Keep non-date values
+          });
+
           // Apply sorting
           const sortBy = visual.options.sort_by || 'value';
           const sortDir = visual.options.sort_dir || 'desc';
@@ -113,9 +126,22 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                     <XAxis type="number" />
                     <YAxis dataKey="category" type="category" width={100} />
                   </>
-                ) : (
+                 ) : (
                   <>
-                    <XAxis dataKey="category" />
+                    <XAxis 
+                      dataKey="category" 
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      tickFormatter={(value) => {
+                        // Try to format as date if it looks like one
+                        const date = new Date(value);
+                        if (!isNaN(date.getTime())) {
+                          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit' });
+                        }
+                        return value;
+                      }}
+                    />
                     <YAxis />
                   </>
                 )}
