@@ -73,11 +73,11 @@ serve(async (req) => {
       );
     }
 
-    // Block dangerous keywords (using word boundaries to avoid false positives with column names like "is_deleted")
+    // Block dangerous keywords (ensuring we don't match parts of identifiers like "is_deleted")
     const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
     const foundDangerous = dangerousKeywords.find(keyword => {
-      // Use word boundary regex to match only standalone keywords, not parts of column names
-      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      // Match keyword not preceded/followed by letters, digits, or underscores
+      const regex = new RegExp(`(?<![a-zA-Z0-9_])${keyword}(?![a-zA-Z0-9_])`, 'i');
       return regex.test(sql);
     });
     if (foundDangerous) {
