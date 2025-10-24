@@ -269,10 +269,11 @@ const ReportView = () => {
 
                 <div className="space-y-8">
                   {schema.rows.map((row, rowIdx) => {
+                    const inlineEditActive = isEditing && editMode === 'inline';
                     if (row.type === 'tiles') {
-                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={false} onEdit={() => {}} />;
+                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
                     } else if (row.type === 'table') {
-                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={false} onEdit={() => {}} />;
+                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
                     } else if (row.type === 'annotation') {
                       return <AnnotationRowComponent key={rowIdx} row={row} />;
                     }
