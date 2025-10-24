@@ -451,21 +451,55 @@ const TableRowComponent = ({
         });
 
         if (error) throw error;
+        
+        // Check if result contains an error
+        if (result?.error) {
+          console.error('Table query error:', result.error);
+          throw new Error(result.error.message || 'Query failed');
+        }
 
-        if (result.rows) {
+        if (result?.rows) {
           setData(result.rows);
           
           // Build columns from schema or result
-          const cols = visual.options?.columns?.map(col => ({
-            id: col.field,
-            accessorKey: col.field,
-            header: col.label || col.field,
-          })) || result.columns?.map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
-          }));
+          let cols;
+          if (visual.options?.columns && visual.options.columns.length > 0) {
+            cols = visual.options.columns.map(col => ({
+              id: col.field,
+              accessorKey: col.field,
+              header: col.label || col.field,
+              cell: ({ getValue }: any) => {
+                const value = getValue();
+                return value !== null && value !== undefined ? String(value) : '';
+              },
+            }));
+          } else if (result.columns && result.columns.length > 0) {
+            cols = result.columns.map((col: string) => ({
+              id: col,
+              accessorKey: col,
+              header: col,
+              cell: ({ getValue }: any) => {
+                const value = getValue();
+                return value !== null && value !== undefined ? String(value) : '';
+              },
+            }));
+          } else if (result.rows.length > 0) {
+            // Fallback: derive columns from first row
+            cols = Object.keys(result.rows[0]).map((col: string) => ({
+              id: col,
+              accessorKey: col,
+              header: col,
+              cell: ({ getValue }: any) => {
+                const value = getValue();
+                return value !== null && value !== undefined ? String(value) : '';
+              },
+            }));
+          } else {
+            cols = [];
+          }
           
+          console.log('Table columns:', cols);
+          console.log('Table data:', result.rows);
           setColumns(cols);
         }
       } catch (err) {
