@@ -156,14 +156,14 @@ const ReportView = () => {
       </div>
 
       <Sheet open={isEditing} onOpenChange={setIsEditing}>
-        <SheetContent side="bottom" className="h-[70vh]">
-          <SheetHeader>
+        <SheetContent side="bottom" className="h-[85vh] flex flex-col">
+          <SheetHeader className="flex-shrink-0">
             <SheetTitle>Edit Report Schema</SheetTitle>
             <SheetDescription>
               Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-4 h-[calc(100%-8rem)]">
+          <div className="flex-1 mt-4 mb-16 min-h-0">
             <SqlEditor
               value={editorValue}
               onChange={setEditorValue}
@@ -172,7 +172,7 @@ const ReportView = () => {
               language="json"
             />
           </div>
-          <div className="absolute bottom-6 right-6">
+          <div className="absolute bottom-6 right-6 flex-shrink-0">
             <Button onClick={handleSaveSchema} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
               {saving ? 'Saving...' : 'Save Schema'}
