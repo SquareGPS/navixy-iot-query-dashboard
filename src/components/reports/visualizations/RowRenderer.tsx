@@ -31,7 +31,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             {row.visuals.map((visual, visualIdx) => (
               <TileVisualComponent
-                key={visualIdx}
+                key={`${visualIdx}-${visual.query.sql}`}
                 visual={visual}
                 editMode={editMode}
                 onEdit={() => onEdit({
@@ -55,6 +55,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
           {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <TableVisualComponent
+            key={visual.query.sql}
             visual={visual}
             title={visual.label}
             editMode={editMode}
@@ -84,7 +85,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
               if (visual.kind === 'bar') {
                 return (
                   <BarChartComponent
-                    key={visualIdx}
+                    key={`${visualIdx}-${visual.query.sql}`}
                     visual={visual}
                     title={visual.label}
                     editMode={editMode}
@@ -100,7 +101,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
               } else if (visual.kind === 'pie') {
                 return (
                   <PieChartComponent
-                    key={visualIdx}
+                    key={`${visualIdx}-${visual.query.sql}`}
                     visual={visual}
                     title={visual.label}
                     editMode={editMode}
