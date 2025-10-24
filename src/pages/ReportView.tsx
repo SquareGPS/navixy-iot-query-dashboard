@@ -25,7 +25,7 @@ const ReportView = () => {
   const [editorValue, setEditorValue] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canEdit = userRole === 'admin' || userRole === 'editor';
+  const canEdit = userRole === 'admin';
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -162,7 +162,7 @@ const ReportView = () => {
           <ResizablePanel defaultSize={50} minSize={20}>
             <div className="h-full bg-background flex flex-col">
               <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 flex-shrink-0">
-                <h3 className="text-sm font-semibold">Edit Report Schema</h3>
+                <h3 className="text-sm font-semibold">Edit Mode</h3>
                 <div className="flex gap-2">
                   <Button onClick={handleSaveSchema} disabled={saving} size="sm" variant="ghost">
                     <Save className="h-3.5 w-3.5 mr-1.5" />
@@ -200,7 +200,7 @@ const ReportView = () => {
               {canEdit && (
                 <Button onClick={() => setIsEditing(true)} variant="outline">
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit Schema
+                  Edit Mode
                 </Button>
               )}
             </div>
