@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { supabase } from '@/integrations/supabase/client';
+import { apiService } from '@/services/api';
 import { Pencil } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import type { PieVisual } from '@/types/report-schema';
@@ -30,18 +30,18 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
       setLoading(true);
       setError(null);
       try {
-        const { data: result, error: fetchError } = await supabase.functions.invoke('run-sql-table', {
-          body: { sql: visual.query.sql, page: 1, pageSize: 1000 },
+        const response = await apiService.executeTableQuery({
+          sql: visual.query.sql,
+          page: 1,
+          pageSize: 1000,
         });
 
-        if (fetchError) throw fetchError;
-
-        if (result?.error) {
-          throw new Error(result.error.message || 'Query failed');
+        if (response.error) {
+          throw new Error(response.error.message || 'Query failed');
         }
 
-        if (result?.rows && result.rows.length > 0) {
-          let processedData = result.rows.map((row: any) => ({
+        if (response.data?.rows && response.data.rows.length > 0) {
+          let processedData = response.data.rows.map((row: any) => ({
             name: String(row[visual.options.category_field]),
             value: Number(row[visual.options.value_field]) || 0,
           }));

@@ -15,8 +15,8 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { apiService } from '@/services/api';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { BarChart3 } from 'lucide-react';
 import {
@@ -52,7 +52,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const params = useParams();
   const location = useLocation();
-  const { userRole } = useAuth();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [sections, setSections] = useState<Section[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
@@ -60,24 +60,29 @@ export function AppSidebar() {
   const [editingItem, setEditingItem] = useState<{ id: string; type: 'section' | 'report'; value: string } | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const canEdit = userRole === 'admin' || userRole === 'editor';
+  const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
-  useEffect(() => {
-    console.log('Sidebar - User role:', userRole, 'Can edit:', canEdit);
-  }, [userRole, canEdit]);
 
   useEffect(() => {
     fetchSectionsAndReports();
   }, []);
 
   const fetchSectionsAndReports = async () => {
-    const [sectionsRes, reportsRes] = await Promise.all([
-      supabase.from('sections').select('*').order('sort_index'),
-      supabase.from('reports').select('id, title, section_id').order('sort_index')
-    ]);
+    try {
+      const [sectionsRes, reportsRes] = await Promise.all([
+        apiService.getSections(),
+        apiService.getReports()
+      ]);
 
-    if (sectionsRes.data) setSections(sectionsRes.data);
-    if (reportsRes.data) setReports(reportsRes.data);
+      if (sectionsRes.data) setSections(Array.isArray(sectionsRes.data) ? sectionsRes.data : []);
+      if (reportsRes.data) setReports(Array.isArray(reportsRes.data) ? reportsRes.data : []);
+    } catch (error) {
+      console.error('Failed to fetch sections and reports:', error);
+      toast.error('Failed to load reports');
+      // Set empty arrays on error to prevent crashes
+      setSections([]);
+      setReports([]);
+    }
   };
 
   const toggleSection = (sectionId: string) => {
@@ -90,7 +95,7 @@ export function AppSidebar() {
     setExpandedSections(newExpanded);
   };
 
-  const filteredReports = reports.filter((report) =>
+  const filteredReports = (reports || []).filter((report) =>
     report.title.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -109,20 +114,21 @@ export function AppSidebar() {
     }
 
     setCreating(true);
-    const { data, error } = await supabase
-      .from('sections')
-      .insert({ name: editingItem.value, sort_index: sections.length })
-      .select()
-      .single();
-
-    if (error) {
+    try {
+      const response = await apiService.createSection(editingItem.value, sections.length);
+      
+      if (response.error) {
+        toast.error('Failed to create section');
+        console.error(response.error);
+      } else {
+        toast.success('Section created');
+        setEditingItem(null);
+        await fetchSectionsAndReports();
+        setExpandedSections(new Set([...expandedSections, response.data.id]));
+      }
+    } catch (error) {
       toast.error('Failed to create section');
       console.error(error);
-    } else {
-      toast.success('Section created');
-      setEditingItem(null);
-      await fetchSectionsAndReports();
-      setExpandedSections(new Set([...expandedSections, data.id]));
     }
     setCreating(false);
   };
@@ -189,30 +195,32 @@ export function AppSidebar() {
       ]
     };
 
-    const { data: reportData, error: reportError } = await supabase
-      .from('reports')
-      .insert({
+    try {
+      const response = await apiService.createReport({
         title: editingItem.value,
         section_id: sectionId,
         slug: editingItem.value.toLowerCase().replace(/\s+/g, '-'),
-        sort_index: reports?.filter((r: any) => r.section_id === sectionId).length || 0,
+        sort_index: (reports || []).filter((r: any) => r.section_id === sectionId).length || 0,
         report_schema: reportSchema,
-      })
-      .select()
-      .single();
+      });
 
-    if (reportError) {
-      toast.error('Failed to create report');
-      console.error(reportError);
+      if (response.error) {
+        toast.error('Failed to create report');
+        console.error(response.error);
+        setCreating(false);
+        return;
+      }
+
+      toast.success('Report created');
+      setEditingItem(null);
       setCreating(false);
-      return;
+      await fetchSectionsAndReports();
+      navigate(`/app/report/${response.data.id}`);
+    } catch (error) {
+      toast.error('Failed to create report');
+      console.error(error);
+      setCreating(false);
     }
-
-    toast.success('Report created');
-    setEditingItem(null);
-    setCreating(false);
-    await fetchSectionsAndReports();
-    navigate(`/app/report/${reportData.id}`);
   };
 
   const handleUpdateItem = async () => {
@@ -222,17 +230,24 @@ export function AppSidebar() {
       return;
     }
 
-    const { error } = await supabase
-      .from(editingItem.type === 'section' ? 'sections' : 'reports')
-      .update(editingItem.type === 'section' ? { name: editingItem.value } : { title: editingItem.value })
-      .eq('id', editingItem.id);
+    try {
+      let response;
+      if (editingItem.type === 'section') {
+        response = await apiService.updateSection(editingItem.id, editingItem.value);
+      } else {
+        response = await apiService.updateReport(editingItem.id, { title: editingItem.value });
+      }
 
-    if (error) {
+      if (response.error) {
+        toast.error(`Failed to update ${editingItem.type}`);
+        console.error(response.error);
+      } else {
+        toast.success(`${editingItem.type === 'section' ? 'Section' : 'Report'} renamed`);
+        fetchSectionsAndReports();
+      }
+    } catch (error) {
       toast.error(`Failed to update ${editingItem.type}`);
       console.error(error);
-    } else {
-      toast.success(`${editingItem.type === 'section' ? 'Section' : 'Report'} renamed`);
-      fetchSectionsAndReports();
     }
     setEditingItem(null);
   };
@@ -270,20 +285,27 @@ export function AppSidebar() {
     <Sidebar className={state === 'collapsed' ? 'w-14' : 'w-64'} collapsible="icon">
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2 px-2 py-4">
-            <BarChart3 className="h-5 w-5 text-primary" />
-            {state !== 'collapsed' && <span className="font-semibold">Reports Flex</span>}
+          <SidebarGroupLabel className="flex items-center gap-3 px-3 py-6 border-b border-border/50">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
+              <BarChart3 className="h-4 w-4 text-primary-foreground" />
+            </div>
+            {state !== 'collapsed' && (
+              <div>
+                <span className="font-bold text-lg">Reports Flex</span>
+                <p className="text-xs text-muted-foreground">Dashboard</p>
+              </div>
+            )}
           </SidebarGroupLabel>
 
           {state !== 'collapsed' && (
-            <div className="px-2 pb-2">
+            <div className="px-3 pb-4">
               <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search reports..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8"
+                  className="pl-10 h-9 bg-background/50 border-border/50 focus:border-primary/50 transition-colors"
                 />
               </div>
             </div>

@@ -14,47 +14,55 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function AppHeader() {
-  const { signOut, user, userRole } = useAuth();
+  const { signOut, user } = useAuth();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
   return (
-    <header className="h-14 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
-      <div className="flex items-center justify-between h-full px-4">
-        <SidebarTrigger />
+    <header className="h-16 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 shadow-sm">
+      <div className="flex items-center justify-between h-full px-6">
+        <div className="flex items-center gap-4">
+          <SidebarTrigger className="hover:bg-accent/50 transition-colors" />
+          <div className="hidden md:block">
+            <h1 className="text-lg font-semibold text-foreground">Reports Dashboard</h1>
+          </div>
+        </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="hover:bg-accent/50 transition-colors"
           >
             {theme === 'dark' ? (
-              <Sun className="h-5 w-5" />
+              <Sun className="h-4 w-4" />
             ) : (
-              <Moon className="h-5 w-5" />
+              <Moon className="h-4 w-4" />
             )}
           </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2">
-                <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold">
+              <Button variant="ghost" className="gap-3 px-3 py-2 hover:bg-accent/50 transition-colors">
+                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground flex items-center justify-center font-semibold text-sm shadow-sm">
                   {user?.email?.charAt(0).toUpperCase()}
+                </div>
+                <div className="hidden sm:block text-left">
+                  <div className="text-sm font-medium">{user?.email}</div>
+                  <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
                 </div>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>
-                <div className="flex flex-col">
-                  <span className="text-sm">{user?.email}</span>
-                  {userRole && (
-                    <span className="text-xs text-muted-foreground capitalize">{userRole}</span>
-                  )}
+                <div className="flex flex-col space-y-1">
+                  <span className="text-sm font-medium">{user?.email}</span>
+                  <span className="text-xs text-muted-foreground capitalize">{user?.role}</span>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {userRole === 'admin' && (
+              {user?.role === 'admin' && (
                 <>
                   <DropdownMenuItem onClick={() => navigate('/app/settings')} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />

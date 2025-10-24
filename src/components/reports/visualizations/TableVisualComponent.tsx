@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/reports/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { supabase } from '@/integrations/supabase/client';
-import { Pencil } from 'lucide-react';
+import { apiService } from '@/services/api';
+import { Pencil, AlertCircle } from 'lucide-react';
 import type { TableVisual } from '@/types/report-schema';
 
 interface TableVisualComponentProps {
@@ -17,6 +17,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   console.log('TableVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
@@ -28,24 +29,27 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
       console.log('Full visual object:', visual);
       
       setLoading(true);
+      setError(null);
       try {
-        const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
-          body: { sql: visual.query.sql, page: 1, pageSize: visual.options?.page_size || 25 },
+        const response = await apiService.executeTableQuery({
+          sql: visual.query.sql,
+          page: 1,
+          pageSize: visual.options?.page_size || 25,
         });
 
-        console.log('Query result:', { result, error });
+        console.log('Query result:', response);
 
-        if (error) throw error;
-        
-        // Check if result contains an error
-        if (result?.error) {
-          console.error('Table query error:', result.error);
-          throw new Error(result.error.message || 'Query failed');
+        if (response.error) {
+          console.error('Table query error:', response.error);
+          setError(response.error.message || 'Query failed');
+          setData([]);
+          setColumns([]);
+          return;
         }
 
-        if (result?.rows) {
-          console.log('Setting table data, row count:', result.rows.length);
-          setData(result.rows);
+        if (response.data?.rows) {
+          console.log('Setting table data, row count:', response.data.rows.length);
+          setData(response.data.rows);
           
           // Build columns from schema or result
           let cols;
@@ -59,8 +63,8 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
                 return value !== null && value !== undefined ? String(value) : '';
               },
             }));
-          } else if (result.columns && result.columns.length > 0) {
-            cols = result.columns.map((col: string) => ({
+          } else if (response.data.columns && response.data.columns.length > 0) {
+            cols = response.data.columns.map((col: string) => ({
               id: col,
               accessorKey: col,
               header: col,
@@ -69,9 +73,9 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
                 return value !== null && value !== undefined ? String(value) : '';
               },
             }));
-          } else if (result.rows.length > 0) {
+          } else if (response.data.rows.length > 0) {
             // Fallback: derive columns from first row
-            cols = Object.keys(result.rows[0]).map((col: string) => ({
+            cols = Object.keys(response.data.rows[0]).map((col: string) => ({
               id: col,
               accessorKey: col,
               header: col,
@@ -87,8 +91,11 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
           console.log('Setting columns, count:', cols.length);
           setColumns(cols);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching table data:', err);
+        setError(err.message || 'Query failed');
+        setData([]);
+        setColumns([]);
       } finally {
         setLoading(false);
         console.log('=== TableVisualComponent fetchData complete ===');
@@ -111,6 +118,14 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
         <CardContent>
           {loading ? (
             <Skeleton className="h-96" />
+          ) : error ? (
+            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">Query Error</span>
+              </div>
+              <p className="text-red-700 dark:text-red-300 text-xs mt-1">{error}</p>
+            </div>
           ) : (
             <DataTable data={data} columns={columns} />
           )}

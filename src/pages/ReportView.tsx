@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -9,21 +9,50 @@ import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { AlertCircle, Edit, Save, X, Code, Download, Upload } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { AlertCircle, Edit, Save, X, Code, Download, Upload, ChevronDown, ChevronRight, Settings, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { ReportSchema } from '@/types/report-schema';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
-  const { userRole } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [schema, setSchema] = useState<ReportSchema | null>(null);
+  const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Add logging for state changes
+  useEffect(() => {
+    console.log('📊 State changed - schema:', schema ? `${schema.title} (${schema.rows?.length} rows)` : 'null');
+    if (!schema) {
+      console.log('🚨 SCHEMA SET TO NULL! Stack trace:', new Error().stack);
+    }
+  }, [schema]);
+
+  useEffect(() => {
+    console.log('📊 State changed - error:', error);
+    if (error) {
+      console.log('🚨 ERROR SET! Stack trace:', new Error().stack);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    console.log('📊 State changed - loading:', loading);
+  }, [loading]);
   const [isEditing, setIsEditing] = useState(false);
   const [editMode, setEditMode] = useState<'full' | 'inline'>('inline');
   const [editorValue, setEditorValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [downloadingSchema, setDownloadingSchema] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customSchemaUrl, setCustomSchemaUrl] = useState('');
+  const [defaultSchemaUrl, setDefaultSchemaUrl] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editingElement, setEditingElement] = useState<{
     rowIndex: number;
     visualIndex: number;
@@ -32,33 +61,63 @@ const ReportView = () => {
     params?: Record<string, any>;
   } | null>(null);
 
-  const canEdit = userRole === 'admin';
+  const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
+
+  useEffect(() => {
+    const fetchDefaultUrl = async () => {
+      try {
+        const response = await apiService.getSchemaConfig();
+        if (response.data?.defaultUrl) {
+          setDefaultSchemaUrl(response.data.defaultUrl);
+        }
+      } catch (error) {
+        console.error('Failed to fetch default schema URL:', error);
+      }
+    };
+    
+    fetchDefaultUrl();
+  }, []);
 
   useEffect(() => {
     const fetchReport = async () => {
+      console.log('🔄 Main fetchReport called...', { reportId });
       if (!reportId) return;
 
       setLoading(true);
       setError(null);
 
       try {
-        const { data: report, error: reportError } = await supabase
-          .from('reports')
-          .select('*')
-          .eq('id', reportId)
-          .single();
-
-        if (reportError) throw reportError;
+        console.log('📡 Fetching report from API...', { reportId });
+        const response = await apiService.getReportById(reportId);
+        console.log('📡 API response:', response);
         
-        if (!report.report_schema) {
+        if (response.error) {
+          console.error('❌ API error:', response.error);
+          throw new Error(response.error.message || 'Failed to fetch report');
+        }
+        
+        const report = response.data.report;
+        console.log('📡 Report data:', report);
+        console.log('📡 Report schema:', report.report_schema);
+        console.log('📡 Schema type:', typeof report.report_schema);
+        console.log('📡 Schema keys:', report.report_schema ? Object.keys(report.report_schema) : 'null');
+        console.log('📡 Schema length:', report.report_schema ? Object.keys(report.report_schema).length : 'null');
+        
+        setReport(report);
+        
+        if (!report.report_schema || 
+            (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
+          console.log('❌ Schema is missing or empty, throwing error');
           throw new Error('Report schema is missing');
         }
 
         const reportSchema = report.report_schema as unknown as ReportSchema;
+        console.log('✅ Setting schema:', reportSchema);
         setSchema(reportSchema);
         setEditorValue(JSON.stringify(reportSchema, null, 2));
+        console.log('✅ Report loaded successfully');
       } catch (err: any) {
-        console.error('Error fetching report:', err);
+        console.error('❌ Error fetching report:', err);
         setError(err.message || 'Failed to load report');
       } finally {
         setLoading(false);
@@ -75,12 +134,11 @@ const ReportView = () => {
     try {
       const parsedSchema = JSON.parse(editorValue);
       
-      const { error: updateError } = await supabase
-        .from('reports')
-        .update({ report_schema: parsedSchema as any })
-        .eq('id', reportId);
+      const response = await apiService.updateReport(reportId, { report_schema: parsedSchema });
 
-      if (updateError) throw updateError;
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update report');
+      }
 
       setSchema(parsedSchema);
       setIsEditing(false);
@@ -134,15 +192,13 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
-      const { data, error: updateError } = await supabase
-        .from('reports')
-        .update({ report_schema: updatedSchema as any })
-        .eq('id', reportId)
-        .select();
+      const response = await apiService.updateReport(reportId!, { report_schema: updatedSchema });
 
-      console.log('Database update response:', { data, error: updateError });
+      console.log('Database update response:', response);
 
-      if (updateError) throw updateError;
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update report');
+      }
 
       console.log('Setting local state with updated schema');
       
@@ -169,6 +225,37 @@ const ReportView = () => {
         description: err.message || 'Failed to save element',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleDeleteReport = async () => {
+    if (!reportId) return;
+    
+    setDeleting(true);
+    try {
+      const response = await apiService.deleteReport(reportId);
+      
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to delete report');
+      }
+      
+      toast({
+        title: 'Success',
+        description: 'Report deleted successfully',
+      });
+      
+      // Navigate back to the reports list
+      window.location.href = '/app';
+    } catch (error: any) {
+      console.error('Error deleting report:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete report',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
     }
   };
 
@@ -219,31 +306,316 @@ const ReportView = () => {
     input.click();
   };
 
+  const handleDownloadExampleSchema = async (useCustomUrl = false) => {
+    console.log('🚀 Starting schema download...', { useCustomUrl, reportId });
+    setDownloadingSchema(true);
+    try {
+      let schemaUrl = '';
+      
+      if (useCustomUrl && customSchemaUrl.trim()) {
+        schemaUrl = customSchemaUrl.trim();
+        console.log('📝 Using custom URL:', schemaUrl);
+      } else {
+        console.log('📥 Fetching example schema from API...');
+        // Use the default endpoint
+        const response = await apiService.getExampleSchema();
+        console.log('📥 API response:', response);
+        
+        if (response.error) {
+          console.error('❌ API error:', response.error);
+          throw new Error(response.error.message || 'Failed to fetch example schema');
+        }
+        
+        const exampleSchema = response.data.schema;
+        console.log('📥 Downloaded schema:', exampleSchema);
+        console.log('📥 Schema title:', exampleSchema?.title);
+        console.log('📥 Schema rows count:', exampleSchema?.rows?.length);
+        
+        console.log('💾 Updating report in database...', { reportId, title: report?.title });
+        // Update the report with the example schema
+        const updateResponse = await apiService.updateReport(reportId!, {
+          title: report?.title || 'New Report', // Keep the original title
+          report_schema: exampleSchema
+        });
+        console.log('💾 Update response:', updateResponse);
+
+        if (updateResponse.error) {
+          console.error('❌ Update error:', updateResponse.error);
+          throw new Error(updateResponse.error.message || 'Failed to update report');
+        }
+
+        console.log('✅ Report updated successfully');
+        console.log('🔄 Starting report refresh...');
+        
+        // Clear current state to prevent immediate SQL execution
+        setSchema(null);
+        setEditorValue('');
+        setError(null);
+        
+        // Force a refresh of the report data
+        const fetchReport = async () => {
+          console.log('🔄 Fetching fresh report data...', { reportId });
+          if (!reportId) return;
+          setLoading(true);
+          setError(null);
+          try {
+            const response = await apiService.getReportById(reportId);
+            console.log('🔄 Fresh report response:', response);
+            
+            if (response.error) {
+              console.error('❌ Fresh report error:', response.error);
+              throw new Error(response.error.message || 'Failed to fetch report');
+            }
+            const reportData = response.data.report;
+            console.log('🔄 Fresh report data:', reportData);
+            console.log('🔄 Fresh report schema:', reportData.report_schema);
+            console.log('🔄 Fresh schema title:', reportData.report_schema?.title);
+            console.log('🔄 Fresh schema rows:', reportData.report_schema?.rows?.length);
+            
+            if (!reportData.report_schema || 
+                (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
+              console.error('❌ Fresh report has empty schema!');
+              throw new Error('Report schema is missing');
+            }
+            setReport(reportData);
+            setSchema(reportData.report_schema);
+            setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+            console.log('✅ Fresh report data loaded successfully');
+          } catch (err: any) {
+            console.error('❌ Error fetching fresh report:', err);
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        // Add a small delay to ensure database transaction is committed
+        console.log('⏳ Waiting 500ms for database commit...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await fetchReport();
+        
+        console.log('🎉 Schema download completed successfully');
+        toast({
+          title: 'Success',
+          description: 'Example schema downloaded and saved successfully',
+        });
+        return;
+      }
+
+      // Handle custom URL
+      const response = await fetch(schemaUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch schema from URL: ${response.statusText}`);
+      }
+
+      const exampleSchema = await response.json();
+      
+      // Update the report with the custom schema
+      const updateResponse = await apiService.updateReport(reportId!, {
+        title: report?.title || 'New Report', // Keep the original title
+        report_schema: exampleSchema
+      });
+
+      if (updateResponse.error) {
+        throw new Error(updateResponse.error.message || 'Failed to update report');
+      }
+
+      // Clear current state to prevent immediate SQL execution
+      setSchema(null);
+      setEditorValue('');
+      setError(null);
+      
+      // Force a refresh of the report data
+      const fetchReport = async () => {
+        if (!reportId) return;
+        setLoading(true);
+        setError(null);
+        try {
+          const response = await apiService.getReportById(reportId);
+          if (response.error) {
+            throw new Error(response.error.message || 'Failed to fetch report');
+          }
+          const reportData = response.data;
+          if (!reportData.report_schema || 
+              (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
+            throw new Error('Report schema is missing');
+          }
+          setReport(reportData);
+          setSchema(reportData.report_schema);
+          setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+        } catch (err: any) {
+          console.error('Error fetching report:', err);
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      // Add a small delay to ensure database transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await fetchReport();
+      
+      toast({
+        title: 'Success',
+        description: 'Custom schema downloaded and saved successfully',
+      });
+    } catch (err: any) {
+      console.error('Error downloading schema:', err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to download schema',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingSchema(false);
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout>
-        <div className="container max-w-7xl py-8">
-          <Skeleton className="h-12 w-1/3 mb-4" />
-          <Skeleton className="h-6 w-1/2 mb-8" />
-          <div className="grid gap-4 md:grid-cols-3 mb-8">
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
-            <Skeleton className="h-32" />
+        <div className="space-y-6">
+          {/* Modern Loading State */}
+          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+            <div className="animate-pulse">
+              <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded-lg w-1/3 mb-4"></div>
+              <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+            </div>
           </div>
-          <Skeleton className="h-96" />
+          
+          <div className="grid gap-6 md:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+                <div className="animate-pulse">
+                  <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-4"></div>
+                  <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+            <div className="animate-pulse">
+              <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/4 mb-4"></div>
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-4 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </AppLayout>
     );
   }
 
-  if (error || !schema) {
+  // Only show error state for critical errors, not SQL execution errors
+  const isCriticalError = error && error !== 'Report schema is missing';
+  const shouldShowError = isCriticalError || (!schema && !loading);
+  
+  if (shouldShowError) {
+    const isSchemaMissing = error === 'Report schema is missing';
+    console.log('🚨 Error state triggered:', { error, schema: schema ? 'exists' : 'null', isSchemaMissing, isCriticalError });
+    
+    
     return (
       <AppLayout>
-        <div className="container max-w-7xl py-8">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error || 'Report not found'}</AlertDescription>
-          </Alert>
+        <div className="space-y-6">
+          {/* Modern Error State */}
+          <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/20 dark:to-orange-950/20 border border-red-200 dark:border-red-800/50 rounded-xl p-6 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-red-900 dark:text-red-100 mb-2">
+                  {isSchemaMissing ? 'Schema Required' : 'Report Error'}
+                </h3>
+                <p className="text-red-700 dark:text-red-300 mb-4">
+                  {error || 'Report not found'}
+                </p>
+                {isSchemaMissing && canEdit && (
+                  <div className="space-y-3">
+                    <Button
+                      onClick={() => handleDownloadExampleSchema(false)}
+                      disabled={downloadingSchema}
+                      className="bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
+                    </Button>
+                    
+                    <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20">
+                          <Settings className="h-4 w-4 mr-2" />
+                          Advanced Options
+                          {showAdvanced ? (
+                            <ChevronDown className="h-4 w-4 ml-2" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 ml-2" />
+                          )}
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-3 pt-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="custom-url" className="text-sm font-medium text-red-800 dark:text-red-200">
+                            Custom Schema URL
+                          </Label>
+                          <Input
+                            id="custom-url"
+                            placeholder={defaultSchemaUrl || "https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json"}
+                            value={customSchemaUrl}
+                            onChange={(e) => setCustomSchemaUrl(e.target.value)}
+                            className="bg-white dark:bg-slate-800 border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
+                          />
+                          <p className="text-xs text-red-600 dark:text-red-400">
+                            Enter a direct URL to a JSON schema file (GitHub raw URLs work best)
+                          </p>
+                        </div>
+                        <Button
+                          onClick={() => handleDownloadExampleSchema(true)}
+                          disabled={downloadingSchema || !customSchemaUrl.trim()}
+                          variant="outline"
+                          size="sm"
+                          className="border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/20"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          {downloadingSchema ? 'Downloading...' : 'Download from Custom URL'}
+                        </Button>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Help Section */}
+          {isSchemaMissing && (
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                    <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                    Need Help Getting Started?
+                  </h4>
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    This report needs a schema to display data. Click the button above to download a pre-configured example schema that you can customize for your needs. Use the Advanced Options to specify a custom schema URL from GitHub or other sources.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </AppLayout>
     );
@@ -251,42 +623,70 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      <div className="h-[calc(100vh-4rem)] overflow-auto">
-          <div className="container max-w-7xl py-8">
-            <div className="flex items-start justify-between mb-8">
-              <div className="space-y-2">
-                <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
-                {schema.subtitle && (
-                  <p className="text-muted-foreground">{schema.subtitle}</p>
+      <div className="space-y-6">
+        {/* Report Header */}
+        <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground mb-2">{schema.title}</h1>
+              {schema.subtitle && (
+                <p className="text-muted-foreground">{schema.subtitle}</p>
+              )}
+            </div>
+            {canEdit && (
+              <div className="flex items-center gap-3">
+                {/* Edit Mode Actions - Only visible when editing */}
+                {isEditing && (
+                  <div className="flex items-center gap-2">
+                    {editMode === 'inline' && (
+                      <Button 
+                        onClick={() => setEditMode('full')} 
+                        variant="outline" 
+                        size="sm"
+                      >
+                        <Code className="h-4 w-4 mr-2" />
+                        Full Schema
+                      </Button>
+                    )}
+                    
+                    {/* Destructive Actions - Separated visually */}
+                    <div className="flex items-center gap-2 border-l border-border/50 pl-2">
+                      <Button 
+                        onClick={() => setShowDeleteDialog(true)} 
+                        variant="destructive" 
+                        size="sm"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Report
+                      </Button>
+                    </div>
+                  </div>
                 )}
-              </div>
-              {canEdit && (
-                <div className="flex gap-2">
-                  {isEditing && editMode === 'inline' && (
-                    <Button onClick={() => { setEditMode('full'); }} variant="outline" size="sm">
-                      <Code className="h-4 w-4 mr-2" />
-                      Full Schema
-                    </Button>
-                  )}
+
+                {/* Edit Mode Toggle - Always rightmost position */}
+                <div className="flex items-center border-l border-border/50 pl-3">
                   <Button 
                     onClick={() => { 
                       setIsEditing(!isEditing); 
                       if (!isEditing) setEditMode('inline');
                     }} 
                     variant={isEditing ? "default" : "outline"}
+                    size="sm"
                   >
                     <Edit className="h-4 w-4 mr-2" />
                     {isEditing ? 'Exit Edit Mode' : 'Edit Mode'}
                   </Button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
+          </div>
+        </div>
 
-      <div className="space-y-8">
+        {/* Report Content */}
+        <div className="space-y-6">
         {schema.rows.map((row, rowIdx) => {
           const inlineEditActive = isEditing && editMode === 'inline';
-          const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query.sql))}`;
-          console.log(`Rendering row ${rowIdx}, key: ${rowKey.substring(0, 50)}...`);
+          const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
           
           return (
             <RowRenderer
@@ -298,10 +698,10 @@ const ReportView = () => {
             />
           );
         })}
-      </div>
-          </div>
         </div>
+      </div>
 
+      {/* Full Schema Editor Dialog */}
       <Dialog open={isEditing && editMode === 'full'} onOpenChange={(open) => !open && setIsEditing(false)}>
         <DialogContent className="max-w-6xl h-[85vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4">
@@ -345,6 +745,7 @@ const ReportView = () => {
         </DialogContent>
       </Dialog>
       
+      {/* Element Editor Dialog */}
       {editingElement && (
         <ElementEditor
           open={!!editingElement}
@@ -353,8 +754,44 @@ const ReportView = () => {
           onSave={handleSaveElement}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Report
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this report? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Report: <span className="font-medium">{report?.title || schema?.title}</span>
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteReport}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Report'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
-};
+}
 
 export default ReportView;

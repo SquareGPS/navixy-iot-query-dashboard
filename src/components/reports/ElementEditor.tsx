@@ -8,8 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { supabase } from '@/integrations/supabase/client';
+import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
+import { formatSql, minifySql } from '@/lib/sqlFormatter';
 
 interface ElementEditorProps {
   open: boolean;
@@ -23,7 +24,7 @@ interface ElementEditorProps {
 }
 
 export function ElementEditor({ open, onClose, element, onSave }: ElementEditorProps) {
-  const [sql, setSql] = useState(element.sql);
+  const [sql, setSql] = useState(() => formatSql(element.sql));
   const [params, setParams] = useState(JSON.stringify(element.params || {}, null, 2));
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -34,7 +35,9 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
     setSaving(true);
     try {
       const parsedParams = params.trim() ? JSON.parse(params) : undefined;
-      onSave(sql, parsedParams);
+      // Minify SQL before saving to keep database clean
+      const minifiedSql = minifySql(sql);
+      onSave(minifiedSql, parsedParams);
       onClose();
     } catch (err) {
       console.error('Invalid JSON in parameters:', err);
@@ -54,22 +57,22 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
     setTestResults(null);
 
     try {
-      const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
-        body: { sql, page: 1, pageSize: 5 },
+      const response = await apiService.executeTableQuery({
+        sql,
+        page: 1,
+        pageSize: 5,
       });
 
-      if (error) throw error;
-
-      if (result?.error) {
-        setTestError(result.error.message || 'Query failed');
+      if (response.error) {
+        setTestError(response.error.message || 'Query failed');
         return;
       }
 
-      if (result?.rows) {
+      if (response.data?.rows) {
         // Build columns from result
         let cols;
-        if (result.columns && result.columns.length > 0) {
-          cols = result.columns.map((col: string) => ({
+        if (response.data.columns && response.data.columns.length > 0) {
+          cols = response.data.columns.map((col: string) => ({
             id: col,
             accessorKey: col,
             header: col,
@@ -78,8 +81,8 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
               return value !== null && value !== undefined ? String(value) : '';
             },
           }));
-        } else if (result.rows.length > 0) {
-          cols = Object.keys(result.rows[0]).map((col: string) => ({
+        } else if (response.data.rows.length > 0) {
+          cols = Object.keys(response.data.rows[0]).map((col: string) => ({
             id: col,
             accessorKey: col,
             header: col,
@@ -92,7 +95,7 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           cols = [];
         }
 
-        setTestResults({ columns: cols, rows: result.rows });
+        setTestResults({ columns: cols, rows: response.data.rows });
         toast({
           title: 'Success',
           description: 'Query executed successfully',

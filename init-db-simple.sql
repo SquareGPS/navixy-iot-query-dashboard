@@ -1,0 +1,510 @@
+-- ==========================================
+-- SQL Report Dashboard - Simple Database Initialization
+-- ==========================================
+
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Create auth schema and function first
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.uid()
+RETURNS UUID
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT '00000000-0000-0000-0000-000000000001'::UUID;
+$$;
+
+-- Create authenticated role
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+
+-- ==========================================
+-- Authentication Tables
+-- ==========================================
+
+-- Users table
+CREATE TABLE public.users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  email_confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  last_sign_in_at TIMESTAMPTZ,
+  raw_user_meta_data JSONB DEFAULT '{}',
+  raw_app_meta_data JSONB DEFAULT '{}',
+  is_super_admin BOOLEAN DEFAULT FALSE,
+  confirmed_at TIMESTAMPTZ DEFAULT NOW(),
+  recovery_sent_at TIMESTAMPTZ,
+  new_email TEXT,
+  invited_at TIMESTAMPTZ,
+  action_link TEXT,
+  email_change_sent_at TIMESTAMPTZ,
+  new_phone TEXT,
+  phone_change_sent_at TIMESTAMPTZ,
+  phone_confirmed_at TIMESTAMPTZ,
+  phone_change TEXT,
+  email_change TEXT,
+  email_change_confirm_status SMALLINT DEFAULT 0,
+  banned_until TIMESTAMPTZ,
+  reauthentication_token TEXT,
+  reauthentication_sent_at TIMESTAMPTZ,
+  is_sso_user BOOLEAN DEFAULT FALSE NOT NULL,
+  deleted_at TIMESTAMPTZ,
+  is_anonymous BOOLEAN DEFAULT FALSE NOT NULL,
+  created_at_legacy TEXT,
+  updated_at_legacy TEXT,
+  email_confirmed_at_legacy TEXT,
+  phone_confirmed_at_legacy TEXT,
+  confirmed_at_legacy TEXT,
+  email_change_sent_at_legacy TEXT,
+  recovery_sent_at_legacy TEXT,
+  reauthentication_sent_at_legacy TEXT,
+  last_sign_in_at_legacy TEXT,
+  invited_at_legacy TEXT,
+  action_link_legacy TEXT,
+  email_change_legacy TEXT,
+  phone_change_legacy TEXT,
+  phone_change_sent_at_legacy TEXT,
+  banned_until_legacy TEXT,
+  deleted_at_legacy TEXT,
+  is_sso_user_legacy TEXT,
+  is_anonymous_legacy TEXT,
+  aud TEXT,
+  role TEXT,
+  aal TEXT,
+  factor_id TEXT,
+  not_after TEXT
+);
+
+-- User roles table
+CREATE TABLE public.user_roles (
+  user_id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('admin','editor','viewer')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ==========================================
+-- Application Tables
+-- ==========================================
+
+-- Sections (report groups)
+CREATE TABLE public.sections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  sort_index INT NOT NULL DEFAULT 0,
+  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Reports
+CREATE TABLE public.reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_id UUID REFERENCES public.sections(id) ON DELETE SET NULL,
+  slug TEXT UNIQUE,
+  title TEXT NOT NULL,
+  sort_index INT NOT NULL DEFAULT 0,
+  report_schema JSONB NOT NULL,
+  created_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- App-wide settings
+CREATE TABLE public.app_settings (
+  id INT PRIMARY KEY DEFAULT 1,
+  organization_name TEXT DEFAULT 'Reports MVP',
+  timezone TEXT DEFAULT 'UTC',
+  external_db_url TEXT,
+  external_db_host TEXT,
+  external_db_port INTEGER DEFAULT 5432,
+  external_db_name TEXT,
+  external_db_user TEXT,
+  external_db_password TEXT,
+  external_db_ssl BOOLEAN DEFAULT FALSE,
+  CHECK (id = 1)
+);
+
+-- ==========================================
+-- Demo Data Tables
+-- ==========================================
+
+-- Vehicles
+CREATE TABLE public.vehicles (
+  id SERIAL PRIMARY KEY,
+  plate TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('moving','parked','offline')),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Trips
+CREATE TABLE public.trips (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
+  start_time TIMESTAMPTZ NOT NULL,
+  end_time TIMESTAMPTZ,
+  distance_km NUMERIC(10,2),
+  avg_speed_kmh NUMERIC(10,2)
+);
+
+-- Parking events
+CREATE TABLE public.parking_events (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL,
+  ended_at TIMESTAMPTZ,
+  duration_min INT
+);
+
+-- Speeding events
+CREATE TABLE public.speeding_events (
+  id SERIAL PRIMARY KEY,
+  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
+  event_time TIMESTAMPTZ NOT NULL,
+  speed_kmh NUMERIC(10,2),
+  limit_kmh INT
+);
+
+-- ==========================================
+-- Functions
+-- ==========================================
+
+-- Function to execute SQL safely
+CREATE OR REPLACE FUNCTION public.execute_sql(query TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSONB;
+BEGIN
+  EXECUTE format('SELECT jsonb_agg(row_to_json(t.*)) FROM (%s) t', query) INTO result;
+  RETURN COALESCE(result, '[]'::jsonb);
+END;
+$$;
+
+-- Function to validate report schema structure
+CREATE OR REPLACE FUNCTION public.validate_report_schema(schema JSONB)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+  -- Basic validation: must have required top-level fields
+  IF schema IS NULL THEN
+    RETURN FALSE;
+  END IF;
+  
+  -- Check required fields exist
+  IF NOT (
+    schema ? 'title' AND
+    schema ? 'meta' AND
+    schema ? 'rows' AND
+    jsonb_typeof(schema->'rows') = 'array'
+  ) THEN
+    RETURN FALSE;
+  END IF;
+  
+  -- Check meta has required fields
+  IF NOT (
+    schema->'meta' ? 'schema_version' AND
+    schema->'meta' ? 'last_updated' AND
+    schema->'meta' ? 'updated_by'
+  ) THEN
+    RETURN FALSE;
+  END IF;
+  
+  -- Check rows array is not empty
+  IF jsonb_array_length(schema->'rows') = 0 THEN
+    RETURN FALSE;
+  END IF;
+  
+  RETURN TRUE;
+END;
+$$;
+
+-- Helper function to extract report data
+CREATE OR REPLACE FUNCTION public.get_report_queries(report_uuid UUID)
+RETURNS TABLE(
+  query_type TEXT,
+  visual_label TEXT,
+  sql_query TEXT,
+  row_index INTEGER
+)
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    (row_value->>'type')::TEXT as query_type,
+    (
+      CASE 
+        WHEN row_value->>'type' = 'tiles' THEN 
+          (row_value->'visuals'->0->>'label')::TEXT
+        WHEN row_value->>'type' = 'table' THEN 
+          (row_value->'visuals'->0->>'label')::TEXT
+        ELSE NULL
+      END
+    ) as visual_label,
+    (
+      CASE 
+        WHEN row_value->>'type' = 'tiles' THEN 
+          (row_value->'visuals'->0->'query'->>'sql')::TEXT
+        WHEN row_value->>'type' = 'table' THEN 
+          (row_value->'visuals'->0->'query'->>'sql')::TEXT
+        ELSE NULL
+      END
+    ) as sql_query,
+    row_idx as row_index
+  FROM 
+    public.reports r,
+    jsonb_array_elements(r.report_schema->'rows') WITH ORDINALITY AS rows(row_value, row_idx)
+  WHERE 
+    r.id = report_uuid
+    AND row_value->>'type' IN ('tiles', 'table');
+END;
+$$;
+
+-- Security definer function to check roles
+CREATE OR REPLACE FUNCTION public.has_role(_user_id UUID, _role TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles
+    WHERE user_id = _user_id
+      AND role = _role
+  )
+$$;
+
+-- Security definer function to check if user is admin or editor
+CREATE OR REPLACE FUNCTION public.is_admin_or_editor(_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles
+    WHERE user_id = _user_id
+      AND role IN ('admin', 'editor')
+  )
+$$;
+
+-- ==========================================
+-- Row Level Security (RLS)
+-- ==========================================
+
+-- Enable RLS on all tables
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.parking_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speeding_events ENABLE ROW LEVEL SECURITY;
+
+-- Users policies
+CREATE POLICY "Users can view their own profile"
+  ON public.users FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile"
+  ON public.users FOR UPDATE
+  USING (auth.uid() = id);
+
+-- User roles policies
+CREATE POLICY "Authenticated users can view roles"
+  ON public.user_roles FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and editors can manage roles"
+  ON public.user_roles FOR ALL
+  TO authenticated
+  USING (public.is_admin_or_editor(auth.uid()));
+
+-- Sections policies
+CREATE POLICY "Users can view sections"
+  ON public.sections FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and editors can manage sections"
+  ON public.sections FOR ALL
+  TO authenticated
+  USING (public.is_admin_or_editor(auth.uid()));
+
+-- Reports policies
+CREATE POLICY "Users can view reports"
+  ON public.reports FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Admins and editors can manage reports"
+  ON public.reports FOR ALL
+  TO authenticated
+  USING (public.is_admin_or_editor(auth.uid()));
+
+-- App settings policies
+CREATE POLICY "Only admins can view settings"
+  ON public.app_settings FOR SELECT
+  USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE POLICY "Admins can manage settings"
+  ON public.app_settings FOR ALL
+  TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'));
+
+-- Demo data policies
+CREATE POLICY "Users can view vehicles"
+  ON public.vehicles FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Users can view trips"
+  ON public.trips FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Users can view parking"
+  ON public.parking_events FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Users can view speeding"
+  ON public.speeding_events FOR SELECT
+  TO authenticated
+  USING (true);
+
+-- ==========================================
+-- Constraints and Indexes
+-- ==========================================
+
+-- Add constraint to validate schema
+ALTER TABLE public.reports
+ADD CONSTRAINT reports_valid_schema_check 
+CHECK (validate_report_schema(report_schema));
+
+-- Add indexes for performance
+CREATE INDEX idx_reports_schema_meta ON public.reports USING gin ((report_schema->'meta'));
+CREATE INDEX idx_reports_schema_slug ON public.reports ((report_schema->'meta'->>'slug'));
+CREATE INDEX idx_users_email ON public.users (email);
+CREATE INDEX idx_user_roles_role ON public.user_roles (role);
+
+-- ==========================================
+-- Sample Data
+-- ==========================================
+
+-- Insert default settings
+INSERT INTO public.app_settings (id, organization_name, timezone)
+VALUES (1, 'Reports MVP', 'UTC');
+
+-- Create default admin user (password: admin123)
+INSERT INTO public.users (id, email, password_hash, email_confirmed_at, is_super_admin)
+VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'admin@example.com',
+  '$2a$10$rQZ8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K', -- admin123
+  NOW(),
+  TRUE
+);
+
+-- Assign admin role
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000001', 'admin');
+
+-- Seed sections
+INSERT INTO public.sections (id, name, sort_index, created_by) VALUES
+('00000000-0000-0000-0000-000000000001', 'Movement', 1, '00000000-0000-0000-0000-000000000001'),
+('00000000-0000-0000-0000-000000000002', 'Driving Quality', 2, '00000000-0000-0000-0000-000000000001');
+
+-- Seed vehicles (30 vehicles)
+INSERT INTO public.vehicles (plate, status, last_seen_at) VALUES
+('ABC-1234', 'moving', NOW() - INTERVAL '5 minutes'),
+('XYZ-5678', 'parked', NOW() - INTERVAL '2 hours'),
+('DEF-9012', 'offline', NOW() - INTERVAL '1 day'),
+('GHI-3456', 'moving', NOW() - INTERVAL '10 minutes'),
+('JKL-7890', 'parked', NOW() - INTERVAL '30 minutes'),
+('MNO-2345', 'moving', NOW() - INTERVAL '15 minutes'),
+('PQR-6789', 'offline', NOW() - INTERVAL '3 days'),
+('STU-0123', 'parked', NOW() - INTERVAL '1 hour'),
+('VWX-4567', 'moving', NOW() - INTERVAL '2 minutes'),
+('YZA-8901', 'parked', NOW() - INTERVAL '45 minutes'),
+('BCD-2346', 'moving', NOW() - INTERVAL '8 minutes'),
+('EFG-6780', 'offline', NOW() - INTERVAL '2 days'),
+('HIJ-0124', 'parked', NOW() - INTERVAL '3 hours'),
+('KLM-4568', 'moving', NOW() - INTERVAL '1 minute'),
+('NOP-8902', 'parked', NOW() - INTERVAL '20 minutes'),
+('QRS-2347', 'moving', NOW() - INTERVAL '12 minutes'),
+('TUV-6781', 'offline', NOW() - INTERVAL '5 days'),
+('WXY-0125', 'parked', NOW() - INTERVAL '90 minutes'),
+('ZAB-4569', 'moving', NOW() - INTERVAL '3 minutes'),
+('CDE-8903', 'parked', NOW() - INTERVAL '15 minutes'),
+('FGH-2348', 'moving', NOW() - INTERVAL '7 minutes'),
+('IJK-6782', 'offline', NOW() - INTERVAL '1 day'),
+('LMN-0126', 'parked', NOW() - INTERVAL '2 hours'),
+('OPQ-4560', 'moving', NOW() - INTERVAL '4 minutes'),
+('RST-8904', 'parked', NOW() - INTERVAL '25 minutes'),
+('UVW-2349', 'moving', NOW() - INTERVAL '6 minutes'),
+('XYZ-6783', 'offline', NOW() - INTERVAL '4 days'),
+('ABC-0127', 'parked', NOW() - INTERVAL '50 minutes'),
+('DEF-4561', 'moving', NOW() - INTERVAL '9 minutes'),
+('GHI-8905', 'parked', NOW() - INTERVAL '35 minutes');
+
+-- Seed trips (80 trips)
+INSERT INTO public.trips (vehicle_id, start_time, end_time, distance_km, avg_speed_kmh)
+SELECT 
+  (random() * 29 + 1)::int,
+  NOW() - (random() * INTERVAL '30 days'),
+  NOW() - (random() * INTERVAL '30 days') + (random() * INTERVAL '2 hours'),
+  (random() * 100 + 5)::numeric(10,2),
+  (random() * 60 + 30)::numeric(10,2)
+FROM generate_series(1, 80);
+
+-- Seed parking events (80 events)
+INSERT INTO public.parking_events (vehicle_id, started_at, ended_at, duration_min)
+SELECT 
+  (random() * 29 + 1)::int,
+  NOW() - (random() * INTERVAL '30 days'),
+  NOW() - (random() * INTERVAL '30 days') + (random() * INTERVAL '4 hours'),
+  (random() * 240 + 10)::int
+FROM generate_series(1, 80);
+
+-- Seed speeding events (40 events)
+INSERT INTO public.speeding_events (vehicle_id, event_time, speed_kmh, limit_kmh)
+SELECT 
+  (random() * 29 + 1)::int,
+  NOW() - (random() * INTERVAL '30 days'),
+  (random() * 40 + 80)::numeric(10,2),
+  CASE 
+    WHEN random() < 0.5 THEN 50
+    WHEN random() < 0.8 THEN 80
+    ELSE 100
+  END
+FROM generate_series(1, 40);
+
+-- Grant permissions to authenticated role
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;

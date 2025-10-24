@@ -46,6 +46,12 @@ export function SqlEditor({ value, onChange, onExecute, height = '300px', readOn
           scrollBeyondLastLine: false,
           automaticLayout: true,
           tabSize: 2,
+          wordWrap: 'on',
+          wrappingIndent: 'indent',
+          formatOnPaste: true,
+          formatOnType: true,
+          insertSpaces: true,
+          detectIndentation: false,
         }}
       />
     </div>

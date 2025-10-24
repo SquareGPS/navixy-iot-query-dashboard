@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { apiService } from '@/services/api';
 import { Loader2, Database, CheckCircle2, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -100,42 +100,45 @@ const Settings = () => {
   }, [userRole]);
 
   const fetchSettings = async () => {
-    const { data, error } = await supabase
-      .from('app_settings')
-      .select('external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl')
-      .eq('id', 1)
-      .maybeSingle();
+    try {
+      const response = await apiService.getAppSettings();
+      
+      if (response.error) {
+        console.error('Error fetching settings:', response.error);
+        toast.error('Failed to load settings');
+        return;
+      }
 
-    if (error) {
-      console.error('Error fetching settings:', error);
-      return;
-    }
-
-    if (data) {
-      const hasUrl = !!data.external_db_url;
-      setConnectionMethod(hasUrl ? 'url' : 'host');
-      
-      const loadedData = {
-        external_db_url: data.external_db_url || '',
-        external_db_host: data.external_db_host || '',
-        external_db_port: data.external_db_port || 5432,
-        external_db_name: data.external_db_name || '',
-        external_db_user: data.external_db_user || '',
-        external_db_password: data.external_db_password || '',
-        external_db_ssl: data.external_db_ssl ?? true,
-      };
-      
-      setFormData(loadedData);
-      
-      // Sync the opposite method
-      if (hasUrl && data.external_db_url) {
-        parseUrl(data.external_db_url);
-      } else if (!hasUrl && loadedData.external_db_host) {
-        const url = constructUrl(loadedData);
-        if (url) {
-          setFormData(prev => ({ ...prev, external_db_url: url }));
+      if (response.data) {
+        const data = response.data;
+        const hasUrl = !!data.external_db_url;
+        setConnectionMethod(hasUrl ? 'url' : 'host');
+        
+        const loadedData = {
+          external_db_url: data.external_db_url || '',
+          external_db_host: data.external_db_host || '',
+          external_db_port: data.external_db_port || 5432,
+          external_db_name: data.external_db_name || '',
+          external_db_user: data.external_db_user || '',
+          external_db_password: data.external_db_password || '',
+          external_db_ssl: data.external_db_ssl ?? true,
+        };
+        
+        setFormData(loadedData);
+        
+        // Sync the opposite method
+        if (hasUrl && data.external_db_url) {
+          parseUrl(data.external_db_url);
+        } else if (!hasUrl && loadedData.external_db_host) {
+          const url = constructUrl(loadedData);
+          if (url) {
+            setFormData(prev => ({ ...prev, external_db_url: url }));
+          }
         }
       }
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      toast.error('Failed to load settings');
     }
   };
 
@@ -143,10 +146,8 @@ const Settings = () => {
     setSaving(true);
     setTestResult(null);
 
-    const { error } = await supabase
-      .from('app_settings')
-      .upsert({
-        id: 1,
+    try {
+      const settingsData = {
         external_db_url: connectionMethod === 'url' ? formData.external_db_url : null,
         external_db_host: connectionMethod === 'host' ? formData.external_db_host : null,
         external_db_port: connectionMethod === 'host' ? formData.external_db_port : null,
@@ -154,13 +155,19 @@ const Settings = () => {
         external_db_user: connectionMethod === 'host' ? formData.external_db_user : null,
         external_db_password: connectionMethod === 'host' ? formData.external_db_password : null,
         external_db_ssl: connectionMethod === 'host' ? formData.external_db_ssl : null,
-      });
+      };
 
-    if (error) {
+      const response = await apiService.updateAppSettings(settingsData);
+
+      if (response.error) {
+        console.error('Error saving settings:', response.error);
+        toast.error('Failed to save settings');
+      } else {
+        toast.success('Settings saved successfully');
+      }
+    } catch (error) {
       console.error('Error saving settings:', error);
       toast.error('Failed to save settings');
-    } else {
-      toast.success('Settings saved successfully');
     }
 
     setSaving(false);
@@ -171,26 +178,31 @@ const Settings = () => {
     setTestResult(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('test-external-db-connection', {
-        body: connectionMethod === 'url' ? {
-          url: formData.external_db_url,
-        } : {
-          host: formData.external_db_host,
-          port: formData.external_db_port,
-          database: formData.external_db_name,
-          user: formData.external_db_user,
-          password: formData.external_db_password,
-          ssl: formData.external_db_ssl,
-        },
-      });
+      const testData = connectionMethod === 'url' ? {
+        external_db_url: formData.external_db_url,
+      } : {
+        external_db_host: formData.external_db_host,
+        external_db_port: formData.external_db_port,
+        external_db_name: formData.external_db_name,
+        external_db_user: formData.external_db_user,
+        external_db_password: formData.external_db_password,
+        external_db_ssl: formData.external_db_ssl,
+      };
 
-      if (error) throw error;
+      const response = await apiService.testDatabaseConnection(testData);
 
-      setTestResult(data);
-      if (data.success) {
-        toast.success(data.message);
+      if (response.error) {
+        setTestResult({
+          success: false,
+          message: response.error.message || 'Failed to test connection',
+        });
+        toast.error(response.error.message || 'Failed to test connection');
       } else {
-        toast.error(data.message);
+        setTestResult({
+          success: true,
+          message: response.data.message || 'Connection successful',
+        });
+        toast.success(response.data.message || 'Connection successful');
       }
     } catch (error: any) {
       console.error('Error testing connection:', error);

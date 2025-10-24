@@ -1,114 +1,151 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
+
+interface User {
+  id: string;
+  email: string;
+  role: 'admin' | 'editor' | 'viewer';
+}
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
-  userRole: 'admin' | 'editor' | 'viewer' | null;
+  token: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, role?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [userRole, setUserRole] = useState<'admin' | 'editor' | 'viewer' | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Fetch user role
-          setTimeout(() => {
-            fetchUserRole(session.user.id);
-          }, 0);
-        } else {
-          setUserRole(null);
-        }
-      }
-    );
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        fetchUserRole(session.user.id);
-      }
+    // Check for existing token in localStorage
+    const storedToken = localStorage.getItem('auth_token');
+    if (storedToken) {
+      setToken(storedToken);
+      // Verify token and get user info
+      verifyToken(storedToken);
+    } else {
       setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    }
   }, []);
 
-  const fetchUserRole = async (userId: string) => {
-    console.log('Fetching role for user:', userId);
-    const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId)
-      .maybeSingle();
+  const verifyToken = async (tokenToVerify: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${tokenToVerify}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (error) {
-      console.error('Error fetching user role:', error);
-      setUserRole(null);
-    } else if (data) {
-      console.log('User role loaded:', data.role);
-      setUserRole(data.role as 'admin' | 'editor' | 'viewer');
-    } else {
-      console.log('No role found for user');
-      setUserRole(null);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          setUser(data.user);
+          setToken(tokenToVerify);
+        } else {
+          // Invalid token
+          localStorage.removeItem('auth_token');
+          setToken(null);
+          setUser(null);
+        }
+      } else {
+        // Token expired or invalid
+        localStorage.removeItem('auth_token');
+        setToken(null);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      localStorage.removeItem('auth_token');
+      setToken(null);
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    
-    if (!error) {
-      navigate('/app');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setUser(data.user);
+        setToken(data.token);
+        localStorage.setItem('auth_token', data.token);
+        navigate('/app');
+        return { error: null };
+      } else {
+        return { error: new Error(data.error?.message || 'Login failed') };
+      }
+    } catch (error) {
+      return { error: error instanceof Error ? error : new Error('Network error') };
     }
-    
-    return { error };
   };
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/app`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
+  const signUp = async (email: string, password: string, role: string = 'viewer') => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password, role }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        return { error: null };
+      } else {
+        return { error: new Error(data.error?.message || 'Registration failed') };
       }
-    });
-    
-    return { error };
+    } catch (error) {
+      return { error: error instanceof Error ? error : new Error('Network error') };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUserRole(null);
+    localStorage.removeItem('auth_token');
+    setToken(null);
+    setUser(null);
     navigate('/login');
   };
 
+  const refreshUser = async () => {
+    if (token) {
+      await verifyToken(token);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, userRole, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      loading, 
+      signIn, 
+      signUp, 
+      signOut, 
+      refreshUser 
+    }}>
       {children}
     </AuthContext.Provider>
   );

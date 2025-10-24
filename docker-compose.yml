@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (App Database)
+  postgres:
+    image: postgres:15-alpine
+    container_name: sql-report-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reports_app_db}
+      POSTGRES_USER: ${POSTGRES_USER:-danilnezhdanov}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - sql-report-network
+    restart: unless-stopped
+
+  # Redis Cache (optional - for query result caching)
+  redis:
+    image: redis:7-alpine
+    container_name: sql-report-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sql-report-network
+
+  # Node.js Backend API
+  backend:
+    image: node:18-alpine
+    container_name: sql-report-backend
+    working_dir: /app
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-danilnezhdanov}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
+      JWT_SECRET: ${JWT_SECRET}
+      REPORT_SCHEMA_URL: ${REPORT_SCHEMA_URL:-https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json}
+      RATE_LIMIT_MAX_REQUESTS: 1000
+      RATE_LIMIT_WINDOW_MS: 900000
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - sql-report-network
+    command: sh -c "npm install && npm run dev"
+    restart: unless-stopped
+
+  # Python Analytics Service (Phase 2)
+  analytics:
+    build:
+      context: ./analytics
+      dockerfile: Dockerfile
+    container_name: sql-report-analytics
+    environment:
+      PYTHONPATH: /app
+      ANALYTICS_PORT: 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./analytics:/app
+    networks:
+      - sql-report-network
+    restart: unless-stopped
+    profiles:
+      - analytics  # Only start when explicitly requested
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  sql-report-network:
+    driver: bridge

@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { apiService } from '@/services/api';
 import { Loader2, Play, Database, Plus, X, Download } from 'lucide-react';
 import { SqlEditor as SqlEditorComponent } from '@/components/reports/SqlEditor';
 import { DataTable } from '@/components/reports/DataTable';
@@ -126,8 +126,10 @@ const SqlEditor = () => {
 
     try {
       const fetchStartTime = performance.now();
-      const { data, error: queryError } = await supabase.functions.invoke('run-sql-table', {
-        body: { sql: tab.sql.trim() },
+      const response = await apiService.executeTableQuery({
+        sql: tab.sql.trim(),
+        page: 1,
+        pageSize: 1000, // Large page size for SQL editor
       });
       const fetchEndTime = performance.now();
 
@@ -135,10 +137,11 @@ const SqlEditor = () => {
       const fetchTime = fetchEndTime - fetchStartTime;
       const executedAt = new Date();
 
-      // Edge function errors should not happen now since we return 200 with error in body
-      if (queryError) {
-        console.error('Unexpected edge function invocation error:', queryError);
-        const errorMsg = queryError.message || 'Failed to connect to database';
+      // Handle API errors
+      if (response.error) {
+        console.error('API error:', response.error);
+        const errorMsg = response.error.message || 'Failed to execute query';
+        
         setTabs(
           tabs.map((t) =>
             t.id === tabId
@@ -157,34 +160,6 @@ const SqlEditor = () => {
         return; // Exit early
       }
 
-      // Handle SQL execution errors from edge function
-      if (data?.error) {
-        console.error('SQL execution error:', data.error);
-        let errorMsg = data.error.message || 'Query execution failed';
-        
-        // Add error code if available
-        if (data.error.code) {
-          errorMsg = `[${data.error.code}] ${errorMsg}`;
-        }
-        
-        setTabs(
-          tabs.map((t) =>
-            t.id === tabId
-              ? {
-                  ...t,
-                  executing: false,
-                  error: errorMsg,
-                  executionTime,
-                  fetchTime,
-                  executedAt,
-                }
-              : t
-          )
-        );
-        toast.error(errorMsg);
-        return; // Exit early on error
-      }
-
       // Success case - only reached if no errors
       setTabs(
         tabs.map((t) =>
@@ -192,9 +167,9 @@ const SqlEditor = () => {
             ? {
                 ...t,
                 executing: false,
-                results: data,
+                results: response.data,
                 error: null, // Clear any previous errors
-                rowCount: data.rows?.length || 0,
+                rowCount: response.data?.rows?.length || 0,
                 executionTime,
                 fetchTime,
                 executedAt,

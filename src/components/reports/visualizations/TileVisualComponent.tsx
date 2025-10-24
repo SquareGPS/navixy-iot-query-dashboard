@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MetricTile } from '@/components/reports/MetricTile';
-import { supabase } from '@/integrations/supabase/client';
-import { Pencil } from 'lucide-react';
+import { apiService } from '@/services/api';
+import { Pencil, AlertCircle } from 'lucide-react';
 import type { TileVisual } from '@/types/report-schema';
 
 interface TileVisualComponentProps {
@@ -13,6 +13,7 @@ interface TileVisualComponentProps {
 export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComponentProps) {
   const [value, setValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   console.log('TileVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
@@ -24,20 +25,27 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
       console.log('Visual label:', visual.label);
       
       setLoading(true);
+      setError(null);
       try {
-        const { data: result, error } = await supabase.functions.invoke('run-sql-tile', {
-          body: { sql: visual.query.sql },
+        const response = await apiService.executeTileQuery({
+          sql: visual.query.sql,
         });
 
-        console.log('Tile query result:', { result, error });
+        console.log('Tile query result:', response);
 
-        if (error) throw error;
+        if (response.error) {
+          console.error('Tile query error:', response.error);
+          setError(response.error.message || 'Query failed');
+          setValue(null);
+          return;
+        }
         
-        const newValue = result.value !== undefined ? Number(result.value) : null;
+        const newValue = response.data?.value !== undefined ? Number(response.data.value) : null;
         console.log('Setting tile value:', newValue);
         setValue(newValue);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching tile value:', err);
+        setError(err.message || 'Query failed');
         setValue(null);
       } finally {
         setLoading(false);
@@ -56,13 +64,23 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
       }}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <MetricTile
-        title={visual.label}
-        value={value}
-        format="number"
-        decimals={visual.options?.precision || 0}
-        loading={loading}
-      />
+      {error ? (
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm font-medium">Query Error</span>
+          </div>
+          <p className="text-red-700 dark:text-red-300 text-xs mt-1">{error}</p>
+        </div>
+      ) : (
+        <MetricTile
+          title={visual.label}
+          value={value}
+          format="number"
+          decimals={visual.options?.precision || 0}
+          loading={loading}
+        />
+      )}
       {editMode && isHovered && (
         <button
           onClick={(e) => {
