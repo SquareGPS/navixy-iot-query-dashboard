@@ -35,12 +35,12 @@ const ReportView = () => {
   const [report, setReport] = useState<Report | null>(null);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [tileValues, setTileValues] = useState<Record<string, number | null>>({});
+  const [tileLoadingStates, setTileLoadingStates] = useState<Record<string, boolean>>({});
   const [tableData, setTableData] = useState<any[]>([]);
   const [tableColumns, setTableColumns] = useState<ColumnDef<any>[]>([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 25, total: 0 });
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
-  const [tilesLoading, setTilesLoading] = useState(false);
 
   const canEdit = userRole === 'admin' || userRole === 'editor';
 
@@ -73,23 +73,33 @@ const ReportView = () => {
   };
 
   const fetchTileValues = async (tiles: Tile[]) => {
-    setTilesLoading(true);
-    const values: Record<string, number | null> = {};
+    // Set all tiles to loading
+    const initialLoadingStates: Record<string, boolean> = {};
+    tiles.forEach(tile => {
+      initialLoadingStates[tile.id] = true;
+    });
+    setTileLoadingStates(initialLoadingStates);
     
-    for (const tile of tiles) {
+    // Fetch all tiles concurrently
+    const tilePromises = tiles.map(async (tile) => {
       try {
         const { data } = await supabase.functions.invoke('run-sql-tile', {
           body: { sql: tile.sql }
         });
-        values[tile.id] = data?.value ?? null;
+        return { id: tile.id, value: data?.value ?? null };
       } catch (error) {
         console.error('Error fetching tile value:', error);
-        values[tile.id] = null;
+        return { id: tile.id, value: null };
       }
-    }
-    
-    setTileValues(values);
-    setTilesLoading(false);
+    });
+
+    // Update each tile as it completes
+    tilePromises.forEach((promise, index) => {
+      promise.then(result => {
+        setTileValues(prev => ({ ...prev, [result.id]: result.value }));
+        setTileLoadingStates(prev => ({ ...prev, [result.id]: false }));
+      });
+    });
   };
 
   const fetchTableData = async (sql: string) => {
@@ -179,23 +189,18 @@ const ReportView = () => {
         </div>
 
         {/* Metric Tiles */}
-        {tilesLoading ? (
-          <div className="border rounded-lg">
-            <LoadingWithTimer message="Loading metrics..." />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {tiles.map((tile) => (
-              <MetricTile
-                key={tile.id}
-                title={tile.title}
-                value={tileValues[tile.id] ?? null}
-                format={tile.format as any}
-                decimals={tile.decimals}
-              />
-            ))}
-          </div>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {tiles.map((tile) => (
+            <MetricTile
+              key={tile.id}
+              title={tile.title}
+              value={tileValues[tile.id] ?? null}
+              format={tile.format as any}
+              decimals={tile.decimals}
+              loading={tileLoadingStates[tile.id] ?? true}
+            />
+          ))}
+        </div>
 
         {/* Data Table */}
         {tableColumns.length > 0 && (
