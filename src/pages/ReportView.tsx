@@ -135,7 +135,10 @@ const ReportView = () => {
     try {
       const parsedSchema = JSON.parse(editorValue);
       
-      const response = await apiService.updateReport(reportId, { report_schema: parsedSchema });
+      const response = await apiService.updateReport(reportId, { 
+        title: report?.title || parsedSchema.title,
+        report_schema: parsedSchema 
+      });
 
       if (response.error) {
         throw new Error(response.error.message || 'Failed to update report');
@@ -193,7 +196,10 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
-      const response = await apiService.updateReport(reportId!, { report_schema: updatedSchema });
+      const response = await apiService.updateReport(reportId!, { 
+        title: report?.title || updatedSchema.title,
+        report_schema: updatedSchema 
+      });
 
       console.log('Database update response:', response);
 
