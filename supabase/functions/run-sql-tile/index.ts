@@ -183,14 +183,44 @@ serve(async (req) => {
       console.error('=== Database query error ===');
       console.error('Error message:', dbError.message);
       console.error('Error stack:', dbError.stack);
-      console.error('Error details:', JSON.stringify(dbError, null, 2));
+      console.error('Error details:', {
+        name: dbError.name,
+        fields: dbError.fields,
+        severity: dbError.fields?.severity,
+        code: dbError.fields?.code,
+        position: dbError.fields?.position,
+        file: dbError.fields?.file,
+        line: dbError.fields?.line,
+        routine: dbError.fields?.routine,
+      });
+      
       try {
         await client.end();
       } catch (e) {
         console.error('Error closing connection:', e);
       }
+      
+      // Build detailed error message for user
+      let userMessage = dbError.message;
+      if (dbError.fields?.code) {
+        userMessage = `[${dbError.fields.code}] ${userMessage}`;
+      }
+      if (dbError.fields?.position) {
+        userMessage += ` at position ${dbError.fields.position}`;
+      }
+      
       return new Response(
-        JSON.stringify({ error: { code: 'EXECUTION_ERROR', message: dbError.message } }),
+        JSON.stringify({ 
+          error: { 
+            code: 'EXECUTION_ERROR',
+            message: userMessage,
+            details: {
+              sqlCode: dbError.fields?.code,
+              position: dbError.fields?.position,
+              severity: dbError.fields?.severity,
+            }
+          } 
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

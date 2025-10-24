@@ -135,16 +135,17 @@ const SqlEditor = () => {
       const fetchTime = fetchEndTime - fetchStartTime;
       const executedAt = new Date();
 
-      if (queryError) throw queryError;
-
-      if (data.error) {
+      // Handle edge function invocation errors
+      if (queryError) {
+        console.error('Edge function error:', queryError);
+        const errorMsg = queryError.message || 'Failed to connect to database';
         setTabs(
           tabs.map((t) =>
             t.id === tabId
               ? {
                   ...t,
                   executing: false,
-                  error: data.error.message || 'Query execution failed',
+                  error: errorMsg,
                   executionTime,
                   fetchTime,
                   executedAt,
@@ -152,7 +153,35 @@ const SqlEditor = () => {
               : t
           )
         );
-        toast.error(data.error.message || 'Query execution failed');
+        toast.error(errorMsg);
+        return;
+      }
+
+      // Handle SQL execution errors from edge function
+      if (data?.error) {
+        console.error('SQL execution error:', data.error);
+        let errorMsg = data.error.message || 'Query execution failed';
+        
+        // Add error code if available
+        if (data.error.code) {
+          errorMsg = `[${data.error.code}] ${errorMsg}`;
+        }
+        
+        setTabs(
+          tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  executing: false,
+                  error: errorMsg,
+                  executionTime,
+                  fetchTime,
+                  executedAt,
+                }
+              : t
+          )
+        );
+        toast.error(errorMsg);
       } else {
         setTabs(
           tabs.map((t) =>
@@ -173,7 +202,35 @@ const SqlEditor = () => {
       }
     } catch (err: any) {
       console.error('Error executing query:', err);
-      const errorMessage = err.message || 'Failed to execute query';
+      console.error('Error details:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        context: err.context,
+      });
+      
+      let errorMessage = 'Failed to execute query';
+      
+      // Try to extract meaningful error information
+      if (err.message) {
+        errorMessage = err.message;
+      }
+      if (err.context?.body) {
+        try {
+          const bodyError = typeof err.context.body === 'string' 
+            ? JSON.parse(err.context.body) 
+            : err.context.body;
+          if (bodyError?.error?.message) {
+            errorMessage = bodyError.error.message;
+            if (bodyError.error.code) {
+              errorMessage = `[${bodyError.error.code}] ${errorMessage}`;
+            }
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse error body:', parseErr);
+        }
+      }
+      
       const executionTime = performance.now() - startTime;
       const executedAt = new Date();
       setTabs(
@@ -375,7 +432,7 @@ const SqlEditor = () => {
 
                     {tab.error && (
                       <Alert variant="destructive">
-                        <AlertDescription>
+                        <AlertDescription className="font-mono text-sm whitespace-pre-wrap">
                           <strong>Error:</strong> {tab.error}
                         </AlertDescription>
                       </Alert>
