@@ -117,7 +117,7 @@ const ReportView = () => {
     console.log('Row type:', row.type);
     console.log('Row before update:', JSON.stringify(row, null, 2));
     
-    if (row.type === 'tiles' || row.type === 'table') {
+    if (row.type === 'tiles' || row.type === 'table' || row.type === 'charts') {
       const visual = row.visuals[editingElement.visualIndex];
       console.log('Visual before update:', JSON.stringify(visual, null, 2));
       
