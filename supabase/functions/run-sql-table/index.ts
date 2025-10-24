@@ -169,7 +169,15 @@ serve(async (req) => {
 
       // Extract columns and rows
       const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0] as Record<string, any>) : [];
-      const rows = result.rows || [];
+      
+      // Convert BigInt values to strings for JSON serialization
+      const rows = (result.rows || []).map((row: any) => {
+        const convertedRow: Record<string, any> = {};
+        for (const [key, value] of Object.entries(row)) {
+          convertedRow[key] = typeof value === 'bigint' ? value.toString() : value;
+        }
+        return convertedRow;
+      });
 
       // Get column types from the result metadata
       const columnTypes: Record<string, string> = {};

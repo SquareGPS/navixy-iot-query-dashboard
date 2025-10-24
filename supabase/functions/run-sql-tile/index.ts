@@ -166,7 +166,10 @@ serve(async (req) => {
         const firstValue = Object.values(firstRow)[0];
         console.log('First value:', firstValue, 'Type:', typeof firstValue);
         
-        if (typeof firstValue === 'number') {
+        // Handle BigInt conversion
+        if (typeof firstValue === 'bigint') {
+          value = Number(firstValue);
+        } else if (typeof firstValue === 'number') {
           value = firstValue;
         } else if (typeof firstValue === 'string' && !isNaN(parseFloat(firstValue))) {
           value = parseFloat(firstValue);
