@@ -22,7 +22,10 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
+  console.log('PieChartComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
+
   useEffect(() => {
+    console.log('PieChartComponent useEffect triggered, SQL:', visual.query.sql?.substring(0, 50));
     const fetchData = async () => {
       setLoading(true);
       setError(null);
