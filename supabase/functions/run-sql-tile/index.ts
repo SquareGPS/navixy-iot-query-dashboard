@@ -27,6 +27,47 @@ serve(async (req) => {
   }
 
   try {
+    // Verify authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('Missing Authorization header');
+      return new Response(
+        JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create Supabase client for auth verification
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    );
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('Authentication failed:', authError);
+      return new Response(
+        JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Invalid authentication token' } }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Check if user has admin or editor role
+    const { data: hasPermission, error: roleError } = await supabaseClient
+      .rpc('is_admin_or_editor', { _user_id: user.id });
+
+    if (roleError || !hasPermission) {
+      console.error('Authorization failed - user does not have required role:', user.id);
+      return new Response(
+        JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions. Admin or editor role required.' } }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('User authenticated and authorized:', user.id);
+
     const { sql } = await req.json();
 
     if (!sql || typeof sql !== 'string') {
