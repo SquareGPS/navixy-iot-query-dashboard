@@ -56,8 +56,14 @@ serve(async (req) => {
       );
     }
 
+    // Strip comments before validation
+    // Remove single-line comments (-- comment)
+    let sqlWithoutComments = sql.replace(/--[^\n]*(\n|$)/g, '\n');
+    // Remove multi-line comments (/* comment */)
+    sqlWithoutComments = sqlWithoutComments.replace(/\/\*[\s\S]*?\*\//g, '');
+    
     // Validate SQL (allow CTEs with WITH clause)
-    const trimmedSql = sql.trim().toUpperCase();
+    const trimmedSql = sqlWithoutComments.trim().toUpperCase();
     
     if (!trimmedSql.startsWith('SELECT') && !trimmedSql.startsWith('WITH')) {
       return new Response(

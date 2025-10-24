@@ -40,8 +40,14 @@ serve(async (req) => {
       );
     }
 
+    // Strip comments before validation
+    // Remove single-line comments (-- comment)
+    let sqlWithoutComments = sql.replace(/--[^\n]*(\n|$)/g, '\n');
+    // Remove multi-line comments (/* comment */)
+    sqlWithoutComments = sqlWithoutComments.replace(/\/\*[\s\S]*?\*\//g, '');
+    
     // Validate SQL (only SELECT, no multiple statements)
-    const trimmedSql = sql.trim().toUpperCase();
+    const trimmedSql = sqlWithoutComments.trim().toUpperCase();
     console.log('Trimmed SQL (uppercase):', trimmedSql.substring(0, 100));
     
     if (!trimmedSql.startsWith('SELECT')) {
