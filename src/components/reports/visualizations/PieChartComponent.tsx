@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
@@ -14,7 +14,7 @@ interface PieChartComponentProps {
   onEdit: () => void;
 }
 
-const DEFAULT_COLORS = ['#60A5FA', '#22C55E', '#F59E0B', '#EF4444', '#A78BFA', '#14B8A6'];
+const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8'];
 
 export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartComponentProps) {
   const [data, setData] = useState<any[]>([]);
@@ -106,10 +106,8 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
       onMouseLeave={() => setIsHovered(false)}
     >
       <Card>
-        <CardHeader>
-          <CardTitle>{title || visual.label}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div className="space-y-4">
+          <div className="text-lg font-semibold text-text-primary">{title || visual.label}</div>
           {loading ? (
             <Skeleton className="h-96 w-full" />
           ) : error ? (
@@ -117,7 +115,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : data.length === 0 ? (
-            <div className="h-96 flex items-center justify-center text-muted-foreground">
+            <div className="h-96 flex items-center justify-center text-text-muted">
               No data available
             </div>
           ) : (
@@ -156,7 +154,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
               </PieChart>
             </ResponsiveContainer>
           )}
-        </CardContent>
+        </div>
       </Card>
       {editMode && isHovered && (
         <button

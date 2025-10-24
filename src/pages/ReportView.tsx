@@ -4,7 +4,8 @@ import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
@@ -477,34 +478,34 @@ const ReportView = () => {
       <AppLayout>
         <div className="space-y-6">
           {/* Modern Loading State */}
-          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+          <Card className="p-6">
             <div className="animate-pulse">
-              <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded-lg w-1/3 mb-4"></div>
-              <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+              <div className="h-8 bg-[var(--surface-3)] rounded-lg w-1/3 mb-4"></div>
+              <div className="h-4 bg-[var(--surface-3)] rounded w-1/2"></div>
             </div>
-          </div>
+          </Card>
           
           <div className="grid gap-6 md:grid-cols-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+              <Card key={i} className="p-6">
                 <div className="animate-pulse">
-                  <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-4"></div>
-                  <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded-lg"></div>
+                  <div className="h-6 bg-[var(--surface-3)] rounded w-1/2 mb-4"></div>
+                  <div className="h-12 bg-[var(--surface-3)] rounded-lg"></div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
           
-          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+          <Card className="p-6">
             <div className="animate-pulse">
-              <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/4 mb-4"></div>
+              <div className="h-6 bg-[var(--surface-3)] rounded w-1/4 mb-4"></div>
               <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-4 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                  <div key={i} className="h-4 bg-[var(--surface-3)] rounded"></div>
                 ))}
               </div>
             </div>
-          </div>
+          </Card>
         </div>
       </AppLayout>
     );
@@ -570,7 +571,7 @@ const ReportView = () => {
                             placeholder={defaultSchemaUrl || "https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json"}
                             value={customSchemaUrl}
                             onChange={(e) => setCustomSchemaUrl(e.target.value)}
-                            className="bg-white dark:bg-slate-800 border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
+                            className="bg-[var(--surface-2)] border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
                           />
                           <p className="text-xs text-red-600 dark:text-red-400">
                             Enter a direct URL to a JSON schema file (GitHub raw URLs work best)
@@ -625,12 +626,12 @@ const ReportView = () => {
     <AppLayout>
       <div className="space-y-6">
         {/* Report Header */}
-        <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-border/50 p-6 shadow-sm">
+        <Card className="p-6 ring-1 ring-inset ring-white/5 border border-[var(--border)]" data-test="title-card">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-foreground mb-2">{schema.title}</h1>
+              <h1 className="text-[24px] font-bold text-[var(--text-primary)] mb-2">{schema.title}</h1>
               {schema.subtitle && (
-                <p className="text-muted-foreground">{schema.subtitle}</p>
+                <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
               )}
             </div>
             {canEdit && (
@@ -680,7 +681,7 @@ const ReportView = () => {
               </div>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Report Content */}
         <div className="space-y-6">

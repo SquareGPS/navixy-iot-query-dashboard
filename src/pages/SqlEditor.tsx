@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
@@ -288,9 +288,8 @@ const SqlEditor = () => {
             </div>
           </div>
 
-          <Card>
-            <CardContent className="p-0">
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Card className="p-0">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <div className="border-b px-4 pt-4">
                   <TabsList className="h-auto p-0 bg-transparent flex items-center justify-start gap-0">
                     {tabs.map((tab) => (
@@ -418,7 +417,7 @@ const SqlEditor = () => {
 
                     {tab.results && (
                       <Card>
-                        <CardContent className="p-4">
+                        <div className="p-4">
                           {tab.results.rows && tab.results.rows.length > 0 ? (
                             <DataTable
                               data={tab.results.rows}
@@ -434,13 +433,12 @@ const SqlEditor = () => {
                               No results returned
                             </div>
                           )}
-                        </CardContent>
+                        </div>
                       </Card>
                     )}
                   </TabsContent>
                 ))}
               </Tabs>
-            </CardContent>
           </Card>
         </div>
       </div>

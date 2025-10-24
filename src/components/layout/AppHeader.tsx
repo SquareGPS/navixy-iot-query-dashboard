@@ -1,5 +1,5 @@
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { LogOut, Moon, Sun, Settings, Database } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from 'next-themes';
@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SearchInput } from '@/components/ui/SearchInput';
 
 export function AppHeader() {
   const { signOut, user } = useAuth();
@@ -19,13 +20,18 @@ export function AppHeader() {
   const navigate = useNavigate();
 
   return (
-    <header className="h-16 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 shadow-sm">
+    <header className="h-14 border-b border-border bg-surface-1 sticky top-0 z-50">
       <div className="flex items-center justify-between h-full px-6">
         <div className="flex items-center gap-4">
-          <SidebarTrigger className="hover:bg-accent/50 transition-colors" />
+          <SidebarTrigger className="hover:bg-surface-3 transition-colors" />
           <div className="hidden md:block">
-            <h1 className="text-lg font-semibold text-foreground">Reports Dashboard</h1>
+            <h1 className="text-lg font-semibold text-text-primary">Navixy Reports</h1>
           </div>
+        </div>
+        
+        {/* Global search bar */}
+        <div className="flex-1 max-w-md mx-8">
+          <SearchInput />
         </div>
         
         <div className="flex items-center gap-3">
@@ -33,7 +39,7 @@ export function AppHeader() {
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="hover:bg-accent/50 transition-colors"
+            className="hover:bg-surface-3 transition-colors"
           >
             {theme === 'dark' ? (
               <Sun className="h-4 w-4" />
@@ -44,21 +50,21 @@ export function AppHeader() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-3 px-3 py-2 hover:bg-accent/50 transition-colors">
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground flex items-center justify-center font-semibold text-sm shadow-sm">
+              <Button variant="ghost" className="gap-3 px-3 py-2 hover:bg-surface-3 transition-colors">
+                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-accent to-accent-hover text-white flex items-center justify-center font-semibold text-sm">
                   {user?.email?.charAt(0).toUpperCase()}
                 </div>
                 <div className="hidden sm:block text-left">
-                  <div className="text-sm font-medium">{user?.email}</div>
-                  <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
+                  <div className="text-sm font-medium text-text-primary">{user?.email}</div>
+                  <div className="text-xs text-text-muted capitalize">{user?.role}</div>
                 </div>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuContent align="end" className="w-64 bg-surface-2 border-border">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <span className="text-sm font-medium">{user?.email}</span>
-                  <span className="text-xs text-muted-foreground capitalize">{user?.role}</span>
+                  <span className="text-sm font-medium text-text-primary">{user?.email}</span>
+                  <span className="text-xs text-text-muted capitalize">{user?.role}</span>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -75,7 +81,7 @@ export function AppHeader() {
                   <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuItem onClick={signOut} className="text-destructive cursor-pointer">
+              <DropdownMenuItem onClick={signOut} className="text-danger cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
               </DropdownMenuItem>

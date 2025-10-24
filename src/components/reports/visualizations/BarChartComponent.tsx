@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
@@ -14,7 +14,7 @@ interface BarChartComponentProps {
   onEdit: () => void;
 }
 
-const DEFAULT_COLORS = ['#60A5FA', '#22C55E', '#F59E0B', '#EF4444', '#A78BFA', '#14B8A6'];
+const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8'];
 
 export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartComponentProps) {
   const [data, setData] = useState<any[]>([]);
@@ -113,10 +113,8 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
       onMouseLeave={() => setIsHovered(false)}
     >
       <Card>
-        <CardHeader>
-          <CardTitle>{title || visual.label}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div className="space-y-4">
+          <div className="text-lg font-semibold text-text-primary">{title || visual.label}</div>
           {loading ? (
             <Skeleton className="h-96 w-full" />
           ) : error ? (
@@ -124,7 +122,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : data.length === 0 ? (
-            <div className="h-96 flex items-center justify-center text-muted-foreground">
+            <div className="h-96 flex items-center justify-center text-text-muted">
               No data available
             </div>
           ) : (
@@ -134,15 +132,23 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                 layout={isHorizontal ? 'horizontal' : 'vertical'}
                 margin={{ top: 20, right: 30, left: 60, bottom: 80 }}
               >
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
                 {isHorizontal ? (
                   <>
                     <XAxis 
                       type="number" 
                       domain={[0, 'auto']}
                       tickFormatter={(value) => value.toLocaleString()}
+                      tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+                      axisLine={{ stroke: '#ffffff22' }}
                     />
-                    <YAxis dataKey="category" type="category" width={100} />
+                    <YAxis 
+                      dataKey="category" 
+                      type="category" 
+                      width={100}
+                      tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+                      axisLine={{ stroke: '#ffffff22' }}
+                    />
                   </>
                 ) : (
                   <>
@@ -152,6 +158,8 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                       textAnchor="end"
                       height={80}
                       interval={0}
+                      tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+                      axisLine={{ stroke: '#ffffff22' }}
                       tickFormatter={(value) => {
                         // Try to format as date if it looks like one
                         const date = new Date(value);
@@ -163,6 +171,8 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                     />
                     <YAxis 
                       domain={[0, 'auto']}
+                      tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+                      axisLine={{ stroke: '#ffffff22' }}
                       tickFormatter={(value) => {
                         // Format large numbers with commas
                         return value.toLocaleString();
@@ -170,7 +180,16 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                     />
                   </>
                 )}
-                {visual.options.show_tooltips !== false && <Tooltip />}
+                {visual.options.show_tooltips !== false && (
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'var(--surface-3)', 
+                      border: '1px solid var(--border)', 
+                      borderRadius: '8px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                )}
                 {showLegend && legendPosition !== 'none' && (
                   <Legend wrapperStyle={{ paddingTop: '20px' }} />
                 )}
@@ -187,7 +206,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
               </BarChart>
             </ResponsiveContainer>
           )}
-        </CardContent>
+        </div>
       </Card>
       {editMode && isHovered && (
         <button

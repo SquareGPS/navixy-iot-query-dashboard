@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/reports/DataTable';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiService } from '@/services/api';
 import { Pencil, AlertCircle } from 'lucide-react';
@@ -112,10 +112,8 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
       onMouseLeave={() => setIsHovered(false)}
     >
       <Card>
-        <CardHeader>
-          <CardTitle>{title || visual.label}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div className="space-y-4">
+          <div className="text-lg font-semibold text-text-primary">{title || visual.label}</div>
           {loading ? (
             <Skeleton className="h-96" />
           ) : error ? (
@@ -129,7 +127,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
           ) : (
             <DataTable data={data} columns={columns} />
           )}
-        </CardContent>
+        </div>
       </Card>
       {editMode && isHovered && (
         <button

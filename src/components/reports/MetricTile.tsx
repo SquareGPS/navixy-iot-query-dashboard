@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface MetricTileProps {
@@ -41,18 +41,16 @@ export function MetricTile({ title, value, format = 'number', decimals = 0, load
 
   return (
     <Card className="hover:shadow-md transition-shadow">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-text-secondary">{title}</div>
         {loading ? (
-          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-10 w-32 bg-surface-3" />
         ) : (
-          <div className="text-3xl font-bold text-primary">
+          <div className="text-3xl font-bold text-accent tabular-nums">
             {formatValue(value)}
           </div>
         )}
-      </CardContent>
+      </div>
     </Card>
   );
 }

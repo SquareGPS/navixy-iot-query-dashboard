@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { Loader2, Database, CheckCircle2, XCircle } from 'lucide-react';
@@ -236,16 +236,17 @@ const Settings = () => {
           </div>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Navixy DataHub Configuration
-              </CardTitle>
-              <CardDescription>
-                Connect to your private telematics data lakehouse (PostgreSQL-compatible)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  Navixy DataHub Configuration
+                </h2>
+                <p className="text-sm text-text-muted">
+                  Connect to your private telematics data lakehouse (PostgreSQL-compatible)
+                </p>
+              </div>
+              <div className="space-y-6">
               <div className="space-y-3">
                 <Label>Connect by:</Label>
                 <div className="flex gap-6">
@@ -411,7 +412,8 @@ const Settings = () => {
                   )}
                 </Button>
               </div>
-            </CardContent>
+              </div>
+            </div>
           </Card>
         </div>
       </div>

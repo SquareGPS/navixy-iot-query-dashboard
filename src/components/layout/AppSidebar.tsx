@@ -13,7 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/api';
@@ -282,17 +282,17 @@ export function AppSidebar() {
 
   return (
     <>
-    <Sidebar className={state === 'collapsed' ? 'w-14' : 'w-64'} collapsible="icon">
-      <SidebarContent>
+    <Sidebar className={state === 'collapsed' ? 'w-14' : 'w-[248px]'} collapsible="icon">
+      <SidebarContent className="bg-[var(--surface-1)] border-r border-[var(--border)]">
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-3 px-3 py-6 border-b border-border/50">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
-              <BarChart3 className="h-4 w-4 text-primary-foreground" />
+          <SidebarGroupLabel className="flex items-center gap-3 px-3 py-6 border-b border-border">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center">
+              <BarChart3 className="h-4 w-4 text-white" />
             </div>
             {state !== 'collapsed' && (
               <div>
-                <span className="font-bold text-lg">Reports Flex</span>
-                <p className="text-xs text-muted-foreground">Dashboard</p>
+                <span className="font-bold text-lg text-text-primary">Navixy</span>
+                <p className="text-xs text-text-muted">Reports</p>
               </div>
             )}
           </SidebarGroupLabel>
@@ -300,12 +300,12 @@ export function AppSidebar() {
           {state !== 'collapsed' && (
             <div className="px-3 pb-4">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-muted" />
                 <Input
                   placeholder="Search reports..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10 h-9 bg-background/50 border-border/50 focus:border-primary/50 transition-colors"
+                  className="pl-10 h-9 bg-[var(--surface-3)]/80 border-[var(--border)] focus:border-[var(--accent)] transition-colors"
                 />
               </div>
             </div>
@@ -322,7 +322,7 @@ export function AppSidebar() {
                   <SidebarMenuItem>
                     <div className="group relative">
                       <CollapsibleTrigger asChild>
-                        <SidebarMenuButton className="w-full pr-8">
+                        <SidebarMenuButton className="w-full pr-8 hover:bg-surface-3">
                           {expandedSections.has(section.id) ? (
                             <ChevronDown className="h-4 w-4 shrink-0" />
                           ) : (
@@ -336,13 +336,13 @@ export function AppSidebar() {
                                 onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
                                 onBlur={() => handleUpdateItem()}
                                 onKeyDown={(e) => handleEditKeyDown(e, false)}
-                                className="h-6 px-1 py-0 text-sm flex-1"
+                                className="h-6 px-1 py-0 text-sm flex-1 bg-surface-2 border-border"
                                 autoFocus
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
                               <span
-                                className="flex-1 truncate"
+                                className="flex-1 truncate text-text-primary"
                                 onDoubleClick={(e) => {
                                   e.stopPropagation();
                                   if (canEdit) startEditing(section.id, 'section', section.name);
@@ -361,7 +361,7 @@ export function AppSidebar() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-3"
                               onClick={(e) => {
                                 e.stopPropagation();
                               }}
@@ -369,7 +369,7 @@ export function AppSidebar() {
                               <Plus className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuContent align="end" className="w-48 bg-surface-2 border-border">
                             <DropdownMenuItem
                               onClick={() => {
                                 setExpandedSections(new Set([...expandedSections, section.id]));
@@ -396,8 +396,15 @@ export function AppSidebar() {
                               if (!editingItem) navigate(`/app/report/${report.id}`);
                             }}
                             isActive={params.reportId === report.id}
-                            className="pl-8"
+                            className={`pl-8 hover:bg-[var(--surface-3)] ${
+                              params.reportId === report.id 
+                                ? 'bg-[var(--accent-soft)]/30 text-[var(--text-primary)] relative' 
+                                : 'text-[var(--text-secondary)]'
+                            }`}
                           >
+                            {params.reportId === report.id && (
+                              <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--accent)] rounded-r"></span>
+                            )}
                             <FileText className="h-4 w-4 shrink-0" />
                             {state !== 'collapsed' && (
                               editingItem?.id === report.id ? (
@@ -406,13 +413,13 @@ export function AppSidebar() {
                                   onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
                                   onBlur={() => handleUpdateItem()}
                                   onKeyDown={(e) => handleEditKeyDown(e, false)}
-                                  className="h-6 px-1 py-0 text-sm flex-1"
+                                  className="h-6 px-1 py-0 text-sm flex-1 bg-surface-2 border-border"
                                   autoFocus
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               ) : (
                                 <span
-                                  className="flex-1 truncate"
+                                  className="flex-1 truncate text-text-primary"
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
                                     if (canEdit) startEditing(report.id, 'report', report.title);
@@ -442,7 +449,7 @@ export function AppSidebar() {
                               }}
                               onKeyDown={(e) => handleEditKeyDown(e, true, section.id)}
                               placeholder="Report title..."
-                              className="h-6 px-1 py-0 text-sm flex-1"
+                              className="h-6 px-1 py-0 text-sm flex-1 bg-surface-2 border-border"
                               autoFocus
                               disabled={creating}
                             />
@@ -470,7 +477,7 @@ export function AppSidebar() {
                       }}
                       onKeyDown={(e) => handleEditKeyDown(e, true)}
                       placeholder="Section name..."
-                      className="h-6 px-1 py-0 text-sm flex-1"
+                      className="h-6 px-1 py-0 text-sm flex-1 bg-surface-2 border-border"
                       autoFocus
                       disabled={creating}
                     />
@@ -487,7 +494,15 @@ export function AppSidebar() {
                           if (!editingItem) navigate(`/app/report/${report.id}`);
                         }}
                         isActive={params.reportId === report.id}
+                        className={`hover:bg-[var(--surface-3)] ${
+                          params.reportId === report.id 
+                            ? 'bg-[var(--accent-soft)]/30 text-[var(--text-primary)] relative' 
+                            : 'text-[var(--text-secondary)]'
+                        }`}
                       >
+                        {params.reportId === report.id && (
+                          <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--accent)] rounded-r"></span>
+                        )}
                         <FileText className="h-4 w-4 shrink-0" />
                         {state !== 'collapsed' && (
                           editingItem?.id === report.id ? (
@@ -496,13 +511,13 @@ export function AppSidebar() {
                               onChange={(e) => setEditingItem({ ...editingItem, value: e.target.value })}
                               onBlur={() => handleUpdateItem()}
                               onKeyDown={(e) => handleEditKeyDown(e, false)}
-                              className="h-6 px-1 py-0 text-sm flex-1"
+                              className="h-6 px-1 py-0 text-sm flex-1 bg-surface-2 border-border"
                               autoFocus
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             <span
-                              className="flex-1 truncate"
+                              className="flex-1 truncate text-text-primary"
                               onDoubleClick={(e) => {
                                 e.stopPropagation();
                                 if (canEdit) startEditing(report.id, 'report', report.title);

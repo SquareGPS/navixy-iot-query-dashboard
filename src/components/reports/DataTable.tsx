@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import {
   Select,
   SelectContent,
@@ -61,9 +61,9 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
   if (loading) {
     return (
       <div className="space-y-3">
-        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full bg-surface-3" />
         {[...Array(5)].map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
+          <Skeleton key={i} className="h-12 w-full bg-surface-3" />
         ))}
       </div>
     );
@@ -71,10 +71,10 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
 
   if (!data.length) {
     return (
-      <div className="flex items-center justify-center py-12 border rounded-lg">
+      <div className="flex items-center justify-center py-12 border border-border rounded-md bg-surface-2">
         <div className="text-center space-y-2">
-          <p className="text-muted-foreground">No data available</p>
-          <p className="text-sm text-muted-foreground">Try adjusting your query</p>
+          <p className="text-text-muted">No data available</p>
+          <p className="text-sm text-text-muted">Try adjusting your query</p>
         </div>
       </div>
     );
@@ -84,27 +84,27 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border">
-        <Table>
+      <div className="rounded-md border border-border bg-surface-2">
+        <Table className="table">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                <TableHead className="w-12">#</TableHead>
+                <TableHead className="w-12 text-text-secondary">#</TableHead>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className="text-text-secondary">
                     {header.isPlaceholder ? null : (
                       <div className="space-y-1">
                         <div
-                          className={header.column.getCanSort() ? 'cursor-pointer select-none flex items-center gap-2' : 'flex items-center gap-2'}
+                          className={header.column.getCanSort() ? 'cursor-pointer select-none flex items-center gap-2 hover:text-text-primary' : 'flex items-center gap-2'}
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           {header.column.getCanSort() && (
-                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                            <ArrowUpDown className="h-4 w-4 text-text-muted" />
                           )}
                         </div>
                         {columnTypes && columnTypes[header.column.id] && (
-                          <div className="text-xs text-muted-foreground font-normal">
+                          <div className="text-xs text-text-muted font-normal">
                             {columnTypes[header.column.id]}
                           </div>
                         )}
@@ -117,8 +117,8 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row, index) => (
-              <TableRow key={row.id}>
-                <TableCell className="text-muted-foreground text-xs font-mono">{startingRowNumber + index + 1}</TableCell>
+              <TableRow key={row.id} className="hover:bg-surface-3">
+                <TableCell className="text-text-muted text-xs font-mono numeric">{startingRowNumber + index + 1}</TableCell>
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id} className="max-w-xs">
                     <div className="truncate" title={String(cell.getValue())}>
@@ -135,15 +135,15 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
       {pagination && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Rows per page</span>
+            <span className="text-sm text-text-secondary">Rows per page</span>
             <Select
               value={pagination.pageSize.toString()}
               onValueChange={(value) => pagination.onPageSizeChange(Number(value))}
             >
-              <SelectTrigger className="w-20">
+              <SelectTrigger className="w-20 bg-surface-2 border-border">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-surface-2 border-border">
                 {[10, 25, 50, 100].map((size) => (
                   <SelectItem key={size} value={size.toString()}>
                     {size}
@@ -154,7 +154,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-text-secondary">
               Page {pagination.page} of {totalPages} ({pagination.total} total)
             </span>
             <div className="flex gap-1">
@@ -163,6 +163,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
                 size="icon"
                 onClick={() => pagination.onPageChange(1)}
                 disabled={pagination.page === 1}
+                className="hover:bg-surface-3 border-border"
               >
                 <ChevronsLeft className="h-4 w-4" />
               </Button>
@@ -171,6 +172,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
                 size="icon"
                 onClick={() => pagination.onPageChange(pagination.page - 1)}
                 disabled={pagination.page === 1}
+                className="hover:bg-surface-3 border-border"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -179,6 +181,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
                 size="icon"
                 onClick={() => pagination.onPageChange(pagination.page + 1)}
                 disabled={pagination.page >= totalPages}
+                className="hover:bg-surface-3 border-border"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -187,6 +190,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
                 size="icon"
                 onClick={() => pagination.onPageChange(totalPages)}
                 disabled={pagination.page >= totalPages}
+                className="hover:bg-surface-3 border-border"
               >
                 <ChevronsRight className="h-4 w-4" />
               </Button>

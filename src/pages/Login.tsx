@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { BarChart3 } from 'lucide-react';
@@ -51,30 +51,31 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/20 to-background p-4">
-      <Card className="w-full max-w-md shadow-lg border-border/50">
-        <CardHeader className="space-y-4 text-center">
-          <div className="flex justify-center">
-            <div className="p-3 bg-primary rounded-xl">
-              <BarChart3 className="h-8 w-8 text-primary-foreground" />
+    <div className="min-h-screen flex items-center justify-center bg-bg p-4">
+      <Card className="w-full max-w-md">
+        <div className="space-y-6">
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="p-3 bg-accent rounded-xl">
+                <BarChart3 className="h-8 w-8 text-white" />
+              </div>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary">Navixy Reports</h1>
+              <p className="text-text-muted">Design and view analytics reports</p>
             </div>
           </div>
-          <div>
-            <CardTitle className="text-2xl font-bold">Reports Flex</CardTitle>
-            <CardDescription>Design and view analytics reports</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
+          
           <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 bg-surface-3">
+              <TabsTrigger value="signin" className="data-[state=active]:bg-surface-2">Sign In</TabsTrigger>
+              <TabsTrigger value="signup" className="data-[state=active]:bg-surface-2">Sign Up</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="signin">
+            <TabsContent value="signin" className="space-y-4">
               <form onSubmit={handleSignIn} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email" className="text-text-secondary">Email</Label>
                   <Input
                     id="email"
                     type="email"
@@ -82,33 +83,35 @@ const Login = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    className="bg-surface-3 border-border"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password" className="text-text-secondary">Password</Label>
                   <Input
                     id="password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    className="bg-surface-3 border-border"
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
               </form>
-              <div className="mt-4 p-3 bg-muted rounded-lg text-sm text-muted-foreground">
-                <p className="font-semibold mb-1">Demo Account:</p>
+              <div className="p-3 bg-surface-3 rounded-lg text-sm text-text-muted">
+                <p className="font-semibold mb-1 text-text-secondary">Demo Account:</p>
                 <p>Email: admin@example.com</p>
                 <p>Password: admin123</p>
               </div>
             </TabsContent>
             
-            <TabsContent value="signup">
+            <TabsContent value="signup" className="space-y-4">
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
+                  <Label htmlFor="signup-email" className="text-text-secondary">Email</Label>
                   <Input
                     id="signup-email"
                     type="email"
@@ -116,10 +119,11 @@ const Login = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    className="bg-surface-3 border-border"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
+                  <Label htmlFor="signup-password" className="text-text-secondary">Password</Label>
                   <Input
                     id="signup-password"
                     type="password"
@@ -127,6 +131,7 @@ const Login = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
+                    className="bg-surface-3 border-border"
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
@@ -135,7 +140,7 @@ const Login = () => {
               </form>
             </TabsContent>
           </Tabs>
-        </CardContent>
+        </div>
       </Card>
     </div>
   );
