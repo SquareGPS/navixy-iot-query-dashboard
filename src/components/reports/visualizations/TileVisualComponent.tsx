@@ -17,20 +17,29 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
 
   useEffect(() => {
     const fetchValue = async () => {
+      console.log('=== TileVisualComponent fetchValue ===');
+      console.log('SQL query:', visual.query.sql);
+      console.log('Visual label:', visual.label);
+      
       setLoading(true);
       try {
         const { data: result, error } = await supabase.functions.invoke('run-sql-tile', {
           body: { sql: visual.query.sql },
         });
 
+        console.log('Tile query result:', { result, error });
+
         if (error) throw error;
         
-        setValue(result.value !== undefined ? Number(result.value) : null);
+        const newValue = result.value !== undefined ? Number(result.value) : null;
+        console.log('Setting tile value:', newValue);
+        setValue(newValue);
       } catch (err) {
         console.error('Error fetching tile value:', err);
         setValue(null);
       } finally {
         setLoading(false);
+        console.log('=== TileVisualComponent fetchValue complete ===');
       }
     };
 

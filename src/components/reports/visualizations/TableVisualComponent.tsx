@@ -21,11 +21,17 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
 
   useEffect(() => {
     const fetchData = async () => {
+      console.log('=== TableVisualComponent fetchData ===');
+      console.log('SQL query:', visual.query.sql);
+      console.log('Full visual object:', visual);
+      
       setLoading(true);
       try {
         const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
           body: { sql: visual.query.sql, page: 1, pageSize: visual.options?.page_size || 25 },
         });
+
+        console.log('Query result:', { result, error });
 
         if (error) throw error;
         
@@ -36,6 +42,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
         }
 
         if (result?.rows) {
+          console.log('Setting table data, row count:', result.rows.length);
           setData(result.rows);
           
           // Build columns from schema or result
@@ -75,12 +82,14 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
             cols = [];
           }
           
+          console.log('Setting columns, count:', cols.length);
           setColumns(cols);
         }
       } catch (err) {
         console.error('Error fetching table data:', err);
       } finally {
         setLoading(false);
+        console.log('=== TableVisualComponent fetchData complete ===');
       }
     };
 
