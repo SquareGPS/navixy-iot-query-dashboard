@@ -317,7 +317,7 @@ const SqlEditor = () => {
             <CardContent className="p-0">
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <div className="border-b px-4 pt-4">
-                  <TabsList className="h-auto p-0 bg-transparent flex items-center gap-0">
+                  <TabsList className="h-auto p-0 bg-transparent flex items-center justify-start gap-0">
                     {tabs.map((tab) => (
                       <TabsTrigger
                         key={tab.id}
