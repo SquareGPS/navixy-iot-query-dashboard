@@ -1,6 +1,6 @@
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/Button';
-import { LogOut, Moon, Sun, Settings, Database } from 'lucide-react';
+import { LogOut, Moon, Sun, Settings } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from 'next-themes';
 import { useNavigate } from 'react-router-dom';
@@ -69,17 +69,10 @@ export function AppHeader() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {user?.role === 'admin' && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate('/app/settings')} className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/app/sql-editor')} className="cursor-pointer">
-                    <Database className="mr-2 h-4 w-4" />
-                    SQL Editor
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
+                <DropdownMenuItem onClick={() => navigate('/app/settings')} className="cursor-pointer">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={signOut} className="text-danger cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />

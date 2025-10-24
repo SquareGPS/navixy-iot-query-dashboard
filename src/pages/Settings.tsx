@@ -12,7 +12,7 @@ import { Loader2, Database, CheckCircle2, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const Settings = () => {
-  const { user, userRole, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -87,17 +87,17 @@ const Settings = () => {
     if (!loading && !user) {
       navigate('/login');
     }
-    if (!loading && userRole !== 'admin') {
+    if (!loading && user?.role !== 'admin') {
       navigate('/app');
       toast.error('You do not have permission to access settings');
     }
-  }, [user, userRole, loading, navigate]);
+  }, [user, loading, navigate]);
 
   useEffect(() => {
-    if (userRole === 'admin') {
+    if (user?.role === 'admin') {
       fetchSettings();
     }
-  }, [userRole]);
+  }, [user?.role]);
 
   const fetchSettings = async () => {
     try {
@@ -216,7 +216,7 @@ const Settings = () => {
     setTesting(false);
   };
 
-  if (loading || userRole !== 'admin') {
+  if (loading || user?.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

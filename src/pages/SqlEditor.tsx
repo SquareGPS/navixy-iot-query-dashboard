@@ -27,7 +27,7 @@ interface QueryTab {
 }
 
 const SqlEditor = () => {
-  const { user, userRole, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [tabs, setTabs] = useState<QueryTab[]>([
     {
@@ -47,10 +47,10 @@ const SqlEditor = () => {
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabName, setEditingTabName] = useState('');
 
-  // Redirect if not admin
-  if (!loading && (!user || userRole !== 'admin')) {
+  // Redirect if not admin or editor
+  if (!loading && (!user || !['admin', 'editor'].includes(user?.role || ''))) {
     navigate('/app');
-    toast.error('Access denied. Admin role required.');
+    toast.error('Access denied. Admin or Editor role required.');
     return null;
   }
 

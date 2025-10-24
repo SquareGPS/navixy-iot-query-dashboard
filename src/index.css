@@ -5,12 +5,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Scale down entire app to 90% */
+/* Reduce font size instead of scaling */
 html {
-  transform: scale(0.9);
-  transform-origin: top left;
-  width: 111.11%; /* Compensate for scale: 100% / 0.9 = 111.11% */
-  height: 111.11%;
+  font-size: 14px; /* Base font size reduced from default 16px */
 }
 
 body {

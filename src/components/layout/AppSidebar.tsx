@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sidebar,
@@ -535,6 +535,31 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Tools Section */}
+        {['admin', 'editor'].includes(user?.role || '') && (
+          <SidebarGroup className="mt-auto">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton 
+                    onClick={() => navigate('/app/sql-editor')}
+                    className={`w-full ${
+                      location.pathname === '/app/sql-editor' 
+                        ? 'bg-accent-soft text-accent' 
+                        : 'hover:bg-surface-3'
+                    }`}
+                  >
+                    <Database className="h-4 w-4 shrink-0" />
+                    {state !== 'collapsed' && (
+                      <span className="flex-1 truncate text-text-primary">SQL Editor</span>
+                    )}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
     </>
