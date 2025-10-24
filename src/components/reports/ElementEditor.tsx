@@ -114,59 +114,70 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4">
+        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0">
           <DialogTitle>Edit: {element.label}</DialogTitle>
           <DialogDescription>
             Modify the SQL query and parameters for this element
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="sql" className="flex-1 flex flex-col px-6 overflow-hidden">
-          <TabsList className="grid w-full grid-cols-2">
+        <Tabs defaultValue="sql" className="flex-1 flex flex-col min-h-0">
+          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-2 flex-shrink-0">
             <TabsTrigger value="sql">SQL Query</TabsTrigger>
             <TabsTrigger value="params">Parameters</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="sql" className="flex-1 mt-4 overflow-auto flex flex-col gap-4">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <Label>SQL Query</Label>
-                <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
-                  <Play className="h-3.5 w-3.5 mr-1.5" />
-                  {testing ? 'Testing...' : 'Test Query'}
-                </Button>
+          <TabsContent value="sql" className="flex-1 flex flex-col min-h-0 mt-4 px-6">
+            <div className="flex-1 flex flex-col min-h-0 gap-4">
+              {/* SQL Editor Section - Takes 50% */}
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex justify-between items-center mb-2 flex-shrink-0">
+                  <Label>SQL Query</Label>
+                  <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
+                    <Play className="h-3.5 w-3.5 mr-1.5" />
+                    {testing ? 'Testing...' : 'Test Query'}
+                  </Button>
+                </div>
+                <div className="flex-1 border rounded-md overflow-hidden min-h-0">
+                  <SqlEditor
+                    value={sql}
+                    onChange={setSql}
+                    height="100%"
+                    language="sql"
+                  />
+                </div>
               </div>
-              <div className="h-[200px] border rounded-md overflow-hidden">
-                <SqlEditor
-                  value={sql}
-                  onChange={setSql}
-                  height="100%"
-                  language="sql"
-                />
+
+              {/* Results Section - Takes 50% */}
+              <div className="flex-1 flex flex-col min-h-0">
+                {testError && (
+                  <Alert variant="destructive" className="mb-2 flex-shrink-0">
+                    <AlertDescription>{testError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex justify-between items-center mb-2 flex-shrink-0">
+                  <Label>Test Results</Label>
+                  {testResults && (
+                    <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
+                  )}
+                </div>
+                
+                <div className="flex-1 border rounded-md overflow-auto min-h-0">
+                  {testResults ? (
+                    <DataTable data={testResults.rows} columns={testResults.columns} />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      Click "Test Query" to see results
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-
-            {testError && (
-              <Alert variant="destructive">
-                <AlertDescription>{testError}</AlertDescription>
-              </Alert>
-            )}
-
-            {testResults && (
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <Label>Test Results</Label>
-                  <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
-                </div>
-                <div className="border rounded-md">
-                  <DataTable data={testResults.rows} columns={testResults.columns} />
-                </div>
-              </div>
-            )}
           </TabsContent>
           
-          <TabsContent value="params" className="flex-1 mt-4 overflow-hidden flex flex-col">
-            <Label className="mb-2">Query Parameters (JSON)</Label>
+          <TabsContent value="params" className="flex-1 mt-4 px-6 flex flex-col min-h-0">
+            <Label className="mb-2 flex-shrink-0">Query Parameters (JSON)</Label>
             <Textarea
               value={params}
               onChange={(e) => setParams(e.target.value)}
@@ -176,7 +187,7 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 px-6 py-4 border-t">
+        <div className="flex justify-end gap-2 px-6 py-4 border-t flex-shrink-0">
           <Button onClick={onClose} variant="ghost" size="sm">
             <X className="h-4 w-4 mr-2" />
             Cancel
