@@ -30,7 +30,7 @@ export function SqlEditor({ value, onChange, onExecute, height = '300px', readOn
   };
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-hidden h-full">
       <Editor
         height={height}
         language={language}
