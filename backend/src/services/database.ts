@@ -275,6 +275,69 @@ export class DatabaseService {
   // External Database Methods
   // ==========================================
 
+  async testConnectionWithSettings(settings: any): Promise<void> {
+    try {
+      let config: DatabaseConfig;
+
+      if (settings.external_db_url) {
+        config = this.parsePostgresUrl(settings.external_db_url);
+      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
+        config = {
+          user: settings.external_db_user,
+          password: settings.external_db_password || '',
+          database: settings.external_db_name,
+          hostname: settings.external_db_host,
+          port: settings.external_db_port || 5432,
+          ssl: settings.external_db_ssl || false,
+        };
+      } else {
+        throw new CustomError('Incomplete database configuration provided for testing', 400);
+      }
+
+      // Create a temporary pool for testing
+      const testPool = new Pool({
+        user: config.user,
+        password: config.password,
+        database: config.database,
+        host: config.hostname,
+        port: config.port,
+        ssl: config.ssl ? { rejectUnauthorized: false } : false,
+        max: 1,
+        idleTimeoutMillis: 5000,
+        connectionTimeoutMillis: 5000,
+      });
+
+      let client: PoolClient | null = null;
+      try {
+        client = await testPool.connect();
+        await client.query('SELECT 1 as test');
+        logger.info('Test connection successful', {
+          host: config.hostname,
+          port: config.port,
+          database: config.database,
+          user: config.user
+        });
+      } finally {
+        if (client) {
+          client.release();
+        }
+        await testPool.end();
+      }
+    } catch (error: any) {
+      logger.error('Test connection failed:', {
+        error: error.message,
+        settings: {
+          host: settings.external_db_host,
+          port: settings.external_db_port,
+          database: settings.external_db_name,
+          user: settings.external_db_user,
+          hasPassword: !!settings.external_db_password
+        }
+      });
+      throw new CustomError(`Database connection failed: ${error.message}`, 400);
+    }
+  }
+
   private async getExternalDatabaseConfig(): Promise<DatabaseConfig> {
     try {
       const settings = await this.getAppSettings();

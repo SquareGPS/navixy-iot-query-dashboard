@@ -177,12 +177,9 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
   try {
     const { external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl } = req.body;
 
-    // Temporarily update settings for testing
     const dbService = DatabaseService.getInstance();
-    const currentSettings = await dbService.getAppSettings();
     
     const testSettings = {
-      ...currentSettings,
       external_db_url,
       external_db_host,
       external_db_port,
@@ -192,22 +189,13 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
       external_db_ssl
     };
 
-    await dbService.updateAppSettings(testSettings);
-
-    // Test the connection
-    try {
-      await dbService.executeTableQuery('SELECT 1 as test', 1, 1);
-      
-      res.json({
-        success: true,
-        message: 'Database connection successful'
-      });
-    } catch (connectionError) {
-      // Restore original settings
-      await dbService.updateAppSettings(currentSettings);
-      
-      throw new CustomError(`Database connection failed: ${connectionError instanceof Error ? connectionError.message : 'Unknown error'}`, 400);
-    }
+    // Test the connection without saving settings
+    await dbService.testConnectionWithSettings(testSettings);
+    
+    res.json({
+      success: true,
+      message: 'Database connection successful'
+    });
   } catch (error) {
     next(error);
   }
