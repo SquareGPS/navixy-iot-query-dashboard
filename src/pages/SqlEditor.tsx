@@ -135,9 +135,9 @@ const SqlEditor = () => {
       const fetchTime = fetchEndTime - fetchStartTime;
       const executedAt = new Date();
 
-      // Handle edge function invocation errors
+      // Handle edge function invocation errors (network, auth, etc.)
       if (queryError) {
-        console.error('Edge function error:', queryError);
+        console.error('Edge function invocation error:', queryError);
         const errorMsg = queryError.message || 'Failed to connect to database';
         setTabs(
           tabs.map((t) =>
@@ -154,7 +154,7 @@ const SqlEditor = () => {
           )
         );
         toast.error(errorMsg);
-        return;
+        return; // Exit early
       }
 
       // Handle SQL execution errors from edge function
@@ -182,26 +182,29 @@ const SqlEditor = () => {
           )
         );
         toast.error(errorMsg);
-      } else {
-        setTabs(
-          tabs.map((t) =>
-            t.id === tabId
-              ? {
-                  ...t,
-                  executing: false,
-                  results: data,
-                  rowCount: data.rows?.length || 0,
-                  executionTime,
-                  fetchTime,
-                  executedAt,
-                }
-              : t
-          )
-        );
-        toast.success('Query executed successfully');
+        return; // Exit early on error
       }
+
+      // Success case - only reached if no errors
+      setTabs(
+        tabs.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                executing: false,
+                results: data,
+                error: null, // Clear any previous errors
+                rowCount: data.rows?.length || 0,
+                executionTime,
+                fetchTime,
+                executedAt,
+              }
+            : t
+        )
+      );
+      toast.success('Query executed successfully');
     } catch (err: any) {
-      console.error('Error executing query:', err);
+      console.error('Unexpected error executing query:', err);
       console.error('Error details:', {
         name: err.name,
         message: err.message,
