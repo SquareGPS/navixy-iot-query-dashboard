@@ -276,170 +276,172 @@ const SqlEditor = () => {
 
   return (
     <AppLayout>
-      <div className="container max-w-7xl py-8">
-        <div className="space-y-6">
+      <div className="container max-w-7xl py-6">
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
-            <Database className="h-8 w-8 text-primary" />
+            <Database className="h-7 w-7 text-primary" />
             <div>
-              <h1 className="text-3xl font-bold text-foreground">SQL Editor</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-2xl font-bold text-foreground">SQL Editor</h1>
+              <p className="text-sm text-muted-foreground">
                 Write and execute SELECT queries to test your database connection
               </p>
             </div>
           </div>
 
-          <Card className="p-0">
+          <div className="border border-border rounded-lg bg-background">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <div className="border-b px-4 pt-4">
-                  <TabsList className="h-auto p-0 bg-transparent flex items-center justify-start gap-0">
-                    {tabs.map((tab) => (
-                      <TabsTrigger
-                        key={tab.id}
-                        value={tab.id}
-                        className="relative rounded-t-md rounded-b-none data-[state=active]:bg-background data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary px-3 py-2"
+              <div className="border-b border-border px-3 pt-3">
+                <TabsList className="h-auto p-0 bg-transparent flex items-center justify-start gap-0">
+                  {tabs.map((tab) => (
+                    <TabsTrigger
+                      key={tab.id}
+                      value={tab.id}
+                      className="relative rounded-t-md rounded-b-none data-[state=active]:bg-background data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary px-3 py-2 text-sm"
+                    >
+                      {editingTabId === tab.id ? (
+                        <Input
+                          value={editingTabName}
+                          onChange={(e) => setEditingTabName(e.target.value)}
+                          onBlur={() => saveTabName(tab.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              saveTabName(tab.id);
+                            } else if (e.key === 'Escape') {
+                              cancelEditingTab();
+                            }
+                          }}
+                          className="h-6 w-24 px-1 py-0 text-sm"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span
+                          className="mr-2"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startEditingTab(tab.id, tab.name);
+                          }}
+                        >
+                          {tab.name}
+                        </span>
+                      )}
+                      {tabs.length > 1 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(tab.id);
+                          }}
+                          className="ml-1 hover:bg-muted rounded p-0.5"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </TabsTrigger>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={addNewTab}
+                    className="h-8 w-8 p-0 ml-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </TabsList>
+              </div>
+
+              {tabs.map((tab) => (
+                <TabsContent key={tab.id} value={tab.id} className="m-0 p-3 space-y-3">
+                  <div className="space-y-2">
+                    <SqlEditorComponent
+                      value={tab.sql}
+                      onChange={(val) => updateTabSql(tab.id, val)}
+                      onExecute={() => handleExecuteQuery(tab.id)}
+                      height="280px"
+                    />
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3">
+                        {tab.executionTime !== null && (
+                          <span>Query time: {tab.executionTime.toFixed(2)}ms</span>
+                        )}
+                        {tab.fetchTime !== null && (
+                          <span>Fetch time: {tab.fetchTime.toFixed(2)}ms</span>
+                        )}
+                        {tab.results && (
+                          <span>{tab.rowCount} row{tab.rowCount !== 1 ? 's' : ''} returned</span>
+                        )}
+                        {tab.executedAt && (
+                          <span>Executed: {tab.executedAt.toLocaleTimeString()}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Only SELECT queries are allowed for security reasons
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleExecuteQuery(tab.id)}
+                      disabled={tab.executing || !tab.sql.trim()}
+                      size="sm"
+                    >
+                      {tab.executing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Executing...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Execute Query
+                        </>
+                      )}
+                    </Button>
+                    {tab.results && tab.results.rows && tab.results.rows.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => exportToCSV(tab.id)}
                       >
-                        {editingTabId === tab.id ? (
-                          <Input
-                            value={editingTabName}
-                            onChange={(e) => setEditingTabName(e.target.value)}
-                            onBlur={() => saveTabName(tab.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                saveTabName(tab.id);
-                              } else if (e.key === 'Escape') {
-                                cancelEditingTab();
-                              }
-                            }}
-                            className="h-6 w-24 px-1 py-0 text-sm"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
+                        <Download className="mr-2 h-4 w-4" />
+                        Export CSV
+                      </Button>
+                    )}
+                  </div>
+
+                  {tab.error && (
+                    <Alert variant="destructive">
+                      <AlertDescription className="font-mono text-sm whitespace-pre-wrap">
+                        <strong>Error:</strong> {tab.error}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {tab.results && (
+                    <div className="border border-border rounded-md bg-background">
+                      <div className="p-3">
+                        {tab.results.rows && tab.results.rows.length > 0 ? (
+                          <DataTable
+                            data={tab.results.rows}
+                            columns={(tab.results.columns || []).map((col: string) => ({
+                              id: col,
+                              accessorKey: col,
+                              header: col,
+                            }))}
+                            columnTypes={tab.results.columnTypes}
                           />
                         ) : (
-                          <span
-                            className="mr-2"
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              startEditingTab(tab.id, tab.name);
-                            }}
-                          >
-                            {tab.name}
-                          </span>
+                          <div className="text-center py-6 text-muted-foreground">
+                            No results returned
+                          </div>
                         )}
-                        {tabs.length > 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeTab(tab.id);
-                            }}
-                            className="ml-1 hover:bg-muted rounded p-0.5"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </TabsTrigger>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={addNewTab}
-                      className="h-8 w-8 p-0 ml-1"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </TabsList>
-                </div>
-
-                {tabs.map((tab) => (
-                  <TabsContent key={tab.id} value={tab.id} className="m-0 p-4 space-y-4">
-                    <div className="space-y-2">
-                      <SqlEditorComponent
-                        value={tab.sql}
-                        onChange={(val) => updateTabSql(tab.id, val)}
-                        onExecute={() => handleExecuteQuery(tab.id)}
-                        height="300px"
-                      />
-                      <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <div className="flex items-center gap-4">
-                          {tab.executionTime !== null && (
-                            <span>Query time: {tab.executionTime.toFixed(2)}ms</span>
-                          )}
-                          {tab.fetchTime !== null && (
-                            <span>Fetch time: {tab.fetchTime.toFixed(2)}ms</span>
-                          )}
-                          {tab.results && (
-                            <span>{tab.rowCount} row{tab.rowCount !== 1 ? 's' : ''} returned</span>
-                          )}
-                          {tab.executedAt && (
-                            <span>Executed: {tab.executedAt.toLocaleTimeString()}</span>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Only SELECT queries are allowed for security reasons
-                        </p>
                       </div>
                     </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleExecuteQuery(tab.id)}
-                        disabled={tab.executing || !tab.sql.trim()}
-                      >
-                        {tab.executing ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Executing...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="mr-2 h-4 w-4" />
-                            Execute Query
-                          </>
-                        )}
-                      </Button>
-                      {tab.results && tab.results.rows && tab.results.rows.length > 0 && (
-                        <Button
-                          variant="outline"
-                          onClick={() => exportToCSV(tab.id)}
-                        >
-                          <Download className="mr-2 h-4 w-4" />
-                          Export CSV
-                        </Button>
-                      )}
-                    </div>
-
-                    {tab.error && (
-                      <Alert variant="destructive">
-                        <AlertDescription className="font-mono text-sm whitespace-pre-wrap">
-                          <strong>Error:</strong> {tab.error}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    {tab.results && (
-                      <Card>
-                        <div className="p-4">
-                          {tab.results.rows && tab.results.rows.length > 0 ? (
-                            <DataTable
-                              data={tab.results.rows}
-                              columns={(tab.results.columns || []).map((col: string) => ({
-                                id: col,
-                                accessorKey: col,
-                                header: col,
-                              }))}
-                              columnTypes={tab.results.columnTypes}
-                            />
-                          ) : (
-                            <div className="text-center py-8 text-muted-foreground">
-                              No results returned
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                    )}
-                  </TabsContent>
-                ))}
-              </Tabs>
-          </Card>
+                  )}
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
         </div>
       </div>
     </AppLayout>
