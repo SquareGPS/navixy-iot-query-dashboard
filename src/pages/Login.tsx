@@ -60,7 +60,7 @@ const Login = () => {
             </div>
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">Reports MVP</CardTitle>
+            <CardTitle className="text-2xl font-bold">Reports Flex</CardTitle>
             <CardDescription>Design and view analytics reports</CardDescription>
           </div>
         </CardHeader>

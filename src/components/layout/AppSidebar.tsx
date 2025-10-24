@@ -272,7 +272,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center gap-2 px-2 py-4">
             <BarChart3 className="h-5 w-5 text-primary" />
-            {state !== 'collapsed' && <span className="font-semibold">Reports MVP</span>}
+            {state !== 'collapsed' && <span className="font-semibold">Reports Flex</span>}
           </SidebarGroupLabel>
 
           {state !== 'collapsed' && (

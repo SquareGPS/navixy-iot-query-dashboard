@@ -25,7 +25,7 @@ const AppPage = () => {
     <AppLayout>
       <div className="flex items-center justify-center h-full">
         <div className="text-center space-y-4 p-8">
-          <h1 className="text-4xl font-bold text-foreground">Welcome to Reports MVP</h1>
+          <h1 className="text-4xl font-bold text-foreground">Welcome to Reports Flex</h1>
           <p className="text-muted-foreground text-lg">
             Select a report from the sidebar to get started
           </p>
