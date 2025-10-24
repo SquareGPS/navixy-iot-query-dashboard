@@ -15,6 +15,8 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
   const [loading, setLoading] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
 
+  console.log('TileVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
+
   useEffect(() => {
     const fetchValue = async () => {
       console.log('=== TileVisualComponent fetchValue ===');

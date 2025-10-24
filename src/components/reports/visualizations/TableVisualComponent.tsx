@@ -19,6 +19,8 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
   const [loading, setLoading] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
 
+  console.log('TableVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
+
   useEffect(() => {
     const fetchData = async () => {
       console.log('=== TableVisualComponent fetchData ===');

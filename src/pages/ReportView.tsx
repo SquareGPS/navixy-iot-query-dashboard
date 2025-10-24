@@ -285,9 +285,12 @@ const ReportView = () => {
       <div className="space-y-8">
         {schema.rows.map((row, rowIdx) => {
           const inlineEditActive = isEditing && editMode === 'inline';
+          const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query.sql))}`;
+          console.log(`Rendering row ${rowIdx}, key: ${rowKey.substring(0, 50)}...`);
+          
           return (
             <RowRenderer
-              key={`${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query.sql))}`}
+              key={rowKey}
               row={row}
               rowIndex={rowIdx}
               editMode={inlineEditActive}
