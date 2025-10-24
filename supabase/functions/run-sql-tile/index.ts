@@ -26,10 +26,14 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log('=== run-sql-tile: Request received ===');
+  
   try {
     const { sql } = await req.json();
+    console.log('SQL query:', sql);
 
     if (!sql || typeof sql !== 'string') {
+      console.error('Invalid SQL: missing or wrong type');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'SQL query is required' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -38,8 +42,10 @@ serve(async (req) => {
 
     // Validate SQL (only SELECT, no multiple statements)
     const trimmedSql = sql.trim().toUpperCase();
+    console.log('Trimmed SQL (uppercase):', trimmedSql.substring(0, 100));
     
     if (!trimmedSql.startsWith('SELECT')) {
+      console.error('SQL validation failed: not a SELECT query');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Only SELECT queries are allowed' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -47,6 +53,7 @@ serve(async (req) => {
     }
 
     if (sql.includes(';') && sql.trim().indexOf(';') !== sql.trim().length - 1) {
+      console.error('SQL validation failed: multiple statements detected');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Multiple statements are not allowed' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -55,19 +62,23 @@ serve(async (req) => {
 
     // Block dangerous keywords
     const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
-    if (dangerousKeywords.some(keyword => trimmedSql.includes(keyword))) {
+    const foundDangerous = dangerousKeywords.find(keyword => trimmedSql.includes(keyword));
+    if (foundDangerous) {
+      console.error('SQL validation failed: dangerous keyword found:', foundDangerous);
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    console.log('Creating Supabase client...');
     // Create Supabase client to fetch external DB config
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    console.log('Fetching app_settings...');
     // Fetch external DB configuration from app_settings
     const { data: settings, error: settingsError } = await supabase
       .from('app_settings')
@@ -83,11 +94,20 @@ serve(async (req) => {
       );
     }
 
+    console.log('Settings retrieved:', {
+      hasUrl: !!settings?.external_db_url,
+      hasHost: !!settings?.external_db_host,
+      hasDbName: !!settings?.external_db_name,
+      hasUser: !!settings?.external_db_user
+    });
+
     let config;
     
     if (settings?.external_db_url) {
+      console.log('Using external_db_url configuration');
       config = parsePostgresUrl(settings.external_db_url);
     } else if (settings?.external_db_host && settings?.external_db_name && settings?.external_db_user) {
+      console.log('Using individual connection parameters');
       config = {
         user: settings.external_db_user,
         password: settings.external_db_password || '',
@@ -97,44 +117,69 @@ serve(async (req) => {
         tls: settings.external_db_ssl ? { enabled: true, enforce: true } : { enabled: false },
       };
     } else {
+      console.error('Database not configured - missing required settings');
       return new Response(
         JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'External database not configured' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    console.log('DB Config:', {
+      hostname: config.hostname,
+      port: config.port,
+      database: config.database,
+      user: config.user,
+      hasTls: !!config.tls
+    });
+
     // Connect to external PostgreSQL database
     const client = new Client(config);
 
     try {
+      console.log('Connecting to external database...');
       await client.connect();
-      console.log('Connected to external database');
+      console.log('Connected successfully!');
 
       // Execute query with LIMIT 1
       const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
+      console.log('Executing query with LIMIT 1...');
+      console.log('Safe SQL:', safeSql.substring(0, 200));
+      
       const result = await client.queryObject(safeSql);
+      console.log('Query executed. Rows returned:', result.rows?.length || 0);
 
       // Extract first value
       let value: number | null = null;
       if (result.rows && result.rows.length > 0) {
         const firstRow = result.rows[0] as Record<string, any>;
+        console.log('First row keys:', Object.keys(firstRow));
         const firstValue = Object.values(firstRow)[0];
+        console.log('First value:', firstValue, 'Type:', typeof firstValue);
         
         if (typeof firstValue === 'number') {
           value = firstValue;
         } else if (typeof firstValue === 'string' && !isNaN(parseFloat(firstValue))) {
           value = parseFloat(firstValue);
+        } else if (firstValue === null) {
+          value = null;
+        } else {
+          console.warn('Could not convert first value to number:', firstValue);
         }
       }
 
+      console.log('Final value:', value);
       await client.end();
+      console.log('Connection closed');
 
       return new Response(
         JSON.stringify({ value }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } catch (dbError: any) {
-      console.error('Database query error:', dbError);
+      console.error('=== Database query error ===');
+      console.error('Error message:', dbError.message);
+      console.error('Error stack:', dbError.stack);
+      console.error('Error details:', JSON.stringify(dbError, null, 2));
       try {
         await client.end();
       } catch (e) {
@@ -146,7 +191,9 @@ serve(async (req) => {
       );
     }
   } catch (error: any) {
-    console.error('Error in run-sql-tile:', error);
+    console.error('=== Unexpected error in run-sql-tile ===');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     return new Response(
       JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: error.message } }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
