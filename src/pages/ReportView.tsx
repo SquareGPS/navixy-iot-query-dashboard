@@ -124,6 +124,7 @@ const ReportView = () => {
 
       setSchema(updatedSchema);
       setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      setEditingElement(null);
       toast({
         title: 'Success',
         description: 'Element updated successfully',
