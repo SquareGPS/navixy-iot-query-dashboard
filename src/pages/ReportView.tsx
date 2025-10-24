@@ -7,10 +7,9 @@ import { DataTable } from '@/components/reports/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
-import { AlertCircle, Edit, Save } from 'lucide-react';
+import { AlertCircle, Edit, Save, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
@@ -125,61 +124,72 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      <div className="container max-w-7xl py-8">
-        <div className="flex items-start justify-between mb-8">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
-            {schema.subtitle && (
-              <p className="text-muted-foreground">{schema.subtitle}</p>
-            )}
+      <div className="flex flex-col h-[calc(100vh-4rem)]">
+        {/* Report Content */}
+        <div className={isEditing ? "flex-1 overflow-auto" : "flex-1"}>
+          <div className="container max-w-7xl py-8">
+            <div className="flex items-start justify-between mb-8">
+              <div className="space-y-2">
+                <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
+                {schema.subtitle && (
+                  <p className="text-muted-foreground">{schema.subtitle}</p>
+                )}
+              </div>
+              {canEdit && !isEditing && (
+                <Button onClick={() => setIsEditing(true)} variant="outline">
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Schema
+                </Button>
+              )}
+            </div>
+
+            <div className="space-y-8">
+              {schema.rows.map((row, idx) => {
+                if (row.type === 'tiles') {
+                  return <TilesRowComponent key={idx} row={row} />;
+                } else if (row.type === 'table') {
+                  return <TableRowComponent key={idx} row={row} />;
+                } else if (row.type === 'annotation') {
+                  return <AnnotationRowComponent key={idx} row={row} />;
+                }
+                return null;
+              })}
+            </div>
           </div>
-          {canEdit && (
-            <Button onClick={() => setIsEditing(true)} variant="outline">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Schema
-            </Button>
-          )}
         </div>
 
-        <div className="space-y-8">
-          {schema.rows.map((row, idx) => {
-            if (row.type === 'tiles') {
-              return <TilesRowComponent key={idx} row={row} />;
-            } else if (row.type === 'table') {
-              return <TableRowComponent key={idx} row={row} />;
-            } else if (row.type === 'annotation') {
-              return <AnnotationRowComponent key={idx} row={row} />;
-            }
-            return null;
-          })}
-        </div>
+        {/* Editor Panel */}
+        {isEditing && (
+          <div className="h-[50vh] border-t bg-background flex flex-col">
+            <div className="flex items-center justify-between px-6 py-3 border-b">
+              <div>
+                <h3 className="text-lg font-semibold">Edit Report Schema</h3>
+                <p className="text-sm text-muted-foreground">
+                  Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleSaveSchema} disabled={saving} size="sm">
+                  <Save className="h-4 w-4 mr-2" />
+                  {saving ? 'Saving...' : 'Save'}
+                </Button>
+                <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 p-4">
+              <SqlEditor
+                value={editorValue}
+                onChange={setEditorValue}
+                onExecute={handleSaveSchema}
+                height="100%"
+                language="json"
+              />
+            </div>
+          </div>
+        )}
       </div>
-
-      <Sheet open={isEditing} onOpenChange={setIsEditing}>
-        <SheetContent side="bottom" className="h-[85vh] flex flex-col">
-          <SheetHeader className="flex-shrink-0">
-            <SheetTitle>Edit Report Schema</SheetTitle>
-            <SheetDescription>
-              Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 mt-4 mb-16 min-h-0">
-            <SqlEditor
-              value={editorValue}
-              onChange={setEditorValue}
-              onExecute={handleSaveSchema}
-              height="100%"
-              language="json"
-            />
-          </div>
-          <div className="absolute bottom-6 right-6 flex-shrink-0">
-            <Button onClick={handleSaveSchema} disabled={saving}>
-              <Save className="h-4 w-4 mr-2" />
-              {saving ? 'Saving...' : 'Save Schema'}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
     </AppLayout>
   );
 };
