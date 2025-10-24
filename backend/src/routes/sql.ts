@@ -5,6 +5,7 @@ import { RedisService } from '../services/redis.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
+import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
 import crypto from 'crypto';
 
 const router = Router();
@@ -19,14 +20,8 @@ function generateCacheKey(sql: string, params: any): string {
 }
 
 // Execute table query with caching
-router.post('/table', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql, page = 1, pageSize = 25, sort } = req.body;
-
-  if (!sql || typeof sql !== 'string') {
-    return res.status(400).json({
-      error: { code: 'INVALID_SQL', message: 'SQL query is required' }
-    });
-  }
 
   // Generate cache key
   const cacheKey = generateCacheKey(sql, { page, pageSize, sort });
@@ -74,14 +69,8 @@ router.post('/table', asyncHandler(async (req: AuthenticatedRequest, res: Respon
 }));
 
 // Execute tile query with caching
-router.post('/tile', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql } = req.body;
-
-  if (!sql || typeof sql !== 'string') {
-    return res.status(400).json({
-      error: { code: 'INVALID_SQL', message: 'SQL query is required' }
-    });
-  }
 
   // Generate cache key
   const cacheKey = generateCacheKey(sql, { type: 'tile' });

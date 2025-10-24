@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import type { PoolClient } from 'pg';
 import { logger } from '../utils/logger.js';
 import { CustomError } from '../middleware/errorHandler.js';
-import { SQLValidator } from '../utils/sqlValidator.js';
+import { SQLSelectGuard } from '../utils/sqlSelectGuard.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
@@ -435,10 +435,14 @@ export class DatabaseService {
     pageSize: number = 25,
     sort?: string,
   ): Promise<QueryResult> {
-    // Validate SQL
-    const validation = SQLValidator.validate(sql);
-    if (!validation.valid) {
-      throw new CustomError(validation.error!, 400);
+    // Validate SQL using the new SQLSelectGuard
+    try {
+      SQLSelectGuard.assertSafeSelect(sql);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new CustomError(error.message, 400);
+      }
+      throw new CustomError('SQL validation failed', 400);
     }
 
     const config = await this.getExternalDatabaseConfig();
@@ -537,10 +541,14 @@ export class DatabaseService {
   }
 
   async executeTileQuery(sql: string): Promise<TileResult> {
-    // Validate SQL
-    const validation = SQLValidator.validate(sql);
-    if (!validation.valid) {
-      throw new CustomError(validation.error!, 400);
+    // Validate SQL using the new SQLSelectGuard
+    try {
+      SQLSelectGuard.assertSafeSelect(sql);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new CustomError(error.message, 400);
+      }
+      throw new CustomError('SQL validation failed', 400);
     }
 
     const config = await this.getExternalDatabaseConfig();
