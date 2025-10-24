@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { AlertCircle, Edit, Save, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -124,9 +125,75 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      <div className="flex flex-col h-[calc(100vh-4rem)]">
-        {/* Report Content */}
-        <div className={isEditing ? "flex-1 overflow-auto" : "flex-1"}>
+      {isEditing ? (
+        <ResizablePanelGroup direction="vertical" className="h-[calc(100vh-4rem)]">
+          {/* Report Content Panel */}
+          <ResizablePanel defaultSize={50} minSize={20}>
+            <div className="h-full overflow-auto">
+              <div className="container max-w-7xl py-8">
+                <div className="flex items-start justify-between mb-8">
+                  <div className="space-y-2">
+                    <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
+                    {schema.subtitle && (
+                      <p className="text-muted-foreground">{schema.subtitle}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  {schema.rows.map((row, idx) => {
+                    if (row.type === 'tiles') {
+                      return <TilesRowComponent key={idx} row={row} />;
+                    } else if (row.type === 'table') {
+                      return <TableRowComponent key={idx} row={row} />;
+                    } else if (row.type === 'annotation') {
+                      return <AnnotationRowComponent key={idx} row={row} />;
+                    }
+                    return null;
+                  })}
+                </div>
+              </div>
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Editor Panel */}
+          <ResizablePanel defaultSize={50} minSize={20}>
+            <div className="h-full bg-background flex flex-col">
+              <div className="flex items-center justify-between px-6 py-3 border-b flex-shrink-0">
+                <div>
+                  <h3 className="text-lg font-semibold">Edit Report Schema</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleSaveSchema} disabled={saving} size="sm">
+                    <Save className="h-4 w-4 mr-2" />
+                    {saving ? 'Saving...' : 'Save'}
+                  </Button>
+                  <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden p-4">
+                <div className="h-full">
+                  <SqlEditor
+                    value={editorValue}
+                    onChange={setEditorValue}
+                    onExecute={handleSaveSchema}
+                    height="100%"
+                    language="json"
+                  />
+                </div>
+              </div>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        <div className="h-[calc(100vh-4rem)] overflow-auto">
           <div className="container max-w-7xl py-8">
             <div className="flex items-start justify-between mb-8">
               <div className="space-y-2">
@@ -135,7 +202,7 @@ const ReportView = () => {
                   <p className="text-muted-foreground">{schema.subtitle}</p>
                 )}
               </div>
-              {canEdit && !isEditing && (
+              {canEdit && (
                 <Button onClick={() => setIsEditing(true)} variant="outline">
                   <Edit className="h-4 w-4 mr-2" />
                   Edit Schema
@@ -157,39 +224,7 @@ const ReportView = () => {
             </div>
           </div>
         </div>
-
-        {/* Editor Panel */}
-        {isEditing && (
-          <div className="h-[50vh] border-t bg-background flex flex-col">
-            <div className="flex items-center justify-between px-6 py-3 border-b">
-              <div>
-                <h3 className="text-lg font-semibold">Edit Report Schema</h3>
-                <p className="text-sm text-muted-foreground">
-                  Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleSaveSchema} disabled={saving} size="sm">
-                  <Save className="h-4 w-4 mr-2" />
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-                <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="flex-1 p-4">
-              <SqlEditor
-                value={editorValue}
-                onChange={setEditorValue}
-                onExecute={handleSaveSchema}
-                height="100%"
-                language="json"
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </AppLayout>
   );
 };
