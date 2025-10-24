@@ -1,0 +1,83 @@
+import { TileVisualComponent } from './TileVisualComponent';
+import { TableVisualComponent } from './TableVisualComponent';
+import { AnnotationComponent } from './AnnotationComponent';
+import { UnsupportedVisualComponent } from './UnsupportedVisualComponent';
+import type { TilesRow, TableRow, AnnotationRow } from '@/types/report-schema';
+
+interface RowRendererProps {
+  row: TilesRow | TableRow | AnnotationRow;
+  rowIndex: number;
+  editMode: boolean;
+  onEdit: (element: {
+    rowIndex: number;
+    visualIndex: number;
+    label: string;
+    sql: string;
+    params?: Record<string, any>;
+  }) => void;
+}
+
+export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProps) {
+  // Render based on row type
+  switch (row.type) {
+    case 'tiles':
+      return (
+        <div className="space-y-4">
+          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+          
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            {row.visuals.map((visual, visualIdx) => (
+              <TileVisualComponent
+                key={visualIdx}
+                visual={visual}
+                editMode={editMode}
+                onEdit={() => onEdit({
+                  rowIndex,
+                  visualIndex: visualIdx,
+                  label: visual.label,
+                  sql: visual.query.sql,
+                  params: visual.query.params,
+                })}
+              />
+            ))}
+          </div>
+        </div>
+      );
+
+    case 'table': {
+      const visual = row.visuals[0];
+      return (
+        <div className="space-y-4">
+          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+          
+          <TableVisualComponent
+            visual={visual}
+            title={visual.label}
+            editMode={editMode}
+            onEdit={() => onEdit({
+              rowIndex,
+              visualIndex: 0,
+              label: visual.label,
+              sql: visual.query.sql,
+              params: visual.query.params,
+            })}
+          />
+        </div>
+      );
+    }
+
+    case 'annotation':
+      return <AnnotationComponent row={row} />;
+
+    default:
+      // Unsupported type - show warning
+      return (
+        <UnsupportedVisualComponent 
+          type={(row as any).type || 'unknown'} 
+          label={(row as any).title || (row as any).label}
+        />
+      );
+  }
+}

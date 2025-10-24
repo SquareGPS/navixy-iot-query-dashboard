@@ -2,19 +2,17 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { MetricTile } from '@/components/reports/MetricTile';
-import { DataTable } from '@/components/reports/DataTable';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
+import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { AlertCircle, Edit, Save, X, Code, Pencil, Download, Upload } from 'lucide-react';
+import { AlertCircle, Edit, Save, X, Code, Download, Upload } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
+import type { ReportSchema } from '@/types/report-schema';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -250,19 +248,20 @@ const ReportView = () => {
               )}
             </div>
 
-                <div className="space-y-8">
-                  {schema.rows.map((row, rowIdx) => {
-                    const inlineEditActive = isEditing && editMode === 'inline';
-                    if (row.type === 'tiles') {
-                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
-                    } else if (row.type === 'table') {
-                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
-                    } else if (row.type === 'annotation') {
-                      return <AnnotationRowComponent key={rowIdx} row={row} />;
-                    }
-                    return null;
-                  })}
-                 </div>
+      <div className="space-y-8">
+        {schema.rows.map((row, rowIdx) => {
+          const inlineEditActive = isEditing && editMode === 'inline';
+          return (
+            <RowRenderer
+              key={rowIdx}
+              row={row}
+              rowIndex={rowIdx}
+              editMode={inlineEditActive}
+              onEdit={setEditingElement}
+            />
+          );
+        })}
+      </div>
           </div>
         </div>
 
@@ -318,265 +317,6 @@ const ReportView = () => {
         />
       )}
     </AppLayout>
-  );
-};
-
-// Tiles Row Component
-const TilesRowComponent = ({ 
-  row, 
-  rowIndex, 
-  editMode, 
-  onEdit 
-}: { 
-  row: TilesRow; 
-  rowIndex: number;
-  editMode: boolean;
-  onEdit: (element: any) => void;
-}) => {
-  return (
-    <div className="space-y-4">
-      {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
-      {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
-      
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {row.visuals.map((visual, visualIdx) => (
-          <TileWithData
-            key={visualIdx}
-            visual={visual}
-            editMode={editMode}
-            onEdit={() => onEdit({
-              rowIndex,
-              visualIndex: visualIdx,
-              label: visual.label,
-              sql: visual.query.sql,
-              params: visual.query.params,
-            })}
-          />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// Tile with Data Fetching
-const TileWithData = ({ 
-  visual, 
-  editMode, 
-  onEdit 
-}: { 
-  visual: TileVisual;
-  editMode: boolean;
-  onEdit: () => void;
-}) => {
-  const [value, setValue] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
-
-  useEffect(() => {
-    const fetchValue = async () => {
-      setLoading(true);
-      try {
-        const { data: result, error } = await supabase.functions.invoke('run-sql-tile', {
-          body: { sql: visual.query.sql },
-        });
-
-        if (error) throw error;
-        
-        setValue(result.value !== undefined ? Number(result.value) : null);
-      } catch (err) {
-        console.error('Error fetching tile value:', err);
-        setValue(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchValue();
-  }, [visual.query.sql]);
-
-  return (
-    <div 
-      className="relative"
-      onMouseEnter={() => {
-        if (editMode) setIsHovered(true);
-      }}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <MetricTile
-        title={visual.label}
-        value={value}
-        format="number"
-        decimals={visual.options?.precision || 0}
-        loading={loading}
-      />
-      {editMode && isHovered && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-          className="absolute top-2 right-2 p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50"
-        >
-          <Pencil className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  );
-};
-
-// Table Row Component
-const TableRowComponent = ({ 
-  row, 
-  rowIndex, 
-  editMode, 
-  onEdit 
-}: { 
-  row: TableRow;
-  rowIndex: number;
-  editMode: boolean;
-  onEdit: (element: any) => void;
-}) => {
-  const visual = row.visuals[0];
-  const [data, setData] = useState<any[]>([]);
-  const [columns, setColumns] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
-          body: { sql: visual.query.sql, page: 1, pageSize: visual.options?.page_size || 25 },
-        });
-
-        if (error) throw error;
-        
-        // Check if result contains an error
-        if (result?.error) {
-          console.error('Table query error:', result.error);
-          throw new Error(result.error.message || 'Query failed');
-        }
-
-        if (result?.rows) {
-          setData(result.rows);
-          
-          // Build columns from schema or result
-          let cols;
-          if (visual.options?.columns && visual.options.columns.length > 0) {
-            cols = visual.options.columns.map(col => ({
-              id: col.field,
-              accessorKey: col.field,
-              header: col.label || col.field,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
-            }));
-          } else if (result.columns && result.columns.length > 0) {
-            cols = result.columns.map((col: string) => ({
-              id: col,
-              accessorKey: col,
-              header: col,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
-            }));
-          } else if (result.rows.length > 0) {
-            // Fallback: derive columns from first row
-            cols = Object.keys(result.rows[0]).map((col: string) => ({
-              id: col,
-              accessorKey: col,
-              header: col,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
-            }));
-          } else {
-            cols = [];
-          }
-          
-          console.log('Table columns:', cols);
-          console.log('Table data:', result.rows);
-          setColumns(cols);
-        }
-      } catch (err) {
-        console.error('Error fetching table data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [visual.query.sql, visual.options?.page_size, visual.options?.columns]);
-
-  return (
-    <div className="space-y-4">
-      {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
-      {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
-      
-      <div 
-        className="relative"
-        onMouseEnter={() => editMode && setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle>{visual.label}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-96" />
-            ) : (
-              <DataTable data={data} columns={columns} />
-            )}
-          </CardContent>
-        </Card>
-        {editMode && isHovered && (
-          <button
-            onClick={() => onEdit({
-              rowIndex,
-              visualIndex: 0,
-              label: visual.label,
-              sql: visual.query.sql,
-              params: visual.query.params,
-            })}
-            className="absolute top-4 right-4 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Annotation Row Component
-const AnnotationRowComponent = ({ row }: { row: AnnotationRow }) => {
-  const visual = row.visuals[0];
-  
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        {visual.options?.section_name && (
-          <h3 className="text-xl font-semibold mb-2">{visual.options.section_name}</h3>
-        )}
-        {visual.options?.subtitle && (
-          <p className="text-sm text-muted-foreground mb-4">{visual.options.subtitle}</p>
-        )}
-        {visual.options?.text && (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            {visual.options.markdown ? (
-              <div dangerouslySetInnerHTML={{ __html: visual.options.text }} />
-            ) : (
-              <p>{visual.options.text}</p>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 };
 
