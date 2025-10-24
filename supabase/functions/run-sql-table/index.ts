@@ -1,14 +1,11 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
-import { Parser } from 'https://esm.sh/node-sql-parser@5.3.5';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-const parser = new Parser();
 
 // Map common PostgreSQL OID types to readable names
 function getPostgresTypeName(oid: number): string {
@@ -30,56 +27,44 @@ function getPostgresTypeName(oid: number): string {
   return typeMap[oid] || `type(${oid})`;
 }
 
-// Validate SQL using AST parsing
-function validateSQL(sql: string): { valid: boolean; error?: string; sanitized?: string } {
-  try {
-    // Parse SQL to AST
-    const ast = parser.astify(sql, { database: 'Postgresql' });
-    
-    // Ensure it's an array
-    const statements = Array.isArray(ast) ? ast : [ast];
-    
-    // Only allow single SELECT statement
-    if (statements.length !== 1) {
-      return { valid: false, error: 'Only single statements are allowed' };
-    }
-    
-    const stmt = statements[0];
-    
-    // Validate it's a SELECT statement
-    if (stmt.type !== 'select') {
-      return { valid: false, error: 'Only SELECT queries are allowed' };
-    }
-    
-    // Check for dangerous operations in the SELECT
-    const sqlStr = JSON.stringify(stmt);
-    
-    // Block write operations even in subqueries
-    const dangerousPatterns = [
-      'insert', 'update', 'delete', 'drop', 'alter', 'create', 
-      'truncate', 'grant', 'revoke', 'copy', 'set', 'do', 'call',
-      'pg_read_file', 'pg_write_file', 'pg_sleep'
-    ];
-    
-    for (const pattern of dangerousPatterns) {
-      if (sqlStr.toLowerCase().includes(`"type":"${pattern}"`)) {
-        return { valid: false, error: `Prohibited operation detected: ${pattern.toUpperCase()}` };
-      }
-    }
-    
-    // Check for CTEs (WITH clauses) - they can hide write operations
-    if (stmt.with) {
-      return { valid: false, error: 'Common Table Expressions (WITH clauses) are not allowed' };
-    }
-    
-    // Deparse back to SQL to sanitize
-    const sanitized = parser.sqlify(stmt, { database: 'Postgresql' });
-    
-    return { valid: true, sanitized };
-  } catch (error: any) {
-    console.error('SQL parsing error:', error);
-    return { valid: false, error: `Invalid SQL syntax: ${error.message}` };
+// Enhanced SQL validation
+function validateSQL(sql: string): { valid: boolean; error?: string } {
+  // Remove comments
+  let cleanSql = sql.replace(/--[^\n]*(\n|$)/g, '\n');
+  cleanSql = cleanSql.replace(/\/\*[\s\S]*?\*\//g, '');
+  
+  const trimmedSql = cleanSql.trim().toUpperCase();
+  
+  // Must start with SELECT
+  if (!trimmedSql.startsWith('SELECT')) {
+    return { valid: false, error: 'Only SELECT queries are allowed' };
   }
+  
+  // Check for multiple statements
+  if (sql.includes(';') && sql.trim().lastIndexOf(';') !== sql.trim().length - 1) {
+    return { valid: false, error: 'Multiple statements are not allowed' };
+  }
+  
+  // Block dangerous keywords using word boundaries
+  const dangerousKeywords = [
+    'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 
+    'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL',
+    'pg_read_file', 'pg_write_file', 'pg_sleep', 'pg_terminate_backend'
+  ];
+  
+  for (const keyword of dangerousKeywords) {
+    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+    if (regex.test(sql)) {
+      return { valid: false, error: `Prohibited operation: ${keyword}` };
+    }
+  }
+  
+  // Block CTEs that could hide write operations
+  if (/\bWITH\b/i.test(sql)) {
+    return { valid: false, error: 'Common Table Expressions (WITH) are not allowed' };
+  }
+  
+  return { valid: true };
 }
 
 function parsePostgresUrl(url: string) {
@@ -152,7 +137,7 @@ serve(async (req) => {
       );
     }
 
-    // Validate SQL using AST parser
+    // Validate SQL
     const validation = validateSQL(sql.trim());
     
     if (!validation.valid) {
@@ -162,9 +147,6 @@ serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    // Use sanitized SQL from parser
-    const sanitizedSql = validation.sanitized!;
 
     // Create Supabase client to fetch external DB config
     const supabase = createClient(
@@ -216,12 +198,12 @@ serve(async (req) => {
       // Set statement timeout to prevent long-running queries
       await client.queryObject('SET statement_timeout = 30000'); // 30 seconds
 
-      // Extract LIMIT from sanitized SQL if present
-      const limitMatch = sanitizedSql.match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?$/i);
+      // Extract LIMIT from user's query if present
+      const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
       const userLimit = limitMatch ? parseInt(limitMatch[1]) : null;
       
-      // Strip any existing LIMIT/OFFSET from sanitized SQL
-      const cleanedSql = sanitizedSql.replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
+      // Strip any existing LIMIT/OFFSET from the user's query
+      const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
 
       // Get total count
       const countSql = `SELECT COUNT(*) as total FROM (${cleanedSql}) as count_query`;
