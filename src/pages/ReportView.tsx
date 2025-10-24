@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
+import { LoadingWithTimer } from '@/components/ui/loading-with-timer';
 
 interface Tile {
   id: string;
@@ -39,6 +40,7 @@ const ReportView = () => {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 25, total: 0 });
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
+  const [tilesLoading, setTilesLoading] = useState(false);
 
   const canEdit = userRole === 'admin' || userRole === 'editor';
 
@@ -71,6 +73,7 @@ const ReportView = () => {
   };
 
   const fetchTileValues = async (tiles: Tile[]) => {
+    setTilesLoading(true);
     const values: Record<string, number | null> = {};
     
     for (const tile of tiles) {
@@ -86,6 +89,7 @@ const ReportView = () => {
     }
     
     setTileValues(values);
+    setTilesLoading(false);
   };
 
   const fetchTableData = async (sql: string) => {
@@ -122,7 +126,7 @@ const ReportView = () => {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-full">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+          <LoadingWithTimer message="Loading report..." />
         </div>
       </AppLayout>
     );
@@ -175,32 +179,44 @@ const ReportView = () => {
         </div>
 
         {/* Metric Tiles */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tiles.map((tile) => (
-            <MetricTile
-              key={tile.id}
-              title={tile.title}
-              value={tileValues[tile.id] ?? null}
-              format={tile.format as any}
-              decimals={tile.decimals}
-            />
-          ))}
-        </div>
+        {tilesLoading ? (
+          <div className="border rounded-lg">
+            <LoadingWithTimer message="Loading metrics..." />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {tiles.map((tile) => (
+              <MetricTile
+                key={tile.id}
+                title={tile.title}
+                value={tileValues[tile.id] ?? null}
+                format={tile.format as any}
+                decimals={tile.decimals}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Data Table */}
         {tableColumns.length > 0 && (
           <div>
             <h2 className="text-xl font-semibold mb-4">Data Table</h2>
-            <DataTable
-              data={tableData}
-              columns={tableColumns}
-              loading={tableLoading}
-              pagination={{
-                ...pagination,
-                onPageChange: (page) => setPagination(prev => ({ ...prev, page })),
-                onPageSizeChange: (pageSize) => setPagination(prev => ({ ...prev, pageSize, page: 1 }))
-              }}
-            />
+            {tableLoading ? (
+              <div className="border rounded-lg">
+                <LoadingWithTimer message="Loading table data..." />
+              </div>
+            ) : (
+              <DataTable
+                data={tableData}
+                columns={tableColumns}
+                loading={tableLoading}
+                pagination={{
+                  ...pagination,
+                  onPageChange: (page) => setPagination(prev => ({ ...prev, page })),
+                  onPageSizeChange: (pageSize) => setPagination(prev => ({ ...prev, pageSize, page: 1 }))
+                }}
+              />
+            )}
           </div>
         )}
       </div>
