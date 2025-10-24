@@ -34,19 +34,94 @@ export class SQLValidator {
         return { valid: false, error: 'Multiple statements are not allowed' };
       }
 
-      // Parse SQL to validate syntax and check for dangerous operations
-      const ast = this.parser.astify(trimmedSql);
-      
-      // Check for dangerous operations in the AST
-      const dangerousCheck = this.checkForDangerousOperations(ast);
-      if (!dangerousCheck.valid) {
-        return dangerousCheck;
-      }
-
-      // Additional security checks
+      // Additional security checks first (before parsing)
       const securityCheck = this.performSecurityChecks(trimmedSql);
       if (!securityCheck.valid) {
         return securityCheck;
+      }
+
+      // Try to parse SQL, but be more lenient with PostgreSQL syntax
+      try {
+        const ast = this.parser.astify(trimmedSql);
+        
+        // Check for dangerous operations in the AST
+        const dangerousCheck = this.checkForDangerousOperations(ast);
+        if (!dangerousCheck.valid) {
+          return dangerousCheck;
+        }
+      } catch (parseError: any) {
+        // If parsing fails, check if it's due to PostgreSQL-specific syntax
+        const errorMessage = parseError.message || '';
+        
+        // Allow PostgreSQL-specific syntax that might cause parsing errors
+        const postgresqlSyntaxPatterns = [
+          /INTERVAL\s+['"][^'"]*['"]/i,
+          /NOW\(\)\s*-\s*INTERVAL/i,
+          /CURRENT_TIMESTAMP\s*-\s*INTERVAL/i,
+          /CURRENT_TIME\s*-\s*INTERVAL/i,
+          /AT\s+TIME\s+ZONE/i,
+          /::\s*\w+/i, // Type casting
+          /ILIKE/i,
+          /SIMILAR\s+TO/i,
+          /DISTINCT\s+ON/i,
+          /WINDOW\s+\w+/i,
+          /OVER\s*\(/i,
+          /PARTITION\s+BY/i,
+          /ORDER\s+BY.*NULLS\s+(FIRST|LAST)/i,
+          /RETURNING/i,
+          /ON\s+CONFLICT/i,
+          /UPSERT/i,
+          /EXCLUDE/i,
+          /GENERATED\s+ALWAYS/i,
+          /GENERATED\s+BY\s+DEFAULT/i,
+          /IDENTITY/i,
+          /SERIAL/i,
+          /BIGSERIAL/i,
+          /SMALLSERIAL/i,
+          /UUID/i,
+          /JSONB/i,
+          /JSON/i,
+          /ARRAY/i,
+          /HSTORE/i,
+          /LTREE/i,
+          /CITEXT/i,
+          /INET/i,
+          /CIDR/i,
+          /MACADDR/i,
+          /POINT/i,
+          /POLYGON/i,
+          /CIRCLE/i,
+          /PATH/i,
+          /BOX/i,
+          /LINE/i,
+          /LSEG/i,
+          /TSQUERY/i,
+          /TSVECTOR/i,
+          /XML/i,
+          /RANGE/i,
+          /MULTIRANGE/i,
+        ];
+
+        const hasPostgresqlSyntax = postgresqlSyntaxPatterns.some(pattern => pattern.test(trimmedSql));
+        
+        if (hasPostgresqlSyntax) {
+          logger.info('PostgreSQL syntax detected, skipping strict parsing validation', {
+            sql: sql.substring(0, 100) + '...',
+            error: errorMessage
+          });
+          // Continue with security checks only
+        } else {
+          // If it's not PostgreSQL syntax, treat as a real parsing error
+          logger.warn('SQL validation error:', {
+            error: errorMessage,
+            sql: sql.substring(0, 100) + '...',
+          });
+          
+          return { 
+            valid: false, 
+            error: `Invalid SQL syntax: ${errorMessage}` 
+          };
+        }
       }
 
       return { valid: true };

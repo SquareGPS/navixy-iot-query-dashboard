@@ -56,8 +56,8 @@ const limiter = rateLimit({
   legacyHeaders: false,
   // Skip rate limiting for localhost in development
   skip: (req) => {
-    return process.env.NODE_ENV === 'development' && 
-           (req.ip === '127.0.0.1' || req.ip === '::1' || req.ip?.startsWith('::ffff:127.0.0.1'));
+    return !!(process.env.NODE_ENV === 'development' && 
+           (req.ip === '127.0.0.1' || req.ip === '::1' || req.ip?.startsWith('::ffff:127.0.0.1')));
   },
 });
 

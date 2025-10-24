@@ -420,21 +420,29 @@ const SqlEditor = () => {
                   {tab.results && (
                     <div className="border border-border rounded-md bg-background">
                       <div className="p-3">
-                        {tab.results.rows && tab.results.rows.length > 0 ? (
-                          <DataTable
-                            data={tab.results.rows}
-                            columns={(tab.results.columns || []).map((col: string) => ({
-                              id: col,
-                              accessorKey: col,
-                              header: col,
-                            }))}
-                            columnTypes={tab.results.columnTypes}
-                          />
-                        ) : (
-                          <div className="text-center py-6 text-muted-foreground">
-                            No results returned
-                          </div>
-                        )}
+                        {(() => {
+                          console.log('Rendering results for tab:', tab.id);
+                          console.log('Results object:', tab.results);
+                          console.log('Has rows:', !!tab.results.rows);
+                          console.log('Rows length:', tab.results.rows?.length);
+                          console.log('Columns:', tab.results.columns);
+                          
+                          return tab.results.rows && tab.results.rows.length > 0 ? (
+                            <DataTable
+                              data={tab.results.rows}
+                              columns={(tab.results.columns || []).map((col: string) => ({
+                                id: col,
+                                accessorKey: col,
+                                header: col,
+                              }))}
+                              columnTypes={tab.results.columnTypes}
+                            />
+                          ) : (
+                            <div className="text-center py-6 text-muted-foreground">
+                              No results returned
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
