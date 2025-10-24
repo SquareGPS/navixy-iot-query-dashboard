@@ -36,7 +36,7 @@ serve(async (req) => {
       console.error('Invalid SQL: missing or wrong type');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'SQL query is required' } }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -48,7 +48,7 @@ serve(async (req) => {
       console.error('SQL validation failed: not a SELECT query');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Only SELECT queries are allowed' } }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -56,7 +56,7 @@ serve(async (req) => {
       console.error('SQL validation failed: multiple statements detected');
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Multiple statements are not allowed' } }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -71,7 +71,7 @@ serve(async (req) => {
       console.error('SQL validation failed: dangerous keyword found:', foundDangerous);
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -94,7 +94,7 @@ serve(async (req) => {
       console.error('Error fetching settings:', settingsError);
       return new Response(
         JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'Failed to fetch database configuration' } }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -124,7 +124,7 @@ serve(async (req) => {
       console.error('Database not configured - missing required settings');
       return new Response(
         JSON.stringify({ error: { code: 'CONFIG_ERROR', message: 'External database not configured' } }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -221,7 +221,7 @@ serve(async (req) => {
             }
           } 
         }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
   } catch (error: any) {
@@ -230,7 +230,7 @@ serve(async (req) => {
     console.error('Error stack:', error.stack);
     return new Response(
       JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: error.message } }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

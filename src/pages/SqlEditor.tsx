@@ -135,9 +135,9 @@ const SqlEditor = () => {
       const fetchTime = fetchEndTime - fetchStartTime;
       const executedAt = new Date();
 
-      // Handle edge function invocation errors (network, auth, etc.)
+      // Edge function errors should not happen now since we return 200 with error in body
       if (queryError) {
-        console.error('Edge function invocation error:', queryError);
+        console.error('Unexpected edge function invocation error:', queryError);
         const errorMsg = queryError.message || 'Failed to connect to database';
         setTabs(
           tabs.map((t) =>
