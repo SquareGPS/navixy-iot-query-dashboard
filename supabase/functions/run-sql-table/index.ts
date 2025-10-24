@@ -56,10 +56,10 @@ serve(async (req) => {
       );
     }
 
-    // Validate SQL
+    // Validate SQL (allow CTEs with WITH clause)
     const trimmedSql = sql.trim().toUpperCase();
     
-    if (!trimmedSql.startsWith('SELECT')) {
+    if (!trimmedSql.startsWith('SELECT') && !trimmedSql.startsWith('WITH')) {
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Only SELECT queries are allowed' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -73,8 +73,14 @@ serve(async (req) => {
       );
     }
 
+    // Block dangerous keywords (using word boundaries to avoid false positives with column names like "is_deleted")
     const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
-    if (dangerousKeywords.some(keyword => trimmedSql.includes(keyword))) {
+    const foundDangerous = dangerousKeywords.find(keyword => {
+      // Use word boundary regex to match only standalone keywords, not parts of column names
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      return regex.test(sql);
+    });
+    if (foundDangerous) {
       return new Response(
         JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
