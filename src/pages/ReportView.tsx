@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { AlertCircle, Edit, Save, X, Code, Pencil } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -172,71 +172,7 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      {isEditing && (editMode as string) === 'full' ? (
-        <ResizablePanelGroup direction="vertical" className="h-[calc(100vh-4rem)]">
-          {/* Report Content Panel */}
-          <ResizablePanel defaultSize={50} minSize={20}>
-            <div className="h-full overflow-auto">
-              <div className="container max-w-7xl py-8">
-                <div className="flex items-start justify-between mb-8">
-                  <div className="space-y-2">
-                    <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
-                    {schema.subtitle && (
-                      <p className="text-muted-foreground">{schema.subtitle}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-8">
-                  {schema.rows.map((row, rowIdx) => {
-                    const inlineEditActive = isEditing && (editMode as string) === 'inline';
-                    if (row.type === 'tiles') {
-                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
-                    } else if (row.type === 'table') {
-                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
-                    } else if (row.type === 'annotation') {
-                      return <AnnotationRowComponent key={rowIdx} row={row} />;
-                    }
-                    return null;
-                  })}
-                </div>
-              </div>
-            </div>
-          </ResizablePanel>
-
-          <ResizableHandle withHandle />
-
-          {/* Editor Panel */}
-          <ResizablePanel defaultSize={50} minSize={20}>
-            <div className="h-full bg-background flex flex-col">
-              <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 flex-shrink-0">
-                <h3 className="text-sm font-semibold">Full Schema Editor</h3>
-                <div className="flex gap-2">
-                  <Button onClick={handleSaveSchema} disabled={saving} size="sm" variant="ghost">
-                    <Save className="h-3.5 w-3.5 mr-1.5" />
-                    {saving ? 'Saving...' : 'Save'}
-                  </Button>
-                  <Button onClick={() => { setIsEditing(false); setEditMode('inline'); }} variant="ghost" size="sm">
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden p-4">
-                <div className="h-full">
-                  <SqlEditor
-                    value={editorValue}
-                    onChange={setEditorValue}
-                    onExecute={handleSaveSchema}
-                    height="100%"
-                    language="json"
-                  />
-                </div>
-              </div>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      ) : (
-        <div className="h-[calc(100vh-4rem)] overflow-auto">
+      <div className="h-[calc(100vh-4rem)] overflow-auto">
           <div className="container max-w-7xl py-8">
             <div className="flex items-start justify-between mb-8">
               <div className="space-y-2">
@@ -279,10 +215,40 @@ const ReportView = () => {
                     }
                     return null;
                   })}
-                </div>
+                 </div>
           </div>
         </div>
-      )}
+
+      <Dialog open={isEditing && editMode === 'full'} onOpenChange={(open) => !open && setIsEditing(false)}>
+        <DialogContent className="max-w-6xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Edit Report Schema</DialogTitle>
+            <DialogDescription>
+              Modify the complete JSON schema for this report
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 border rounded-md overflow-hidden">
+            <SqlEditor
+              value={editorValue}
+              onChange={setEditorValue}
+              height="100%"
+              language="json"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 mt-4">
+            <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button onClick={handleSaveSchema} disabled={saving} size="sm">
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       {editingElement && (
         <ElementEditor
@@ -373,7 +339,6 @@ const TileWithData = ({
     <div 
       className="relative"
       onMouseEnter={() => {
-        console.log('Tile hover - editMode:', editMode);
         if (editMode) setIsHovered(true);
       }}
       onMouseLeave={() => setIsHovered(false)}
@@ -389,18 +354,12 @@ const TileWithData = ({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            console.log('Edit button clicked');
             onEdit();
           }}
           className="absolute top-2 right-2 p-2.5 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50"
         >
           <Pencil className="h-4 w-4" />
         </button>
-      )}
-      {editMode && (
-        <div className="absolute bottom-2 left-2 text-xs bg-yellow-500 text-black px-2 py-1 rounded">
-          Edit Mode Active
-        </div>
       )}
     </div>
   );
