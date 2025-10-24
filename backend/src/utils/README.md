@@ -6,7 +6,7 @@ This directory contains a comprehensive SQL validation system designed to preven
 
 The SQL validation system provides multiple layers of security:
 
-1. **Syntax Validation**: Uses sqlglot with PostgreSQL dialect to parse and validate SQL syntax
+1. **Syntax Validation**: Uses node-sql-parser with PostgreSQL syntax support to parse and validate SQL syntax
 2. **Statement Type Validation**: Ensures only SELECT statements are allowed
 3. **Security Validation**: Blocks dangerous functions, operations, and patterns
 4. **Structure Validation**: Validates CTEs, subqueries, and complex query structures
@@ -15,9 +15,8 @@ The SQL validation system provides multiple layers of security:
 
 ### Core Modules
 
-- **`sqlSelectGuard.ts`**: Main validation logic using sqlglot
+- **`sqlSelectGuard.ts`**: Main validation logic using node-sql-parser
 - **`sqlValidationIntegration.ts`**: Express.js integration utilities
-- **`sqlValidator.ts`**: Legacy validator (deprecated, kept for compatibility)
 
 ### Test Files
 

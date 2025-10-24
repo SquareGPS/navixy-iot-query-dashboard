@@ -339,11 +339,15 @@ export class SQLSelectGuard {
 
   /**
    * Clean SQL input by removing comments and normalizing whitespace
+   * This method is used for validation purposes only
    */
   private static cleanSql(sql: string): string {
-    // Remove SQL comments
-    let cleanSql = sql.replace(/--[^\n]*(\n|$)/g, '\n');
-    cleanSql = cleanSql.replace(/\/\*[\s\S]*?\*\//g, '');
+    // Remove SQL comments more carefully
+    let cleanSql = sql
+      // Remove single-line comments that are on their own lines
+      .replace(/^\s*--[^\n]*$/gm, '')
+      // Remove block comments
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     
     // Normalize whitespace
     cleanSql = cleanSql.replace(/\s+/g, ' ').trim();

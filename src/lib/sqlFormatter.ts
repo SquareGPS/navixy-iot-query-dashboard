@@ -54,17 +54,14 @@ export function formatSql(sql: string): string {
 }
 
 /**
- * Minifies SQL by removing extra whitespace and line breaks
+ * Preserves SQL formatting and comments
+ * This function is kept for backward compatibility but now just returns the original SQL
  */
 export function minifySql(sql: string): string {
   if (!sql || typeof sql !== 'string') {
     return '';
   }
-
-  return sql
-    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-    .replace(/\s*,\s*/g, ', ') // Normalize comma spacing
-    .replace(/\s*\(\s*/g, '(') // Remove spaces around opening parens
-    .replace(/\s*\)\s*/g, ')') // Remove spaces around closing parens
-    .trim();
+  
+  // Return original SQL with comments preserved
+  return sql;
 }

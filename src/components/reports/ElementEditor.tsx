@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
-import { formatSql, minifySql } from '@/lib/sqlFormatter';
+import { formatSql } from '@/lib/sqlFormatter';
 
 interface ElementEditorProps {
   open: boolean;
@@ -35,9 +35,8 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
     setSaving(true);
     try {
       const parsedParams = params.trim() ? JSON.parse(params) : undefined;
-      // Minify SQL before saving to keep database clean
-      const minifiedSql = minifySql(sql);
-      onSave(minifiedSql, parsedParams);
+      // Save SQL with original formatting and comments preserved
+      onSave(sql, parsedParams);
       onClose();
     } catch (err) {
       console.error('Invalid JSON in parameters:', err);
