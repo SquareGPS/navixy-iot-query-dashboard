@@ -161,20 +161,15 @@ const ReportView = () => {
           {/* Editor Panel */}
           <ResizablePanel defaultSize={50} minSize={20}>
             <div className="h-full bg-background flex flex-col">
-              <div className="flex items-center justify-between px-6 py-3 border-b flex-shrink-0">
-                <div>
-                  <h3 className="text-lg font-semibold">Edit Report Schema</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
-                  </p>
-                </div>
+              <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 flex-shrink-0">
+                <h3 className="text-sm font-semibold">Edit Report Schema</h3>
                 <div className="flex gap-2">
-                  <Button onClick={handleSaveSchema} disabled={saving} size="sm">
-                    <Save className="h-4 w-4 mr-2" />
+                  <Button onClick={handleSaveSchema} disabled={saving} size="sm" variant="ghost">
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
                     {saving ? 'Saving...' : 'Save'}
                   </Button>
                   <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
-                    <X className="h-4 w-4" />
+                    <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
