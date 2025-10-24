@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from './SqlEditor';
-import { Save, X } from 'lucide-react';
+import { DataTable } from './DataTable';
+import { Save, X, Play } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 interface ElementEditorProps {
   open: boolean;
@@ -22,6 +26,9 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
   const [sql, setSql] = useState(element.sql);
   const [params, setParams] = useState(JSON.stringify(element.params || {}, null, 2));
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<{ columns: any[], rows: any[] } | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   const handleSave = () => {
     setSaving(true);
@@ -31,8 +38,76 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
       onClose();
     } catch (err) {
       console.error('Invalid JSON in parameters:', err);
+      toast({
+        title: 'Error',
+        description: 'Invalid JSON in parameters',
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestQuery = async () => {
+    setTesting(true);
+    setTestError(null);
+    setTestResults(null);
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
+        body: { sql, page: 1, pageSize: 5 },
+      });
+
+      if (error) throw error;
+
+      if (result?.error) {
+        setTestError(result.error.message || 'Query failed');
+        return;
+      }
+
+      if (result?.rows) {
+        // Build columns from result
+        let cols;
+        if (result.columns && result.columns.length > 0) {
+          cols = result.columns.map((col: string) => ({
+            id: col,
+            accessorKey: col,
+            header: col,
+            cell: ({ getValue }: any) => {
+              const value = getValue();
+              return value !== null && value !== undefined ? String(value) : '';
+            },
+          }));
+        } else if (result.rows.length > 0) {
+          cols = Object.keys(result.rows[0]).map((col: string) => ({
+            id: col,
+            accessorKey: col,
+            header: col,
+            cell: ({ getValue }: any) => {
+              const value = getValue();
+              return value !== null && value !== undefined ? String(value) : '';
+            },
+          }));
+        } else {
+          cols = [];
+        }
+
+        setTestResults({ columns: cols, rows: result.rows });
+        toast({
+          title: 'Success',
+          description: 'Query executed successfully',
+        });
+      }
+    } catch (err: any) {
+      console.error('Error testing query:', err);
+      setTestError(err.message || 'Failed to execute query');
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to execute query',
+        variant: 'destructive',
+      });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -52,13 +127,42 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
             <TabsTrigger value="params">Parameters</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="sql" className="flex-1 mt-4 overflow-hidden">
-            <SqlEditor
-              value={sql}
-              onChange={setSql}
-              height="100%"
-              language="sql"
-            />
+          <TabsContent value="sql" className="flex-1 mt-4 overflow-auto flex flex-col gap-4">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label>SQL Query</Label>
+                <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
+                  <Play className="h-3.5 w-3.5 mr-1.5" />
+                  {testing ? 'Testing...' : 'Test Query'}
+                </Button>
+              </div>
+              <div className="h-[200px] border rounded-md overflow-hidden">
+                <SqlEditor
+                  value={sql}
+                  onChange={setSql}
+                  height="100%"
+                  language="sql"
+                />
+              </div>
+            </div>
+
+            {testError && (
+              <Alert variant="destructive">
+                <AlertDescription>{testError}</AlertDescription>
+              </Alert>
+            )}
+
+            {testResults && (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label>Test Results</Label>
+                  <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
+                </div>
+                <div className="border rounded-md">
+                  <DataTable data={testResults.rows} columns={testResults.columns} />
+                </div>
+              </div>
+            )}
           </TabsContent>
           
           <TabsContent value="params" className="flex-1 mt-4 overflow-hidden flex flex-col">
