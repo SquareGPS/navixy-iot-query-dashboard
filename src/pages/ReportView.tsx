@@ -1,174 +1,78 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { MetricTile } from '@/components/reports/MetricTile';
 import { DataTable } from '@/components/reports/DataTable';
-import { Button } from '@/components/ui/button';
-import { Edit, Trash2, Copy, RefreshCw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
-import { ColumnDef } from '@tanstack/react-table';
-import { toast } from 'sonner';
-import { LoadingWithTimer } from '@/components/ui/loading-with-timer';
-
-interface Tile {
-  id: string;
-  title: string;
-  sql: string;
-  format: string;
-  decimals: number;
-  position: number;
-}
-
-interface Report {
-  id: string;
-  title: string;
-  description: string | null;
-  section_id: string | null;
-  updated_at: string;
-}
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
+import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
 
 const ReportView = () => {
-  const { reportId } = useParams();
-  const navigate = useNavigate();
-  const { userRole } = useAuth();
-  const [report, setReport] = useState<Report | null>(null);
-  const [tiles, setTiles] = useState<Tile[]>([]);
-  const [tileValues, setTileValues] = useState<Record<string, number | null>>({});
-  const [tileLoadingStates, setTileLoadingStates] = useState<Record<string, boolean>>({});
-  const [tableData, setTableData] = useState<any[]>([]);
-  const [tableColumns, setTableColumns] = useState<ColumnDef<any>[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, pageSize: 25, total: 0 });
+  const { reportId } = useParams<{ reportId: string }>();
+  const [schema, setSchema] = useState<ReportSchema | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tableLoading, setTableLoading] = useState(false);
-
-  const canEdit = userRole === 'admin' || userRole === 'editor';
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (reportId) {
-      fetchReport();
-    }
-  }, [reportId]);
+    const fetchReport = async () => {
+      if (!reportId) return;
 
-  const fetchReport = async () => {
-    setLoading(true);
-    
-    const [reportRes, tilesRes, tableRes] = await Promise.all([
-      supabase.from('reports').select('*').eq('id', reportId).single(),
-      supabase.from('report_tiles').select('*').eq('report_id', reportId).order('position'),
-      supabase.from('report_tables').select('*').eq('report_id', reportId).maybeSingle()
-    ]);
+      setLoading(true);
+      setError(null);
 
-    if (reportRes.data) setReport(reportRes.data);
-    if (tilesRes.data) {
-      setTiles(tilesRes.data);
-      fetchTileValues(tilesRes.data);
-    }
-    
-    if (tableRes.data) {
-      fetchTableData(tableRes.data.sql);
-    }
-
-    setLoading(false);
-  };
-
-  const handleRefresh = () => {
-    toast.info('Refreshing report data...');
-    // Re-fetch tiles
-    if (tiles.length > 0) {
-      fetchTileValues(tiles);
-    }
-    // Re-fetch table by finding the table SQL
-    supabase
-      .from('report_tables')
-      .select('*')
-      .eq('report_id', reportId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          fetchTableData(data.sql);
-        }
-      });
-  };
-
-  const fetchTileValues = async (tiles: Tile[]) => {
-    // Set all tiles to loading
-    const initialLoadingStates: Record<string, boolean> = {};
-    tiles.forEach(tile => {
-      initialLoadingStates[tile.id] = true;
-    });
-    setTileLoadingStates(initialLoadingStates);
-    
-    // Fetch all tiles concurrently
-    const tilePromises = tiles.map(async (tile) => {
       try {
-        const { data } = await supabase.functions.invoke('run-sql-tile', {
-          body: { sql: tile.sql }
-        });
-        return { id: tile.id, value: data?.value ?? null };
-      } catch (error) {
-        console.error('Error fetching tile value:', error);
-        return { id: tile.id, value: null };
-      }
-    });
+        const { data: report, error: reportError } = await supabase
+          .from('reports')
+          .select('*')
+          .eq('id', reportId)
+          .single();
 
-    // Update each tile as it completes
-    tilePromises.forEach((promise, index) => {
-      promise.then(result => {
-        setTileValues(prev => ({ ...prev, [result.id]: result.value }));
-        setTileLoadingStates(prev => ({ ...prev, [result.id]: false }));
-      });
-    });
-  };
-
-  const fetchTableData = async (sql: string) => {
-    setTableLoading(true);
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('run-sql-table', {
-        body: {
-          sql,
-          page: pagination.page,
-          pageSize: pagination.pageSize
+        if (reportError) throw reportError;
+        
+        if (!report.report_schema) {
+          throw new Error('Report schema is missing');
         }
-      });
 
-      if (error) throw error;
-
-      if (data?.columns && data?.rows) {
-        const cols: ColumnDef<any>[] = data.columns.map((col: string) => ({
-          accessorKey: col,
-          header: col,
-        }));
-        setTableColumns(cols);
-        setTableData(data.rows);
-        setPagination(prev => ({ ...prev, total: data.total || 0 }));
+        setSchema(report.report_schema as unknown as ReportSchema);
+      } catch (err: any) {
+        console.error('Error fetching report:', err);
+        setError(err.message || 'Failed to load report');
+      } finally {
+        setLoading(false);
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load table data');
-    }
-    
-    setTableLoading(false);
-  };
+    };
+
+    fetchReport();
+  }, [reportId]);
 
   if (loading) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-full">
-          <LoadingWithTimer message="Loading report..." />
+        <div className="container max-w-7xl py-8">
+          <Skeleton className="h-12 w-1/3 mb-4" />
+          <Skeleton className="h-6 w-1/2 mb-8" />
+          <div className="grid gap-4 md:grid-cols-3 mb-8">
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+          </div>
+          <Skeleton className="h-96" />
         </div>
       </AppLayout>
     );
   }
 
-  if (!report) {
+  if (error || !schema) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold">Report not found</h2>
-            <p className="text-muted-foreground mt-2">The report you're looking for doesn't exist.</p>
-          </div>
+        <div className="container max-w-7xl py-8">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error || 'Report not found'}</AlertDescription>
+          </Alert>
         </div>
       </AppLayout>
     );
@@ -176,75 +80,176 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      <div className="p-6 space-y-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">{report.title}</h1>
-            {report.description && (
-              <p className="text-muted-foreground mt-2">{report.description}</p>
-            )}
-            <p className="text-sm text-muted-foreground mt-1">
-              Last updated: {new Date(report.updated_at).toLocaleString()}
-            </p>
-          </div>
-          
-          {canEdit && (
-            <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={handleRefresh}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon">
-                <Copy className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon">
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon">
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
+      <div className="container max-w-7xl py-8">
+        <div className="space-y-2 mb-8">
+          <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
+          {schema.subtitle && (
+            <p className="text-muted-foreground">{schema.subtitle}</p>
           )}
         </div>
 
-        {/* Metric Tiles */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tiles.map((tile) => (
-            <MetricTile
-              key={tile.id}
-              title={tile.title}
-              value={tileValues[tile.id] ?? null}
-              format={tile.format as any}
-              decimals={tile.decimals}
-              loading={tileLoadingStates[tile.id] ?? true}
-            />
-          ))}
+        <div className="space-y-8">
+          {schema.rows.map((row, idx) => {
+            if (row.type === 'tiles') {
+              return <TilesRowComponent key={idx} row={row} />;
+            } else if (row.type === 'table') {
+              return <TableRowComponent key={idx} row={row} />;
+            } else if (row.type === 'annotation') {
+              return <AnnotationRowComponent key={idx} row={row} />;
+            }
+            return null;
+          })}
         </div>
+      </div>
+    </AppLayout>
+  );
+};
 
-        {/* Data Table */}
-        {tableColumns.length > 0 && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Data Table</h2>
-            {tableLoading ? (
-              <div className="border rounded-lg">
-                <LoadingWithTimer message="Loading table data..." />
-              </div>
+// Tiles Row Component
+const TilesRowComponent = ({ row }: { row: TilesRow }) => {
+  return (
+    <div className="space-y-4">
+      {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+      {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+      
+      <div className="grid gap-4 md:grid-cols-3">
+        {row.visuals.map((visual, idx) => (
+          <TileWithData
+            key={idx}
+            visual={visual}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Tile with Data Fetching
+const TileWithData = ({ visual }: { visual: TileVisual }) => {
+  const [value, setValue] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchValue = async () => {
+      setLoading(true);
+      try {
+        const { data: result, error } = await supabase.functions.invoke('run-sql-tile', {
+          body: { sql: visual.query.sql },
+        });
+
+        if (error) throw error;
+        
+        setValue(result.value !== undefined ? Number(result.value) : null);
+      } catch (err) {
+        console.error('Error fetching tile value:', err);
+        setValue(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchValue();
+  }, [visual.query.sql]);
+
+  return (
+    <MetricTile
+      title={visual.label}
+      value={value}
+      format="number"
+      decimals={visual.options?.precision || 0}
+      loading={loading}
+    />
+  );
+};
+
+// Table Row Component
+const TableRowComponent = ({ row }: { row: TableRow }) => {
+  const visual = row.visuals[0];
+  const [data, setData] = useState<any[]>([]);
+  const [columns, setColumns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const { data: result, error } = await supabase.functions.invoke('run-sql-table', {
+          body: { sql: visual.query.sql, page: 1, pageSize: visual.options?.page_size || 25 },
+        });
+
+        if (error) throw error;
+
+        if (result.rows) {
+          setData(result.rows);
+          
+          // Build columns from schema or result
+          const cols = visual.options?.columns?.map(col => ({
+            id: col.field,
+            accessorKey: col.field,
+            header: col.label || col.field,
+          })) || result.columns?.map((col: string) => ({
+            id: col,
+            accessorKey: col,
+            header: col,
+          }));
+          
+          setColumns(cols);
+        }
+      } catch (err) {
+        console.error('Error fetching table data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [visual.query.sql, visual.options?.page_size, visual.options?.columns]);
+
+  return (
+    <div className="space-y-4">
+      {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+      {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>{visual.label}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <Skeleton className="h-96" />
+          ) : (
+            <DataTable data={data} columns={columns} />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+// Annotation Row Component
+const AnnotationRowComponent = ({ row }: { row: AnnotationRow }) => {
+  const visual = row.visuals[0];
+  
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        {visual.options?.section_name && (
+          <h3 className="text-xl font-semibold mb-2">{visual.options.section_name}</h3>
+        )}
+        {visual.options?.subtitle && (
+          <p className="text-sm text-muted-foreground mb-4">{visual.options.subtitle}</p>
+        )}
+        {visual.options?.text && (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            {visual.options.markdown ? (
+              <div dangerouslySetInnerHTML={{ __html: visual.options.text }} />
             ) : (
-              <DataTable
-                data={tableData}
-                columns={tableColumns}
-                loading={tableLoading}
-                pagination={{
-                  ...pagination,
-                  onPageChange: (page) => setPagination(prev => ({ ...prev, page })),
-                  onPageSizeChange: (pageSize) => setPagination(prev => ({ ...prev, pageSize, page: 1 }))
-                }}
-              />
+              <p>{visual.options.text}</p>
             )}
           </div>
         )}
-      </div>
-    </AppLayout>
+      </CardContent>
+    </Card>
   );
 };
 

@@ -136,13 +136,67 @@ export function AppSidebar() {
 
     setCreating(true);
     
+    // Create report schema
+    const reportSchema = {
+      title: editingItem.value,
+      meta: {
+        schema_version: '1.0.0',
+        last_updated: new Date().toISOString(),
+        updated_by: {
+          id: 'system',
+          name: 'System'
+        }
+      },
+      rows: [
+        {
+          type: 'tiles',
+          title: 'Key Metrics',
+          visuals: [
+            {
+              kind: 'tile',
+              label: 'Metric 1',
+              query: { sql: 'SELECT 0 as value' },
+              options: { precision: 0 }
+            },
+            {
+              kind: 'tile',
+              label: 'Metric 2',
+              query: { sql: 'SELECT 0 as value' },
+              options: { precision: 0 }
+            },
+            {
+              kind: 'tile',
+              label: 'Metric 3',
+              query: { sql: 'SELECT 0 as value' },
+              options: { precision: 0 }
+            }
+          ]
+        },
+        {
+          type: 'table',
+          visuals: [
+            {
+              kind: 'table',
+              label: 'Data Table',
+              query: { sql: "SELECT 1 as id, 'Example' as name" },
+              options: {
+                paginate: true,
+                page_size: 25
+              }
+            }
+          ]
+        }
+      ]
+    };
+
     const { data: reportData, error: reportError } = await supabase
       .from('reports')
       .insert({
         title: editingItem.value,
         section_id: sectionId,
         slug: editingItem.value.toLowerCase().replace(/\s+/g, '-'),
-        sort_index: reports.filter(r => r.section_id === sectionId).length,
+        sort_index: reports?.filter((r: any) => r.section_id === sectionId).length || 0,
+        report_schema: reportSchema,
       })
       .select()
       .single();
@@ -153,21 +207,6 @@ export function AppSidebar() {
       setCreating(false);
       return;
     }
-
-    // Create default tiles and table
-    const tiles = [
-      { report_id: reportData.id, position: 1, title: 'Metric 1', sql: 'SELECT 0' },
-      { report_id: reportData.id, position: 2, title: 'Metric 2', sql: 'SELECT 0' },
-      { report_id: reportData.id, position: 3, title: 'Metric 3', sql: 'SELECT 0' },
-    ];
-
-    await Promise.all([
-      supabase.from('report_tiles').insert(tiles),
-      supabase.from('report_tables').insert({
-        report_id: reportData.id,
-        sql: 'SELECT 1 as id, \'Example\' as name',
-      })
-    ]);
 
     toast.success('Report created');
     setEditingItem(null);

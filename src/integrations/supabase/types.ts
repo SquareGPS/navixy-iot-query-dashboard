@@ -85,143 +85,13 @@ export type Database = {
           },
         ]
       }
-      report_table_columns: {
-        Row: {
-          col_order: number | null
-          column_key: string
-          created_at: string | null
-          format: string | null
-          id: string
-          label: string | null
-          report_table_id: string
-          updated_at: string | null
-          visible: boolean | null
-          width: number | null
-        }
-        Insert: {
-          col_order?: number | null
-          column_key: string
-          created_at?: string | null
-          format?: string | null
-          id?: string
-          label?: string | null
-          report_table_id: string
-          updated_at?: string | null
-          visible?: boolean | null
-          width?: number | null
-        }
-        Update: {
-          col_order?: number | null
-          column_key?: string
-          created_at?: string | null
-          format?: string | null
-          id?: string
-          label?: string | null
-          report_table_id?: string
-          updated_at?: string | null
-          visible?: boolean | null
-          width?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "report_table_columns_report_table_id_fkey"
-            columns: ["report_table_id"]
-            isOneToOne: false
-            referencedRelation: "report_tables"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      report_tables: {
-        Row: {
-          created_at: string | null
-          default_page_size: number | null
-          id: string
-          report_id: string
-          sql: string
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          default_page_size?: number | null
-          id?: string
-          report_id: string
-          sql: string
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          default_page_size?: number | null
-          id?: string
-          report_id?: string
-          sql?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "report_tables_report_id_fkey"
-            columns: ["report_id"]
-            isOneToOne: false
-            referencedRelation: "reports"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      report_tiles: {
-        Row: {
-          created_at: string | null
-          decimals: number | null
-          format: string | null
-          id: string
-          position: number
-          refresh_seconds: number | null
-          report_id: string
-          sql: string
-          title: string
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          decimals?: number | null
-          format?: string | null
-          id?: string
-          position: number
-          refresh_seconds?: number | null
-          report_id: string
-          sql: string
-          title: string
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          decimals?: number | null
-          format?: string | null
-          id?: string
-          position?: number
-          refresh_seconds?: number | null
-          report_id?: string
-          sql?: string
-          title?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "report_tiles_report_id_fkey"
-            columns: ["report_id"]
-            isOneToOne: false
-            referencedRelation: "reports"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       reports: {
         Row: {
           created_at: string | null
           created_by: string | null
-          description: string | null
           id: string
+          report_schema: Json
           section_id: string | null
-          settings: Json
           slug: string | null
           sort_index: number
           title: string
@@ -231,10 +101,9 @@ export type Database = {
         Insert: {
           created_at?: string | null
           created_by?: string | null
-          description?: string | null
           id?: string
+          report_schema: Json
           section_id?: string | null
-          settings?: Json
           slug?: string | null
           sort_index?: number
           title: string
@@ -244,10 +113,9 @@ export type Database = {
         Update: {
           created_at?: string | null
           created_by?: string | null
-          description?: string | null
           id?: string
+          report_schema?: Json
           section_id?: string | null
-          settings?: Json
           slug?: string | null
           sort_index?: number
           title?: string
@@ -400,8 +268,18 @@ export type Database = {
     }
     Functions: {
       execute_sql: { Args: { query: string }; Returns: Json }
+      get_report_queries: {
+        Args: { report_uuid: string }
+        Returns: {
+          query_type: string
+          row_index: number
+          sql_query: string
+          visual_label: string
+        }[]
+      }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_admin_or_editor: { Args: { _user_id: string }; Returns: boolean }
+      validate_report_schema: { Args: { schema: Json }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
