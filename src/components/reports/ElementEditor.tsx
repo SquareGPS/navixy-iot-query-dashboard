@@ -121,18 +121,18 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="sql" className="flex-1 flex flex-col min-h-0">
+        <Tabs defaultValue="sql" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-2 flex-shrink-0">
             <TabsTrigger value="sql">SQL Query</TabsTrigger>
             <TabsTrigger value="params">Parameters</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="sql" className="flex-1 flex flex-col min-h-0 mt-4 px-6">
-            <div className="flex-1 flex flex-col min-h-0 gap-4">
+          <TabsContent value="sql" className="flex-1 flex flex-col min-h-0 mt-0 pt-4 px-6 data-[state=active]:flex">
+            <div className="flex-1 flex flex-col min-h-0 gap-3">
               {/* SQL Editor Section - Takes 50% */}
-              <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 flex flex-col min-h-0 basis-0">
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
-                  <Label>SQL Query</Label>
+                  <Label className="text-sm font-medium">SQL Query</Label>
                   <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
                     <Play className="h-3.5 w-3.5 mr-1.5" />
                     {testing ? 'Testing...' : 'Test Query'}
@@ -149,7 +149,7 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
               </div>
 
               {/* Results Section - Takes 50% */}
-              <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 flex flex-col min-h-0 basis-0">
                 {testError && (
                   <Alert variant="destructive" className="mb-2 flex-shrink-0">
                     <AlertDescription>{testError}</AlertDescription>
@@ -157,13 +157,13 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
                 )}
 
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
-                  <Label>Test Results</Label>
+                  <Label className="text-sm font-medium">Test Results</Label>
                   {testResults && (
                     <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
                   )}
                 </div>
                 
-                <div className="flex-1 border rounded-md overflow-auto min-h-0">
+                <div className="flex-1 border rounded-md overflow-auto min-h-0 bg-background">
                   {testResults ? (
                     <DataTable data={testResults.rows} columns={testResults.columns} />
                   ) : (
@@ -176,12 +176,12 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
             </div>
           </TabsContent>
           
-          <TabsContent value="params" className="flex-1 mt-4 px-6 flex flex-col min-h-0">
-            <Label className="mb-2 flex-shrink-0">Query Parameters (JSON)</Label>
+          <TabsContent value="params" className="flex-1 mt-0 pt-4 px-6 flex flex-col min-h-0 data-[state=active]:flex">
+            <Label className="mb-2 flex-shrink-0 text-sm font-medium">Query Parameters (JSON)</Label>
             <Textarea
               value={params}
               onChange={(e) => setParams(e.target.value)}
-              className="flex-1 font-mono text-sm resize-none"
+              className="flex-1 font-mono text-sm resize-none min-h-0"
               placeholder='{"param1": "value1"}'
             />
           </TabsContent>
