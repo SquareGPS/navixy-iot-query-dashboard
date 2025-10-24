@@ -38,43 +38,41 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle>Edit: {element.label}</DialogTitle>
           <DialogDescription>
             Modify the SQL query and parameters for this element
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="sql" className="flex-1 flex flex-col">
+        <Tabs defaultValue="sql" className="flex-1 flex flex-col px-6 overflow-hidden">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="sql">SQL Query</TabsTrigger>
             <TabsTrigger value="params">Parameters</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="sql" className="flex-1 mt-4">
-            <div className="h-full">
-              <SqlEditor
-                value={sql}
-                onChange={setSql}
-                height="100%"
-                language="sql"
-              />
-            </div>
+          <TabsContent value="sql" className="flex-1 mt-4 overflow-hidden">
+            <SqlEditor
+              value={sql}
+              onChange={setSql}
+              height="100%"
+              language="sql"
+            />
           </TabsContent>
           
-          <TabsContent value="params" className="flex-1 mt-4 flex flex-col">
+          <TabsContent value="params" className="flex-1 mt-4 overflow-hidden flex flex-col">
             <Label className="mb-2">Query Parameters (JSON)</Label>
             <Textarea
               value={params}
               onChange={(e) => setParams(e.target.value)}
-              className="flex-1 font-mono text-sm"
+              className="flex-1 font-mono text-sm resize-none"
               placeholder='{"param1": "value1"}'
             />
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="flex justify-end gap-2 px-6 py-4 border-t">
           <Button onClick={onClose} variant="ghost" size="sm">
             <X className="h-4 w-4 mr-2" />
             Cancel

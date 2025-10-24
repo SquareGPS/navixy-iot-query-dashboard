@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { AlertCircle, Edit, Save, X, Code, Pencil } from 'lucide-react';
+import { AlertCircle, Edit, Save, X, Code, Pencil, Download, Upload } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
@@ -140,6 +140,53 @@ const ReportView = () => {
     }
   };
 
+  const handleExportSchema = () => {
+    const blob = new Blob([editorValue], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${schema?.title || 'report'}-schema.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({
+      title: 'Success',
+      description: 'Schema exported successfully',
+    });
+  };
+
+  const handleImportSchema = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const content = event.target?.result as string;
+            JSON.parse(content); // Validate JSON
+            setEditorValue(content);
+            toast({
+              title: 'Success',
+              description: 'Schema imported successfully',
+            });
+          } catch (err) {
+            toast({
+              title: 'Error',
+              description: 'Invalid JSON file',
+              variant: 'destructive',
+            });
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -220,15 +267,15 @@ const ReportView = () => {
         </div>
 
       <Dialog open={isEditing && editMode === 'full'} onOpenChange={(open) => !open && setIsEditing(false)}>
-        <DialogContent className="max-w-6xl h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-6xl h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle>Edit Report Schema</DialogTitle>
             <DialogDescription>
               Modify the complete JSON schema for this report
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 border rounded-md overflow-hidden">
+          <div className="flex-1 px-6 overflow-hidden">
             <SqlEditor
               value={editorValue}
               onChange={setEditorValue}
@@ -237,15 +284,27 @@ const ReportView = () => {
             />
           </div>
 
-          <div className="flex justify-end gap-2 mt-4">
-            <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </Button>
-            <Button onClick={handleSaveSchema} disabled={saving} size="sm">
-              <Save className="h-4 w-4 mr-2" />
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
+          <div className="flex justify-between gap-2 px-6 py-4 border-t">
+            <div className="flex gap-2">
+              <Button onClick={handleImportSchema} variant="outline" size="sm">
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button onClick={handleExportSchema} variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleSaveSchema} disabled={saving} size="sm">
+                <Save className="h-4 w-4 mr-2" />
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
