@@ -92,6 +92,15 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
   const showLegend = visual.options.show_legend !== false;
   const legendPosition = visual.options.legend_position || 'right';
 
+  // Calculate Y-axis domain from actual data
+  const values = data.map(d => d.value);
+  const minValue = values.length > 0 ? Math.min(...values) : 0;
+  const maxValue = values.length > 0 ? Math.max(...values) : 0;
+  const yAxisDomain = [
+    Math.floor(minValue * 0.95), // 5% padding below min
+    Math.ceil(maxValue * 1.05)   // 5% padding above max
+  ];
+
   return (
     <div 
       className="relative"
@@ -123,10 +132,10 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                 {isHorizontal ? (
                   <>
-                    <XAxis type="number" />
+                    <XAxis type="number" domain={yAxisDomain} />
                     <YAxis dataKey="category" type="category" width={100} />
                   </>
-                 ) : (
+                ) : (
                   <>
                     <XAxis 
                       dataKey="category" 
@@ -142,7 +151,13 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                         return value;
                       }}
                     />
-                    <YAxis />
+                    <YAxis 
+                      domain={yAxisDomain}
+                      tickFormatter={(value) => {
+                        // Format large numbers with commas
+                        return value.toLocaleString();
+                      }}
+                    />
                   </>
                 )}
                 {visual.options.show_tooltips !== false && <Tooltip />}
