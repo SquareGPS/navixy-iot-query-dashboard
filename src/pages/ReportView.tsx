@@ -280,7 +280,7 @@ const ReportView = () => {
           const inlineEditActive = isEditing && editMode === 'inline';
           return (
             <RowRenderer
-              key={rowIdx}
+              key={`${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query.sql))}`}
               row={row}
               rowIndex={rowIdx}
               editMode={inlineEditActive}
