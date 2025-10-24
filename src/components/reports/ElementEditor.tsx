@@ -127,9 +127,10 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
             <TabsTrigger value="params">Parameters</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="sql" className="flex-1 flex flex-col min-h-0 mt-0 pt-4 px-6 data-[state=active]:flex">
+          {/* SQL Query Tab */}
+          <TabsContent value="sql" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 flex flex-col min-h-0 gap-3">
-              {/* SQL Editor Section - Takes 50% */}
+              {/* SQL Editor - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">SQL Query</Label>
@@ -148,7 +149,7 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
                 </div>
               </div>
 
-              {/* Results Section - Takes 50% */}
+              {/* Test Results - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
                 {testError && (
                   <Alert variant="destructive" className="mb-2 flex-shrink-0">
@@ -176,7 +177,8 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
             </div>
           </TabsContent>
           
-          <TabsContent value="params" className="flex-1 mt-0 pt-4 px-6 flex flex-col min-h-0 data-[state=active]:flex">
+          {/* Parameters Tab */}
+          <TabsContent value="params" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden">
             <Label className="mb-2 flex-shrink-0 text-sm font-medium">Query Parameters (JSON)</Label>
             <Textarea
               value={params}
