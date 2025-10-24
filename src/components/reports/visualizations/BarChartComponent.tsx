@@ -96,10 +96,15 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
   const values = data.map(d => d.value);
   const minValue = values.length > 0 ? Math.min(...values) : 0;
   const maxValue = values.length > 0 ? Math.max(...values) : 0;
+  
+  // Domain should be [min, max] for proper ordering (bottom to top)
   const yAxisDomain = [
     Math.floor(minValue * 0.95), // 5% padding below min
     Math.ceil(maxValue * 1.05)   // 5% padding above max
   ];
+
+  console.log('Bar chart data:', data);
+  console.log('Y-axis domain:', yAxisDomain);
 
   return (
     <div 
@@ -127,12 +132,16 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
               <BarChart 
                 data={data}
                 layout={isHorizontal ? 'horizontal' : 'vertical'}
-                margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                margin={{ top: 20, right: 30, left: 60, bottom: 80 }}
               >
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                 {isHorizontal ? (
                   <>
-                    <XAxis type="number" domain={yAxisDomain} />
+                    <XAxis 
+                      type="number" 
+                      domain={[0, 'auto']}
+                      tickFormatter={(value) => value.toLocaleString()}
+                    />
                     <YAxis dataKey="category" type="category" width={100} />
                   </>
                 ) : (
@@ -142,6 +151,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                       angle={-45}
                       textAnchor="end"
                       height={80}
+                      interval={0}
                       tickFormatter={(value) => {
                         // Try to format as date if it looks like one
                         const date = new Date(value);
@@ -152,7 +162,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                       }}
                     />
                     <YAxis 
-                      domain={yAxisDomain}
+                      domain={[0, 'auto']}
                       tickFormatter={(value) => {
                         // Format large numbers with commas
                         return value.toLocaleString();
@@ -168,6 +178,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                   dataKey="value" 
                   name={visual.label}
                   label={visual.options.show_value_labels ? { position: isHorizontal ? 'right' : 'top' } : false}
+                  fill="#60A5FA"
                 >
                   {data.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
