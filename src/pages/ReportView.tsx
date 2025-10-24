@@ -7,14 +7,25 @@ import { DataTable } from '@/components/reports/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { SqlEditor } from '@/components/reports/SqlEditor';
+import { AlertCircle, Edit, Save } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
+  const { userRole } = useAuth();
   const [schema, setSchema] = useState<ReportSchema | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editorValue, setEditorValue] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const canEdit = userRole === 'admin' || userRole === 'editor';
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -36,7 +47,9 @@ const ReportView = () => {
           throw new Error('Report schema is missing');
         }
 
-        setSchema(report.report_schema as unknown as ReportSchema);
+        const reportSchema = report.report_schema as unknown as ReportSchema;
+        setSchema(reportSchema);
+        setEditorValue(JSON.stringify(reportSchema, null, 2));
       } catch (err: any) {
         console.error('Error fetching report:', err);
         setError(err.message || 'Failed to load report');
@@ -47,6 +60,38 @@ const ReportView = () => {
 
     fetchReport();
   }, [reportId]);
+
+  const handleSaveSchema = async () => {
+    if (!reportId) return;
+
+    setSaving(true);
+    try {
+      const parsedSchema = JSON.parse(editorValue);
+      
+      const { error: updateError } = await supabase
+        .from('reports')
+        .update({ report_schema: parsedSchema })
+        .eq('id', reportId);
+
+      if (updateError) throw updateError;
+
+      setSchema(parsedSchema);
+      setIsEditing(false);
+      toast({
+        title: 'Success',
+        description: 'Report schema updated successfully',
+      });
+    } catch (err: any) {
+      console.error('Error saving schema:', err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to save schema',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -81,10 +126,18 @@ const ReportView = () => {
   return (
     <AppLayout>
       <div className="container max-w-7xl py-8">
-        <div className="space-y-2 mb-8">
-          <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
-          {schema.subtitle && (
-            <p className="text-muted-foreground">{schema.subtitle}</p>
+        <div className="flex items-start justify-between mb-8">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold text-foreground">{schema.title}</h1>
+            {schema.subtitle && (
+              <p className="text-muted-foreground">{schema.subtitle}</p>
+            )}
+          </div>
+          {canEdit && (
+            <Button onClick={() => setIsEditing(true)} variant="outline">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Schema
+            </Button>
           )}
         </div>
 
@@ -101,6 +154,32 @@ const ReportView = () => {
           })}
         </div>
       </div>
+
+      <Sheet open={isEditing} onOpenChange={setIsEditing}>
+        <SheetContent side="bottom" className="h-[70vh]">
+          <SheetHeader>
+            <SheetTitle>Edit Report Schema</SheetTitle>
+            <SheetDescription>
+              Modify the JSON schema for this report. Press Ctrl/Cmd+S to save.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 h-[calc(100%-8rem)]">
+            <SqlEditor
+              value={editorValue}
+              onChange={setEditorValue}
+              onExecute={handleSaveSchema}
+              height="100%"
+              language="json"
+            />
+          </div>
+          <div className="absolute bottom-6 right-6">
+            <Button onClick={handleSaveSchema} disabled={saving}>
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save Schema'}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppLayout>
   );
 };

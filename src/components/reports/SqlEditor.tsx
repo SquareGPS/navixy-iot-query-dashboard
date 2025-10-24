@@ -8,9 +8,10 @@ interface SqlEditorProps {
   onExecute?: () => void;
   height?: string;
   readOnly?: boolean;
+  language?: string;
 }
 
-export function SqlEditor({ value, onChange, onExecute, height = '300px', readOnly = false }: SqlEditorProps) {
+export function SqlEditor({ value, onChange, onExecute, height = '300px', readOnly = false, language = 'sql' }: SqlEditorProps) {
   const { theme } = useTheme();
   const editorRef = useRef<any>(null);
 
@@ -18,21 +19,21 @@ export function SqlEditor({ value, onChange, onExecute, height = '300px', readOn
     editorRef.current = editor;
 
     // Add Ctrl/Cmd+Enter to execute
-    editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-      () => {
-        if (onExecute) {
+    if (onExecute) {
+      editor.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+        () => {
           onExecute();
         }
-      }
-    );
+      );
+    }
   };
 
   return (
     <div className="border rounded-lg overflow-hidden">
       <Editor
         height={height}
-        language="sql"
+        language={language}
         value={value}
         onChange={(val) => onChange(val || '')}
         onMount={handleEditorDidMount}
