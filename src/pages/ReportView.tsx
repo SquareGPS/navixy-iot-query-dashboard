@@ -9,8 +9,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from '@/components/reports/SqlEditor';
+import { ElementEditor } from '@/components/reports/ElementEditor';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { AlertCircle, Edit, Save, X } from 'lucide-react';
+import { AlertCircle, Edit, Save, X, Code, Pencil } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { ReportSchema, TilesRow, TableRow, AnnotationRow, TileVisual } from '@/types/report-schema';
@@ -22,8 +23,16 @@ const ReportView = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [editMode, setEditMode] = useState<'full' | 'inline'>('inline');
   const [editorValue, setEditorValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingElement, setEditingElement] = useState<{
+    rowIndex: number;
+    visualIndex: number;
+    label: string;
+    sql: string;
+    params?: Record<string, any>;
+  } | null>(null);
 
   const canEdit = userRole === 'admin';
 
@@ -70,7 +79,7 @@ const ReportView = () => {
       
       const { error: updateError } = await supabase
         .from('reports')
-        .update({ report_schema: parsedSchema })
+        .update({ report_schema: parsedSchema as any })
         .eq('id', reportId);
 
       if (updateError) throw updateError;
@@ -90,6 +99,44 @@ const ReportView = () => {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
+    if (!editingElement || !schema) return;
+
+    const updatedSchema = { ...schema };
+    const row = updatedSchema.rows[editingElement.rowIndex];
+    
+    if (row.type === 'tiles' || row.type === 'table') {
+      const visual = row.visuals[editingElement.visualIndex];
+      visual.query.sql = sql;
+      if (params) {
+        visual.query.params = params;
+      }
+    }
+
+    try {
+      const { error: updateError } = await supabase
+        .from('reports')
+        .update({ report_schema: updatedSchema as any })
+        .eq('id', reportId);
+
+      if (updateError) throw updateError;
+
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      toast({
+        title: 'Success',
+        description: 'Element updated successfully',
+      });
+    } catch (err: any) {
+      console.error('Error saving element:', err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to save element',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -125,7 +172,7 @@ const ReportView = () => {
 
   return (
     <AppLayout>
-      {isEditing ? (
+      {isEditing && (editMode as string) === 'full' ? (
         <ResizablePanelGroup direction="vertical" className="h-[calc(100vh-4rem)]">
           {/* Report Content Panel */}
           <ResizablePanel defaultSize={50} minSize={20}>
@@ -141,13 +188,14 @@ const ReportView = () => {
                 </div>
 
                 <div className="space-y-8">
-                  {schema.rows.map((row, idx) => {
+                  {schema.rows.map((row, rowIdx) => {
+                    const inlineEditActive = isEditing && (editMode as string) === 'inline';
                     if (row.type === 'tiles') {
-                      return <TilesRowComponent key={idx} row={row} />;
+                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
                     } else if (row.type === 'table') {
-                      return <TableRowComponent key={idx} row={row} />;
+                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={inlineEditActive} onEdit={setEditingElement} />;
                     } else if (row.type === 'annotation') {
-                      return <AnnotationRowComponent key={idx} row={row} />;
+                      return <AnnotationRowComponent key={rowIdx} row={row} />;
                     }
                     return null;
                   })}
@@ -162,13 +210,13 @@ const ReportView = () => {
           <ResizablePanel defaultSize={50} minSize={20}>
             <div className="h-full bg-background flex flex-col">
               <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 flex-shrink-0">
-                <h3 className="text-sm font-semibold">Edit Mode</h3>
+                <h3 className="text-sm font-semibold">Full Schema Editor</h3>
                 <div className="flex gap-2">
                   <Button onClick={handleSaveSchema} disabled={saving} size="sm" variant="ghost">
                     <Save className="h-3.5 w-3.5 mr-1.5" />
                     {saving ? 'Saving...' : 'Save'}
                   </Button>
-                  <Button onClick={() => setIsEditing(false)} variant="ghost" size="sm">
+                  <Button onClick={() => { setIsEditing(false); setEditMode('inline'); }} variant="ghost" size="sm">
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -198,44 +246,85 @@ const ReportView = () => {
                 )}
               </div>
               {canEdit && (
-                <Button onClick={() => setIsEditing(true)} variant="outline">
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Mode
-                </Button>
+                <div className="flex gap-2">
+                  {isEditing && editMode === 'inline' && (
+                    <Button onClick={() => { setEditMode('full'); }} variant="outline" size="sm">
+                      <Code className="h-4 w-4 mr-2" />
+                      Full Schema
+                    </Button>
+                  )}
+                  <Button 
+                    onClick={() => { 
+                      setIsEditing(!isEditing); 
+                      if (!isEditing) setEditMode('inline');
+                    }} 
+                    variant={isEditing ? "default" : "outline"}
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    {isEditing ? 'Exit Edit Mode' : 'Edit Mode'}
+                  </Button>
+                </div>
               )}
             </div>
 
-            <div className="space-y-8">
-              {schema.rows.map((row, idx) => {
-                if (row.type === 'tiles') {
-                  return <TilesRowComponent key={idx} row={row} />;
-                } else if (row.type === 'table') {
-                  return <TableRowComponent key={idx} row={row} />;
-                } else if (row.type === 'annotation') {
-                  return <AnnotationRowComponent key={idx} row={row} />;
-                }
-                return null;
-              })}
-            </div>
+                <div className="space-y-8">
+                  {schema.rows.map((row, rowIdx) => {
+                    if (row.type === 'tiles') {
+                      return <TilesRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={false} onEdit={() => {}} />;
+                    } else if (row.type === 'table') {
+                      return <TableRowComponent key={rowIdx} row={row} rowIndex={rowIdx} editMode={false} onEdit={() => {}} />;
+                    } else if (row.type === 'annotation') {
+                      return <AnnotationRowComponent key={rowIdx} row={row} />;
+                    }
+                    return null;
+                  })}
+                </div>
           </div>
         </div>
+      )}
+      
+      {editingElement && (
+        <ElementEditor
+          open={!!editingElement}
+          onClose={() => setEditingElement(null)}
+          element={editingElement}
+          onSave={handleSaveElement}
+        />
       )}
     </AppLayout>
   );
 };
 
 // Tiles Row Component
-const TilesRowComponent = ({ row }: { row: TilesRow }) => {
+const TilesRowComponent = ({ 
+  row, 
+  rowIndex, 
+  editMode, 
+  onEdit 
+}: { 
+  row: TilesRow; 
+  rowIndex: number;
+  editMode: boolean;
+  onEdit: (element: any) => void;
+}) => {
   return (
     <div className="space-y-4">
       {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
       {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
       
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {row.visuals.map((visual, idx) => (
+        {row.visuals.map((visual, visualIdx) => (
           <TileWithData
-            key={idx}
+            key={visualIdx}
             visual={visual}
+            editMode={editMode}
+            onEdit={() => onEdit({
+              rowIndex,
+              visualIndex: visualIdx,
+              label: visual.label,
+              sql: visual.query.sql,
+              params: visual.query.params,
+            })}
           />
         ))}
       </div>
@@ -244,9 +333,18 @@ const TilesRowComponent = ({ row }: { row: TilesRow }) => {
 };
 
 // Tile with Data Fetching
-const TileWithData = ({ visual }: { visual: TileVisual }) => {
+const TileWithData = ({ 
+  visual, 
+  editMode, 
+  onEdit 
+}: { 
+  visual: TileVisual;
+  editMode: boolean;
+  onEdit: () => void;
+}) => {
   const [value, setValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     const fetchValue = async () => {
@@ -271,22 +369,47 @@ const TileWithData = ({ visual }: { visual: TileVisual }) => {
   }, [visual.query.sql]);
 
   return (
-    <MetricTile
-      title={visual.label}
-      value={value}
-      format="number"
-      decimals={visual.options?.precision || 0}
-      loading={loading}
-    />
+    <div 
+      className="relative"
+      onMouseEnter={() => editMode && setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <MetricTile
+        title={visual.label}
+        value={value}
+        format="number"
+        decimals={visual.options?.precision || 0}
+        loading={loading}
+      />
+      {editMode && isHovered && (
+        <button
+          onClick={onEdit}
+          className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+      )}
+    </div>
   );
 };
 
 // Table Row Component
-const TableRowComponent = ({ row }: { row: TableRow }) => {
+const TableRowComponent = ({ 
+  row, 
+  rowIndex, 
+  editMode, 
+  onEdit 
+}: { 
+  row: TableRow;
+  rowIndex: number;
+  editMode: boolean;
+  onEdit: (element: any) => void;
+}) => {
   const visual = row.visuals[0];
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -329,18 +452,38 @@ const TableRowComponent = ({ row }: { row: TableRow }) => {
       {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
       {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
       
-      <Card>
-        <CardHeader>
-          <CardTitle>{visual.label}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-96" />
-          ) : (
-            <DataTable data={data} columns={columns} />
-          )}
-        </CardContent>
-      </Card>
+      <div 
+        className="relative"
+        onMouseEnter={() => editMode && setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle>{visual.label}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <Skeleton className="h-96" />
+            ) : (
+              <DataTable data={data} columns={columns} />
+            )}
+          </CardContent>
+        </Card>
+        {editMode && isHovered && (
+          <button
+            onClick={() => onEdit({
+              rowIndex,
+              visualIndex: 0,
+              label: visual.label,
+              sql: visual.query.sql,
+              params: visual.query.params,
+            })}
+            className="absolute top-4 right-4 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        )}
+      </div>
     </div>
   );
 };
