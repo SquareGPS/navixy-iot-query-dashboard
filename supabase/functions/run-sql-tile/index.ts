@@ -1,11 +1,14 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
+import { Parser } from 'https://esm.sh/node-sql-parser@5.3.5';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const parser = new Parser();
 
 function parsePostgresUrl(url: string) {
   const urlObj = new URL(url);
@@ -19,6 +22,58 @@ function parsePostgresUrl(url: string) {
     port: parseInt(urlObj.port) || 5432,
     tls: sslmode ? { enabled: true, enforce: sslmode === 'require' } : undefined,
   };
+}
+
+// Validate SQL using AST parsing
+function validateSQL(sql: string): { valid: boolean; error?: string; sanitized?: string } {
+  try {
+    // Parse SQL to AST
+    const ast = parser.astify(sql, { database: 'Postgresql' });
+    
+    // Ensure it's an array
+    const statements = Array.isArray(ast) ? ast : [ast];
+    
+    // Only allow single SELECT statement
+    if (statements.length !== 1) {
+      return { valid: false, error: 'Only single statements are allowed' };
+    }
+    
+    const stmt = statements[0];
+    
+    // Validate it's a SELECT statement
+    if (stmt.type !== 'select') {
+      return { valid: false, error: 'Only SELECT queries are allowed' };
+    }
+    
+    // Check for dangerous operations in the SELECT
+    const sqlStr = JSON.stringify(stmt);
+    
+    // Block write operations even in subqueries
+    const dangerousPatterns = [
+      'insert', 'update', 'delete', 'drop', 'alter', 'create', 
+      'truncate', 'grant', 'revoke', 'copy', 'set', 'do', 'call',
+      'pg_read_file', 'pg_write_file', 'pg_sleep'
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (sqlStr.toLowerCase().includes(`"type":"${pattern}"`)) {
+        return { valid: false, error: `Prohibited operation detected: ${pattern.toUpperCase()}` };
+      }
+    }
+    
+    // Check for CTEs (WITH clauses) - they can hide write operations
+    if (stmt.with) {
+      return { valid: false, error: 'Common Table Expressions (WITH clauses) are not allowed' };
+    }
+    
+    // Deparse back to SQL to sanitize
+    const sanitized = parser.sqlify(stmt, { database: 'Postgresql' });
+    
+    return { valid: true, sanitized };
+  } catch (error: any) {
+    console.error('SQL parsing error:', error);
+    return { valid: false, error: `Invalid SQL syntax: ${error.message}` };
+  }
 }
 
 serve(async (req) => {
@@ -77,42 +132,19 @@ serve(async (req) => {
       );
     }
 
-    // Strip comments before validation
-    // Remove single-line comments (-- comment)
-    let sqlWithoutComments = sql.replace(/--[^\n]*(\n|$)/g, '\n');
-    // Remove multi-line comments (/* comment */)
-    sqlWithoutComments = sqlWithoutComments.replace(/\/\*[\s\S]*?\*\//g, '');
+    // Validate SQL using AST parser
+    const validation = validateSQL(sql.trim());
     
-    // Validate SQL (only SELECT, no multiple statements)
-    const trimmedSql = sqlWithoutComments.trim().toUpperCase();
+    if (!validation.valid) {
+      console.error('SQL validation failed:', validation.error);
+      return new Response(
+        JSON.stringify({ error: { code: 'INVALID_SQL', message: validation.error } }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     
-    if (!trimmedSql.startsWith('SELECT')) {
-      return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Only SELECT queries are allowed' } }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (sql.includes(';') && sql.trim().indexOf(';') !== sql.trim().length - 1) {
-      return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Multiple statements are not allowed' } }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Block dangerous keywords (using word boundaries to avoid false positives with column names like "is_deleted")
-    const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
-    const foundDangerous = dangerousKeywords.find(keyword => {
-      // Use word boundary regex to match only standalone keywords, not parts of column names
-      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-      return regex.test(sql);
-    });
-    if (foundDangerous) {
-      return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Use sanitized SQL from parser
+    const sanitizedSql = validation.sanitized!;
 
     // Create Supabase client to fetch external DB config
     const supabase = createClient(
@@ -160,9 +192,12 @@ serve(async (req) => {
 
     try {
       await client.connect();
+      
+      // Set statement timeout to prevent long-running queries
+      await client.queryObject('SET statement_timeout = 30000'); // 30 seconds
 
-      // Execute query with LIMIT 1
-      const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
+      // Execute query with LIMIT 1 enforced
+      const safeSql = sanitizedSql.replace(/;$/, '') + ' LIMIT 1';
       const result = await client.queryObject(safeSql);
 
       // Extract first value

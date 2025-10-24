@@ -1,11 +1,14 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Client } from 'https://deno.land/x/postgres@v0.17.0/mod.ts';
+import { Parser } from 'https://esm.sh/node-sql-parser@5.3.5';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const parser = new Parser();
 
 // Map common PostgreSQL OID types to readable names
 function getPostgresTypeName(oid: number): string {
@@ -25,6 +28,58 @@ function getPostgresTypeName(oid: number): string {
     2950: 'uuid',
   };
   return typeMap[oid] || `type(${oid})`;
+}
+
+// Validate SQL using AST parsing
+function validateSQL(sql: string): { valid: boolean; error?: string; sanitized?: string } {
+  try {
+    // Parse SQL to AST
+    const ast = parser.astify(sql, { database: 'Postgresql' });
+    
+    // Ensure it's an array
+    const statements = Array.isArray(ast) ? ast : [ast];
+    
+    // Only allow single SELECT statement
+    if (statements.length !== 1) {
+      return { valid: false, error: 'Only single statements are allowed' };
+    }
+    
+    const stmt = statements[0];
+    
+    // Validate it's a SELECT statement
+    if (stmt.type !== 'select') {
+      return { valid: false, error: 'Only SELECT queries are allowed' };
+    }
+    
+    // Check for dangerous operations in the SELECT
+    const sqlStr = JSON.stringify(stmt);
+    
+    // Block write operations even in subqueries
+    const dangerousPatterns = [
+      'insert', 'update', 'delete', 'drop', 'alter', 'create', 
+      'truncate', 'grant', 'revoke', 'copy', 'set', 'do', 'call',
+      'pg_read_file', 'pg_write_file', 'pg_sleep'
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (sqlStr.toLowerCase().includes(`"type":"${pattern}"`)) {
+        return { valid: false, error: `Prohibited operation detected: ${pattern.toUpperCase()}` };
+      }
+    }
+    
+    // Check for CTEs (WITH clauses) - they can hide write operations
+    if (stmt.with) {
+      return { valid: false, error: 'Common Table Expressions (WITH clauses) are not allowed' };
+    }
+    
+    // Deparse back to SQL to sanitize
+    const sanitized = parser.sqlify(stmt, { database: 'Postgresql' });
+    
+    return { valid: true, sanitized };
+  } catch (error: any) {
+    console.error('SQL parsing error:', error);
+    return { valid: false, error: `Invalid SQL syntax: ${error.message}` };
+  }
 }
 
 function parsePostgresUrl(url: string) {
@@ -97,45 +152,19 @@ serve(async (req) => {
       );
     }
 
-    // Strip comments before validation
-    // Remove single-line comments (-- comment)
-    let sqlWithoutComments = sql.replace(/--[^\n]*(\n|$)/g, '\n');
-    // Remove multi-line comments (/* comment */)
-    sqlWithoutComments = sqlWithoutComments.replace(/\/\*[\s\S]*?\*\//g, '');
+    // Validate SQL using AST parser
+    const validation = validateSQL(sql.trim());
     
-    // Validate SQL (allow CTEs with WITH clause)
-    const trimmedSql = sqlWithoutComments.trim().toUpperCase();
-    
-    if (!trimmedSql.startsWith('SELECT') && !trimmedSql.startsWith('WITH')) {
+    if (!validation.valid) {
+      console.error('SQL validation failed:', validation.error);
       return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Only SELECT queries are allowed' } }),
+        JSON.stringify({ error: { code: 'INVALID_SQL', message: validation.error } }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-
-    if (sql.includes(';') && sql.trim().indexOf(';') !== sql.trim().length - 1) {
-      return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Multiple statements are not allowed' } }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Block dangerous keywords (check for standalone SQL commands, not column names)
-    const dangerousKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE'];
     
-    // Split SQL into tokens and check each one
-    // This avoids false positives with column names like "is_deleted"
-    const sqlTokens = sql.toUpperCase().split(/\s+|[(),;]/);
-    const foundDangerous = dangerousKeywords.find(keyword => {
-      return sqlTokens.includes(keyword);
-    });
-    
-    if (foundDangerous) {
-      return new Response(
-        JSON.stringify({ error: { code: 'INVALID_SQL', message: 'Query contains prohibited keywords' } }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Use sanitized SQL from parser
+    const sanitizedSql = validation.sanitized!;
 
     // Create Supabase client to fetch external DB config
     const supabase = createClient(
@@ -183,14 +212,16 @@ serve(async (req) => {
 
     try {
       await client.connect();
+      
+      // Set statement timeout to prevent long-running queries
+      await client.queryObject('SET statement_timeout = 30000'); // 30 seconds
 
-      // Extract LIMIT from user's query if present (before any cleanup)
-      // Match LIMIT with optional semicolon and whitespace at the end
-      const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
+      // Extract LIMIT from sanitized SQL if present
+      const limitMatch = sanitizedSql.match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?$/i);
       const userLimit = limitMatch ? parseInt(limitMatch[1]) : null;
       
-      // Strip any existing LIMIT/OFFSET from the user's query
-      const cleanedSql = sql.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
+      // Strip any existing LIMIT/OFFSET from sanitized SQL
+      const cleanedSql = sanitizedSql.replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
 
       // Get total count
       const countSql = `SELECT COUNT(*) as total FROM (${cleanedSql}) as count_query`;
