@@ -15,7 +15,6 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -96,23 +95,22 @@ function SortableSectionItem({ section, isEditMode, onRename, onDelete }: Sortab
         <div
           {...attributes}
           {...listeners}
-          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1"
+          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
       )}
       
-      <SidebarMenuItem className="flex-1">
-        <SidebarMenuButton className="w-full justify-start">
-          <FolderOpen className="h-4 w-4" />
-          <span className="truncate">{section.name}</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
+      <div className="flex-1 px-2 py-1">
+        <div className="text-sm font-medium text-foreground uppercase tracking-wider">
+          {section.name}
+        </div>
+      </div>
 
       {isEditMode && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
+            <Button variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -172,7 +170,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const isActive = location.pathname === `/reports/${report.id}`;
+  const isActive = location.pathname === `/app/report/${report.id}`;
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center group">
@@ -180,7 +178,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
         <div
           {...attributes}
           {...listeners}
-          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1"
+          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
@@ -199,7 +197,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
       {isEditMode && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
+            <Button variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -265,7 +263,6 @@ export function MenuEditor() {
   // State
   const [isEditMode, setIsEditMode] = useState(false);
   const [search, setSearch] = useState('');
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [draggedItem, setDraggedItem] = useState<DragItem | null>(null);
   const [renameItem, setRenameItem] = useState<{ id: string; type: 'section' | 'report'; name: string } | null>(null);
   const [deleteItem, setDeleteItem] = useState<{ id: string; type: 'section' | 'report'; name: string } | null>(null);
@@ -297,6 +294,8 @@ export function MenuEditor() {
     setDraggedItem(null);
 
     if (!over || !menuTree) return;
+    
+    console.log('Drag end event:', { active: active.id, over: over.id, overData: over.data.current });
 
     const activeItem = active.data.current as DragItem;
     const overItem = over.data.current as DragItem;
@@ -304,19 +303,21 @@ export function MenuEditor() {
     // Determine drop target
     let dropResult: DropResult;
     
-    if (overItem) {
-      // Dropped on another item
+    if (overItem && overItem.type !== 'drop-zone') {
+      // Dropped on another item (not a drop zone)
       dropResult = {
         activeId: active.id as string,
         overId: over.id as string,
-        activeType: activeItem.type,
-        overType: overItem.type,
+        activeType: activeItem.type as 'section' | 'report',
+        overType: overItem.type as 'section' | 'report',
         overParentSectionId: overItem.parentSectionId,
       };
     } else {
       // Dropped on empty space or drop zone
       const overElement = over.id as string;
       const overData = over.data.current;
+      
+      console.log('Processing drop zone:', { overElement, overData });
       
       // Check if dropped on a drop zone
       if (overData?.type === 'drop-zone') {
@@ -326,20 +327,23 @@ export function MenuEditor() {
           dropResult = {
             activeId: active.id as string,
             overId: 'root',
-            activeType: activeItem.type,
-            overType: 'root',
+            activeType: activeItem.type as 'section' | 'report',
+            overType: 'root' as const,
             overParentSectionId: null,
           };
         } else if (dropZoneType === 'section') {
           const sectionId = overData.sectionId;
+          console.log('Dropping on section drop zone:', { sectionId });
           dropResult = {
             activeId: active.id as string,
-            overId: sectionId,
-            activeType: activeItem.type,
-            overType: 'section',
+            overId: `drop-zone-section-${sectionId}`,
+            activeType: activeItem.type as 'section' | 'report',
+            overType: 'drop-zone' as const,
             overParentSectionId: sectionId,
+            overItem: overData,
           };
         } else {
+          console.log('Invalid drop zone type:', dropZoneType);
           return; // Invalid drop zone
         }
       } else {
@@ -348,23 +352,26 @@ export function MenuEditor() {
           dropResult = {
             activeId: active.id as string,
             overId: 'root',
-            activeType: activeItem.type,
-            overType: 'root',
+            activeType: activeItem.type as 'section' | 'report',
+            overType: 'root' as const,
             overParentSectionId: null,
+            overItem: overData,
           };
         } else {
           // Assume it's a section
           dropResult = {
             activeId: active.id as string,
             overId: overElement,
-            activeType: activeItem.type,
-            overType: 'section',
+            activeType: activeItem.type as 'section' | 'report',
+            overType: 'section' as const,
             overParentSectionId: overElement,
+            overItem: overData,
           };
         }
       }
     }
 
+    console.log('Final drop result:', dropResult);
     // Process the drop
     processDrop(dropResult);
   }, [menuTree]);
@@ -372,7 +379,9 @@ export function MenuEditor() {
   const processDrop = useCallback((dropResult: DropResult) => {
     if (!menuTree) return;
 
-    const { activeId, overId, activeType, overType, overParentSectionId } = dropResult;
+    const { activeId, overId, activeType, overType, overParentSectionId, overItem } = dropResult;
+    
+    console.log('Processing drop:', { activeId, overId, activeType, overType, overParentSectionId, overItem });
 
     // Build the reorder payload
     const sections: Array<{ id: string; sortOrder: number; version: number }> = [];
@@ -385,7 +394,7 @@ export function MenuEditor() {
       
       if (activeIndex !== -1 && overIndex !== -1) {
         const reorderedSections = arrayMove(menuTree.sections, activeIndex, overIndex);
-        reorderedSections.forEach((section, index) => {
+        reorderedSections.forEach((section: any, index) => {
           sections.push({
             id: section.id,
             sortOrder: (index + 1) * 1000,
@@ -404,7 +413,7 @@ export function MenuEditor() {
       if (!activeReport) {
         // Look in section reports
         for (const [sectionId, sectionReports] of Object.entries(menuTree.sectionReports || {})) {
-          activeReport = sectionReports.find(r => r.id === activeId);
+          activeReport = (sectionReports as any[]).find((r: any) => r.id === activeId);
           if (activeReport) {
             currentParentSectionId = sectionId;
             break;
@@ -421,9 +430,16 @@ export function MenuEditor() {
           // Add to end of root reports
           newSortOrder = (menuTree.rootReports.length + 1) * 1000;
         } else if (overType === 'section') {
-          newParentSectionId = overId;
+          newParentSectionId = overParentSectionId || overId;
           // Add to end of section reports
-          const sectionReports = menuTree.sectionReports?.[overId] || [];
+          const sectionReports = menuTree.sectionReports?.[newParentSectionId] || [];
+          newSortOrder = (sectionReports.length + 1) * 1000;
+        } else if (overType === 'drop-zone' && overItem?.dropZoneType === 'section') {
+          // Handle dropping on section drop zone
+          newParentSectionId = overParentSectionId || overItem.sectionId;
+          console.log('Processing section drop zone:', { newParentSectionId, overParentSectionId, overItem });
+          // Add to end of section reports
+          const sectionReports = menuTree.sectionReports?.[newParentSectionId] || [];
           newSortOrder = (sectionReports.length + 1) * 1000;
         } else if (overType === 'report') {
           // Find the target report's parent
@@ -433,7 +449,7 @@ export function MenuEditor() {
           if (!targetReport) {
             // Look in section reports
             for (const [sectionId, sectionReports] of Object.entries(menuTree.sectionReports || {})) {
-              targetReport = sectionReports.find(r => r.id === overId);
+              targetReport = (sectionReports as any[]).find((r: any) => r.id === overId);
               if (targetReport) {
                 targetParentSectionId = sectionId;
                 break;
@@ -458,19 +474,13 @@ export function MenuEditor() {
 
     // Send the reorder request
     if (sections.length > 0 || reports.length > 0) {
+      console.log('Sending reorder request:', { sections, reports });
       reorderMutation.mutate({ sections, reports });
+    } else {
+      console.log('No changes to send');
     }
   }, [menuTree, reorderMutation]);
 
-  const toggleSection = (sectionId: string) => {
-    const newExpanded = new Set(expandedSections);
-    if (newExpanded.has(sectionId)) {
-      newExpanded.delete(sectionId);
-    } else {
-      newExpanded.add(sectionId);
-    }
-    setExpandedSections(newExpanded);
-  };
 
   const handleRename = (id: string, name: string) => {
     // Determine if it's a section or report
@@ -488,18 +498,18 @@ export function MenuEditor() {
   };
 
   // Filter data based on search
-  const filteredSections = menuTree?.sections?.filter(section =>
+  const filteredSections = (menuTree?.sections as any[])?.filter((section: any) =>
     section.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
-  const filteredRootReports = menuTree?.rootReports?.filter(report =>
+  const filteredRootReports = (menuTree?.rootReports as any[])?.filter((report: any) =>
     report.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
   const filteredSectionReports = Object.fromEntries(
     Object.entries(menuTree?.sectionReports || {}).map(([sectionId, reports]) => [
       sectionId,
-      reports?.filter(report => report.name.toLowerCase().includes(search.toLowerCase())) || []
+      (reports as any[])?.filter((report: any) => report.name.toLowerCase().includes(search.toLowerCase())) || []
     ])
   );
 
@@ -546,8 +556,7 @@ export function MenuEditor() {
                 </div>
                 {user?.role === 'admin' || user?.role === 'editor' ? (
                   <Button
-                    variant={isEditMode ? "default" : "outline"}
-                    size="sm"
+                    variant={isEditMode ? "primary" : "secondary"}
                     onClick={() => setIsEditMode(!isEditMode)}
                   >
                     {isEditMode ? 'Done' : 'Edit'}
@@ -581,11 +590,7 @@ export function MenuEditor() {
                   >
                     {/* Sections */}
                     {filteredSections.map((section) => (
-                      <Collapsible
-                        key={section.id}
-                        open={expandedSections.has(section.id)}
-                        onOpenChange={() => toggleSection(section.id)}
-                      >
+                      <div key={section.id} className="mb-4">
                         <SortableSectionItem
                           section={section}
                           isEditMode={isEditMode}
@@ -593,34 +598,32 @@ export function MenuEditor() {
                           onDelete={handleDelete}
                         />
                         
-                        <CollapsibleContent>
-                          <div className="ml-6">
-                            {/* Section Reports Drop Zone */}
-                            <DroppableDropZone id={`drop-zone-section-${section.id}`} type="section" sectionId={section.id}>
-                              {filteredSectionReports[section.id]?.map((report) => (
-                                <SortableReportItem
-                                  key={report.id}
-                                  report={report}
-                                  parentSectionId={section.id}
-                                  isEditMode={isEditMode}
-                                  onRename={handleRename}
-                                  onDelete={handleDelete}
-                                />
-                              ))}
-                              {(!filteredSectionReports[section.id] || filteredSectionReports[section.id].length === 0) && (
-                                <div className="text-xs text-muted-foreground p-2 text-center">
-                                  Drop reports here
-                                </div>
-                              )}
-                            </DroppableDropZone>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
+                        <div className="ml-6 mt-1">
+                          {/* Section Reports Drop Zone */}
+                          <DroppableDropZone id={`drop-zone-section-${section.id}`} type="section" sectionId={section.id}>
+                            {filteredSectionReports[section.id]?.map((report) => (
+                              <SortableReportItem
+                                key={report.id}
+                                report={report}
+                                parentSectionId={section.id}
+                                isEditMode={isEditMode}
+                                onRename={handleRename}
+                                onDelete={handleDelete}
+                              />
+                            ))}
+                            {(!filteredSectionReports[section.id] || filteredSectionReports[section.id].length === 0) && (
+                              <div className="text-xs text-muted-foreground p-2 text-center">
+                                Drop reports here
+                              </div>
+                            )}
+                          </DroppableDropZone>
+                        </div>
+                      </div>
                     ))}
 
                     {/* Root Reports */}
-                    <div className="px-2 py-1">
-                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <div className="px-2 py-1 mt-4">
+                      <div className="text-sm font-medium text-foreground uppercase tracking-wider">
                         Root Reports
                       </div>
                     </div>
@@ -656,13 +659,13 @@ export function MenuEditor() {
             {draggedItem.type === 'section' ? (
               <>
                 <FolderOpen className="h-4 w-4 inline mr-2" />
-                {menuTree?.sections.find(s => s.id === draggedItem.id)?.name}
+                {(menuTree?.sections as any[])?.find((s: any) => s.id === draggedItem.id)?.name}
               </>
             ) : (
               <>
                 <FileText className="h-4 w-4 inline mr-2" />
-                {menuTree?.rootReports.find(r => r.id === draggedItem.id)?.name ||
-                 Object.values(menuTree?.sectionReports || {}).flat().find(r => r.id === draggedItem.id)?.name}
+                {(menuTree?.rootReports as any[])?.find((r: any) => r.id === draggedItem.id)?.name ||
+                 (Object.values(menuTree?.sectionReports || {}).flat() as any[]).find((r: any) => r.id === draggedItem.id)?.name}
               </>
             )}
           </div>

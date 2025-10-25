@@ -49,16 +49,20 @@ export interface DeleteReportResponse {
 // Drag and drop types
 export interface DragItem {
   id: string;
-  type: 'section' | 'report';
+  type: 'section' | 'report' | 'drop-zone';
   parentSectionId?: string | null;
+  dropZoneType?: 'section';
+  sectionId?: string;
 }
 
+// Drop result interface for drag and drop operations
 export interface DropResult {
   activeId: string;
   overId: string | null;
   activeType: 'section' | 'report';
-  overType?: 'section' | 'report' | 'root';
+  overType?: 'section' | 'report' | 'root' | 'drop-zone';
   overParentSectionId?: string | null;
+  overItem?: any;
 }
 
 // UI state types

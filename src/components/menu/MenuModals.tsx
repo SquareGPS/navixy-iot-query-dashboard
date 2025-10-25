@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useRenameSectionMutation, useRenameReportMutation, useDeleteSectionMutation, useDeleteReportMutation } from '@/hooks/use-menu-mutations';
+import { useRenameSectionMutation, useRenameReportMutation, useDeleteSectionMutation, useDeleteReportMutation, useMenuTree } from '@/hooks/use-menu-mutations';
 
 // Rename Modal Component
 interface RenameModalProps {
@@ -26,6 +26,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
 
   const renameSectionMutation = useRenameSectionMutation();
   const renameReportMutation = useRenameReportMutation();
+  const { data: menuTree } = useMenuTree();
 
   useEffect(() => {
     if (item) {
@@ -50,16 +51,38 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
 
     try {
       if (item.type === 'section') {
+        // Find the current section to get its version
+        const currentSection = menuTree?.sections.find(s => s.id === item.id);
+        if (!currentSection) {
+          toast.error('Section not found');
+          return;
+        }
+        
         await renameSectionMutation.mutateAsync({
           id: item.id,
           name: name.trim(),
-          version: 1, // This should come from the current data
+          version: currentSection.version,
         });
       } else {
+        // Find the current report to get its version
+        let currentReport = menuTree?.rootReports.find(r => r.id === item.id);
+        if (!currentReport) {
+          // Look in section reports
+          for (const sectionReports of Object.values(menuTree?.sectionReports || {})) {
+            currentReport = sectionReports.find(r => r.id === item.id);
+            if (currentReport) break;
+          }
+        }
+        
+        if (!currentReport) {
+          toast.error('Report not found');
+          return;
+        }
+        
         await renameReportMutation.mutateAsync({
           id: item.id,
           name: name.trim(),
-          version: 1, // This should come from the current data
+          version: currentReport.version,
         });
       }
       
