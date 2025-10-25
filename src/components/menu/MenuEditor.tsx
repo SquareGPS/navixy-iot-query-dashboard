@@ -226,10 +226,11 @@ interface DroppableDropZoneProps {
   id: string;
   type: 'root' | 'section';
   sectionId?: string;
+  isEditMode: boolean;
   children: React.ReactNode;
 }
 
-function DroppableDropZone({ id, type, sectionId, children }: DroppableDropZoneProps) {
+function DroppableDropZone({ id, type, sectionId, isEditMode, children }: DroppableDropZoneProps) {
   const { setNodeRef, isOver } = useDroppable({
     id,
     data: {
@@ -245,7 +246,9 @@ function DroppableDropZone({ id, type, sectionId, children }: DroppableDropZoneP
       className={`min-h-[40px] p-1 rounded border-2 border-dashed transition-colors ${
         isOver 
           ? 'border-primary bg-primary/5' 
-          : 'border-transparent hover:border-muted-foreground/20'
+          : isEditMode 
+            ? 'border-transparent hover:border-muted-foreground/20'
+            : 'border-transparent'
       }`}
     >
       {children}
@@ -607,15 +610,14 @@ export function MenuEditor() {
                       ...filteredSections.map(s => s.id),
                       ...filteredRootReports.map(r => r.id),
                       ...Object.values(filteredSectionReports).flat().map(r => r.id),
-                      // Add drop zones
-                      'drop-zone-root',
-                      ...filteredSections.map(s => `drop-zone-section-${s.id}`)
+                      // Add drop zones only in edit mode
+                      ...(isEditMode ? ['drop-zone-root', ...filteredSections.map(s => `drop-zone-section-${s.id}`)] : [])
                     ]} 
                     strategy={verticalListSortingStrategy}
                   >
                     {/* Sections */}
                     {filteredSections.map((section) => (
-                      <div key={section.id} className="mb-4">
+                      <div key={section.id} className="mb-2">
                         <SortableSectionItem
                           section={section}
                           isEditMode={isEditMode}
@@ -623,53 +625,83 @@ export function MenuEditor() {
                           onDelete={handleDelete}
                         />
                         
-                        <div className="ml-6 mt-1">
-                          {/* Section Reports Drop Zone */}
-                          <DroppableDropZone id={`drop-zone-section-${section.id}`} type="section" sectionId={section.id}>
-                            {filteredSectionReports[section.id]?.map((report) => (
-                              <SortableReportItem
-                                key={report.id}
-                                report={report}
-                                parentSectionId={section.id}
-                                isEditMode={isEditMode}
-                                onRename={handleRename}
-                                onDelete={handleDelete}
-                              />
-                            ))}
-                            {(!filteredSectionReports[section.id] || filteredSectionReports[section.id].length === 0) && (
-                              <div className="text-xs text-muted-foreground p-2 text-center">
-                                Drop reports here
-                              </div>
-                            )}
-                          </DroppableDropZone>
+                        <div className="ml-2 mt-1">
+                          {/* Section Reports */}
+                          {isEditMode ? (
+                            <DroppableDropZone id={`drop-zone-section-${section.id}`} type="section" sectionId={section.id} isEditMode={isEditMode}>
+                              {filteredSectionReports[section.id]?.map((report) => (
+                                <SortableReportItem
+                                  key={report.id}
+                                  report={report}
+                                  parentSectionId={section.id}
+                                  isEditMode={isEditMode}
+                                  onRename={handleRename}
+                                  onDelete={handleDelete}
+                                />
+                              ))}
+                              {(!filteredSectionReports[section.id] || filteredSectionReports[section.id].length === 0) && (
+                                <div className="text-xs text-muted-foreground p-2 text-center">
+                                  Drop reports here
+                                </div>
+                              )}
+                            </DroppableDropZone>
+                          ) : (
+                            <>
+                              {filteredSectionReports[section.id]?.map((report) => (
+                                <SortableReportItem
+                                  key={report.id}
+                                  report={report}
+                                  parentSectionId={section.id}
+                                  isEditMode={isEditMode}
+                                  onRename={handleRename}
+                                  onDelete={handleDelete}
+                                />
+                              ))}
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
 
                     {/* Root Reports */}
-                    <div className="px-2 py-1 mt-4">
+                    <div className="px-2 py-1 mt-2">
                       <div className="text-sm font-medium text-foreground uppercase tracking-wider">
                         Root Reports
                       </div>
                     </div>
-                    {/* Root Reports Drop Zone */}
-                    <DroppableDropZone id="drop-zone-root" type="root">
-                      {filteredRootReports.map((report) => (
-                        <SortableReportItem
-                          key={report.id}
-                          report={report}
-                          parentSectionId={null}
-                          isEditMode={isEditMode}
-                          onRename={handleRename}
-                          onDelete={handleDelete}
-                        />
-                      ))}
-                      {filteredRootReports.length === 0 && (
-                        <div className="text-xs text-muted-foreground p-2 text-center">
-                          Drop reports here
-                        </div>
-                      )}
-                    </DroppableDropZone>
+                    {/* Root Reports */}
+                    {isEditMode ? (
+                      <DroppableDropZone id="drop-zone-root" type="root" isEditMode={isEditMode}>
+                        {filteredRootReports.map((report) => (
+                          <SortableReportItem
+                            key={report.id}
+                            report={report}
+                            parentSectionId={null}
+                            isEditMode={isEditMode}
+                            onRename={handleRename}
+                            onDelete={handleDelete}
+                          />
+                        ))}
+                        {filteredRootReports.length === 0 && (
+                          <div className="text-xs text-muted-foreground p-2 text-center">
+                            Drop reports here
+                          </div>
+                        )}
+                      </DroppableDropZone>
+                    ) : (
+                      <>
+                        {filteredRootReports.map((report) => (
+                          <SortableReportItem
+                            key={report.id}
+                            report={report}
+                            parentSectionId={null}
+                            isEditMode={isEditMode}
+                            onRename={handleRename}
+                            onDelete={handleDelete}
+                          />
+                        ))}
+                      </>
+                    )}
                   </SortableContext>
                 </SidebarMenu>
               </SidebarGroupContent>

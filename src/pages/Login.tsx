@@ -104,7 +104,7 @@ const Login = () => {
               <div className="p-3 bg-surface-3 rounded-lg text-sm text-text-muted">
                 <p className="font-semibold mb-1 text-text-secondary">Demo Account:</p>
                 <p>Email: admin@example.com</p>
-                <p>Password: password</p>
+                <p>Password: admin123</p>
               </div>
             </TabsContent>
             
