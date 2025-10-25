@@ -503,19 +503,34 @@ export function MenuEditor() {
   };
 
   // Filter data based on search
-  const filteredSections = (menuTree?.sections as any[])?.filter((section: any) =>
-    section.name.toLowerCase().includes(search.toLowerCase())
-  ) || [];
-
   const filteredRootReports = (menuTree?.rootReports as any[])?.filter((report: any) =>
     report.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
+  // Enhanced filtering logic for sections and their reports
+  const filteredSections = (menuTree?.sections as any[])?.filter((section: any) => {
+    const sectionMatches = section.name.toLowerCase().includes(search.toLowerCase());
+    const sectionReports = menuTree?.sectionReports?.[section.id] || [];
+    const matchingReports = sectionReports.filter((report: any) => 
+      report.name.toLowerCase().includes(search.toLowerCase())
+    );
+    
+    // Show section if either section name matches OR it has matching reports
+    return sectionMatches || matchingReports.length > 0;
+  }) || [];
+
   const filteredSectionReports = Object.fromEntries(
-    Object.entries(menuTree?.sectionReports || {}).map(([sectionId, reports]) => [
-      sectionId,
-      (reports as any[])?.filter((report: any) => report.name.toLowerCase().includes(search.toLowerCase())) || []
-    ])
+    Object.entries(menuTree?.sectionReports || {}).map(([sectionId, reports]) => {
+      const section = menuTree?.sections?.find(s => s.id === sectionId);
+      const sectionMatches = section?.name.toLowerCase().includes(search.toLowerCase()) || false;
+      
+      // Always filter reports by search term, regardless of section name match
+      const matchingReports = (reports as any[])?.filter((report: any) => 
+        report.name.toLowerCase().includes(search.toLowerCase())
+      ) || [];
+      
+      return [sectionId, matchingReports];
+    })
   );
 
   if (isLoading) {
