@@ -32,6 +32,12 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   DndContext,
   closestCenter,
   KeyboardSensor,
@@ -101,10 +107,19 @@ function SortableSectionItem({ section, isEditMode, onRename, onDelete }: Sortab
         </div>
       )}
       
-      <div className="flex-1 px-2 py-1">
-        <div className="text-sm font-medium text-foreground uppercase tracking-wider">
-          {section.name}
-        </div>
+      <div className="flex-1 px-2 py-1 min-w-0">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="text-sm font-medium text-foreground uppercase tracking-wider truncate">
+                {section.name}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right" align="center">
+              <p>{section.name}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {isEditMode && (
@@ -184,14 +199,23 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
         </div>
       )}
       
-      <SidebarMenuItem className="flex-1">
-        <SidebarMenuButton 
-          className={`w-full justify-start ${isActive ? 'bg-accent-soft' : ''}`}
-          onClick={() => navigate(`/app/report/${report.id}`)}
-        >
-          <FileText className="h-4 w-4" />
-          <span className="truncate">{report.name}</span>
-        </SidebarMenuButton>
+      <SidebarMenuItem className="flex-1 min-w-0">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SidebarMenuButton 
+                className={`w-full justify-start ${isActive ? 'bg-accent-soft' : ''}`}
+                onClick={() => navigate(`/app/report/${report.id}`)}
+              >
+                <FileText className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate min-w-0">{report.name}</span>
+              </SidebarMenuButton>
+            </TooltipTrigger>
+            <TooltipContent side="right" align="center">
+              <p>{report.name}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </SidebarMenuItem>
 
       {isEditMode && (
