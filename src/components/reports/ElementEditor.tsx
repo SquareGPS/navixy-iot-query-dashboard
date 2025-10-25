@@ -115,10 +115,10 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0">
-          <DialogTitle>Edit: {element.label}</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 bg-[var(--surface-1)] border-[var(--border)] overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b border-[var(--border)] bg-[var(--surface-1)] rounded-t-lg">
+          <DialogTitle className="text-[var(--text-primary)]">Edit: {element.label}</DialogTitle>
+          <DialogDescription className="text-[var(--text-secondary)]">
             Modify the SQL query and parameters for this element
           </DialogDescription>
         </DialogHeader>
@@ -130,7 +130,7 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           </TabsList>
           
           {/* SQL Query Tab */}
-          <TabsContent value="sql" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden">
+          <TabsContent value="sql" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden bg-[var(--surface-1)]">
             <div className="flex-1 flex flex-col min-h-0 gap-3">
               {/* SQL Editor - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
@@ -180,18 +180,18 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           </TabsContent>
           
           {/* Parameters Tab */}
-          <TabsContent value="params" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden">
-            <Label className="mb-2 flex-shrink-0 text-sm font-medium">Query Parameters (JSON)</Label>
+          <TabsContent value="params" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden bg-[var(--surface-1)]">
+            <Label className="mb-2 flex-shrink-0 text-sm font-medium text-[var(--text-primary)]">Query Parameters (JSON)</Label>
             <Textarea
               value={params}
               onChange={(e) => setParams(e.target.value)}
-              className="flex-1 font-mono text-sm resize-none min-h-0"
+              className="flex-1 font-mono text-sm resize-none min-h-0 bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-primary)]"
               placeholder='{"param1": "value1"}'
             />
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 px-6 py-4 border-t flex-shrink-0">
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0 bg-[var(--surface-1)] rounded-b-lg">
           <Button onClick={onClose} variant="ghost" size="sm">
             <X className="h-4 w-4 mr-2" />
             Cancel

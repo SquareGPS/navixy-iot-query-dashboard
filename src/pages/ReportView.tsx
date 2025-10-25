@@ -1032,15 +1032,15 @@ const ReportView = () => {
 
       {/* Full Schema Editor Dialog */}
       <Dialog open={isEditing && editMode === 'full'} onOpenChange={(open) => !open && setIsEditing(false)}>
-        <DialogContent className="max-w-6xl h-[85vh] flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle>Edit Report Schema</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-6xl h-[85vh] flex flex-col p-0 bg-[var(--surface-1)] border-[var(--border)] overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-[var(--border)] bg-[var(--surface-1)] rounded-t-lg">
+            <DialogTitle className="text-[var(--text-primary)]">Edit Report Schema</DialogTitle>
+            <DialogDescription className="text-[var(--text-secondary)]">
               Modify the complete JSON schema for this report
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 px-6 overflow-hidden">
+          <div className="flex-1 px-6 overflow-hidden bg-[var(--surface-1)]">
             <SqlEditor
               value={editorValue}
               onChange={setEditorValue}
@@ -1049,7 +1049,7 @@ const ReportView = () => {
             />
           </div>
 
-          <div className="flex justify-between gap-2 px-6 py-4 border-t">
+          <div className="flex justify-between gap-2 px-6 py-4 border-t border-[var(--border)] bg-[var(--surface-1)] rounded-b-lg">
             <div className="flex gap-2">
               <Button onClick={handleImportSchema} variant="outline" size="sm">
                 <Upload className="h-4 w-4 mr-2" />
