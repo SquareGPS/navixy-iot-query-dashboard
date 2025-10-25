@@ -1,0 +1,382 @@
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Save, X } from 'lucide-react';
+import { SqlEditor } from './SqlEditor';
+import { toast } from '@/hooks/use-toast';
+import type { Row, TilesRow, TableRow, AnnotationRow, ChartsRow, TileVisual, TableVisual, AnnotationVisual, BarVisual, PieVisual } from '@/types/report-schema';
+
+interface NewRowEditorProps {
+  open: boolean;
+  onClose: () => void;
+  rowType: Row['type'];
+  onSave: (newRow: Row) => void;
+}
+
+const DEFAULT_SQL = 'SELECT 1 as value, \'Sample Data\' as label';
+
+export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorProps) {
+  const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
+  const [label, setLabel] = useState('');
+  const [sql, setSql] = useState(DEFAULT_SQL);
+  const [saving, setSaving] = useState(false);
+
+  // For annotation rows
+  const [annotationText, setAnnotationText] = useState('');
+  const [isMarkdown, setIsMarkdown] = useState(false);
+
+  // For chart rows
+  const [chartType, setChartType] = useState<'bar' | 'pie'>('bar');
+  const [categoryField, setCategoryField] = useState('');
+  const [valueField, setValueField] = useState('');
+
+  const handleSave = async () => {
+    if (!label.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Label is required',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (rowType !== 'annotation' && !sql.trim()) {
+      toast({
+        title: 'Error',
+        description: 'SQL query is required',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      let newRow: Row;
+
+      switch (rowType) {
+        case 'tiles': {
+          const tileVisual: TileVisual = {
+            kind: 'tile',
+            label: label.trim(),
+            query: {
+              sql: sql.trim(),
+            },
+            options: {
+              precision: 0,
+            }
+          };
+
+          newRow = {
+            type: 'tiles',
+            title: title.trim() || undefined,
+            subtitle: subtitle.trim() || undefined,
+            visuals: [tileVisual]
+          } as TilesRow;
+          break;
+        }
+
+        case 'table': {
+          const tableVisual: TableVisual = {
+            kind: 'table',
+            label: label.trim(),
+            query: {
+              sql: sql.trim(),
+            },
+            options: {
+              paginate: true,
+              page_size: 10,
+            }
+          };
+
+          newRow = {
+            type: 'table',
+            title: title.trim() || undefined,
+            subtitle: subtitle.trim() || undefined,
+            visuals: [tableVisual]
+          } as TableRow;
+          break;
+        }
+
+        case 'charts': {
+          if (!categoryField.trim() || !valueField.trim()) {
+            toast({
+              title: 'Error',
+              description: 'Category field and value field are required for charts',
+              variant: 'destructive',
+            });
+            return;
+          }
+
+          const chartOptions = {
+            category_field: categoryField.trim(),
+            value_field: valueField.trim(),
+            show_legend: true,
+            legend_position: 'bottom' as const,
+            show_tooltips: true,
+          };
+
+          let chartVisual: BarVisual | PieVisual;
+
+          if (chartType === 'bar') {
+            chartVisual = {
+              kind: 'bar',
+              label: label.trim(),
+              query: {
+                sql: sql.trim(),
+              },
+              options: {
+                ...chartOptions,
+                orientation: 'vertical' as const,
+                show_value_labels: true,
+                precision: 0,
+              }
+            } as BarVisual;
+          } else {
+            chartVisual = {
+              kind: 'pie',
+              label: label.trim(),
+              query: {
+                sql: sql.trim(),
+              },
+              options: {
+                ...chartOptions,
+                donut: false,
+                label_type: 'percent' as const,
+                precision: 0,
+              }
+            } as PieVisual;
+          }
+
+          newRow = {
+            type: 'charts',
+            title: title.trim() || undefined,
+            subtitle: subtitle.trim() || undefined,
+            visuals: [chartVisual]
+          } as ChartsRow;
+          break;
+        }
+
+        case 'annotation': {
+          const annotationVisual: AnnotationVisual = {
+            kind: 'annotation',
+            label: label.trim() || undefined,
+            options: {
+              text: annotationText.trim(),
+              markdown: isMarkdown,
+            }
+          };
+
+          newRow = {
+            type: 'annotation',
+            title: title.trim() || undefined,
+            subtitle: subtitle.trim() || undefined,
+            visuals: [annotationVisual]
+          } as AnnotationRow;
+          break;
+        }
+
+        default:
+          throw new Error(`Unsupported row type: ${rowType}`);
+      }
+
+      onSave(newRow);
+      onClose();
+      
+      // Reset form
+      setTitle('');
+      setSubtitle('');
+      setLabel('');
+      setSql(DEFAULT_SQL);
+      setAnnotationText('');
+      setIsMarkdown(false);
+      setChartType('bar');
+      setCategoryField('');
+      setValueField('');
+
+      toast({
+        title: 'Success',
+        description: 'Row added successfully',
+      });
+    } catch (error: any) {
+      console.error('Error creating new row:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create row',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    onClose();
+    // Reset form
+    setTitle('');
+    setSubtitle('');
+    setLabel('');
+    setSql(DEFAULT_SQL);
+    setAnnotationText('');
+    setIsMarkdown(false);
+    setChartType('bar');
+    setCategoryField('');
+    setValueField('');
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add New {rowType.charAt(0).toUpperCase() + rowType.slice(1)} Row</DialogTitle>
+          <DialogDescription>
+            Configure your new {rowType} row. Fill in the required fields and customize as needed.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 py-4">
+          {/* Row Title and Subtitle */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Row Title (Optional)</Label>
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Enter row title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="subtitle">Row Subtitle (Optional)</Label>
+              <Input
+                id="subtitle"
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                placeholder="Enter row subtitle"
+              />
+            </div>
+          </div>
+
+          {/* Element Label */}
+          <div className="space-y-2">
+            <Label htmlFor="label">Element Label *</Label>
+            <Input
+              id="label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Enter element label"
+              required
+            />
+          </div>
+
+          {/* Row Type Specific Fields */}
+          {rowType === 'annotation' ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="annotation-text">Annotation Text *</Label>
+                <Textarea
+                  id="annotation-text"
+                  value={annotationText}
+                  onChange={(e) => setAnnotationText(e.target.value)}
+                  placeholder="Enter your annotation text..."
+                  rows={6}
+                  required
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="markdown"
+                  checked={isMarkdown}
+                  onChange={(e) => setIsMarkdown(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="markdown">Enable Markdown formatting</Label>
+              </div>
+            </div>
+          ) : rowType === 'charts' ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="chart-type">Chart Type</Label>
+                  <Select value={chartType} onValueChange={(value: 'bar' | 'pie') => setChartType(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bar">Bar Chart</SelectItem>
+                      <SelectItem value="pie">Pie Chart</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="category-field">Category Field *</Label>
+                  <Input
+                    id="category-field"
+                    value={categoryField}
+                    onChange={(e) => setCategoryField(e.target.value)}
+                    placeholder="e.g., category, name, type"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="value-field">Value Field *</Label>
+                  <Input
+                    id="value-field"
+                    value={valueField}
+                    onChange={(e) => setValueField(e.target.value)}
+                    placeholder="e.g., count, amount, value"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sql">SQL Query *</Label>
+                <div className="border rounded-md">
+                  <SqlEditor
+                    value={sql}
+                    onChange={setSql}
+                    height="200px"
+                    language="sql"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="sql">SQL Query *</Label>
+              <div className="border rounded-md">
+                <SqlEditor
+                  value={sql}
+                  onChange={setSql}
+                  height="200px"
+                  language="sql"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 border-t">
+          <Button onClick={handleClose} variant="outline" disabled={saving}>
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            <Save className="h-4 w-4 mr-2" />
+            {saving ? 'Creating...' : 'Create Row'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

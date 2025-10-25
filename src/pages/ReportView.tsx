@@ -11,6 +11,8 @@ import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
 import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
+import { AddRowButton } from '@/components/reports/AddRowButton';
+import { NewRowEditor } from '@/components/reports/NewRowEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
@@ -84,6 +86,9 @@ const ReportView = () => {
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
   const [tempSectionName, setTempSectionName] = useState('');
   const [tempReportName, setTempReportName] = useState('');
+  const [showNewRowEditor, setShowNewRowEditor] = useState(false);
+  const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
+  const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
@@ -664,6 +669,61 @@ const ReportView = () => {
     setTempReportName('');
   };
 
+  const handleAddRow = (rowType: 'tiles' | 'table' | 'charts' | 'annotation', insertAfterIndex?: number) => {
+    setNewRowType(rowType);
+    setInsertAfterIndex(insertAfterIndex);
+    setShowNewRowEditor(true);
+  };
+
+  const handleSaveNewRow = async (newRow: any) => {
+    if (!schema || !reportId) return;
+
+    try {
+      const updatedSchema = { ...schema };
+      
+      // Insert the new row at the specified position
+      if (insertAfterIndex !== undefined) {
+        updatedSchema.rows.splice(insertAfterIndex + 1, 0, newRow);
+      } else {
+        updatedSchema.rows.push(newRow);
+      }
+
+      // Update timestamp
+      updatedSchema.meta = {
+        ...updatedSchema.meta,
+        last_updated: new Date().toISOString()
+      };
+
+      const response = await apiService.updateReport(reportId, {
+        title: updatedSchema.title || report?.title,
+        subtitle: updatedSchema.subtitle,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to add row');
+      }
+
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      setShowNewRowEditor(false);
+      setNewRowType(null);
+      setInsertAfterIndex(undefined);
+
+      toast({
+        title: 'Success',
+        description: 'Row added successfully',
+      });
+    } catch (error: any) {
+      console.error('Error adding row:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add row',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleExportSchema = () => {
     const blob = new Blob([editorValue], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1175,28 +1235,46 @@ const ReportView = () => {
         {/* Report Content */}
         <div className="space-y-6">
         {schema && schema.rows && schema.rows.length > 0 ? (
-          schema.rows.map((row, rowIdx) => {
-            const inlineEditActive = isEditing && editMode === 'inline';
-            const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
+          <>
+            {/* Add row button at the top */}
+            <AddRowButton 
+              onAddRow={handleAddRow} 
+              canEdit={canEdit} 
+              isEditing={isEditing && editMode === 'inline'} 
+            />
             
-            return (
-              <RowRenderer
-                key={rowKey}
-                row={row}
-                rowIndex={rowIdx}
-                editMode={inlineEditActive}
-                onEdit={setEditingElement}
-                onEditAnnotation={setEditingAnnotation}
-                editingRowTitle={editingRowTitle === rowIdx}
-                tempRowTitle={tempRowTitle}
-                onStartEditRowTitle={handleStartEditRowTitle}
-                onSaveRowTitle={handleSaveRowTitle}
-                onCancelEditRowTitle={handleCancelEditRowTitle}
-                onRowTitleChange={setTempRowTitle}
-                canEdit={canEdit}
-              />
-            );
-          })
+            {schema.rows.map((row, rowIdx) => {
+              const inlineEditActive = isEditing && editMode === 'inline';
+              const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
+              
+              return (
+                <div key={rowKey}>
+                  <RowRenderer
+                    row={row}
+                    rowIndex={rowIdx}
+                    editMode={inlineEditActive}
+                    onEdit={setEditingElement}
+                    onEditAnnotation={setEditingAnnotation}
+                    editingRowTitle={editingRowTitle === rowIdx}
+                    tempRowTitle={tempRowTitle}
+                    onStartEditRowTitle={handleStartEditRowTitle}
+                    onSaveRowTitle={handleSaveRowTitle}
+                    onCancelEditRowTitle={handleCancelEditRowTitle}
+                    onRowTitleChange={setTempRowTitle}
+                    canEdit={canEdit}
+                  />
+                  
+                  {/* Add row button after each row */}
+                  <AddRowButton 
+                    onAddRow={handleAddRow} 
+                    insertAfterIndex={rowIdx}
+                    canEdit={canEdit} 
+                    isEditing={isEditing && editMode === 'inline'} 
+                  />
+                </div>
+              );
+            })}
+          </>
         ) : (
           /* Empty State - Show example schema download option */
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-8 shadow-sm">
@@ -1359,6 +1437,20 @@ const ReportView = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* New Row Editor Dialog */}
+      {newRowType && (
+        <NewRowEditor
+          open={showNewRowEditor}
+          onClose={() => {
+            setShowNewRowEditor(false);
+            setNewRowType(null);
+            setInsertAfterIndex(undefined);
+          }}
+          rowType={newRowType}
+          onSave={handleSaveNewRow}
+        />
+      )}
 
       {/* Floating Edit Menu */}
       <FloatingEditMenu
