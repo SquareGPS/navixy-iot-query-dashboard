@@ -13,6 +13,7 @@ export default {
         mono: ['var(--font-mono)']
       },
       colors: {
+        // Custom colors
         bg: "var(--bg)",
         surface: {
           1: "var(--surface-1)",
@@ -25,15 +26,54 @@ export default {
           secondary: "var(--text-secondary)",
           muted: "var(--text-muted)"
         },
-        accent: {
-          DEFAULT: "var(--accent)",
-          hover: "var(--accent-hover)",
-          soft: "var(--accent-soft)"
-        },
         success: "var(--success)",
         warning: "var(--warning)",
         danger: "var(--danger)",
-        info: "var(--info)"
+        info: "var(--info)",
+        
+        // Map Tailwind semantic colors to CSS variables
+        background: "var(--surface-1)",
+        foreground: "var(--text-primary)",
+        card: {
+          DEFAULT: "var(--surface-1)",
+          foreground: "var(--text-primary)"
+        },
+        popover: {
+          DEFAULT: "var(--surface-1)",
+          foreground: "var(--text-primary)"
+        },
+        primary: {
+          DEFAULT: "var(--accent)",
+          foreground: "var(--surface-1)"
+        },
+        secondary: {
+          DEFAULT: "var(--surface-2)",
+          foreground: "var(--text-primary)"
+        },
+        muted: {
+          DEFAULT: "var(--surface-2)",
+          foreground: "var(--text-muted)"
+        },
+        accent: {
+          DEFAULT: "var(--accent)",
+          foreground: "var(--surface-1)",
+          hover: "var(--accent-hover)",
+          soft: "var(--accent-soft)"
+        },
+        destructive: {
+          DEFAULT: "var(--danger)",
+          foreground: "var(--surface-1)"
+        },
+        border: "var(--border)",
+        input: "var(--border)",
+        ring: "var(--accent)",
+        chart: {
+          "1": "var(--chart-s1)",
+          "2": "var(--chart-s2)",
+          "3": "var(--chart-s3)",
+          "4": "var(--chart-s4)",
+          "5": "var(--chart-s5)"
+        }
       },
       borderRadius: {
         xs: "var(--r-xs)",
