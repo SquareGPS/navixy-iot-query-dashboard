@@ -10,11 +10,12 @@ import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
+import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, Edit, Save, X, Code, Download, Upload, ChevronDown, ChevronRight, Settings, Trash2 } from 'lucide-react';
+import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { ReportSchema } from '@/types/report-schema';
@@ -1076,55 +1077,9 @@ const ReportView = () => {
             </div>
           )}
 
-          {/* Right Side Controls */}
+          {/* Right Side Controls - Simplified for non-editors */}
           <div className="flex items-center gap-3">
-            {canEdit ? (
-              <>
-                {/* Edit Mode Actions - Only visible when editing */}
-                {isEditing && (
-                  <div className="flex items-center gap-2">
-                    {editMode === 'inline' && (
-                      <Button 
-                        onClick={() => setEditMode('full')} 
-                        variant="outline" 
-                        size="sm"
-                      >
-                        <Code className="h-4 w-4 mr-2" />
-                        Full Schema
-                      </Button>
-                    )}
-                    
-                    {/* Destructive Actions - Separated visually */}
-                    <div className="flex items-center gap-2 border-l border-[var(--border-subtle)] pl-2">
-                      <Button 
-                        onClick={() => setShowDeleteDialog(true)} 
-                        variant="destructive" 
-                        size="sm"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Report
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Edit Mode Toggle - Always rightmost position */}
-                <div className="flex items-center border-l border-[var(--border-subtle)] pl-3">
-                  <Button 
-                    onClick={() => { 
-                      setIsEditing(!isEditing); 
-                      if (!isEditing) setEditMode('inline');
-                    }} 
-                    variant={isEditing ? "default" : "outline"}
-                    size="sm"
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    {isEditing ? 'Exit Edit Mode' : 'Edit Mode'}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              /* Placeholder for non-editors to maintain layout balance */
+            {!canEdit && (
               <div className="flex items-center">
                 <span className="text-sm text-[var(--text-muted)]">View Mode</span>
               </div>
@@ -1404,6 +1359,19 @@ const ReportView = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Floating Edit Menu */}
+      <FloatingEditMenu
+        isEditing={isEditing}
+        editMode={editMode}
+        canEdit={canEdit}
+        onToggleEdit={() => { 
+          setIsEditing(!isEditing); 
+          if (!isEditing) setEditMode('inline');
+        }}
+        onSetEditMode={setEditMode}
+        onDeleteReport={() => setShowDeleteDialog(true)}
+      />
     </AppLayout>
   );
 }
