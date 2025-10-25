@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/Button';
 import { SqlEditor } from './SqlEditor';
 import { DataTable } from './DataTable';
-import { Save, X, Play } from 'lucide-react';
+import { Save, X, Play, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -21,15 +21,18 @@ interface ElementEditorProps {
     params?: Record<string, any>;
   };
   onSave: (sql: string, params?: Record<string, any>) => void;
+  onDelete?: () => void;
 }
 
-export function ElementEditor({ open, onClose, element, onSave }: ElementEditorProps) {
+export function ElementEditor({ open, onClose, element, onSave, onDelete }: ElementEditorProps) {
   const [sql, setSql] = useState(() => formatSql(element.sql));
   const [params, setParams] = useState(JSON.stringify(element.params || {}, null, 2));
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResults, setTestResults] = useState<{ columns: any[], rows: any[] } | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = () => {
     setSaving(true);
@@ -113,6 +116,30 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
     }
   };
 
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    
+    setDeleting(true);
+    try {
+      await onDelete();
+      onClose();
+      toast({
+        title: 'Success',
+        description: 'Element deleted successfully',
+      });
+    } catch (error: any) {
+      console.error('Error deleting element:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete element',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 bg-[var(--surface-1)] border-[var(--border)] overflow-hidden">
@@ -191,17 +218,68 @@ export function ElementEditor({ open, onClose, element, onSave }: ElementEditorP
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0 bg-[var(--surface-1)] rounded-b-lg">
-          <Button onClick={onClose} variant="ghost" size="sm">
-            <X className="h-4 w-4 mr-2" />
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving} size="sm">
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? 'Saving...' : 'Save Changes'}
-          </Button>
+        <div className="flex justify-between gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0 bg-[var(--surface-1)] rounded-b-lg">
+          <div>
+            {onDelete && (
+              <Button 
+                onClick={() => setShowDeleteDialog(true)} 
+                variant="destructive" 
+                size="sm"
+                disabled={saving || deleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Element
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={onClose} variant="ghost" size="sm">
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving} size="sm">
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Element
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this element? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Element: <span className="font-medium">{element.label}</span>
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Element'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

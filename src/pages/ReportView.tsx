@@ -344,6 +344,90 @@ const ReportView = () => {
     }
   };
 
+  const handleDeleteElement = async () => {
+    if (!editingElement || !schema) return;
+    
+    const updatedSchema = { ...schema };
+    const row = updatedSchema.rows[editingElement.rowIndex];
+    
+    if (row.type === 'tiles' || row.type === 'charts') {
+      // Remove the visual from the row
+      row.visuals.splice(editingElement.visualIndex, 1);
+      
+      // If no visuals left, remove the entire row
+      if (row.visuals.length === 0) {
+        updatedSchema.rows.splice(editingElement.rowIndex, 1);
+      }
+    } else if (row.type === 'table') {
+      // For table rows, remove the entire row since there's only one visual
+      updatedSchema.rows.splice(editingElement.rowIndex, 1);
+    }
+
+    try {
+      const response = await apiService.updateReport(reportId!, { 
+        title: updatedSchema.title || report?.title,
+        subtitle: updatedSchema.subtitle,
+        report_schema: updatedSchema
+      });
+      
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to delete element');
+      }
+      
+      setSchema(updatedSchema);
+      setEditingElement(null);
+      
+      toast({
+        title: 'Success',
+        description: 'Element deleted successfully',
+      });
+    } catch (error: any) {
+      console.error('Error deleting element:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete element',
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to let the editor handle the error
+    }
+  };
+
+  const handleDeleteAnnotation = async () => {
+    if (!editingAnnotation || !schema) return;
+    
+    const updatedSchema = { ...schema };
+    // Remove the entire annotation row
+    updatedSchema.rows.splice(editingAnnotation.rowIndex, 1);
+
+    try {
+      const response = await apiService.updateReport(reportId!, { 
+        title: updatedSchema.title || report?.title,
+        subtitle: updatedSchema.subtitle,
+        report_schema: updatedSchema
+      });
+      
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to delete annotation');
+      }
+      
+      setSchema(updatedSchema);
+      setEditingAnnotation(null);
+      
+      toast({
+        title: 'Success',
+        description: 'Annotation deleted successfully',
+      });
+    } catch (error: any) {
+      console.error('Error deleting annotation:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete annotation',
+        variant: 'destructive',
+      });
+      throw error; // Re-throw to let the editor handle the error
+    }
+  };
+
   const handleDeleteReport = async () => {
     if (!reportId) return;
     
@@ -1270,6 +1354,7 @@ const ReportView = () => {
           onClose={() => setEditingElement(null)}
           element={editingElement}
           onSave={handleSaveElement}
+          onDelete={handleDeleteElement}
         />
       )}
 
@@ -1280,6 +1365,7 @@ const ReportView = () => {
           onClose={() => setEditingAnnotation(null)}
           annotation={editingAnnotation.annotation}
           onSave={handleSaveAnnotation}
+          onDelete={handleDeleteAnnotation}
         />
       )}
 

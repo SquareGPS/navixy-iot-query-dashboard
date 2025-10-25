@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/Button';
-import { Save, X } from 'lucide-react';
+import { Save, X, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -25,14 +25,17 @@ interface AnnotationEditorProps {
     text?: string;
     markdown?: boolean;
   }) => void;
+  onDelete?: () => void;
 }
 
-export function AnnotationEditor({ open, onClose, annotation, onSave }: AnnotationEditorProps) {
+export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }: AnnotationEditorProps) {
   const [sectionName, setSectionName] = useState(annotation.section_name || '');
   const [subtitle, setSubtitle] = useState(annotation.subtitle || '');
   const [text, setText] = useState(annotation.text || '');
   const [markdown, setMarkdown] = useState(annotation.markdown || false);
   const [saving, setSaving] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = () => {
     setSaving(true);
@@ -70,6 +73,30 @@ export function AnnotationEditor({ open, onClose, annotation, onSave }: Annotati
     setText(annotation.text || '');
     setMarkdown(annotation.markdown || false);
     onClose();
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    
+    setDeleting(true);
+    try {
+      await onDelete();
+      onClose();
+      toast({
+        title: 'Success',
+        description: 'Annotation deleted successfully',
+      });
+    } catch (error: any) {
+      console.error('Error deleting annotation:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete annotation',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
+    }
   };
 
   return (
@@ -173,17 +200,68 @@ export function AnnotationEditor({ open, onClose, annotation, onSave }: Annotati
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0 bg-[var(--surface-1)] rounded-b-lg">
-          <Button onClick={handleClose} variant="ghost" size="sm">
-            <X className="h-4 w-4 mr-2" />
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving} size="sm">
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? 'Saving...' : 'Save Changes'}
-          </Button>
+        <div className="flex justify-between gap-2 px-6 py-4 border-t border-[var(--border)] flex-shrink-0 bg-[var(--surface-1)] rounded-b-lg">
+          <div>
+            {onDelete && (
+              <Button 
+                onClick={() => setShowDeleteDialog(true)} 
+                variant="destructive" 
+                size="sm"
+                disabled={saving || deleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Annotation
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleClose} variant="ghost" size="sm">
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving} size="sm">
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Annotation
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this annotation? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Annotation: <span className="font-medium">{annotation.section_name || 'Untitled Annotation'}</span>
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Annotation'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
