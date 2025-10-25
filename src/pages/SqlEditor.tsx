@@ -33,7 +33,9 @@ const SqlEditor = () => {
     {
       id: '1',
       name: 'Query 1',
-      sql: 'SELECT * FROM vehicles LIMIT 10',
+      sql: `SELECT * 
+FROM raw_telematics_data.tracking_data_core 
+LIMIT 10;`,
       results: null,
       error: null,
       executing: false,
@@ -59,7 +61,9 @@ const SqlEditor = () => {
     const newTab: QueryTab = {
       id: newId,
       name: `Query ${tabs.length + 1}`,
-      sql: 'SELECT * FROM vehicles LIMIT 10',
+      sql: `SELECT * 
+FROM raw_telematics_data.tracking_data_core 
+LIMIT 10;`,
       results: null,
       error: null,
       executing: false,
@@ -283,7 +287,7 @@ const SqlEditor = () => {
             <div>
               <h1 className="text-2xl font-bold text-foreground">SQL Editor</h1>
               <p className="text-sm text-muted-foreground">
-                Write and execute SELECT queries to test your database connection
+                You can safely explore your data with SELECT queries — your data remains protected from accidental changes
               </p>
             </div>
           </div>
@@ -373,9 +377,6 @@ const SqlEditor = () => {
                           <span>Executed: {tab.executedAt.toLocaleTimeString()}</span>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Only SELECT queries are allowed for security reasons
-                      </p>
                     </div>
                   </div>
 

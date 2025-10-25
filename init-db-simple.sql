@@ -134,46 +134,6 @@ CREATE TABLE public.app_settings (
 );
 
 -- ==========================================
--- Demo Data Tables
--- ==========================================
-
--- Vehicles
-CREATE TABLE public.vehicles (
-  id SERIAL PRIMARY KEY,
-  plate TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('moving','parked','offline')),
-  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Trips
-CREATE TABLE public.trips (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ,
-  distance_km NUMERIC(10,2),
-  avg_speed_kmh NUMERIC(10,2)
-);
-
--- Parking events
-CREATE TABLE public.parking_events (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  started_at TIMESTAMPTZ NOT NULL,
-  ended_at TIMESTAMPTZ,
-  duration_min INT
-);
-
--- Speeding events
-CREATE TABLE public.speeding_events (
-  id SERIAL PRIMARY KEY,
-  vehicle_id INT REFERENCES public.vehicles(id) ON DELETE CASCADE,
-  event_time TIMESTAMPTZ NOT NULL,
-  speed_kmh NUMERIC(10,2),
-  limit_kmh INT
-);
-
--- ==========================================
 -- Functions
 -- ==========================================
 
@@ -319,10 +279,6 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.parking_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.speeding_events ENABLE ROW LEVEL SECURITY;
 
 -- Users policies
 CREATE POLICY "Users can view their own profile"
@@ -376,27 +332,6 @@ CREATE POLICY "Admins can manage settings"
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
 
--- Demo data policies
-CREATE POLICY "Users can view vehicles"
-  ON public.vehicles FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Users can view trips"
-  ON public.trips FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Users can view parking"
-  ON public.parking_events FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Users can view speeding"
-  ON public.speeding_events FOR SELECT
-  TO authenticated
-  USING (true);
-
 -- ==========================================
 -- Constraints and Indexes
 -- ==========================================
@@ -413,7 +348,7 @@ CREATE INDEX idx_users_email ON public.users (email);
 CREATE INDEX idx_user_roles_role ON public.user_roles (role);
 
 -- ==========================================
--- Sample Data
+-- Initial Data
 -- ==========================================
 
 -- Insert default settings
@@ -438,71 +373,6 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'admin');
 INSERT INTO public.sections (id, name, sort_index, created_by) VALUES
 ('00000000-0000-0000-0000-000000000001', 'Movement', 1, '00000000-0000-0000-0000-000000000001'),
 ('00000000-0000-0000-0000-000000000002', 'Driving Quality', 2, '00000000-0000-0000-0000-000000000001');
-
--- Seed vehicles (30 vehicles)
-INSERT INTO public.vehicles (plate, status, last_seen_at) VALUES
-('ABC-1234', 'moving', NOW() - INTERVAL '5 minutes'),
-('XYZ-5678', 'parked', NOW() - INTERVAL '2 hours'),
-('DEF-9012', 'offline', NOW() - INTERVAL '1 day'),
-('GHI-3456', 'moving', NOW() - INTERVAL '10 minutes'),
-('JKL-7890', 'parked', NOW() - INTERVAL '30 minutes'),
-('MNO-2345', 'moving', NOW() - INTERVAL '15 minutes'),
-('PQR-6789', 'offline', NOW() - INTERVAL '3 days'),
-('STU-0123', 'parked', NOW() - INTERVAL '1 hour'),
-('VWX-4567', 'moving', NOW() - INTERVAL '2 minutes'),
-('YZA-8901', 'parked', NOW() - INTERVAL '45 minutes'),
-('BCD-2346', 'moving', NOW() - INTERVAL '8 minutes'),
-('EFG-6780', 'offline', NOW() - INTERVAL '2 days'),
-('HIJ-0124', 'parked', NOW() - INTERVAL '3 hours'),
-('KLM-4568', 'moving', NOW() - INTERVAL '1 minute'),
-('NOP-8902', 'parked', NOW() - INTERVAL '20 minutes'),
-('QRS-2347', 'moving', NOW() - INTERVAL '12 minutes'),
-('TUV-6781', 'offline', NOW() - INTERVAL '5 days'),
-('WXY-0125', 'parked', NOW() - INTERVAL '90 minutes'),
-('ZAB-4569', 'moving', NOW() - INTERVAL '3 minutes'),
-('CDE-8903', 'parked', NOW() - INTERVAL '15 minutes'),
-('FGH-2348', 'moving', NOW() - INTERVAL '7 minutes'),
-('IJK-6782', 'offline', NOW() - INTERVAL '1 day'),
-('LMN-0126', 'parked', NOW() - INTERVAL '2 hours'),
-('OPQ-4560', 'moving', NOW() - INTERVAL '4 minutes'),
-('RST-8904', 'parked', NOW() - INTERVAL '25 minutes'),
-('UVW-2349', 'moving', NOW() - INTERVAL '6 minutes'),
-('XYZ-6783', 'offline', NOW() - INTERVAL '4 days'),
-('ABC-0127', 'parked', NOW() - INTERVAL '50 minutes'),
-('DEF-4561', 'moving', NOW() - INTERVAL '9 minutes'),
-('GHI-8905', 'parked', NOW() - INTERVAL '35 minutes');
-
--- Seed trips (80 trips)
-INSERT INTO public.trips (vehicle_id, start_time, end_time, distance_km, avg_speed_kmh)
-SELECT 
-  (random() * 29 + 1)::int,
-  NOW() - (random() * INTERVAL '30 days'),
-  NOW() - (random() * INTERVAL '30 days') + (random() * INTERVAL '2 hours'),
-  (random() * 100 + 5)::numeric(10,2),
-  (random() * 60 + 30)::numeric(10,2)
-FROM generate_series(1, 80);
-
--- Seed parking events (80 events)
-INSERT INTO public.parking_events (vehicle_id, started_at, ended_at, duration_min)
-SELECT 
-  (random() * 29 + 1)::int,
-  NOW() - (random() * INTERVAL '30 days'),
-  NOW() - (random() * INTERVAL '30 days') + (random() * INTERVAL '4 hours'),
-  (random() * 240 + 10)::int
-FROM generate_series(1, 80);
-
--- Seed speeding events (40 events)
-INSERT INTO public.speeding_events (vehicle_id, event_time, speed_kmh, limit_kmh)
-SELECT 
-  (random() * 29 + 1)::int,
-  NOW() - (random() * INTERVAL '30 days'),
-  (random() * 40 + 80)::numeric(10,2),
-  CASE 
-    WHEN random() < 0.5 THEN 50
-    WHEN random() < 0.8 THEN 80
-    ELSE 100
-  END
-FROM generate_series(1, 40);
 
 -- Grant permissions to authenticated role
 GRANT USAGE ON SCHEMA public TO authenticated;

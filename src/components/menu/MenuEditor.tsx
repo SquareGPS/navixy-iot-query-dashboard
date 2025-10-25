@@ -90,12 +90,12 @@ function SortableSectionItem({ section, isEditMode, onRename, onDelete }: Sortab
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center group">
+    <div ref={setNodeRef} style={style} className="flex items-center group relative">
       {isEditMode && (
         <div
           {...attributes}
           {...listeners}
-          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
+          className="cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
@@ -110,7 +110,7 @@ function SortableSectionItem({ section, isEditMode, onRename, onDelete }: Sortab
       {isEditMode && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
+            <Button variant="ghost" className="!h-6 !w-6 !p-0 flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -173,12 +173,12 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
   const isActive = location.pathname === `/app/report/${report.id}`;
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center group">
+    <div ref={setNodeRef} style={style} className="flex items-center group relative">
       {isEditMode && (
         <div
           {...attributes}
           {...listeners}
-          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
+          className="cursor-grab active:cursor-grabbing p-1 mr-1 rounded hover:bg-muted/50"
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
@@ -197,7 +197,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
       {isEditMode && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0">
+            <Button variant="ghost" className="!h-6 !w-6 !p-0 flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
