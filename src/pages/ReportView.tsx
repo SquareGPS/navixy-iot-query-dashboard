@@ -820,7 +820,7 @@ const ReportView = () => {
                 </div>
               ) : (
                 <span 
-                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] px-2 py-1 rounded transition-colors' : ''}`}
+                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] transition-all' : ''}`}
                   onClick={() => isEditing && handleStartEditBreadcrumb('section')}
                 >
                   {report.section_name || 'No Section'}
@@ -851,7 +851,7 @@ const ReportView = () => {
                 </div>
               ) : (
                 <span 
-                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] px-2 py-1 rounded transition-colors' : ''}`}
+                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] transition-all' : ''}`}
                   onClick={() => isEditing && handleStartEditBreadcrumb('report')}
                 >
                   {report.title}
@@ -944,21 +944,16 @@ const ReportView = () => {
             </div>
           ) : (
             <div 
-              className="relative flex items-center gap-2"
+              className={`flex items-center gap-3 w-fit transition-all ${
+                isEditing ? 'cursor-pointer hover:text-[var(--text-primary)]' : ''
+              }`}
               onMouseEnter={() => {
                 if (isEditing) setIsTitleHovered(true);
               }}
               onMouseLeave={() => setIsTitleHovered(false)}
+              onClick={() => isEditing && handleStartEditTitle()}
             >
               <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema.title}</h1>
-              {isEditing && isTitleHovered && (
-                <button
-                  onClick={handleStartEditTitle}
-                  className="absolute -top-2 -right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
-                >
-                  <Edit className="h-4 w-4" />
-                </button>
-              )}
             </div>
           )}
           
@@ -988,25 +983,20 @@ const ReportView = () => {
             </div>
           ) : (
             <div 
-              className="relative flex items-center gap-2"
+              className={`flex items-center gap-3 w-fit transition-all ${
+                isEditing ? 'cursor-pointer hover:text-[var(--text-primary)]' : ''
+              }`}
               onMouseEnter={() => {
                 if (isEditing) setIsSubtitleHovered(true);
               }}
               onMouseLeave={() => setIsSubtitleHovered(false)}
+              onClick={() => isEditing && handleStartEditSubtitle()}
             >
               {schema.subtitle ? (
                 <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
               ) : isEditing ? (
                 <p className="text-[var(--text-muted)] italic">No subtitle</p>
               ) : null}
-              {isEditing && isSubtitleHovered && (
-                <button
-                  onClick={handleStartEditSubtitle}
-                  className="absolute -top-2 -right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
-                >
-                  <Edit className="h-4 w-4" />
-                </button>
-              )}
             </div>
           )}
         </div>
