@@ -50,3 +50,12 @@ header {
   /* Force crisp border rendering */
   backface-visibility: hidden;
 }
+
+/* Override sidebar border colors to use subtle variant */
+.group-data-\[side\=left\]\:border-r {
+  border-right-color: var(--border-subtle) !important;
+}
+
+.group-data-\[side\=right\]\:border-l {
+  border-left-color: var(--border-subtle) !important;
+}

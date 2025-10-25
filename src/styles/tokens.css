@@ -162,6 +162,7 @@
   --surface-2: #F3F6FB;
   --surface-3: #EDF2F7;
   --border: #E2E8F0;
+  --border-subtle: #CBD5E1;
   --text-primary: #0F172A;
   --text-secondary: #334155;
   --text-muted: #64748B;
@@ -188,6 +189,7 @@ body[data-theme="dark"] {
   --surface-2: #111A2B;
   --surface-3: #16233A;
   --border: #22314B;
+  --border-subtle: #1A2332;
 
   --text-primary: #E9F1FF;
   --text-secondary: #A9B6CC;

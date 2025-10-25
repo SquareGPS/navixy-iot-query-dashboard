@@ -934,7 +934,7 @@ const ReportView = () => {
                     )}
                     
                     {/* Destructive Actions - Separated visually */}
-                    <div className="flex items-center gap-2 border-l border-border/50 pl-2">
+                    <div className="flex items-center gap-2 border-l border-[var(--border-subtle)] pl-2">
                       <Button 
                         onClick={() => setShowDeleteDialog(true)} 
                         variant="destructive" 
@@ -948,7 +948,7 @@ const ReportView = () => {
                 )}
 
                 {/* Edit Mode Toggle - Always rightmost position */}
-                <div className="flex items-center border-l border-border/50 pl-3">
+                <div className="flex items-center border-l border-[var(--border-subtle)] pl-3">
                   <Button 
                     onClick={() => { 
                       setIsEditing(!isEditing); 
