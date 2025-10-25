@@ -237,3 +237,53 @@ export function useRestoreReportMutation() {
     },
   });
 }
+
+// Create section mutation
+export function useCreateSectionMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ name, sortOrder }: { name: string; sortOrder?: number }): Promise<any> => {
+      const response = await apiService.createSection(name, sortOrder);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      return response.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
+      toast.success('Section created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to create section: ${error.message}`);
+    },
+  });
+}
+
+// Create report mutation
+export function useCreateReportMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (reportData: {
+      title: string;
+      section_id?: string | null;
+      slug?: string;
+      sort_order?: number;
+      report_schema: any;
+    }): Promise<any> => {
+      const response = await apiService.createReport(reportData);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      return response.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
+      toast.success('Report created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to create report: ${error.message}`);
+    },
+  });
+}

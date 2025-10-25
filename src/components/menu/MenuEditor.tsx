@@ -55,7 +55,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMenuTree, useReorderMenuMutation } from '@/hooks/use-menu-mutations';
-import { RenameModal, DeleteModal } from './MenuModals';
+import { RenameModal, DeleteModal, CreateSectionModal, CreateReportModal } from './MenuModals';
 import type { MenuTree, DragItem, DropResult } from '@/types/menu-editor';
 
 // Sortable Section Item Component
@@ -267,6 +267,8 @@ export function MenuEditor() {
   const [renameItem, setRenameItem] = useState<{ id: string; type: 'section' | 'report'; name: string } | null>(null);
   const [deleteItem, setDeleteItem] = useState<{ id: string; type: 'section' | 'report'; name: string } | null>(null);
   const [deleteStrategy, setDeleteStrategy] = useState<'move_children_to_root' | 'delete_children' | null>(null);
+  const [isCreateSectionModalOpen, setIsCreateSectionModalOpen] = useState(false);
+  const [isCreateReportModalOpen, setIsCreateReportModalOpen] = useState(false);
 
   // Queries and mutations
   const { data: menuTree, isLoading, error } = useMenuTree();
@@ -555,12 +557,35 @@ export function MenuEditor() {
                   />
                 </div>
                 {user?.role === 'admin' || user?.role === 'editor' ? (
-                  <Button
-                    variant={isEditMode ? "primary" : "secondary"}
-                    onClick={() => setIsEditMode(!isEditMode)}
-                  >
-                    {isEditMode ? 'Done' : 'Edit'}
-                  </Button>
+                  <div className="flex gap-2">
+                    {isEditMode && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="secondary">
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add new
+                            <ChevronDown className="h-4 w-4 ml-1" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setIsCreateSectionModalOpen(true)}>
+                            <FolderOpen className="h-4 w-4 mr-2" />
+                            New section
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setIsCreateReportModalOpen(true)}>
+                            <FileText className="h-4 w-4 mr-2" />
+                            New report
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    <Button
+                      variant={isEditMode ? "primary" : "secondary"}
+                      onClick={() => setIsEditMode(!isEditMode)}
+                    >
+                      {isEditMode ? 'Done' : 'Edit'}
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             </SidebarGroupContent>
@@ -686,6 +711,16 @@ export function MenuEditor() {
           setDeleteStrategy(null);
         }}
         onStrategyChange={setDeleteStrategy}
+      />
+
+      <CreateSectionModal 
+        isOpen={isCreateSectionModalOpen}
+        onClose={() => setIsCreateSectionModalOpen(false)}
+      />
+
+      <CreateReportModal 
+        isOpen={isCreateReportModalOpen}
+        onClose={() => setIsCreateReportModalOpen(false)}
       />
     </>
   );

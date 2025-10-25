@@ -158,35 +158,34 @@ class ApiService {
   // Reports and Sections
   async getSections(): Promise<ApiResponse<any[]>> {
     const response = await this.request('/api/sections');
-    if (response.data && response.data.sections) {
-      return { data: response.data.sections };
+    if (response.data && (response.data as any).sections) {
+      return { data: (response.data as any).sections };
     }
-    return response;
+    return response as ApiResponse<any[]>;
   }
 
   async getReports(): Promise<ApiResponse<any[]>> {
     const response = await this.request('/api/reports');
-    if (response.data && response.data.reports) {
-      return { data: response.data.reports };
+    if (response.data && (response.data as any).reports) {
+      return { data: (response.data as any).reports };
     }
-    return response;
+    return response as ApiResponse<any[]>;
   }
 
   async getReportById(id: string): Promise<ApiResponse<any>> {
     return this.request(`/api/reports/${id}`);
   }
 
-  async createSection(name: string, sortIndex: number, parentSectionId?: string): Promise<ApiResponse<any>> {
+  async createSection(name: string, sortOrder?: number): Promise<ApiResponse<any>> {
     const response = await this.request('/api/sections', {
       method: 'POST',
       body: JSON.stringify({ 
         name, 
-        sort_index: sortIndex,
-        parent_section_id: parentSectionId || null
+        sort_order: sortOrder || 0
       }),
     });
-    if (response.data && response.data.section) {
-      return { data: response.data.section };
+    if (response.data && (response.data as any).section) {
+      return { data: (response.data as any).section };
     }
     return response;
   }
@@ -196,19 +195,25 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify({ name }),
     });
-    if (response.data && response.data.section) {
-      return { data: response.data.section };
+    if (response.data && (response.data as any).section) {
+      return { data: (response.data as any).section };
     }
     return response;
   }
 
-  async createReport(reportData: any): Promise<ApiResponse<any>> {
+  async createReport(reportData: {
+    title: string;
+    section_id?: string | null;
+    slug?: string;
+    sort_order?: number;
+    report_schema: any;
+  }): Promise<ApiResponse<any>> {
     const response = await this.request('/api/reports', {
       method: 'POST',
       body: JSON.stringify(reportData),
     });
-    if (response.data && response.data.report) {
-      return { data: response.data.report };
+    if (response.data && (response.data as any).report) {
+      return { data: (response.data as any).report };
     }
     return response;
   }
@@ -218,8 +223,8 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify(reportData),
     });
-    if (response.data && response.data.report) {
-      return { data: response.data.report };
+    if (response.data && (response.data as any).report) {
+      return { data: (response.data as any).report };
     }
     return response;
   }
@@ -309,6 +314,7 @@ class ApiService {
       method: 'PATCH',
     });
   }
+
 }
 
 export const apiService = new ApiService();

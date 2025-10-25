@@ -280,7 +280,7 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
 // Create section (admin/editor only)
 router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, sort_index, parent_section_id } = req.body;
+    const { name, sort_order, parent_section_id } = req.body;
     
     if (!name) {
       throw new CustomError('Section name is required', 400);
@@ -291,8 +291,8 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
     
     try {
       const result = await client.query(
-        'INSERT INTO public.sections (name, sort_index, parent_section_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
-        [name, sort_index || 0, parent_section_id || null, req.user?.userId]
+        'INSERT INTO public.sections (name, sort_order, created_by) VALUES ($1, $2, $3) RETURNING *',
+        [name, sort_order || 0, req.user?.userId]
       );
 
       logger.info(`Section created by ${req.user?.email}: ${name}`);
@@ -550,7 +550,7 @@ router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (r
 // Create report (admin/editor only)
 router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const { title, section_id, slug, sort_index, report_schema } = req.body;
+    const { title, section_id, slug, sort_order, report_schema } = req.body;
     
     if (!title || !report_schema) {
       throw new CustomError('Report title and schema are required', 400);
@@ -561,13 +561,13 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
     
     try {
       const result = await client.query(
-        `INSERT INTO public.reports (title, section_id, slug, sort_index, report_schema, created_by, updated_by)
+        `INSERT INTO public.reports (title, section_id, slug, sort_order, report_schema, created_by, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [
           title,
           section_id,
           slug || title.toLowerCase().replace(/\s+/g, '-'),
-          sort_index || 0,
+          sort_order || 0,
           JSON.stringify(report_schema),
           req.user?.userId,
           req.user?.userId

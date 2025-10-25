@@ -1008,7 +1008,7 @@ const ReportView = () => {
               onMouseLeave={() => setIsTitleHovered(false)}
               onClick={() => isEditing && handleStartEditTitle()}
             >
-              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema.title}</h1>
+              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema?.title || 'Untitled Report'}</h1>
             </div>
           )}
           
@@ -1047,7 +1047,7 @@ const ReportView = () => {
               onMouseLeave={() => setIsSubtitleHovered(false)}
               onClick={() => isEditing && handleStartEditSubtitle()}
             >
-              {schema.subtitle ? (
+              {schema?.subtitle ? (
                 <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
               ) : isEditing ? (
                 <p className="text-[var(--text-muted)] italic">No subtitle</p>
@@ -1058,27 +1058,67 @@ const ReportView = () => {
 
         {/* Report Content */}
         <div className="space-y-6">
-        {schema.rows.map((row, rowIdx) => {
-          const inlineEditActive = isEditing && editMode === 'inline';
-          const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
-          
-          return (
-            <RowRenderer
-              key={rowKey}
-              row={row}
-              rowIndex={rowIdx}
-              editMode={inlineEditActive}
-              onEdit={setEditingElement}
-              editingRowTitle={editingRowTitle === rowIdx}
-              tempRowTitle={tempRowTitle}
-              onStartEditRowTitle={handleStartEditRowTitle}
-              onSaveRowTitle={handleSaveRowTitle}
-              onCancelEditRowTitle={handleCancelEditRowTitle}
-              onRowTitleChange={setTempRowTitle}
-              canEdit={canEdit}
-            />
-          );
-        })}
+        {schema && schema.rows && schema.rows.length > 0 ? (
+          schema.rows.map((row, rowIdx) => {
+            const inlineEditActive = isEditing && editMode === 'inline';
+            const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
+            
+            return (
+              <RowRenderer
+                key={rowKey}
+                row={row}
+                rowIndex={rowIdx}
+                editMode={inlineEditActive}
+                onEdit={setEditingElement}
+                editingRowTitle={editingRowTitle === rowIdx}
+                tempRowTitle={tempRowTitle}
+                onStartEditRowTitle={handleStartEditRowTitle}
+                onSaveRowTitle={handleSaveRowTitle}
+                onCancelEditRowTitle={handleCancelEditRowTitle}
+                onRowTitleChange={setTempRowTitle}
+                canEdit={canEdit}
+              />
+            );
+          })
+        ) : (
+          /* Empty State - Show example schema download option */
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-8 shadow-sm">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                <Download className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
+                  {schema ? 'Report Schema is Empty' : 'No Report Schema Found'}
+                </h3>
+                <p className="text-[var(--text-muted)] mb-6">
+                  {schema 
+                    ? 'This report doesn\'t have any content yet. Download an example schema to get started.'
+                    : 'This report needs a schema to display content. Download an example schema to get started.'
+                  }
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button 
+                  onClick={() => handleDownloadExampleSchema(false)}
+                  disabled={downloadingSchema}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
+                </Button>
+                <Button 
+                  onClick={() => setShowAdvanced(true)}
+                  variant="outline"
+                  className="border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Advanced Options
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
       </div>
 

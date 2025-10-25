@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useRenameSectionMutation, useRenameReportMutation, useDeleteSectionMutation, useDeleteReportMutation, useMenuTree } from '@/hooks/use-menu-mutations';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { useRenameSectionMutation, useRenameReportMutation, useDeleteSectionMutation, useDeleteReportMutation, useCreateSectionMutation, useCreateReportMutation, useMenuTree } from '@/hooks/use-menu-mutations';
 
 // Rename Modal Component
 interface RenameModalProps {
@@ -247,6 +249,236 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
               disabled={isSubmitting || (item.type === 'section' && !strategy)}
             >
               {isSubmitting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Create Section Modal Component
+interface CreateSectionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function CreateSectionModal({ isOpen, onClose }: CreateSectionModalProps) {
+  const [name, setName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const createSectionMutation = useCreateSectionMutation();
+  const { data: menuTree } = useMenuTree();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!name.trim()) {
+      toast.error('Section name cannot be empty');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Calculate sort order - add to the end
+      const maxSortOrder = Math.max(...(menuTree?.sections.map(s => s.sortOrder) || [0]));
+      const sortOrder = maxSortOrder + 1000;
+
+      await createSectionMutation.mutateAsync({
+        name: name.trim(),
+        sortOrder,
+      });
+      
+      setName('');
+      onClose();
+    } catch (error) {
+      // Error is handled by the mutation
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create New Section</DialogTitle>
+          <DialogDescription>
+            Create a new section to organize your reports.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="section-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="section-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="col-span-3"
+                placeholder="Enter section name..."
+                maxLength={120}
+                autoFocus
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || !name.trim()}
+            >
+              {isSubmitting ? 'Creating...' : 'Create Section'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Create Report Modal Component
+interface CreateReportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
+  const [title, setTitle] = useState('');
+  const [parentSectionId, setParentSectionId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const createReportMutation = useCreateReportMutation();
+  const { data: menuTree } = useMenuTree();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!title.trim()) {
+      toast.error('Report title cannot be empty');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Calculate sort order
+      let sortOrder = 1000;
+      if (parentSectionId) {
+        const sectionReports = menuTree?.sectionReports?.[parentSectionId] || [];
+        const maxSortOrder = Math.max(...(sectionReports.map(r => r.sortOrder) || [0]));
+        sortOrder = maxSortOrder + 1000;
+      } else {
+        const maxSortOrder = Math.max(...(menuTree?.rootReports.map(r => r.sortOrder) || [0]));
+        sortOrder = maxSortOrder + 1000;
+      }
+
+      // Create a basic report schema
+      const reportSchema = {
+        tiles: [],
+        tables: [],
+        layout: {
+          type: 'grid',
+          columns: 12,
+          rows: 8,
+          items: []
+        }
+      };
+
+      await createReportMutation.mutateAsync({
+        title: title.trim(),
+        section_id: parentSectionId,
+        sort_order: sortOrder,
+        report_schema: reportSchema,
+      });
+      
+      setTitle('');
+      setParentSectionId(null);
+      onClose();
+    } catch (error) {
+      // Error is handled by the mutation
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create New Report</DialogTitle>
+          <DialogDescription>
+            Create a new report. You can choose which section it belongs to or leave it in the root.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="report-title" className="text-right">
+                Title
+              </Label>
+              <Input
+                id="report-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="col-span-3"
+                placeholder="Enter report title..."
+                maxLength={120}
+                autoFocus
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="parent-section" className="text-right">
+                Section
+              </Label>
+              <Select value={parentSectionId || 'root'} onValueChange={(value) => setParentSectionId(value === 'root' ? null : value)}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select section (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="root">Root (no section)</SelectItem>
+                  {menuTree?.sections.map((section) => (
+                    <SelectItem key={section.id} value={section.id}>
+                      {section.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || !title.trim()}
+            >
+              {isSubmitting ? 'Creating...' : 'Create Report'}
             </Button>
           </DialogFooter>
         </form>
