@@ -61,6 +61,15 @@ const ReportView = () => {
     sql: string;
     params?: Record<string, any>;
   } | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState('');
+  const [tempSubtitle, setTempSubtitle] = useState('');
+  const [isTitleHovered, setIsTitleHovered] = useState(false);
+  const [isSubtitleHovered, setIsSubtitleHovered] = useState(false);
+  const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
+  const [tempSectionName, setTempSectionName] = useState('');
+  const [tempReportName, setTempReportName] = useState('');
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
@@ -136,7 +145,8 @@ const ReportView = () => {
       const parsedSchema = JSON.parse(editorValue);
       
       const response = await apiService.updateReport(reportId, { 
-        title: report?.title || parsedSchema.title,
+        title: parsedSchema.title || report?.title,
+        subtitle: parsedSchema.subtitle,
         report_schema: parsedSchema 
       });
 
@@ -197,7 +207,8 @@ const ReportView = () => {
       console.log('Saving to database with reportId:', reportId);
       
       const response = await apiService.updateReport(reportId!, { 
-        title: report?.title || updatedSchema.title,
+        title: updatedSchema.title || report?.title,
+        subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema 
       });
 
@@ -264,6 +275,157 @@ const ReportView = () => {
       setDeleting(false);
       setShowDeleteDialog(false);
     }
+  };
+
+  const handleStartEditTitle = () => {
+    setTempTitle(schema?.title || '');
+    setEditingTitle(true);
+  };
+
+  const handleStartEditSubtitle = () => {
+    setTempSubtitle(schema?.subtitle || '');
+    setEditingSubtitle(true);
+  };
+
+  const handleSaveTitle = async () => {
+    if (!reportId || !tempTitle.trim()) return;
+    
+    try {
+      // Update both database columns and JSON schema
+      const updatedSchema = schema ? { ...schema, title: tempTitle.trim() } : null;
+      
+      const response = await apiService.updateReport(reportId, {
+        title: tempTitle.trim(),
+        subtitle: schema?.subtitle,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update title');
+      }
+
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      setEditingTitle(false);
+      
+      toast({
+        title: 'Success',
+        description: 'Title updated successfully',
+      });
+    } catch (error: any) {
+      console.error('Error updating title:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update title',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSaveSubtitle = async () => {
+    if (!reportId) return;
+    
+    try {
+      // Update both database columns and JSON schema
+      const updatedSchema = schema ? { 
+        ...schema, 
+        subtitle: tempSubtitle.trim() || undefined 
+      } : null;
+      
+      const response = await apiService.updateReport(reportId, {
+        title: schema?.title || '',
+        subtitle: tempSubtitle.trim() || null,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update subtitle');
+      }
+
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      setEditingSubtitle(false);
+      
+      toast({
+        title: 'Success',
+        description: 'Subtitle updated successfully',
+      });
+    } catch (error: any) {
+      console.error('Error updating subtitle:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update subtitle',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCancelEditTitle = () => {
+    setEditingTitle(false);
+    setTempTitle('');
+  };
+
+  const handleCancelEditSubtitle = () => {
+    setEditingSubtitle(false);
+    setTempSubtitle('');
+  };
+
+  const handleStartEditBreadcrumb = (type: 'section' | 'report') => {
+    if (type === 'section') {
+      setTempSectionName(report?.section_name || '');
+    } else {
+      setTempReportName(report?.title || '');
+    }
+    setEditingBreadcrumb(type);
+  };
+
+  const handleSaveBreadcrumb = async () => {
+    if (!reportId || !editingBreadcrumb) return;
+    
+    try {
+      if (editingBreadcrumb === 'section') {
+        // Update section name
+        const response = await apiService.updateSection(report.section_id, tempSectionName.trim());
+        if (response.error) {
+          throw new Error(response.error.message || 'Failed to update section');
+        }
+        setReport(prev => prev ? { ...prev, section_name: tempSectionName.trim() } : null);
+      } else {
+        // Update report title (database column)
+        const response = await apiService.updateReport(reportId, {
+          title: tempReportName.trim(),
+          subtitle: report?.subtitle,
+          report_schema: schema
+        });
+        if (response.error) {
+          throw new Error(response.error.message || 'Failed to update report');
+        }
+        setReport(prev => prev ? { ...prev, title: tempReportName.trim() } : null);
+      }
+      
+      setEditingBreadcrumb(null);
+      
+      // Dispatch event to refresh sidebar data
+      window.dispatchEvent(new CustomEvent('refreshSidebar'));
+      
+      toast({
+        title: 'Success',
+        description: `${editingBreadcrumb === 'section' ? 'Section' : 'Report'} updated successfully`,
+      });
+    } catch (error: any) {
+      console.error(`Error updating ${editingBreadcrumb}:`, error);
+      toast({
+        title: 'Error',
+        description: error.message || `Failed to update ${editingBreadcrumb}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCancelEditBreadcrumb = () => {
+    setEditingBreadcrumb(null);
+    setTempSectionName('');
+    setTempReportName('');
   };
 
   const handleExportSchema = () => {
@@ -631,17 +793,77 @@ const ReportView = () => {
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Report Header */}
-        <Card className="p-6 ring-1 ring-inset ring-white/5 border border-[var(--border)]" data-test="title-card">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-[24px] font-bold text-[var(--text-primary)] mb-2">{schema.title}</h1>
-              {schema.subtitle && (
-                <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
+        {/* Top Navigation Bar */}
+        <div className="flex items-center justify-between">
+          {/* Breadcrumb Navigation */}
+          {report && (
+            <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+              {editingBreadcrumb === 'section' ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempSectionName}
+                    onChange={(e) => setTempSectionName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveBreadcrumb();
+                      if (e.key === 'Escape') handleCancelEditBreadcrumb();
+                    }}
+                    className="h-6 px-2 text-sm"
+                    placeholder="Section name"
+                    autoFocus
+                  />
+                  <Button onClick={handleSaveBreadcrumb} size="sm" variant="default" className="h-6 px-2">
+                    <Save className="h-3 w-3" />
+                  </Button>
+                  <Button onClick={handleCancelEditBreadcrumb} size="sm" variant="outline" className="h-6 px-2">
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <span 
+                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] px-2 py-1 rounded transition-colors' : ''}`}
+                  onClick={() => isEditing && handleStartEditBreadcrumb('section')}
+                >
+                  {report.section_name || 'No Section'}
+                </span>
+              )}
+              
+              <span className="text-[var(--text-muted)]/50">&gt;</span>
+              
+              {editingBreadcrumb === 'report' ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempReportName}
+                    onChange={(e) => setTempReportName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveBreadcrumb();
+                      if (e.key === 'Escape') handleCancelEditBreadcrumb();
+                    }}
+                    className="h-6 px-2 text-sm"
+                    placeholder="Report name"
+                    autoFocus
+                  />
+                  <Button onClick={handleSaveBreadcrumb} size="sm" variant="default" className="h-6 px-2">
+                    <Save className="h-3 w-3" />
+                  </Button>
+                  <Button onClick={handleCancelEditBreadcrumb} size="sm" variant="outline" className="h-6 px-2">
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ) : (
+                <span 
+                  className={`${isEditing ? 'cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] px-2 py-1 rounded transition-colors' : ''}`}
+                  onClick={() => isEditing && handleStartEditBreadcrumb('report')}
+                >
+                  {report.title}
+                </span>
               )}
             </div>
-            {canEdit && (
-              <div className="flex items-center gap-3">
+          )}
+
+          {/* Right Side Controls */}
+          <div className="flex items-center gap-3">
+            {canEdit ? (
+              <>
                 {/* Edit Mode Actions - Only visible when editing */}
                 {isEditing && (
                   <div className="flex items-center gap-2">
@@ -684,10 +906,110 @@ const ReportView = () => {
                     {isEditing ? 'Exit Edit Mode' : 'Edit Mode'}
                   </Button>
                 </div>
+              </>
+            ) : (
+              /* Placeholder for non-editors to maintain layout balance */
+              <div className="flex items-center">
+                <span className="text-sm text-[var(--text-muted)]">View Mode</span>
               </div>
             )}
           </div>
-        </Card>
+        </div>
+
+        {/* Report Title and Subtitle */}
+        <div className="space-y-2">
+          {isEditing && editingTitle ? (
+            <div>
+              <Input
+                value={tempTitle}
+                onChange={(e) => setTempTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveTitle();
+                  if (e.key === 'Escape') handleCancelEditTitle();
+                }}
+                className="text-[24px] font-bold h-10 px-3"
+                placeholder="Report title"
+                autoFocus
+              />
+              <div className="flex gap-2 mt-2">
+                <Button onClick={handleSaveTitle} size="sm" variant="default">
+                  <Save className="h-4 w-4 mr-1" />
+                  Save
+                </Button>
+                <Button onClick={handleCancelEditTitle} size="sm" variant="outline">
+                  <X className="h-4 w-4 mr-1" />
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="relative flex items-center gap-2"
+              onMouseEnter={() => {
+                if (isEditing) setIsTitleHovered(true);
+              }}
+              onMouseLeave={() => setIsTitleHovered(false)}
+            >
+              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema.title}</h1>
+              {isEditing && isTitleHovered && (
+                <button
+                  onClick={handleStartEditTitle}
+                  className="absolute -top-2 -right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
+                >
+                  <Edit className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+          
+          {isEditing && editingSubtitle ? (
+            <div>
+              <Input
+                value={tempSubtitle}
+                onChange={(e) => setTempSubtitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveSubtitle();
+                  if (e.key === 'Escape') handleCancelEditSubtitle();
+                }}
+                className="text-[var(--text-muted)] h-8 px-3"
+                placeholder="Report subtitle (optional)"
+                autoFocus
+              />
+              <div className="flex gap-2 mt-2">
+                <Button onClick={handleSaveSubtitle} size="sm" variant="default">
+                  <Save className="h-4 w-4 mr-1" />
+                  Save
+                </Button>
+                <Button onClick={handleCancelEditSubtitle} size="sm" variant="outline">
+                  <X className="h-4 w-4 mr-1" />
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="relative flex items-center gap-2"
+              onMouseEnter={() => {
+                if (isEditing) setIsSubtitleHovered(true);
+              }}
+              onMouseLeave={() => setIsSubtitleHovered(false)}
+            >
+              {schema.subtitle ? (
+                <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
+              ) : isEditing ? (
+                <p className="text-[var(--text-muted)] italic">No subtitle</p>
+              ) : null}
+              {isEditing && isSubtitleHovered && (
+                <button
+                  onClick={handleStartEditSubtitle}
+                  className="absolute -top-2 -right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-10"
+                >
+                  <Edit className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Report Content */}
         <div className="space-y-6">

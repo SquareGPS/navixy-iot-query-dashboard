@@ -305,7 +305,7 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
     
     try {
       const result = await client.query(
-        'UPDATE public.sections SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+        'UPDATE public.sections SET name = $1 WHERE id = $2 RETURNING *',
         [name, id]
       );
 
@@ -372,7 +372,7 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
 router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
-    const { title, report_schema } = req.body;
+    const { title, subtitle, report_schema } = req.body;
     
     if (!title) {
       throw new CustomError('Report title is required', 400);
@@ -385,6 +385,12 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
       const updateFields = ['title = $1', 'updated_by = $2', 'updated_at = NOW()'];
       const updateValues = [title, req.user?.userId];
       let paramIndex = 3;
+
+      if (subtitle !== undefined) {
+        updateFields.push(`subtitle = $${paramIndex}`);
+        updateValues.push(subtitle);
+        paramIndex++;
+      }
 
       if (report_schema) {
         updateFields.push(`report_schema = $${paramIndex}`);

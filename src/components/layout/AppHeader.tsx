@@ -20,7 +20,7 @@ export function AppHeader() {
   const navigate = useNavigate();
 
   return (
-    <header className="h-14 border-b border-border bg-surface-1 sticky top-0 z-50">
+    <header className="h-[56px] bg-surface-1 sticky top-0 z-50 shadow-[inset_0_-1px_0_var(--border)]" style={{ backfaceVisibility: 'hidden', transform: 'translateZ(0)' }}>
       <div className="flex items-center justify-between h-full px-6">
         <div className="flex items-center gap-4">
           <SidebarTrigger className="hover:bg-surface-3 transition-colors" />

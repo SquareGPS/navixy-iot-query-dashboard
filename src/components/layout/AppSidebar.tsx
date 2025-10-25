@@ -67,6 +67,19 @@ export function AppSidebar() {
     fetchSectionsAndReports();
   }, []);
 
+  // Listen for refresh events from ReportView
+  useEffect(() => {
+    const handleRefreshSidebar = () => {
+      fetchSectionsAndReports();
+    };
+
+    window.addEventListener('refreshSidebar', handleRefreshSidebar);
+    
+    return () => {
+      window.removeEventListener('refreshSidebar', handleRefreshSidebar);
+    };
+  }, []);
+
   const fetchSectionsAndReports = async () => {
     try {
       const [sectionsRes, reportsRes] = await Promise.all([

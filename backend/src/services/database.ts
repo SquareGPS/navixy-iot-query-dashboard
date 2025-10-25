@@ -678,7 +678,10 @@ export class DatabaseService {
       
       try {
         const result = await client.query(
-          'SELECT * FROM public.reports WHERE id = $1',
+          `SELECT r.*, s.name as section_name 
+           FROM public.reports r 
+           LEFT JOIN public.sections s ON r.section_id = s.id 
+           WHERE r.id = $1`,
           [id]
         );
 

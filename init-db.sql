@@ -63,6 +63,7 @@ CREATE TABLE public.sections (
 CREATE TABLE public.reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
+  subtitle TEXT,
     slug TEXT,
   report_schema JSONB NOT NULL,
     section_id UUID,
