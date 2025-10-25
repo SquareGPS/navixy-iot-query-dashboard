@@ -186,7 +186,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
       
       <SidebarMenuItem className="flex-1">
         <SidebarMenuButton 
-          className={`w-full justify-start ${isActive ? 'bg-accent' : ''}`}
+          className={`w-full justify-start ${isActive ? 'bg-accent-soft' : ''}`}
           onClick={() => navigate(`/app/report/${report.id}`)}
         >
           <FileText className="h-4 w-4" />
