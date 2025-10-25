@@ -298,7 +298,7 @@ export function AppSidebar() {
     <Sidebar className={state === 'collapsed' ? 'w-14' : 'w-[248px]'} collapsible="icon">
       <SidebarContent className="bg-[var(--surface-1)] border-r border-[var(--border)]">
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-3 px-3 py-6 border-b border-border">
+          <SidebarGroupLabel className="flex items-center gap-3 px-3 py-6">
             <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-accent to-accent-hover flex items-center justify-center">
               <BarChart3 className="h-4 w-4 text-white" />
             </div>

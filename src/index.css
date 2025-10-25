@@ -25,3 +25,28 @@ body::after {
   background: var(--bg-gradient);
   opacity: 0.6;
 }
+
+/* Perfect header/sidebar alignment */
+header {
+  /* Ensure crisp rendering */
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  /* Force integer pixel positioning */
+  will-change: transform;
+}
+
+/* Ensure sidebar aligns perfectly with header */
+[data-sidebar="sidebar"] {
+  /* Force integer pixel positioning */
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* Ensure consistent border rendering */
+.border-b,
+.border-r,
+.border-t,
+.border-l {
+  /* Force crisp border rendering */
+  backface-visibility: hidden;
+}

@@ -20,10 +20,10 @@ export function AppHeader() {
   const navigate = useNavigate();
 
   return (
-    <header className="h-[56px] bg-surface-1 sticky top-0 z-50 shadow-[inset_0_-1px_0_var(--border)]" style={{ backfaceVisibility: 'hidden', transform: 'translateZ(0)' }}>
-      <div className="flex items-center justify-between h-full px-6">
+    <header className="h-[56px] bg-[var(--surface-1)] fixed top-0 left-0 right-0 z-50 border-b border-[var(--border)]" style={{ width: '100vw' }}>
+      <div className="flex items-center justify-between h-full px-6 relative z-[60]">
         <div className="flex items-center gap-4">
-          <SidebarTrigger className="hover:bg-surface-3 transition-colors" />
+          <SidebarTrigger className="hover:bg-surface-3 transition-colors relative z-[60]" />
           <div className="hidden md:block">
             <h1 className="text-lg font-semibold text-text-primary">Navixy Reports</h1>
           </div>
