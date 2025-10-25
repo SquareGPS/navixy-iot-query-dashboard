@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2, Code } from 'lucide-react';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2, Code, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SidebarContent,
@@ -688,7 +688,7 @@ export function MenuEditor() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <SidebarMenuButton className="w-full justify-start">
-                          <MoreHorizontal className="h-4 w-4" />
+                          <Wrench className="h-4 w-4" />
                           <span>Tools</span>
                           <ChevronDown className="h-4 w-4 ml-auto" />
                         </SidebarMenuButton>
