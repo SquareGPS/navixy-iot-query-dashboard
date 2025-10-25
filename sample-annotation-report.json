@@ -1,0 +1,67 @@
+{
+  "title": "Sample Annotation Report",
+  "subtitle": "Testing annotation editing functionality",
+  "meta": {
+    "schema_version": "1.1.0",
+    "last_updated": "2025-01-27T00:00:00Z",
+    "updated_by": {
+      "id": "user123",
+      "name": "Test User"
+    }
+  },
+  "rows": [
+    {
+      "type": "annotation",
+      "title": "Welcome Section",
+      "subtitle": "Introduction to the report",
+      "visuals": [
+        {
+          "kind": "annotation",
+          "label": "Welcome Annotation",
+          "options": {
+            "section_name": "Getting Started",
+            "subtitle": "This is a sample annotation for testing",
+            "text": "Welcome to our reporting dashboard! This annotation demonstrates the editing capabilities.\n\nYou can:\n- Edit the section name\n- Modify the subtitle\n- Update the content text\n- Toggle markdown formatting\n\n**Try editing this annotation** by clicking the pencil icon when in edit mode.",
+            "markdown": true
+          }
+        }
+      ]
+    },
+    {
+      "type": "tiles",
+      "title": "Key Metrics",
+      "visuals": [
+        {
+          "kind": "tile",
+          "label": "Total Users",
+          "query": {
+            "sql": "SELECT COUNT(*) AS value FROM users"
+          }
+        },
+        {
+          "kind": "tile",
+          "label": "Active Sessions",
+          "query": {
+            "sql": "SELECT COUNT(*) AS value FROM sessions WHERE active = true"
+          }
+        }
+      ]
+    },
+    {
+      "type": "annotation",
+      "title": "Additional Information",
+      "visuals": [
+        {
+          "kind": "annotation",
+          "label": "Info Annotation",
+          "options": {
+            "section_name": "Important Notes",
+            "subtitle": "Please read carefully",
+            "text": "This is another annotation without markdown formatting. It shows plain text rendering.",
+            "markdown": false
+          }
+        }
+      ]
+    }
+  ]
+}

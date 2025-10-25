@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
+import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -60,6 +61,16 @@ const ReportView = () => {
     label: string;
     sql: string;
     params?: Record<string, any>;
+  } | null>(null);
+  const [editingAnnotation, setEditingAnnotation] = useState<{
+    rowIndex: number;
+    visualIndex: number;
+    annotation: {
+      section_name?: string;
+      subtitle?: string;
+      text?: string;
+      markdown?: boolean;
+    };
   } | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
@@ -201,6 +212,9 @@ const ReportView = () => {
       }
       
       console.log('Visual after update:', JSON.stringify(visual, null, 2));
+    } else if (row.type === 'annotation') {
+      // For annotations, we don't update SQL but we need to handle the case
+      console.log('Annotation row detected - no SQL update needed');
     }
 
     console.log('Updated schema to save:', JSON.stringify(updatedSchema, null, 2));
@@ -243,6 +257,88 @@ const ReportView = () => {
       toast({
         title: 'Error',
         description: err.message || 'Failed to save element',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSaveAnnotation = async (annotation: {
+    section_name?: string;
+    subtitle?: string;
+    text?: string;
+    markdown?: boolean;
+  }) => {
+    console.log('=== handleSaveAnnotation called ===');
+    console.log('Editing annotation:', editingAnnotation);
+    console.log('New annotation:', annotation);
+    
+    if (!editingAnnotation || !schema) {
+      console.log('Early return - no editing annotation or schema');
+      return;
+    }
+
+    const updatedSchema = { ...schema };
+    const row = updatedSchema.rows[editingAnnotation.rowIndex];
+    
+    console.log('Row type:', row.type);
+    console.log('Row before update:', JSON.stringify(row, null, 2));
+    
+    if (row.type === 'annotation') {
+      const visual = row.visuals[editingAnnotation.visualIndex];
+      console.log('Visual before update:', JSON.stringify(visual, null, 2));
+      
+      // Update the annotation options
+      visual.options = {
+        ...visual.options,
+        section_name: annotation.section_name,
+        subtitle: annotation.subtitle,
+        text: annotation.text,
+        markdown: annotation.markdown,
+      };
+      
+      console.log('Visual after update:', JSON.stringify(visual, null, 2));
+    }
+
+    console.log('Updated schema to save:', JSON.stringify(updatedSchema, null, 2));
+
+    try {
+      console.log('Saving to database with reportId:', reportId);
+      
+      const response = await apiService.updateReport(reportId!, { 
+        title: updatedSchema.title || report?.title,
+        subtitle: updatedSchema.subtitle,
+        report_schema: updatedSchema 
+      });
+
+      console.log('Database update response:', response);
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update report');
+      }
+
+      console.log('Setting local state with updated schema');
+      
+      // Add timestamp to force React to detect change
+      updatedSchema.meta = {
+        ...updatedSchema.meta,
+        last_updated: new Date().toISOString()
+      };
+      
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedSchema, null, 2));
+      setEditingAnnotation(null);
+      
+      toast({
+        title: 'Success',
+        description: 'Annotation updated successfully',
+      });
+      
+      console.log('=== handleSaveAnnotation completed successfully ===');
+    } catch (err: any) {
+      console.error('=== Error saving annotation ===', err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to save annotation',
         variant: 'destructive',
       });
     }
@@ -1051,6 +1147,7 @@ const ReportView = () => {
                 rowIndex={rowIdx}
                 editMode={inlineEditActive}
                 onEdit={setEditingElement}
+                onEditAnnotation={setEditingAnnotation}
                 editingRowTitle={editingRowTitle === rowIdx}
                 tempRowTitle={tempRowTitle}
                 onStartEditRowTitle={handleStartEditRowTitle}
@@ -1173,6 +1270,16 @@ const ReportView = () => {
           onClose={() => setEditingElement(null)}
           element={editingElement}
           onSave={handleSaveElement}
+        />
+      )}
+
+      {/* Annotation Editor Dialog */}
+      {editingAnnotation && (
+        <AnnotationEditor
+          open={!!editingAnnotation}
+          onClose={() => setEditingAnnotation(null)}
+          annotation={editingAnnotation.annotation}
+          onSave={handleSaveAnnotation}
         />
       )}
 

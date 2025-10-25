@@ -20,6 +20,16 @@ interface RowRendererProps {
     sql: string;
     params?: Record<string, any>;
   }) => void;
+  onEditAnnotation?: (annotation: {
+    rowIndex: number;
+    visualIndex: number;
+    annotation: {
+      section_name?: string;
+      subtitle?: string;
+      text?: string;
+      markdown?: boolean;
+    };
+  }) => void;
   editingRowTitle?: boolean;
   tempRowTitle?: string;
   onStartEditRowTitle?: (rowIndex: number) => void;
@@ -34,6 +44,7 @@ export function RowRenderer({
   rowIndex, 
   editMode, 
   onEdit, 
+  onEditAnnotation,
   editingRowTitle = false,
   tempRowTitle = '',
   onStartEditRowTitle,
@@ -140,8 +151,30 @@ export function RowRenderer({
       );
     }
 
-    case 'annotation':
-      return <AnnotationComponent row={row} />;
+    case 'annotation': {
+      const visual = row.visuals[0];
+      return (
+        <div className="space-y-4">
+          {renderRowTitle()}
+          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
+          
+          <AnnotationComponent
+            row={row}
+            editMode={editMode}
+            onEdit={() => onEditAnnotation?.({
+              rowIndex,
+              visualIndex: 0,
+              annotation: {
+                section_name: visual.options?.section_name,
+                subtitle: visual.options?.subtitle,
+                text: visual.options?.text,
+                markdown: visual.options?.markdown,
+              },
+            })}
+          />
+        </div>
+      );
+    }
 
     case 'charts':
       return (
