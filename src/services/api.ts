@@ -147,10 +147,14 @@ class ApiService {
     return this.request(`/api/reports/${id}`);
   }
 
-  async createSection(name: string, sortIndex: number): Promise<ApiResponse<any>> {
+  async createSection(name: string, sortIndex: number, parentSectionId?: string): Promise<ApiResponse<any>> {
     const response = await this.request('/api/sections', {
       method: 'POST',
-      body: JSON.stringify({ name, sort_index: sortIndex }),
+      body: JSON.stringify({ 
+        name, 
+        sort_index: sortIndex,
+        parent_section_id: parentSectionId || null
+      }),
     });
     if (response.data && response.data.section) {
       return { data: response.data.section };
@@ -194,6 +198,29 @@ class ApiService {
   async deleteReport(id: string): Promise<ApiResponse<any>> {
     return this.request(`/api/reports/${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  async deleteSection(id: string, moveReportsToSection?: string): Promise<ApiResponse<any>> {
+    const url = moveReportsToSection 
+      ? `/api/sections/${id}?moveReportsToSection=${moveReportsToSection}`
+      : `/api/sections/${id}`;
+    return this.request(url, {
+      method: 'DELETE',
+    });
+  }
+
+  async reorderSections(sections: Array<{ id: string; sort_index: number }>): Promise<ApiResponse<any>> {
+    return this.request('/api/sections/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ sections }),
+    });
+  }
+
+  async reorderReports(reports: Array<{ id: string; sort_index: number; section_id?: string | null }>): Promise<ApiResponse<any>> {
+    return this.request('/api/reports/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ reports }),
     });
   }
 

@@ -623,11 +623,25 @@ export class DatabaseService {
       const client = await this.appPool.connect();
       
       try {
-        const result = await client.query(
-          'SELECT * FROM public.sections ORDER BY sort_index'
+        // First check if the function exists, if not use simple query
+        const functionCheck = await client.query(
+          `SELECT EXISTS (
+            SELECT 1 FROM pg_proc p 
+            JOIN pg_namespace n ON p.pronamespace = n.oid 
+            WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
+          )`
         );
-
-        return result.rows;
+        
+        if (functionCheck.rows[0].exists) {
+          const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
+          return result.rows;
+        } else {
+          // Fallback to simple query
+          const result = await client.query(
+            'SELECT * FROM public.sections ORDER BY sort_index'
+          );
+          return result.rows;
+        }
       } finally {
         client.release();
       }

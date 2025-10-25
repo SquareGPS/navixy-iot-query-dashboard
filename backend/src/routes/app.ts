@@ -43,6 +43,25 @@ router.post('/auth/login', async (req, res, next) => {
   }
 });
 
+// Get current user info (verify token)
+router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const dbService = DatabaseService.getInstance();
+    const role = await dbService.getUserRole(req.user?.userId || '');
+
+    res.json({
+      success: true,
+      user: {
+        id: req.user?.userId,
+        email: req.user?.email,
+        role: role
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Public registration (for first admin user)
 router.post('/auth/register', async (req, res, next) => {
   try {
@@ -261,7 +280,7 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
 // Create section (admin/editor only)
 router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, sort_index } = req.body;
+    const { name, sort_index, parent_section_id } = req.body;
     
     if (!name) {
       throw new CustomError('Section name is required', 400);
@@ -272,8 +291,8 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
     
     try {
       const result = await client.query(
-        'INSERT INTO public.sections (name, sort_index, created_by) VALUES ($1, $2, $3) RETURNING *',
-        [name, sort_index || 0, req.user?.userId]
+        'INSERT INTO public.sections (name, sort_index, parent_section_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+        [name, sort_index || 0, parent_section_id || null, req.user?.userId]
       );
 
       logger.info(`Section created by ${req.user?.email}: ${name}`);
@@ -294,7 +313,7 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
 router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, sort_index } = req.body;
     
     if (!name) {
       throw new CustomError('Section name is required', 400);
@@ -304,9 +323,19 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
     const client = await dbService.appPool.connect();
     
     try {
+      const updateFields = ['name = $1'];
+      const updateValues = [name];
+      let paramIndex = 2;
+
+      if (sort_index !== undefined) {
+        updateFields.push(`sort_index = $${paramIndex}`);
+        updateValues.push(sort_index);
+        paramIndex++;
+      }
+
       const result = await client.query(
-        'UPDATE public.sections SET name = $1 WHERE id = $2 RETURNING *',
-        [name, id]
+        `UPDATE public.sections SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        [...updateValues, id]
       );
 
       if (result.rows.length === 0) {
@@ -319,6 +348,197 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
         success: true,
         section: result.rows[0]
       });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete section (admin/editor only)
+router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { moveReportsToSection } = req.query; // Optional: move reports to another section
+
+    const dbService = DatabaseService.getInstance();
+    const client = await dbService.appPool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // First check if section exists
+      const checkResult = await client.query(
+        'SELECT id, name FROM public.sections WHERE id = $1',
+        [id]
+      );
+
+      if (checkResult.rows.length === 0) {
+        throw new CustomError('Section not found', 404);
+      }
+
+      const sectionName = checkResult.rows[0].name;
+
+      // Get reports in this section
+      const reportsResult = await client.query(
+        'SELECT id, title FROM public.reports WHERE section_id = $1',
+        [id]
+      );
+
+      const reportsInSection = reportsResult.rows;
+
+      if (reportsInSection.length > 0) {
+        if (moveReportsToSection) {
+          // Move reports to another section
+          const targetSectionResult = await client.query(
+            'SELECT id FROM public.sections WHERE id = $1',
+            [moveReportsToSection]
+          );
+
+          if (targetSectionResult.rows.length === 0) {
+            throw new CustomError('Target section not found', 404);
+          }
+
+          await client.query(
+            'UPDATE public.reports SET section_id = $1 WHERE section_id = $2',
+            [moveReportsToSection, id]
+          );
+
+          logger.info(`Moved ${reportsInSection.length} reports from section "${sectionName}" to section ${moveReportsToSection}`);
+        } else {
+          // Move reports to root (no section)
+          await client.query(
+            'UPDATE public.reports SET section_id = NULL WHERE section_id = $1',
+            [id]
+          );
+
+          logger.info(`Moved ${reportsInSection.length} reports from section "${sectionName}" to root`);
+        }
+      }
+
+      // Delete the section
+      const deleteResult = await client.query(
+        'DELETE FROM public.sections WHERE id = $1 RETURNING id',
+        [id]
+      );
+
+      if (deleteResult.rows.length === 0) {
+        throw new CustomError('Failed to delete section', 500);
+      }
+
+      await client.query('COMMIT');
+
+      logger.info(`Section deleted by ${req.user?.email}: ${sectionName} (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Section deleted successfully',
+        movedReports: reportsInSection.length
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reorder sections (admin/editor only)
+router.put('/sections/reorder', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { sections } = req.body; // Array of { id, sort_index }
+    
+    if (!Array.isArray(sections)) {
+      throw new CustomError('Sections array is required', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const client = await dbService.appPool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      for (const section of sections) {
+        if (!section.id || section.sort_index === undefined) {
+          throw new CustomError('Each section must have id and sort_index', 400);
+        }
+
+        await client.query(
+          'UPDATE public.sections SET sort_index = $1 WHERE id = $2',
+          [section.sort_index, section.id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      logger.info(`Sections reordered by ${req.user?.email}`);
+
+      res.json({
+        success: true,
+        message: 'Sections reordered successfully'
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reorder reports (admin/editor only)
+router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { reports } = req.body; // Array of { id, sort_index, section_id }
+    
+    if (!Array.isArray(reports)) {
+      throw new CustomError('Reports array is required', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const client = await dbService.appPool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      for (const report of reports) {
+        if (!report.id || report.sort_index === undefined) {
+          throw new CustomError('Each report must have id and sort_index', 400);
+        }
+
+        const updateFields = ['sort_index = $1'];
+        const updateValues = [report.sort_index];
+        let paramIndex = 2;
+
+        if (report.section_id !== undefined) {
+          updateFields.push(`section_id = $${paramIndex}`);
+          updateValues.push(report.section_id);
+          paramIndex++;
+        }
+
+        await client.query(
+          `UPDATE public.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
+          [...updateValues, report.id]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      logger.info(`Reports reordered by ${req.user?.email}`);
+
+      res.json({
+        success: true,
+        message: 'Reports reordered successfully'
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
     } finally {
       client.release();
     }
