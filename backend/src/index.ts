@@ -13,6 +13,7 @@ import { sqlRoutes } from './routes/sql.js';
 import { healthRoutes } from './routes/health.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import appRoutes from './routes/app.js';
+import menuRoutes from './routes/menu.js';
 import { DatabaseService } from './services/database.js';
 import { RedisService } from './services/redis.js';
 
@@ -41,7 +42,7 @@ app.use(cors({
     ? ['https://yourdomain.com'] 
     : ['http://localhost:8080', 'http://localhost:8081', 'http://localhost:3000'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
@@ -83,6 +84,9 @@ app.use('/health', healthRoutes);
 
 // App routes (authentication, settings, reports)
 app.use('/api', appRoutes);
+
+// Menu management routes
+app.use('/api', menuRoutes);
 
 // Protected routes
 app.use('/api/sql', authenticateToken, sqlRoutes);

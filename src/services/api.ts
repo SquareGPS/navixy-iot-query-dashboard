@@ -44,19 +44,43 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      ...this.getAuthHeaders(),
+      ...options.headers,
+    };
+    
+    console.log('API: Making request', {
+      url,
+      method: options.method || 'GET',
+      headers,
+      body: options.body
+    });
+
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.getAuthHeaders(),
-          ...options.headers,
-        },
+      const response = await fetch(url, {
+        headers,
         ...options,
       });
 
+      console.log('API: Response received', {
+        url,
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       const data = await response.json();
+      console.log('API: Response data', { url, data });
 
       if (!response.ok) {
+        console.error('API: Request failed', {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+          data
+        });
         return {
           error: {
             code: data.error?.code || 'HTTP_ERROR',
@@ -68,6 +92,11 @@ class ApiService {
 
       return { data };
     } catch (error: any) {
+      console.error('API: Network error', {
+        url,
+        error: error.message,
+        stack: error.stack
+      });
       return {
         error: {
           code: 'NETWORK_ERROR',
@@ -195,20 +224,7 @@ class ApiService {
     return response;
   }
 
-  async deleteReport(id: string): Promise<ApiResponse<any>> {
-    return this.request(`/api/reports/${id}`, {
-      method: 'DELETE',
-    });
-  }
 
-  async deleteSection(id: string, moveReportsToSection?: string): Promise<ApiResponse<any>> {
-    const url = moveReportsToSection 
-      ? `/api/sections/${id}?moveReportsToSection=${moveReportsToSection}`
-      : `/api/sections/${id}`;
-    return this.request(url, {
-      method: 'DELETE',
-    });
-  }
 
   async reorderSections(sections: Array<{ id: string; sort_index: number }>): Promise<ApiResponse<any>> {
     return this.request('/api/sections/reorder', {
@@ -231,6 +247,67 @@ class ApiService {
 
   async getSchemaConfig(): Promise<ApiResponse<{ defaultUrl: string }>> {
     return this.request('/api/schema/config');
+  }
+
+  // Menu Management API (v1)
+  async getMenuTree(includeDeleted: boolean = false): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/menu/tree?include_deleted=${includeDeleted}`);
+  }
+
+  async reorderMenu(payload: any): Promise<ApiResponse<any>> {
+    console.log('API: reorderMenu called with payload:', payload);
+    
+    try {
+      const result = await this.request('/api/v1/menu/reorder', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      
+      console.log('API: reorderMenu success:', result);
+      return result;
+    } catch (error) {
+      console.error('API: reorderMenu error:', error);
+      throw error;
+    }
+  }
+
+  async renameSection(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/sections/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, version }),
+    });
+  }
+
+  async renameReport(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/reports/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, version }),
+    });
+  }
+
+  async deleteSection(id: string, strategy: 'move_children_to_root' | 'delete_children'): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/sections/${id}/delete`, {
+      method: 'PATCH',
+      body: JSON.stringify({ strategy }),
+    });
+  }
+
+  async deleteReport(id: string): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/reports/${id}/delete`, {
+      method: 'PATCH',
+    });
+  }
+
+  async restoreSection(id: string): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/sections/${id}/restore`, {
+      method: 'PATCH',
+    });
+  }
+
+  async restoreReport(id: string): Promise<ApiResponse<any>> {
+    return this.request(`/api/v1/reports/${id}/restore`, {
+      method: 'PATCH',
+    });
   }
 }
 
