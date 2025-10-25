@@ -530,13 +530,14 @@ const ReportView = () => {
     input.click();
   };
 
-  const handleDownloadExampleSchema = async (useCustomUrl = false) => {
-    console.log('🚀 Starting schema download...', { useCustomUrl, reportId });
+  const handleDownloadExampleSchema = async () => {
+    console.log('🚀 Starting schema download...', { reportId });
     setDownloadingSchema(true);
     try {
       let schemaUrl = '';
       
-      if (useCustomUrl && customSchemaUrl.trim()) {
+      // Use custom URL if provided, otherwise use default
+      if (customSchemaUrl.trim()) {
         schemaUrl = customSchemaUrl.trim();
         console.log('📝 Using custom URL:', schemaUrl);
       } else {
@@ -682,7 +683,7 @@ const ReportView = () => {
       
       toast({
         title: 'Success',
-        description: 'Custom schema downloaded and saved successfully',
+        description: 'Schema downloaded and saved successfully',
       });
     } catch (err: any) {
       console.error('Error downloading schema:', err);
@@ -764,7 +765,7 @@ const ReportView = () => {
                 {isSchemaMissing && canEdit && (
                   <div className="space-y-3">
                     <Button
-                      onClick={() => handleDownloadExampleSchema(false)}
+                      onClick={() => handleDownloadExampleSchema()}
                       disabled={downloadingSchema}
                       className="bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
                     >
@@ -774,42 +775,22 @@ const ReportView = () => {
                     
                     <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
                       <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20">
-                          <Settings className="h-4 w-4 mr-2" />
-                          Advanced Options
+                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs">
+                          Custom URL
                           {showAdvanced ? (
-                            <ChevronDown className="h-4 w-4 ml-2" />
+                            <ChevronDown className="h-3 w-3 ml-1" />
                           ) : (
-                            <ChevronRight className="h-4 w-4 ml-2" />
+                            <ChevronRight className="h-3 w-3 ml-1" />
                           )}
                         </Button>
                       </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-3 pt-3">
-                        <div className="space-y-2">
-                          <Label htmlFor="custom-url" className="text-sm font-medium text-red-800 dark:text-red-200">
-                            Custom Schema URL
-                          </Label>
-                          <Input
-                            id="custom-url"
-                            placeholder={defaultSchemaUrl || "https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json"}
-                            value={customSchemaUrl}
-                            onChange={(e) => setCustomSchemaUrl(e.target.value)}
-                            className="bg-[var(--surface-2)] border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
-                          />
-                          <p className="text-xs text-red-600 dark:text-red-400">
-                            Enter a direct URL to a JSON schema file (GitHub raw URLs work best)
-                          </p>
-                        </div>
-                        <Button
-                          onClick={() => handleDownloadExampleSchema(true)}
-                          disabled={downloadingSchema || !customSchemaUrl.trim()}
-                          variant="outline"
-                          size="sm"
-                          className="border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/20"
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          {downloadingSchema ? 'Downloading...' : 'Download from Custom URL'}
-                        </Button>
+                      <CollapsibleContent className="pt-2">
+                        <Input
+                          placeholder="Custom schema URL (optional)"
+                          value={customSchemaUrl || defaultSchemaUrl || ""}
+                          onChange={(e) => setCustomSchemaUrl(e.target.value)}
+                          className="text-xs h-8 bg-[var(--surface-2)] border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
+                        />
                       </CollapsibleContent>
                     </Collapsible>
                   </div>
@@ -1098,23 +1079,42 @@ const ReportView = () => {
                   }
                 </p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Button 
-                  onClick={() => handleDownloadExampleSchema(false)}
-                  disabled={downloadingSchema}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
-                </Button>
-                <Button 
-                  onClick={() => setShowAdvanced(true)}
-                  variant="outline"
-                  className="border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20"
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Advanced Options
-                </Button>
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Button 
+                    onClick={() => handleDownloadExampleSchema()}
+                    disabled={downloadingSchema}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
+                  </Button>
+                </div>
+                
+                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+                  <CollapsibleTrigger asChild>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      className="border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20 text-xs"
+                    >
+                      Custom URL
+                      {showAdvanced ? (
+                        <ChevronDown className="h-3 w-3 ml-1" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3 ml-1" />
+                      )}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-2">
+                    <Input
+                      placeholder="Custom schema URL (optional)"
+                      value={customSchemaUrl || defaultSchemaUrl || ""}
+                      onChange={(e) => setCustomSchemaUrl(e.target.value)}
+                      className="text-xs h-8 bg-[var(--surface-2)] border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600"
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
             </div>
           </div>
