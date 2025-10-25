@@ -546,17 +546,17 @@ export function MenuEditor() {
     <>
       <SidebarContent>
           {/* Header */}
-          <SidebarGroup>
+          <SidebarGroup className="pb-1 pt-6">
             <SidebarGroupLabel>Reports</SidebarGroupLabel>
             <SidebarGroupContent>
-              <div className="flex items-center gap-2 p-2">
+              <div className="flex items-center gap-2 px-2 py-1">
                 <div className="relative flex-1">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search reports..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="pl-8"
+                    className="pl-8 h-8"
                   />
                 </div>
               </div>
