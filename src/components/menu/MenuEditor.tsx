@@ -664,11 +664,13 @@ export function MenuEditor() {
                     ))}
 
                     {/* Root Reports */}
-                    <div className="px-2 py-1 mt-2">
-                      <div className="text-sm font-medium text-foreground uppercase tracking-wider">
-                        Root Reports
+                    {isEditMode && (
+                      <div className="px-2 py-1 mt-2">
+                        <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                          NO SECTION
+                        </div>
                       </div>
-                    </div>
+                    )}
                     {/* Root Reports */}
                     {isEditMode ? (
                       <DroppableDropZone id="drop-zone-root" type="root" isEditMode={isEditMode}>
