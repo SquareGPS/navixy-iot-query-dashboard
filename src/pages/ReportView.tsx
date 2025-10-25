@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -67,6 +67,8 @@ const ReportView = () => {
   const [tempSubtitle, setTempSubtitle] = useState('');
   const [isTitleHovered, setIsTitleHovered] = useState(false);
   const [isSubtitleHovered, setIsSubtitleHovered] = useState(false);
+  const [editingRowTitle, setEditingRowTitle] = useState<number | null>(null);
+  const [tempRowTitle, setTempRowTitle] = useState('');
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
   const [tempSectionName, setTempSectionName] = useState('');
   const [tempReportName, setTempReportName] = useState('');
@@ -286,6 +288,59 @@ const ReportView = () => {
     setTempSubtitle(schema?.subtitle || '');
     setEditingSubtitle(true);
   };
+
+  const handleStartEditRowTitle = useCallback((rowIndex: number) => {
+    if (!canEdit) return;
+    const row = schema?.rows[rowIndex];
+    if (row) {
+      setTempRowTitle(row.title || '');
+      setEditingRowTitle(rowIndex);
+    }
+  }, [canEdit, schema]);
+
+  const handleSaveRowTitle = useCallback(async () => {
+    if (!schema || editingRowTitle === null || !reportId) return;
+    
+    try {
+      setSaving(true);
+      const updatedSchema = { ...schema };
+      updatedSchema.rows[editingRowTitle] = {
+        ...updatedSchema.rows[editingRowTitle],
+        title: tempRowTitle.trim() || undefined
+      };
+      
+      const response = await apiService.updateReport(reportId, {
+        title: schema.title,
+        subtitle: schema.subtitle,
+        report_schema: updatedSchema
+      });
+      
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to update row title');
+      }
+
+      setSchema(updatedSchema);
+      setEditingRowTitle(null);
+      setTempRowTitle('');
+      toast({
+        title: 'Success',
+        description: 'Row title updated successfully',
+      });
+    } catch (error) {
+      console.error('Error updating row title:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update row title',
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [schema, editingRowTitle, tempRowTitle, reportId]);
+
+  const handleCancelEditRowTitle = useCallback(() => {
+    setEditingRowTitle(null);
+    setTempRowTitle('');
+  }, []);
 
   const handleSaveTitle = async () => {
     if (!reportId || !tempTitle.trim()) return;
@@ -1014,6 +1069,13 @@ const ReportView = () => {
               rowIndex={rowIdx}
               editMode={inlineEditActive}
               onEdit={setEditingElement}
+              editingRowTitle={editingRowTitle === rowIdx}
+              tempRowTitle={tempRowTitle}
+              onStartEditRowTitle={handleStartEditRowTitle}
+              onSaveRowTitle={handleSaveRowTitle}
+              onCancelEditRowTitle={handleCancelEditRowTitle}
+              onRowTitleChange={setTempRowTitle}
+              canEdit={canEdit}
             />
           );
         })}

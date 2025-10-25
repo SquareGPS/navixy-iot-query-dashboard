@@ -4,6 +4,9 @@ import { AnnotationComponent } from './AnnotationComponent';
 import { BarChartComponent } from './BarChartComponent';
 import { PieChartComponent } from './PieChartComponent';
 import { UnsupportedVisualComponent } from './UnsupportedVisualComponent';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Save, X } from 'lucide-react';
 import type { TilesRow, TableRow, AnnotationRow, ChartsRow } from '@/types/report-schema';
 
 interface RowRendererProps {
@@ -17,15 +20,81 @@ interface RowRendererProps {
     sql: string;
     params?: Record<string, any>;
   }) => void;
+  editingRowTitle?: boolean;
+  tempRowTitle?: string;
+  onStartEditRowTitle?: (rowIndex: number) => void;
+  onSaveRowTitle?: () => void;
+  onCancelEditRowTitle?: () => void;
+  onRowTitleChange?: (value: string) => void;
+  canEdit?: boolean;
 }
 
-export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProps) {
+export function RowRenderer({ 
+  row, 
+  rowIndex, 
+  editMode, 
+  onEdit, 
+  editingRowTitle = false,
+  tempRowTitle = '',
+  onStartEditRowTitle,
+  onSaveRowTitle,
+  onCancelEditRowTitle,
+  onRowTitleChange,
+  canEdit = false
+}: RowRendererProps) {
+  
+  
+  const renderRowTitle = () => {
+    if (editingRowTitle) {
+      return (
+        <div className="mb-4">
+          <Input
+            value={tempRowTitle}
+            onChange={(e) => onRowTitleChange?.(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onSaveRowTitle?.();
+              if (e.key === 'Escape') onCancelEditRowTitle?.();
+            }}
+            className="text-2xl font-semibold h-10 px-3"
+            placeholder="Row title"
+            autoFocus
+          />
+          <div className="flex gap-2 mt-2">
+            <Button onClick={onSaveRowTitle} size="sm" variant="default">
+              <Save className="h-4 w-4 mr-1" />
+              Save
+            </Button>
+            <Button onClick={onCancelEditRowTitle} size="sm" variant="outline">
+              <X className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    
+    if (row.title) {
+      return (
+        <h2 
+          className={`text-2xl font-semibold transition-all mb-4 ${
+            canEdit ? 'cursor-pointer hover:text-[var(--text-primary)]' : ''
+          }`}
+          onClick={() => canEdit && onStartEditRowTitle?.(rowIndex)}
+        >
+          {row.title}
+        </h2>
+      );
+    }
+    
+    return null;
+  };
+
   // Render based on row type
   switch (row.type) {
     case 'tiles':
       return (
         <div className="space-y-4">
-          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {renderRowTitle()}
           {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
@@ -51,7 +120,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
       const visual = row.visuals[0];
       return (
         <div className="space-y-4">
-          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {renderRowTitle()}
           {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <TableVisualComponent
@@ -77,7 +146,7 @@ export function RowRenderer({ row, rowIndex, editMode, onEdit }: RowRendererProp
     case 'charts':
       return (
         <div className="space-y-4">
-          {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
+          {renderRowTitle()}
           {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <div className={`grid gap-4 ${row.visuals.length === 1 ? 'grid-cols-1' : row.visuals.length === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
