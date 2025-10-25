@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2 } from 'lucide-react';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2, Code } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SidebarContent,
@@ -559,37 +559,6 @@ export function MenuEditor() {
                     className="pl-8"
                   />
                 </div>
-                {user?.role === 'admin' || user?.role === 'editor' ? (
-                  <div className="flex gap-2">
-                    {isEditMode && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="secondary">
-                            <Plus className="h-4 w-4 mr-1" />
-                            Add new
-                            <ChevronDown className="h-4 w-4 ml-1" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setIsCreateSectionModalOpen(true)}>
-                            <FolderOpen className="h-4 w-4 mr-2" />
-                            New section
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setIsCreateReportModalOpen(true)}>
-                            <FileText className="h-4 w-4 mr-2" />
-                            New report
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                    <Button
-                      variant={isEditMode ? "primary" : "secondary"}
-                      onClick={() => setIsEditMode(!isEditMode)}
-                    >
-                      {isEditMode ? 'Done' : 'Edit'}
-                    </Button>
-                  </div>
-                ) : null}
               </div>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -709,6 +678,45 @@ export function MenuEditor() {
               </SidebarGroupContent>
             </SidebarGroup>
           </DndContext>
+
+          {/* Admin Tools Menu */}
+          {user?.role === 'admin' || user?.role === 'editor' ? (
+            <SidebarGroup className="mt-auto">
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton className="w-full justify-start">
+                          <MoreHorizontal className="h-4 w-4" />
+                          <span>Tools</span>
+                          <ChevronDown className="h-4 w-4 ml-auto" />
+                        </SidebarMenuButton>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 bg-surface-1 border border-border shadow-lg p-1">
+                        <DropdownMenuItem onClick={() => setIsCreateSectionModalOpen(true)} className="py-1.5">
+                          <FolderOpen className="h-4 w-4 mr-2" />
+                          New section
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsCreateReportModalOpen(true)} className="py-1.5">
+                          <FileText className="h-4 w-4 mr-2" />
+                          New report
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsEditMode(!isEditMode)} className="py-1.5">
+                          <Edit2 className="h-4 w-4 mr-2" />
+                          {isEditMode ? 'Done editing' : 'Edit menu'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate('/app/sql-editor')} className="py-1.5">
+                          <Code className="h-4 w-4 mr-2" />
+                          SQL Editor
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : null}
         </SidebarContent>
 
       {/* Drag Overlay */}
