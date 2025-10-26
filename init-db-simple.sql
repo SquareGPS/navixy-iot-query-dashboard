@@ -152,7 +152,7 @@ BEGIN
 END;
 $$;
 
--- Function to validate report schema structure
+-- Function to validate Grafana dashboard schema structure
 CREATE OR REPLACE FUNCTION public.validate_report_schema(schema JSONB)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -165,7 +165,37 @@ BEGIN
     RETURN FALSE;
   END IF;
   
-  -- Check required fields exist
+  -- Check if this is a Grafana dashboard format
+  IF schema ? 'panels' AND jsonb_typeof(schema->'panels') = 'array' THEN
+    -- Grafana dashboard format validation
+    IF NOT (
+      schema ? 'title' AND
+      jsonb_array_length(schema->'panels') > 0
+    ) THEN
+      RETURN FALSE;
+    END IF;
+    
+    -- Validate each panel has required x-navixy configuration
+    FOR i IN 0..jsonb_array_length(schema->'panels') - 1 LOOP
+      DECLARE
+        panel JSONB := schema->'panels'->i;
+      BEGIN
+        IF NOT (
+          panel ? 'type' AND
+          panel ? 'title' AND
+          panel ? 'x-navixy' AND
+          panel->'x-navixy' ? 'sql' AND
+          panel->'x-navixy'->'sql' ? 'statement'
+        ) THEN
+          RETURN FALSE;
+        END IF;
+      END;
+    END LOOP;
+    
+    RETURN TRUE;
+  END IF;
+  
+  -- Legacy format validation (for backward compatibility)
   IF NOT (
     schema ? 'title' AND
     schema ? 'meta' AND
@@ -193,7 +223,7 @@ BEGIN
 END;
 $$;
 
--- Helper function to extract report data
+-- Helper function to extract report data (supports both Grafana and legacy formats)
 CREATE OR REPLACE FUNCTION public.get_report_queries(report_uuid UUID)
 RETURNS TABLE(
   query_type TEXT,
@@ -207,33 +237,55 @@ SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
-  SELECT 
-    (row_value->>'type')::TEXT as query_type,
-    (
-      CASE 
-        WHEN row_value->>'type' = 'tiles' THEN 
-          (row_value->'visuals'->0->>'label')::TEXT
-        WHEN row_value->>'type' = 'table' THEN 
-          (row_value->'visuals'->0->>'label')::TEXT
-        ELSE NULL
-      END
-    ) as visual_label,
-    (
-      CASE 
-        WHEN row_value->>'type' = 'tiles' THEN 
-          (row_value->'visuals'->0->'query'->>'sql')::TEXT
-        WHEN row_value->>'type' = 'table' THEN 
-          (row_value->'visuals'->0->'query'->>'sql')::TEXT
-        ELSE NULL
-      END
-    ) as sql_query,
-    row_idx as row_index
-  FROM 
-    public.reports r,
-    jsonb_array_elements(r.report_schema->'rows') WITH ORDINALITY AS rows(row_value, row_idx)
-  WHERE 
-    r.id = report_uuid
-    AND row_value->>'type' IN ('tiles', 'table');
+  WITH report_data AS (
+    SELECT report_schema FROM public.reports WHERE id = report_uuid
+  ),
+  grafana_queries AS (
+    SELECT 
+      (panel->>'type')::TEXT as query_type,
+      (panel->>'title')::TEXT as visual_label,
+      (panel->'x-navixy'->'sql'->>'statement')::TEXT as sql_query,
+      panel_idx as row_index
+    FROM 
+      report_data,
+      jsonb_array_elements(report_schema->'panels') WITH ORDINALITY AS panels(panel, panel_idx)
+    WHERE 
+      report_schema ? 'panels'
+      AND panel ? 'x-navixy'
+      AND panel->'x-navixy' ? 'sql'
+  ),
+  legacy_queries AS (
+    SELECT 
+      (row_value->>'type')::TEXT as query_type,
+      (
+        CASE 
+          WHEN row_value->>'type' = 'tiles' THEN 
+            (row_value->'visuals'->0->>'label')::TEXT
+          WHEN row_value->>'type' = 'table' THEN 
+            (row_value->'visuals'->0->>'label')::TEXT
+          ELSE NULL
+        END
+      ) as visual_label,
+      (
+        CASE 
+          WHEN row_value->>'type' = 'tiles' THEN 
+            (row_value->'visuals'->0->'query'->>'sql')::TEXT
+          WHEN row_value->>'type' = 'table' THEN 
+            (row_value->'visuals'->0->'query'->>'sql')::TEXT
+          ELSE NULL
+        END
+      ) as sql_query,
+      row_idx as row_index
+    FROM 
+      report_data,
+      jsonb_array_elements(report_schema->'rows') WITH ORDINALITY AS rows(row_value, row_idx)
+    WHERE 
+      report_schema ? 'rows'
+      AND row_value->>'type' IN ('tiles', 'table')
+  )
+  SELECT * FROM grafana_queries
+  UNION ALL
+  SELECT * FROM legacy_queries;
 END;
 $$;
 

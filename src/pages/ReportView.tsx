@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
-import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
+import { GrafanaDashboardRenderer } from '@/components/reports/GrafanaDashboardRenderer';
 import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
 import { AddRowButton } from '@/components/reports/AddRowButton';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
@@ -20,12 +20,14 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { ReportSchema } from '@/types/report-schema';
+import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboard';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
   const { user, loading: authLoading } = useAuth();
-  const [schema, setSchema] = useState<ReportSchema | null>(null);
+  const [dashboard, setDashboard] = useState<GrafanaDashboard | null>(null);
+  const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
+  const [schema, setSchema] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,15 +138,43 @@ const ReportView = () => {
         
         if (!report.report_schema || 
             (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
-          console.log('❌ Schema is missing or empty, throwing error');
-          throw new Error('Report schema is missing');
+          console.log('❌ Dashboard schema is missing or empty, throwing error');
+          throw new Error('Dashboard schema is missing');
         }
 
-        const reportSchema = report.report_schema as unknown as ReportSchema;
-        console.log('✅ Setting schema:', reportSchema);
-        setSchema(reportSchema);
-        setEditorValue(JSON.stringify(reportSchema, null, 2));
-        console.log('✅ Report loaded successfully');
+        // Check if this is a Grafana dashboard format
+        const schemaData = report.report_schema;
+        if (schemaData.panels && Array.isArray(schemaData.panels)) {
+          // This is a Grafana dashboard format
+          console.log('✅ Detected Grafana dashboard format');
+          const grafanaDashboard = schemaData as GrafanaDashboard;
+          setDashboard(grafanaDashboard);
+          setSchema(schemaData); // Set schema for compatibility
+          
+          const config: DashboardConfig = {
+            title: report.title,
+            meta: {
+              schema_version: '1.0.0',
+              dashboard_id: report.id,
+              slug: report.slug,
+              last_updated: new Date().toISOString(),
+              updated_by: {
+                id: user?.userId || 'unknown',
+                name: user?.name || 'Unknown User',
+                email: user?.email
+              }
+            },
+            dashboard: grafanaDashboard
+          };
+          setDashboardConfig(config);
+          setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+        } else {
+          // Legacy format - convert to Grafana dashboard
+          console.log('⚠️ Legacy format detected, converting to Grafana dashboard');
+          throw new Error('Legacy schema format detected. Please use Grafana dashboard format.');
+        }
+        
+        console.log('✅ Dashboard loaded successfully');
       } catch (err: any) {
         console.error('❌ Error fetching report:', err);
         setError(err.message || 'Failed to load report');
@@ -875,12 +905,20 @@ const ReportView = () => {
         throw new Error(`Failed to fetch schema from URL: ${response.statusText}`);
       }
 
-      const exampleSchema = await response.json();
+      const grafanaDashboard = await response.json();
       
-      // Update the report with the custom schema
+      // Validate that this is a Grafana dashboard
+      if (!grafanaDashboard.panels || !Array.isArray(grafanaDashboard.panels)) {
+        throw new Error('Invalid Grafana dashboard format. Expected panels array.');
+      }
+      
+      console.log('✅ Valid Grafana dashboard loaded:', grafanaDashboard.title);
+      console.log('📊 Panels count:', grafanaDashboard.panels.length);
+      
+      // Update the report with the Grafana dashboard
       const updateResponse = await apiService.updateReport(reportId!, {
-        title: report?.title || 'New Report', // Keep the original title
-        report_schema: exampleSchema
+        title: grafanaDashboard.title || report?.title || 'New Dashboard', // Use dashboard title
+        report_schema: grafanaDashboard
       });
 
       if (updateResponse.error) {
@@ -888,7 +926,8 @@ const ReportView = () => {
       }
 
       // Clear current state to prevent immediate SQL execution
-      setSchema(null);
+      setDashboard(null);
+      setDashboardConfig(null);
       setEditorValue('');
       setError(null);
       
@@ -902,14 +941,41 @@ const ReportView = () => {
           if (response.error) {
             throw new Error(response.error.message || 'Failed to fetch report');
           }
-          const reportData = response.data;
+          const reportData = response.data.report;
           if (!reportData.report_schema || 
               (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
-            throw new Error('Report schema is missing');
+            throw new Error('Dashboard schema is missing');
           }
+          
           setReport(reportData);
-          setSchema(reportData.report_schema);
-          setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+          
+          // Handle Grafana dashboard format
+          const schemaData = reportData.report_schema;
+          if (schemaData.panels && Array.isArray(schemaData.panels)) {
+            const grafanaDashboard = schemaData as GrafanaDashboard;
+            setDashboard(grafanaDashboard);
+            setSchema(schemaData); // Set schema for compatibility
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: grafanaDashboard
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+          } else {
+            throw new Error('Invalid dashboard format');
+          }
         } catch (err: any) {
           console.error('Error fetching report:', err);
           setError(err.message);
@@ -924,7 +990,7 @@ const ReportView = () => {
       
       toast({
         title: 'Success',
-        description: 'Schema downloaded and saved successfully',
+        description: 'Grafana dashboard downloaded and saved successfully',
       });
     } catch (err: any) {
       console.error('Error downloading schema:', err);
@@ -977,12 +1043,12 @@ const ReportView = () => {
   }
 
   // Only show error state for critical errors, not SQL execution errors
-  const isCriticalError = error && error !== 'Report schema is missing';
-  const shouldShowError = isCriticalError || (!schema && !loading);
+  const isCriticalError = error && error !== 'Dashboard schema is missing';
+  const shouldShowError = isCriticalError || (!dashboard && !loading);
   
   if (shouldShowError) {
-    const isSchemaMissing = error === 'Report schema is missing';
-    console.log('🚨 Error state triggered:', { error, schema: schema ? 'exists' : 'null', isSchemaMissing, isCriticalError });
+    const isSchemaMissing = error === 'Dashboard schema is missing';
+    console.log('🚨 Error state triggered:', { error, dashboard: dashboard ? 'exists' : 'null', isSchemaMissing, isCriticalError });
     
     
     return (
@@ -1056,7 +1122,7 @@ const ReportView = () => {
                     Need Help Getting Started?
                   </h4>
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This report needs a schema to display data. Click the button above to download a pre-configured example schema that you can customize for your needs. Use the Advanced Options to specify a custom schema URL from GitHub or other sources.
+                    This report needs a Grafana dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
                   </p>
                 </div>
               </div>
@@ -1234,47 +1300,11 @@ const ReportView = () => {
 
         {/* Report Content */}
         <div className="space-y-6">
-        {schema && schema.rows && schema.rows.length > 0 ? (
-          <>
-            {/* Add row button at the top */}
-            <AddRowButton 
-              onAddRow={handleAddRow} 
-              canEdit={canEdit} 
-              isEditing={isEditing && editMode === 'inline'} 
-            />
-            
-            {schema.rows.map((row, rowIdx) => {
-              const inlineEditActive = isEditing && editMode === 'inline';
-              const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
-              
-              return (
-                <div key={rowKey}>
-                  <RowRenderer
-                    row={row}
-                    rowIndex={rowIdx}
-                    editMode={inlineEditActive}
-                    onEdit={setEditingElement}
-                    onEditAnnotation={setEditingAnnotation}
-                    editingRowTitle={editingRowTitle === rowIdx}
-                    tempRowTitle={tempRowTitle}
-                    onStartEditRowTitle={handleStartEditRowTitle}
-                    onSaveRowTitle={handleSaveRowTitle}
-                    onCancelEditRowTitle={handleCancelEditRowTitle}
-                    onRowTitleChange={setTempRowTitle}
-                    canEdit={canEdit}
-                  />
-                  
-                  {/* Add row button after each row */}
-                  <AddRowButton 
-                    onAddRow={handleAddRow} 
-                    insertAfterIndex={rowIdx}
-                    canEdit={canEdit} 
-                    isEditing={isEditing && editMode === 'inline'} 
-                  />
-                </div>
-              );
-            })}
-          </>
+        {dashboard ? (
+          <GrafanaDashboardRenderer 
+            dashboard={dashboard}
+            timeRange={{ from: 'now-24h', to: 'now' }}
+          />
         ) : (
           /* Empty State - Show example schema download option */
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-8 shadow-sm">
@@ -1284,12 +1314,12 @@ const ReportView = () => {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                  {schema ? 'Report Schema is Empty' : 'No Report Schema Found'}
+                  {dashboard ? 'Dashboard Schema is Empty' : 'No Dashboard Schema Found'}
                 </h3>
                 <p className="text-[var(--text-muted)] mb-6">
-                  {schema 
-                    ? 'This report doesn\'t have any content yet. Download an example schema to get started.'
-                    : 'This report needs a schema to display content. Download an example schema to get started.'
+                  {dashboard 
+                    ? 'This dashboard doesn\'t have any panels yet. Download an example Grafana dashboard to get started.'
+                    : 'This report needs a Grafana dashboard schema to display content. Download an example dashboard to get started.'
                   }
                 </p>
               </div>
