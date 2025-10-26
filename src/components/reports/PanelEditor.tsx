@@ -128,21 +128,20 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
               return value !== null && value !== undefined ? String(value) : '';
             },
           }));
-        } else if (response.data.rows.length > 0) {
-          cols = Object.keys(response.data.rows[0]).map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
-            cell: ({ getValue }: any) => {
-              const value = getValue();
-              return value !== null && value !== undefined ? String(value) : '';
-            },
-          }));
         } else {
           cols = [];
         }
 
-        setTestResults({ columns: cols, rows: response.data.rows });
+        // Convert array of arrays to array of objects for DataTable
+        const transformedRows = response.data.rows.map((row: any[]) => {
+          const rowObj: any = {};
+          response.data?.columns?.forEach((col: any, index: number) => {
+            rowObj[col.name] = row[index];
+          });
+          return rowObj;
+        });
+
+        setTestResults({ columns: cols, rows: transformedRows });
         toast({
           title: 'Success',
           description: 'Query executed successfully',

@@ -74,20 +74,10 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
         // Build columns from result
         let cols;
         if (response.data.columns && response.data.columns.length > 0) {
-          cols = response.data.columns.map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
-            cell: ({ getValue }: any) => {
-              const value = getValue();
-              return value !== null && value !== undefined ? String(value) : '';
-            },
-          }));
-        } else if (response.data.rows.length > 0) {
-          cols = Object.keys(response.data.rows[0]).map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
+          cols = response.data.columns.map((col: any) => ({
+            id: col.name || col,
+            accessorKey: col.name || col,
+            header: col.name || col,
             cell: ({ getValue }: any) => {
               const value = getValue();
               return value !== null && value !== undefined ? String(value) : '';
@@ -97,7 +87,17 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
           cols = [];
         }
 
-        setTestResults({ columns: cols, rows: response.data.rows });
+        // Convert array of arrays to array of objects for DataTable
+        const transformedRows = response.data.rows.map((row: any[]) => {
+          const rowObj: any = {};
+          response.data?.columns?.forEach((col: any, index: number) => {
+            const colName = col.name || col;
+            rowObj[colName] = row[index];
+          });
+          return rowObj;
+        });
+
+        setTestResults({ columns: cols, rows: transformedRows });
         toast({
           title: 'Success',
           description: 'Query executed successfully',
