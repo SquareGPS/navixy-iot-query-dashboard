@@ -159,7 +159,6 @@ BEGIN
   END IF;
   
   IF NOT (
-    schema ? 'title' AND
     schema ? 'meta' AND
     schema ? 'rows' AND
     jsonb_typeof(schema->'rows') = 'array'

@@ -167,9 +167,8 @@ BEGIN
   
   -- Check if this is a Grafana dashboard format
   IF schema ? 'panels' AND jsonb_typeof(schema->'panels') = 'array' THEN
-    -- Grafana dashboard format validation
+    -- Grafana dashboard format validation (title/subtitle at root level are non-conforming and ignored)
     IF NOT (
-      schema ? 'title' AND
       jsonb_array_length(schema->'panels') > 0
     ) THEN
       RETURN FALSE;
@@ -195,9 +194,8 @@ BEGIN
     RETURN TRUE;
   END IF;
   
-  -- Legacy format validation (for backward compatibility)
+  -- Legacy format validation (for backward compatibility) - title/subtitle at root level are non-conforming and ignored
   IF NOT (
-    schema ? 'title' AND
     schema ? 'meta' AND
     schema ? 'rows' AND
     jsonb_typeof(schema->'rows') = 'array'

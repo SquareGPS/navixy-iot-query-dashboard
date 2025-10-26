@@ -15,13 +15,11 @@ interface AnnotationEditorProps {
   onClose: () => void;
   annotation: {
     section_name?: string;
-    subtitle?: string;
     text?: string;
     markdown?: boolean;
   };
   onSave: (annotation: {
     section_name?: string;
-    subtitle?: string;
     text?: string;
     markdown?: boolean;
   }) => void;
@@ -30,7 +28,6 @@ interface AnnotationEditorProps {
 
 export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }: AnnotationEditorProps) {
   const [sectionName, setSectionName] = useState(annotation.section_name || '');
-  const [subtitle, setSubtitle] = useState(annotation.subtitle || '');
   const [text, setText] = useState(annotation.text || '');
   const [markdown, setMarkdown] = useState(annotation.markdown || false);
   const [saving, setSaving] = useState(false);
@@ -42,7 +39,6 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
     try {
       const updatedAnnotation = {
         section_name: sectionName.trim() || undefined,
-        subtitle: subtitle.trim() || undefined,
         text: text.trim() || undefined,
         markdown,
       };
@@ -69,7 +65,6 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
   const handleClose = () => {
     // Reset to original values
     setSectionName(annotation.section_name || '');
-    setSubtitle(annotation.subtitle || '');
     setText(annotation.text || '');
     setMarkdown(annotation.markdown || false);
     onClose();
@@ -125,20 +120,6 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
               />
             </div>
 
-            {/* Subtitle */}
-            <div className="space-y-2">
-              <Label htmlFor="subtitle" className="text-sm font-medium text-[var(--text-primary)]">
-                Subtitle (Optional)
-              </Label>
-              <Input
-                id="subtitle"
-                value={subtitle}
-                onChange={(e) => setSubtitle(e.target.value)}
-                placeholder="Enter subtitle..."
-                className="bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-primary)]"
-              />
-            </div>
-
             <Separator className="my-4" />
 
             {/* Content */}
@@ -181,9 +162,6 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
                 <div className="border rounded-md p-4 bg-[var(--surface-2)] min-h-[100px]">
                   {sectionName && (
                     <h3 className="text-xl font-semibold mb-2">{sectionName}</h3>
-                  )}
-                  {subtitle && (
-                    <p className="text-sm text-[var(--text-secondary)] mb-3">{subtitle}</p>
                   )}
                   {text && (
                     <div className="prose prose-sm dark:prose-invert max-w-none">

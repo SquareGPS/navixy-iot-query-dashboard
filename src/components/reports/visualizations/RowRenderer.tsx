@@ -25,7 +25,6 @@ interface RowRendererProps {
     visualIndex: number;
     annotation: {
       section_name?: string;
-      subtitle?: string;
       text?: string;
       markdown?: boolean;
     };
@@ -106,7 +105,6 @@ export function RowRenderer({
       return (
         <div className="space-y-4">
           {renderRowTitle()}
-          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             {row.visuals.map((visual, visualIdx) => (
@@ -132,7 +130,6 @@ export function RowRenderer({
       return (
         <div className="space-y-4">
           {renderRowTitle()}
-          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <TableVisualComponent
             key={visual.query.sql}
@@ -156,7 +153,6 @@ export function RowRenderer({
       return (
         <div className="space-y-4">
           {renderRowTitle()}
-          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <AnnotationComponent
             row={row}
@@ -166,7 +162,6 @@ export function RowRenderer({
               visualIndex: 0,
               annotation: {
                 section_name: visual.options?.section_name,
-                subtitle: visual.options?.subtitle,
                 text: visual.options?.text,
                 markdown: visual.options?.markdown,
               },
@@ -180,7 +175,6 @@ export function RowRenderer({
       return (
         <div className="space-y-4">
           {renderRowTitle()}
-          {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
           
           <div className={`grid gap-4 ${row.visuals.length === 1 ? 'grid-cols-1' : row.visuals.length === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
             {row.visuals.map((visual, visualIdx) => {

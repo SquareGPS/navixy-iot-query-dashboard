@@ -5,8 +5,6 @@ export type Align = "left" | "center" | "right";
 export type SqlDriver = "postgres" | "mysql" | "mssql" | "clickhouse" | "sqlite" | "snowflake";
 
 export interface ReportSchema {
-  title: string;
-  subtitle?: string;
   meta: Meta;
   datasources?: Datasource[];
   parameters?: Parameter[];

@@ -311,9 +311,7 @@ const ReportView = () => {
                 {legacyReport?.title || 'Untitled Report'}
               </h1>
             )}
-            {legacyReport?.subtitle && (
-              <p className="text-muted-foreground">{legacyReport.subtitle}</p>
-            )}
+            {/* Remove subtitle display as it doesn't conform to Grafana model */}
           </div>
 
           <div className="flex items-center space-x-2">

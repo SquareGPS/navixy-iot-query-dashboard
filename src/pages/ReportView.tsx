@@ -80,11 +80,8 @@ const ReportView = () => {
   } | null>(null);
   const [editingPanel, setEditingPanel] = useState<any>(null);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
-  const [tempSubtitle, setTempSubtitle] = useState('');
   const [isTitleHovered, setIsTitleHovered] = useState(false);
-  const [isSubtitleHovered, setIsSubtitleHovered] = useState(false);
   const [editingRowTitle, setEditingRowTitle] = useState<number | null>(null);
   const [tempRowTitle, setTempRowTitle] = useState('');
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
@@ -557,11 +554,6 @@ const ReportView = () => {
     setEditingTitle(true);
   };
 
-  const handleStartEditSubtitle = () => {
-    setTempSubtitle(schema?.subtitle || '');
-    setEditingSubtitle(true);
-  };
-
   const handleStartEditRowTitle = useCallback((rowIndex: number) => {
     if (!canEdit) return;
     const row = schema?.rows[rowIndex];
@@ -619,21 +611,17 @@ const ReportView = () => {
     if (!reportId || !tempTitle.trim()) return;
     
     try {
-      // Update both database columns and JSON schema
-      const updatedSchema = schema ? { ...schema, title: tempTitle.trim() } : null;
-      
+      // Update database columns only (not JSON schema as title/subtitle don't conform to Grafana model)
       const response = await apiService.updateReport(reportId, {
         title: tempTitle.trim(),
         subtitle: schema?.subtitle,
-        report_schema: updatedSchema
+        report_schema: schema // Keep schema unchanged
       });
 
       if (response.error) {
         throw new Error(response.error.message || 'Failed to update title');
       }
 
-      setSchema(updatedSchema);
-      setEditorValue(JSON.stringify(updatedSchema, null, 2));
       setEditingTitle(false);
       
       toast({
@@ -650,52 +638,9 @@ const ReportView = () => {
     }
   };
 
-  const handleSaveSubtitle = async () => {
-    if (!reportId) return;
-    
-    try {
-      // Update both database columns and JSON schema
-      const updatedSchema = schema ? { 
-        ...schema, 
-        subtitle: tempSubtitle.trim() || undefined 
-      } : null;
-      
-      const response = await apiService.updateReport(reportId, {
-        title: schema?.title || '',
-        subtitle: tempSubtitle.trim() || null,
-        report_schema: updatedSchema
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to update subtitle');
-      }
-
-      setSchema(updatedSchema);
-      setEditorValue(JSON.stringify(updatedSchema, null, 2));
-      setEditingSubtitle(false);
-      
-      toast({
-        title: 'Success',
-        description: 'Subtitle updated successfully',
-      });
-    } catch (error: any) {
-      console.error('Error updating subtitle:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update subtitle',
-        variant: 'destructive',
-      });
-    }
-  };
-
   const handleCancelEditTitle = () => {
     setEditingTitle(false);
     setTempTitle('');
-  };
-
-  const handleCancelEditSubtitle = () => {
-    setEditingSubtitle(false);
-    setTempSubtitle('');
   };
 
   const handleStartEditBreadcrumb = (type: 'section' | 'report') => {
@@ -1357,48 +1302,7 @@ const ReportView = () => {
             </div>
           )}
           
-          {isEditing && editingSubtitle ? (
-            <div>
-              <Input
-                value={tempSubtitle}
-                onChange={(e) => setTempSubtitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveSubtitle();
-                  if (e.key === 'Escape') handleCancelEditSubtitle();
-                }}
-                className="text-[var(--text-muted)] h-8 px-3"
-                placeholder="Report subtitle (optional)"
-                autoFocus
-              />
-              <div className="flex gap-2 mt-2">
-                <Button onClick={handleSaveSubtitle} size="sm" variant="default">
-                  <Save className="h-4 w-4 mr-1" />
-                  Save
-                </Button>
-                <Button onClick={handleCancelEditSubtitle} size="sm" variant="outline">
-                  <X className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div 
-              className={`flex items-center gap-3 w-fit transition-all ${
-                isEditing ? 'cursor-pointer hover:text-[var(--text-primary)]' : ''
-              }`}
-              onMouseEnter={() => {
-                if (isEditing) setIsSubtitleHovered(true);
-              }}
-              onMouseLeave={() => setIsSubtitleHovered(false)}
-              onClick={() => isEditing && handleStartEditSubtitle()}
-            >
-              {schema?.subtitle ? (
-                <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
-              ) : isEditing ? (
-                <p className="text-[var(--text-muted)] italic">No subtitle</p>
-              ) : null}
-            </div>
-          )}
+          {/* Remove subtitle editing UI as it doesn't conform to Grafana model */}
         </div>
 
         {/* Report Content */}
