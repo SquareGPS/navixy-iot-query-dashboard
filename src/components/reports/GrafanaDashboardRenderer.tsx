@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,9 +34,24 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track the previous dashboard to prevent unnecessary query re-executions
+  const prevDashboardRef = useRef<string | null>(null);
 
   // Execute SQL queries for all panels
   useEffect(() => {
+    // Check if dashboard has actually changed by comparing JSON strings
+    const dashboardJson = JSON.stringify(dashboard);
+    const timeRangeJson = JSON.stringify(timeRange);
+    const cacheKey = `${dashboardJson}:${timeRangeJson}`;
+    
+    if (prevDashboardRef.current === cacheKey) {
+      // Dashboard and timeRange haven't changed, skip query execution
+      return;
+    }
+    
+    prevDashboardRef.current = cacheKey;
+    
     const executeQueries = async () => {
       setLoading(true);
       setError(null);

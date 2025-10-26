@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -95,6 +95,9 @@ const ReportView = () => {
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
+
+  // Memoize timeRange to prevent unnecessary re-renders and query re-executions
+  const timeRange = useMemo(() => ({ from: 'now-24h', to: 'now' }), []);
 
   useEffect(() => {
     const fetchDefaultUrl = async () => {
@@ -219,6 +222,50 @@ const ReportView = () => {
         title: 'Success',
         description: 'Report schema updated successfully',
       });
+      
+      // Reload report data to reflect schema changes
+      const fetchReport = async () => {
+        if (!reportId) return;
+        
+        try {
+          const response = await apiService.getReportById(reportId);
+          if (response.error) {
+            throw new Error(response.error.message || 'Failed to fetch report');
+          }
+          
+          const report = response.data.report;
+          setReport(report);
+          
+          if (!report.report_schema || 
+              (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
+            throw new Error('Dashboard schema is missing');
+          }
+
+          // Check if this is a Grafana dashboard format
+          const schemaData = report.report_schema;
+          
+          // Check for direct panels (old format) or nested dashboard.panels (new format)
+          let grafanaDashboard: GrafanaDashboard;
+          if (schemaData.panels && Array.isArray(schemaData.panels)) {
+            // Direct panels format
+            grafanaDashboard = schemaData as GrafanaDashboard;
+          } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
+            // Nested dashboard format
+            grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
+          } else {
+            // Legacy format - convert to Grafana dashboard
+            throw new Error('Legacy schema format detected. Please use Grafana dashboard format.');
+          }
+          
+          setSchema(grafanaDashboard);
+          setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+        } catch (err: any) {
+          console.error('Error reloading report:', err);
+          setError(err.message || 'Failed to reload report');
+        }
+      };
+      
+      fetchReport();
     } catch (err: any) {
       console.error('Error saving schema:', err);
       toast({
@@ -1359,7 +1406,7 @@ const ReportView = () => {
         {dashboard ? (
           <GrafanaDashboardRenderer 
             dashboard={dashboard}
-            timeRange={{ from: 'now-24h', to: 'now' }}
+            timeRange={timeRange}
             editMode={isEditing}
             onEditPanel={setEditingPanel}
           />

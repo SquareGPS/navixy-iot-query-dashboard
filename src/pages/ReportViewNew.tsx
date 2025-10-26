@@ -106,8 +106,45 @@ const ReportView = () => {
 
       setIsEditing(false);
       
-      // Reload the report
-      window.location.reload();
+      // Reload report data to reflect schema changes
+      const fetchReport = async () => {
+        if (!reportId) return;
+        
+        try {
+          const response = await apiService.getReportById(reportId);
+          
+          if (response.error) {
+            throw new Error(response.error.message || 'Failed to fetch report');
+          }
+          
+          const report = response.data.report;
+          setLegacyReport(report);
+          
+          if (!report.report_schema || 
+              (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
+            throw new Error('Report schema is missing');
+          }
+
+          const reportSchema = report.report_schema as unknown as ReportSchema;
+          
+          // Check if this is already a Grafana dashboard
+          if (reportSchema.dashboard) {
+            // Already in Grafana format
+            setDashboardJson(JSON.stringify(reportSchema, null, 2));
+          } else {
+            // Migrate from legacy format
+            const grafanaDashboard = ReportMigration.migrateToGrafana(reportSchema);
+            setDashboardJson(JSON.stringify(grafanaDashboard, null, 2));
+          }
+          
+          setEditorValue(JSON.stringify(reportSchema, null, 2));
+        } catch (err: any) {
+          console.error('Error reloading report:', err);
+          setError(err.message || 'Failed to reload report');
+        }
+      };
+      
+      fetchReport();
     } catch (err: any) {
       console.error('Error saving schema:', err);
       toast({
