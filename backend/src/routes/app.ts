@@ -721,7 +721,7 @@ router.get('/schema/config', async (req, res, next) => {
     
     res.json({
       success: true,
-      defaultUrl: schemaUrl || 'https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json'
+      defaultUrl: schemaUrl || 'https://raw.githubusercontent.com/DanilNezhdanov/grafana-based-dashboard/refs/heads/main/navixy/examples/fleet-status-dashboard.json'
     });
   } catch (error) {
     next(error);
