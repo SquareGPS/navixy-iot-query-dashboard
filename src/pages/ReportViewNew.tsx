@@ -32,12 +32,12 @@ const ReportView = () => {
   const [downloadingSchema, setDownloadingSchema] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [tempTitle, setTempTitle] = useState('');
   const [timeRange, setTimeRange] = useState({
     from: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
     to: new Date()
   });
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState('');
 
   // Load report data
   useEffect(() => {

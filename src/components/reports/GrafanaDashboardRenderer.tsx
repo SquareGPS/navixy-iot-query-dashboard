@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card } from '@/components/ui/card';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
@@ -347,21 +347,6 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   return (
     <div className="space-y-6">
-      {/* Dashboard Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{dashboard.title}</h1>
-          {dashboard.uid && (
-            <Badge variant="secondary" className="mt-1">
-              {dashboard.uid}
-            </Badge>
-          )}
-        </div>
-        <div className="text-sm text-gray-500">
-          {timeRange.from} to {timeRange.to}
-        </div>
-      </div>
-
       {/* Panels Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {dashboard.panels.map((panel, index) => (

@@ -32,6 +32,9 @@ const ReportView = () => {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState('');
+  const [isTitleHovered, setIsTitleHovered] = useState(false);
 
   // Add logging for state changes
   useEffect(() => {
@@ -79,9 +82,6 @@ const ReportView = () => {
     };
   } | null>(null);
   const [editingPanel, setEditingPanel] = useState<any>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [tempTitle, setTempTitle] = useState('');
-  const [isTitleHovered, setIsTitleHovered] = useState(false);
   const [editingRowTitle, setEditingRowTitle] = useState<number | null>(null);
   const [tempRowTitle, setTempRowTitle] = useState('');
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
@@ -278,6 +278,41 @@ const ReportView = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveTitle = async () => {
+    if (!reportId || !schema) return;
+    
+    try {
+      setSaving(true);
+      const updatedSchema = { ...schema, title: tempTitle };
+      await apiService.updateReport(reportId, updatedSchema);
+      setSchema(updatedSchema);
+      setEditingTitle(false);
+      toast({
+        title: "Success",
+        description: "Report title updated successfully",
+      });
+    } catch (error) {
+      console.error('Error saving title:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update report title",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelEditTitle = () => {
+    setTempTitle(schema?.title || '');
+    setEditingTitle(false);
+  };
+
+  const handleStartEditTitle = () => {
+    setTempTitle(schema?.title || '');
+    setEditingTitle(true);
   };
 
   const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
@@ -554,10 +589,6 @@ const ReportView = () => {
     }
   };
 
-  const handleStartEditTitle = () => {
-    setTempTitle(schema?.title || '');
-    setEditingTitle(true);
-  };
 
   const handleStartEditRowTitle = useCallback((rowIndex: number) => {
     if (!canEdit) return;
@@ -612,41 +643,6 @@ const ReportView = () => {
     setTempRowTitle('');
   }, []);
 
-  const handleSaveTitle = async () => {
-    if (!reportId || !tempTitle.trim()) return;
-    
-    try {
-      // Update database columns only (not JSON schema as title/subtitle don't conform to Grafana model)
-      const response = await apiService.updateReport(reportId, {
-        title: tempTitle.trim(),
-        subtitle: schema?.subtitle,
-        report_schema: schema // Keep schema unchanged
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to update title');
-      }
-
-      setEditingTitle(false);
-      
-      toast({
-        title: 'Success',
-        description: 'Title updated successfully',
-      });
-    } catch (error: any) {
-      console.error('Error updating title:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update title',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleCancelEditTitle = () => {
-    setEditingTitle(false);
-    setTempTitle('');
-  };
 
   const handleStartEditBreadcrumb = (type: 'section' | 'report') => {
     if (type === 'section') {
@@ -1337,7 +1333,6 @@ const ReportView = () => {
         </div>
 
         {/* Report Content */}
-        <div className="space-y-6">
         {dashboard ? (
           <GrafanaDashboardRenderer 
             dashboard={dashboard}
@@ -1403,7 +1398,6 @@ const ReportView = () => {
             </div>
           </div>
         )}
-        </div>
       </div>
 
       {/* Full Schema Editor Dialog */}
