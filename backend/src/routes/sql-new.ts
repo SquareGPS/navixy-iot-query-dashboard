@@ -14,8 +14,23 @@ import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
 import crypto from 'crypto';
 
 const router = Router();
-const dbService = DatabaseService.getInstance();
-const redisService = RedisService.getInstance();
+// Initialize services lazily to avoid issues with environment variables
+let dbService: DatabaseService;
+let redisService: RedisService;
+
+const getDbService = () => {
+  if (!dbService) {
+    dbService = DatabaseService.getInstance();
+  }
+  return dbService;
+};
+
+const getRedisService = () => {
+  if (!redisService) {
+    redisService = RedisService.getInstance();
+  }
+  return redisService;
+};
 
 // Interface for the new parameter binding request
 interface ParameterizedQueryRequest {
@@ -90,14 +105,14 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
   
   try {
     // Try to get from cache first
-    const cachedResult = await redisService.get(cacheKey);
+    const cachedResult = await getRedisService().get(cacheKey);
     if (cachedResult) {
       logger.info('Cache hit for parameterized query', { cacheKey });
       return res.json(JSON.parse(cachedResult));
     }
 
     // Execute parameterized query
-    const result = await dbService.executeParameterizedQuery(
+    const result = await getDbService().executeParameterizedQuery(
       statement, 
       params, 
       limits?.timeout_ms || 30000,
@@ -105,7 +120,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     );
     
     // Cache result for 5 minutes
-    await redisService.set(cacheKey, JSON.stringify(result), 300);
+    await getRedisService().set(cacheKey, JSON.stringify(result), 300);
     
     logger.info('Parameterized query executed and cached', {
       userId: req.user?.userId,
@@ -157,17 +172,17 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
   
   try {
     // Try to get from cache first
-    const cachedResult = await redisService.get(cacheKey);
+    const cachedResult = await getRedisService().get(cacheKey);
     if (cachedResult) {
       logger.info('Cache hit for legacy table query', { cacheKey });
       return res.json(JSON.parse(cachedResult));
     }
 
     // Execute query using legacy method for now
-    const result = await dbService.executeTableQuery(sql, page, pageSize, sort);
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort);
     
     // Cache result for 5 minutes
-    await redisService.set(cacheKey, JSON.stringify(result), 300);
+    await getRedisService().set(cacheKey, JSON.stringify(result), 300);
     
     logger.info('Legacy table query executed and cached', {
       userId: req.user?.userId,
@@ -205,17 +220,17 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
   
   try {
     // Try to get from cache first
-    const cachedResult = await redisService.get(cacheKey);
+    const cachedResult = await getRedisService().get(cacheKey);
     if (cachedResult) {
       logger.info('Cache hit for legacy tile query', { cacheKey });
       return res.json(JSON.parse(cachedResult));
     }
 
     // Execute query using legacy method for now
-    const result = await dbService.executeTileQuery(sql);
+    const result = await getDbService().executeTileQuery(sql);
     
     // Cache result for 2 minutes (tiles change more frequently)
-    await redisService.set(cacheKey, JSON.stringify(result), 120);
+    await getRedisService().set(cacheKey, JSON.stringify(result), 120);
     
     logger.info('Legacy tile query executed and cached', {
       userId: req.user?.userId,

@@ -6,18 +6,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 
-import { logger } from './utils/logger.js';
-import { errorHandler } from './middleware/errorHandler.js';
-import { authenticateToken } from './middleware/auth.js';
-import { sqlRoutes } from './routes/sql.js';
-import { healthRoutes } from './routes/health.js';
-import { analyticsRoutes } from './routes/analytics.js';
-import appRoutes from './routes/app.js';
-import menuRoutes from './routes/menu.js';
-import { DatabaseService } from './services/database.js';
-import { RedisService } from './services/redis.js';
-
-// Load environment variables
+// Load environment variables FIRST
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -34,6 +23,18 @@ if (result.error) {
 } else {
   console.log('Environment variables loaded from .env file');
 }
+
+// Now import services that depend on environment variables
+import { logger } from './utils/logger.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { authenticateToken } from './middleware/auth.js';
+import sqlRoutes from './routes/sql-new.js';
+import { healthRoutes } from './routes/health.js';
+import { analyticsRoutes } from './routes/analytics.js';
+import appRoutes from './routes/app.js';
+import menuRoutes from './routes/menu.js';
+import { DatabaseService } from './services/database.js';
+import { RedisService } from './services/redis.js';
 
 const app = express();
 const server = createServer(app);
