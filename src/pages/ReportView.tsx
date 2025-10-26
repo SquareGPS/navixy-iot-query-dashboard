@@ -767,10 +767,35 @@ const ReportView = () => {
     try {
       const updatedDashboard = { ...dashboard };
       
-      // Find and update the panel
-      const panelIndex = updatedDashboard.panels.findIndex(p => p.title === updatedPanel.title);
+      // Find and update the panel using multiple strategies for reliability
+      let panelIndex = -1;
+      
+      // Strategy 1: Use ID if available (most reliable)
+      if (updatedPanel.id && editingPanel?.id) {
+        panelIndex = updatedDashboard.panels.findIndex(p => p.id === editingPanel.id);
+      }
+      
+      // Strategy 2: Use gridPos as unique identifier
+      if (panelIndex === -1) {
+        panelIndex = updatedDashboard.panels.findIndex(p => 
+          p.gridPos.x === updatedPanel.gridPos.x && 
+          p.gridPos.y === updatedPanel.gridPos.y &&
+          p.gridPos.w === updatedPanel.gridPos.w &&
+          p.gridPos.h === updatedPanel.gridPos.h
+        );
+      }
+      
+      // Strategy 3: Fallback to original title
+      if (panelIndex === -1 && editingPanel) {
+        panelIndex = updatedDashboard.panels.findIndex(p => 
+          p.title === editingPanel.title
+        );
+      }
+      
       if (panelIndex !== -1) {
         updatedDashboard.panels[panelIndex] = updatedPanel;
+      } else {
+        throw new Error('Could not find panel to update');
       }
       
       // Update the dashboard config

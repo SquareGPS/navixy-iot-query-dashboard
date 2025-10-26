@@ -53,6 +53,7 @@ export interface NavixyConfig {
 }
 
 export interface GrafanaPanel {
+  id?: number; // Optional ID field for panel identification
   type: 'kpi' | 'barchart' | 'linechart' | 'piechart' | 'table' | 'text' | 'stat' | 'timeseries';
   title: string;
   gridPos: {

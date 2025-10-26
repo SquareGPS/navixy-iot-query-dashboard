@@ -284,6 +284,15 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const renderPanel = (panel: GrafanaPanel) => {
     const panelState = panelData[panel.title];
     
+    // Handle case where panel data hasn't been loaded yet
+    if (!panelState) {
+      return (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      );
+    }
+    
     if (panelState.loading) {
       return (
         <div className="flex items-center justify-center h-32">
