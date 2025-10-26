@@ -130,10 +130,11 @@ LIMIT 10;`,
 
     try {
       const fetchStartTime = performance.now();
-      const response = await apiService.executeTableQuery({
+      const response = await apiService.executeSQL({
         sql: tab.sql.trim(),
-        page: 1,
-        pageSize: 1000, // Large page size for SQL editor
+        params: {},
+        timeout_ms: 30000,
+        row_limit: 1000
       });
       const fetchEndTime = performance.now();
 
@@ -165,13 +166,26 @@ LIMIT 10;`,
       }
 
       // Success case - only reached if no errors
+      // Transform the response to match the expected format
+      const transformedData = {
+        columns: response.data?.columns?.map((col: any) => col.name) || [],
+        rows: response.data?.rows || [],
+        columnTypes: response.data?.columns?.reduce((acc: any, col: any) => {
+          acc[col.name] = col.type;
+          return acc;
+        }, {}) || {},
+        total: response.data?.rows?.length || 0,
+        page: 1,
+        pageSize: 1000
+      };
+
       setTabs(
         tabs.map((t) =>
           t.id === tabId
             ? {
                 ...t,
                 executing: false,
-                results: response.data,
+                results: transformedData,
                 error: null, // Clear any previous errors
                 rowCount: response.data?.rows?.length || 0,
                 executionTime,

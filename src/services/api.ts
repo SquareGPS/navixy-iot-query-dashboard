@@ -120,6 +120,37 @@ class ApiService {
     });
   }
 
+  // New parameterized SQL execution method using the validated endpoint
+  async executeSQL(params: {
+    sql: string;
+    params?: Record<string, unknown>;
+    timeout_ms?: number;
+    row_limit?: number;
+  }): Promise<ApiResponse<{
+    columns: Array<{ name: string; type: string }>;
+    rows: unknown[][];
+    stats?: {
+      rowCount: number;
+      elapsedMs: number;
+    };
+  }>> {
+    const requestBody = {
+      dialect: 'postgresql',
+      statement: params.sql,
+      params: params.params || {},
+      limits: {
+        timeout_ms: params.timeout_ms || 30000,
+        max_rows: params.row_limit || 10000
+      },
+      read_only: true
+    };
+
+    return this.request('/api/sql-new/execute', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+  }
+
   async testConnection(): Promise<ApiResponse<{ success: boolean; message: string; result: any }>> {
     return this.request('/api/sql/test-connection', {
       method: 'POST',

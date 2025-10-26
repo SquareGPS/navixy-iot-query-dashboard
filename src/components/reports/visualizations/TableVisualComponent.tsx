@@ -31,10 +31,11 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTableQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
-          page: 1,
-          pageSize: visual.options?.page_size || 25,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: visual.options?.page_size || 25
         });
 
         console.log('Query result:', response);

@@ -30,10 +30,11 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTableQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
-          page: 1,
-          pageSize: 1000,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: 1000
         });
 
         if (response.error) {

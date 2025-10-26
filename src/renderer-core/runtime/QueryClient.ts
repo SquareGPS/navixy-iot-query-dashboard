@@ -80,7 +80,7 @@ export class QueryClient {
   }
 
   /**
-   * Execute single query attempt
+   * Execute single query attempt using the validated SQL endpoint
    */
   private static async executeSingleQuery(
     config: QueryExecutionConfig,
@@ -117,7 +117,9 @@ export class QueryClient {
     }, config.timeoutMs);
 
     try {
-      const response = await fetch(config.endpoint, {
+      // Use the new validated SQL endpoint
+      const endpoint = config.endpoint.replace('/api/sql/', '/api/sql-new/');
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
@@ -127,10 +129,17 @@ export class QueryClient {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
+
+      // Handle SQL validation errors
+      if (result.error) {
+        throw new Error(result.error.message || 'SQL validation failed');
+      }
 
       // Validate response structure
       if (!this.isValidQueryResponse(result)) {

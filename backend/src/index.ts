@@ -106,6 +106,7 @@ app.use('/api', menuRoutes);
 
 // Protected routes
 app.use('/api/sql', authenticateToken, sqlRoutes);
+app.use('/api/sql-new', authenticateToken, sqlRoutes);
 app.use('/api/analytics', authenticateToken, analyticsRoutes);
 
 // Error handling middleware

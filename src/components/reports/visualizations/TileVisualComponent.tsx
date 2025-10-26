@@ -27,8 +27,11 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTileQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: 1
         });
 
         console.log('Tile query result:', response);
@@ -40,7 +43,7 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
           return;
         }
         
-        const newValue = response.data?.value !== undefined ? Number(response.data.value) : null;
+        const newValue = response.data?.rows?.[0]?.[0] !== undefined ? Number(response.data.rows[0][0]) : null;
         console.log('Setting tile value:', newValue);
         setValue(newValue);
       } catch (err: any) {

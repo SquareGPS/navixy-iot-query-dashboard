@@ -88,7 +88,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             });
           }
 
-          // Execute SQL query
+          // Execute SQL query using the validated endpoint
           const result = await apiService.executeSQL({
             sql: navixyConfig.sql.statement,
             params,
@@ -100,8 +100,15 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             throw new Error(result.error.message || 'SQL execution failed');
           }
 
+          // Transform the response to match the expected format
+          const transformedData = {
+            columns: result.data?.columns || [],
+            rows: result.data?.rows || [],
+            stats: result.data?.stats
+          };
+
           newPanelData[panel.title] = {
-            data: result.data,
+            data: transformedData,
             loading: false,
             error: null
           };

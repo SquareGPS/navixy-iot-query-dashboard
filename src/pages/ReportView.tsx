@@ -146,35 +146,43 @@ const ReportView = () => {
 
         // Check if this is a Grafana dashboard format
         const schemaData = report.report_schema;
+        
+        // Check for direct panels (old format) or nested dashboard.panels (new format)
+        let grafanaDashboard: GrafanaDashboard;
         if (schemaData.panels && Array.isArray(schemaData.panels)) {
-          // This is a Grafana dashboard format
-          console.log('✅ Detected Grafana dashboard format');
-          const grafanaDashboard = schemaData as GrafanaDashboard;
-          setDashboard(grafanaDashboard);
-          setSchema(schemaData); // Set schema for compatibility
-          
-          const config: DashboardConfig = {
-            title: report.title,
-            meta: {
-              schema_version: '1.0.0',
-              dashboard_id: report.id,
-              slug: report.slug,
-              last_updated: new Date().toISOString(),
-              updated_by: {
-                id: user?.userId || 'unknown',
-                name: user?.name || 'Unknown User',
-                email: user?.email
-              }
-            },
-            dashboard: grafanaDashboard
-          };
-          setDashboardConfig(config);
-          setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+          // Direct panels format
+          console.log('✅ Detected Grafana dashboard format (direct panels)');
+          grafanaDashboard = schemaData as GrafanaDashboard;
+        } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
+          // Nested dashboard format
+          console.log('✅ Detected Grafana dashboard format (nested dashboard)');
+          grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
         } else {
           // Legacy format - convert to Grafana dashboard
           console.log('⚠️ Legacy format detected, converting to Grafana dashboard');
           throw new Error('Legacy schema format detected. Please use Grafana dashboard format.');
         }
+        
+        setDashboard(grafanaDashboard);
+        setSchema(schemaData); // Set schema for compatibility
+          
+        const config: DashboardConfig = {
+          title: report.title,
+          meta: {
+            schema_version: '1.0.0',
+            dashboard_id: report.id,
+            slug: report.slug,
+            last_updated: new Date().toISOString(),
+            updated_by: {
+              id: user?.userId || 'unknown',
+              name: user?.name || 'Unknown User',
+              email: user?.email
+            }
+          },
+          dashboard: grafanaDashboard
+        };
+        setDashboardConfig(config);
+        setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
         
         console.log('✅ Dashboard loaded successfully');
       } catch (err: any) {
