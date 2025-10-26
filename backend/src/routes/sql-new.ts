@@ -51,6 +51,7 @@ interface QueryResponse {
   stats?: {
     rowCount: number;
     elapsedMs: number;
+    usedParamCount?: number;
   };
   error?: {
     code: string;
@@ -125,7 +126,8 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     logger.info('Parameterized query executed and cached', {
       userId: req.user?.userId,
       statement: statement.substring(0, 100) + '...',
-      paramCount: Object.keys(params).length,
+      paramCount: result.stats?.usedParamCount || 0,
+      totalParams: Object.keys(params).length,
       totalRows: result.stats?.rowCount || 0,
     });
 

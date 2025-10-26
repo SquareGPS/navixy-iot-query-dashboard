@@ -34,6 +34,7 @@ export interface ParameterizedQueryResult {
   stats: {
     rowCount: number;
     elapsedMs: number;
+    usedParamCount?: number;
   };
 }
 
@@ -781,28 +782,31 @@ export class DatabaseService {
       
       let processedStatement = statement;
       let paramValues: unknown[] = [];
+      let usedParamCount = 0;
 
       if (hasParameters) {
         // Convert parameters to PostgreSQL format
-        const paramNames: string[] = [];
-        
+        // Only include parameters that are actually used in the SQL
         Object.entries(params).forEach(([name, value]) => {
-          paramNames.push(name);
-          paramValues.push(value);
-        });
-
-        // Replace named parameters with positional parameters
-        paramNames.forEach((name, index) => {
-          const placeholder = `$${index + 1}`;
-          processedStatement = processedStatement.replace(
-            new RegExp(`:${name}\\b`, 'g'), 
-            placeholder
-          );
+          // Check if this parameter is used in the SQL
+          const paramPattern = new RegExp(`:${name}\\b`, 'g');
+          if (paramPattern.test(processedStatement)) {
+            usedParamCount++;
+            const placeholder = `$${usedParamCount}`;
+            processedStatement = processedStatement.replace(
+              new RegExp(`:${name}\\b`, 'g'), 
+              placeholder
+            );
+            paramValues.push(value);
+          }
         });
       }
 
       // Execute query
-      const result = await client.query(processedStatement, paramValues);
+      // Only pass paramValues if there are actual parameters used in the SQL
+      const result = usedParamCount > 0
+        ? await client.query(processedStatement, paramValues)
+        : await client.query(processedStatement);
 
       // Convert result to standardized format
       const columns = result.fields.map(field => ({
@@ -835,7 +839,8 @@ export class DatabaseService {
         rows,
         stats: {
           rowCount: rows.length,
-          elapsedMs
+          elapsedMs,
+          usedParamCount
         }
       };
 

@@ -10,10 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
 import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType } from '@/types/grafana-dashboard';
+import { useSqlExecution } from '@/hooks/use-sql-execution';
 
 interface PanelEditorProps {
   open: boolean;
@@ -48,9 +48,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   });
   
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResults, setTestResults] = useState<{ columns: any[], rows: any[] } | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
+  const { executing, results, error, executeQuery } = useSqlExecution();
 
   const handleSave = () => {
     setSaving(true);
@@ -96,67 +94,21 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   };
 
   const handleTestQuery = async () => {
-    setTesting(true);
-    setTestError(null);
-    setTestResults(null);
-
     try {
       const parsedParams = params.trim() ? JSON.parse(params) : {};
-      
-      const response = await apiService.executeSQL({
+      await executeQuery({
         sql,
         params: parsedParams,
         timeout_ms: 10000,
-        row_limit: 5
+        row_limit: 5,
       });
-
-      if (response.error) {
-        setTestError(response.error.message || 'Query failed');
-        return;
-      }
-
-      if (response.data?.rows) {
-        // Build columns from result
-        let cols;
-        if (response.data.columns && response.data.columns.length > 0) {
-          cols = response.data.columns.map((col: any) => ({
-            id: col.name,
-            accessorKey: col.name,
-            header: col.name,
-            cell: ({ getValue }: any) => {
-              const value = getValue();
-              return value !== null && value !== undefined ? String(value) : '';
-            },
-          }));
-        } else {
-          cols = [];
-        }
-
-        // Convert array of arrays to array of objects for DataTable
-        const transformedRows = response.data.rows.map((row: any[]) => {
-          const rowObj: any = {};
-          response.data?.columns?.forEach((col: any, index: number) => {
-            rowObj[col.name] = row[index];
-          });
-          return rowObj;
-        });
-
-        setTestResults({ columns: cols, rows: transformedRows });
-        toast({
-          title: 'Success',
-          description: 'Query executed successfully',
-        });
-      }
     } catch (err: any) {
-      console.error('Error testing query:', err);
-      setTestError(err.message || 'Failed to execute query');
+      console.error('Invalid JSON in parameters:', err);
       toast({
         title: 'Error',
-        description: err.message || 'Failed to execute query',
+        description: 'Invalid JSON in parameters',
         variant: 'destructive',
       });
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -293,9 +245,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
               <div className="flex-1 flex flex-col min-h-0 basis-0">
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">SQL Query</Label>
-                  <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
+                  <Button onClick={handleTestQuery} disabled={executing || !sql.trim()} size="sm" variant="outline">
                     <Play className="h-3.5 w-3.5 mr-1.5" />
-                    {testing ? 'Testing...' : 'Test Query'}
+                    {executing ? 'Testing...' : 'Test Query'}
                   </Button>
                 </div>
                 <div className="flex-1 border rounded-md overflow-hidden min-h-0">
@@ -310,22 +262,30 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
 
               {/* Test Results - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
-                {testError && (
+                {error && (
                   <Alert variant="destructive" className="mb-2 flex-shrink-0">
-                    <AlertDescription>{testError}</AlertDescription>
+                    <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 )}
 
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">Test Results</Label>
-                  {testResults && (
+                  {results && (
                     <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
                   )}
                 </div>
                 
                 <div className="flex-1 border rounded-md overflow-auto min-h-0 bg-background">
-                  {testResults ? (
-                    <DataTable data={testResults.rows} columns={testResults.columns} />
+                  {results ? (
+                    <DataTable
+                      data={results.rows}
+                      columns={results.columns.map((col: string) => ({
+                        id: col,
+                        accessorKey: col,
+                        header: col,
+                      }))}
+                      columnTypes={results.columnTypes}
+                    />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                       Click "Test Query" to see results

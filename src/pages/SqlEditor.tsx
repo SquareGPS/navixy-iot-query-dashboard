@@ -167,6 +167,10 @@ LIMIT 10;`,
 
       // Success case - only reached if no errors
       // Transform the response to match the expected format
+      console.log('SQL Editor - Raw response data:', response.data);
+      console.log('SQL Editor - Response columns:', response.data?.columns);
+      console.log('SQL Editor - Response rows:', response.data?.rows);
+      
       const transformedData = {
         columns: response.data?.columns?.map((col: any) => col.name) || [],
         rows: response.data?.rows?.map((row: any[]) => {
@@ -185,6 +189,8 @@ LIMIT 10;`,
         page: 1,
         pageSize: 1000
       };
+      
+      console.log('SQL Editor - Transformed data:', transformedData);
 
       setTabs(
         tabs.map((t) =>
