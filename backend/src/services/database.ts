@@ -824,8 +824,10 @@ export class DatabaseService {
         })
       );
 
-      // Enforce max rows limit
-      if (rows.length > maxRows) {
+      // Enforce max rows limit - but only if the SQL doesn't already have a LIMIT clause
+      // If SQL has LIMIT, respect it; otherwise apply our maxRows limit
+      const hasLimitClause = /\bLIMIT\s+\d+/i.test(statement);
+      if (!hasLimitClause && rows.length > maxRows) {
         throw new CustomError(
           `Query returned too many rows: ${rows.length} > ${maxRows}`,
           400

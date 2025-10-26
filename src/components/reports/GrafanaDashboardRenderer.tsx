@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
 import { GrafanaDashboard, GrafanaPanel, GrafanaQueryResult } from '@/types/grafana-dashboard';
 import { apiService } from '@/services/api';
+import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -88,10 +89,13 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             });
           }
 
+          // Filter parameters to only include those actually used in the SQL
+          const filteredParams = filterUsedParameters(navixyConfig.sql.statement, params);
+
           // Execute SQL query using the validated endpoint
           const result = await apiService.executeSQL({
             sql: navixyConfig.sql.statement,
-            params,
+            params: filteredParams,
             timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
             row_limit: navixyConfig.verify?.max_rows || 1000
           });

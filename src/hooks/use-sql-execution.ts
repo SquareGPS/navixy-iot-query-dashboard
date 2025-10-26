@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiService } from '@/services/api';
 import { toast } from 'sonner';
+import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 
 export interface SqlExecutionResult {
   columns: string[];
@@ -50,9 +51,13 @@ export function useSqlExecution() {
 
     try {
       const fetchStartTime = performance.now();
+      
+      // Filter parameters to only include those actually used in the SQL
+      const filteredParams = filterUsedParameters(sql.trim(), params);
+      
       const response = await apiService.executeSQL({
         sql: sql.trim(),
-        params,
+        params: filteredParams,
         timeout_ms,
         row_limit,
       });
