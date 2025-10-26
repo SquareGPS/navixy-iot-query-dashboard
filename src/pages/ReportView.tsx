@@ -285,8 +285,34 @@ const ReportView = () => {
     
     try {
       setSaving(true);
-      const updatedSchema = { ...schema, title: tempTitle };
-      await apiService.updateReport(reportId, updatedSchema);
+      
+      // Update the title in the JSON schema
+      let updatedSchema;
+      if (schema.dashboard) {
+        // Grafana dashboard format
+        updatedSchema = {
+          ...schema,
+          dashboard: {
+            ...schema.dashboard,
+            title: tempTitle
+          }
+        };
+      } else {
+        // Report schema format
+        updatedSchema = {
+          ...schema,
+          title: tempTitle
+        };
+      }
+      
+      // Send the updated schema to the backend
+      const updateData = {
+        title: tempTitle,
+        report_schema: updatedSchema
+      };
+      await apiService.updateReport(reportId, updateData);
+      
+      // Update local state with the new schema
       setSchema(updatedSchema);
       setEditingTitle(false);
       toast({
@@ -306,12 +332,14 @@ const ReportView = () => {
   };
 
   const handleCancelEditTitle = () => {
-    setTempTitle(schema?.title || '');
+    const currentTitle = schema?.dashboard?.title || schema?.title || '';
+    setTempTitle(currentTitle);
     setEditingTitle(false);
   };
 
   const handleStartEditTitle = () => {
-    setTempTitle(schema?.title || '');
+    const currentTitle = schema?.dashboard?.title || schema?.title || '';
+    setTempTitle(currentTitle);
     setEditingTitle(true);
   };
 
@@ -1325,7 +1353,7 @@ const ReportView = () => {
               onMouseLeave={() => setIsTitleHovered(false)}
               onClick={() => isEditing && handleStartEditTitle()}
             >
-              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema?.title || 'Untitled Report'}</h1>
+              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema?.dashboard?.title || schema?.title || 'Untitled Report'}</h1>
             </div>
           )}
           

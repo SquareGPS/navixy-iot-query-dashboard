@@ -282,9 +282,59 @@ const ReportView = () => {
                 />
                 <Button
                   size="sm"
-                  onClick={() => {
-                    // Handle title save
-                    setEditingTitle(false);
+                  onClick={async () => {
+                    if (!reportId || !legacyReport) return;
+                    
+                    try {
+                      setSaving(true);
+                      
+                      // Update the title in the JSON schema
+                      let updatedSchema;
+                      if (legacyReport.report_schema?.dashboard) {
+                        // Grafana dashboard format
+                        updatedSchema = {
+                          ...legacyReport.report_schema,
+                          dashboard: {
+                            ...legacyReport.report_schema.dashboard,
+                            title: tempTitle
+                          }
+                        };
+                      } else {
+                        // Report schema format
+                        updatedSchema = {
+                          ...legacyReport.report_schema,
+                          title: tempTitle
+                        };
+                      }
+                      
+                      // Send the updated schema to the backend
+                      const updateData = {
+                        title: tempTitle,
+                        report_schema: updatedSchema
+                      };
+                      await apiService.updateReport(reportId, updateData);
+                      
+                      // Update local state with the new schema
+                      setLegacyReport({ 
+                        ...legacyReport, 
+                        title: tempTitle,
+                        report_schema: updatedSchema
+                      });
+                      setEditingTitle(false);
+                      toast({
+                        title: "Success",
+                        description: "Report title updated successfully",
+                      });
+                    } catch (error) {
+                      console.error('Error saving title:', error);
+                      toast({
+                        title: "Error",
+                        description: "Failed to update report title",
+                        variant: "destructive",
+                      });
+                    } finally {
+                      setSaving(false);
+                    }
                   }}
                 >
                   <Save className="h-4 w-4" />
@@ -304,11 +354,12 @@ const ReportView = () => {
               <h1 
                 className="text-2xl font-bold cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"
                 onClick={() => {
-                  setTempTitle(legacyReport?.title || '');
+                  const currentTitle = legacyReport?.report_schema?.dashboard?.title || legacyReport?.report_schema?.title || legacyReport?.title || '';
+                  setTempTitle(currentTitle);
                   setEditingTitle(true);
                 }}
               >
-                {legacyReport?.title || 'Untitled Report'}
+                {legacyReport?.report_schema?.dashboard?.title || legacyReport?.report_schema?.title || legacyReport?.title || 'Untitled Report'}
               </h1>
             )}
             {/* Remove subtitle display as it doesn't conform to Grafana model */}
