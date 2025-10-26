@@ -57,11 +57,14 @@ export const FloatingEditMenu = ({
             "border-2 border-white dark:border-gray-800",
             isEditing 
               ? "bg-[#379EF9] hover:bg-[#2B7CE6] dark:bg-blue-600 dark:hover:bg-blue-700 text-white" 
-              : "bg-[#F3F6FB] hover:bg-[#E8EDF5] dark:bg-[#111A2B] dark:hover:bg-[#1A2332] text-gray-900 dark:text-gray-300"
+              : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-400"
           )}
           size="lg"
         >
-          <Edit className="h-6 w-6" />
+          <Edit className={cn(
+            "h-6 w-6",
+            isEditing ? "text-white" : "text-gray-700 dark:text-gray-400"
+          )} />
         </Button>
 
         {/* Expanded menu */}
