@@ -387,15 +387,34 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
         sortOrder = maxSortOrder + 1000;
       }
 
-      // Create a basic report schema
+      // Create a basic Grafana dashboard schema
       const reportSchema = {
-        tiles: [],
-        tables: [],
-        layout: {
-          type: 'grid',
-          columns: 12,
-          rows: 8,
-          items: []
+        dashboard: {
+          uid: `report_${Date.now()}`,
+          title: title.trim(),
+          description: `Report: ${title.trim()}`,
+          tags: [],
+          timezone: 'UTC',
+          refresh: '30s',
+          time: {
+            from: 'now-24h',
+            to: 'now'
+          },
+          templating: {
+            list: []
+          },
+          panels: []
+        },
+        'x-navixy': {
+          schemaVersion: '1.0.0',
+          execution: {
+            endpoint: '/api/sql-new/execute',
+            dialect: 'postgresql',
+            timeoutMs: 30000,
+            maxRows: 10000,
+            readOnly: true,
+            allowedSchemas: ['public']
+          }
         }
       };
 

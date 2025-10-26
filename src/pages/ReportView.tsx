@@ -118,6 +118,10 @@ const ReportView = () => {
 
       setLoading(true);
       setError(null);
+      // Clear previous dashboard state when switching reports
+      setDashboard(null);
+      setDashboardConfig(null);
+      setSchema(null);
 
       try {
         console.log('📡 Fetching report from API...', { reportId });
@@ -149,18 +153,19 @@ const ReportView = () => {
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
         let grafanaDashboard: GrafanaDashboard;
-        if (schemaData.panels && Array.isArray(schemaData.panels)) {
-          // Direct panels format
+        if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
+          // Direct panels format with content
           console.log('✅ Detected Grafana dashboard format (direct panels)');
           grafanaDashboard = schemaData as GrafanaDashboard;
-        } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
-          // Nested dashboard format
+        } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
+          // Nested dashboard format with content
           console.log('✅ Detected Grafana dashboard format (nested dashboard)');
           grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
         } else {
-          // Legacy format - convert to Grafana dashboard
-          console.log('⚠️ Legacy format detected, converting to Grafana dashboard');
-          throw new Error('Legacy schema format detected. Please use Grafana dashboard format.');
+          // Empty or legacy format - show helpful message
+          console.log('⚠️ Empty dashboard or legacy format detected');
+          setError('Dashboard is empty. You can download a Grafana dashboard template to get started.');
+          return;
         }
         
         setDashboard(grafanaDashboard);
@@ -939,6 +944,7 @@ const ReportView = () => {
         await fetchReport();
         
         console.log('🎉 Schema download completed successfully');
+        setError(null);
         toast({
           title: 'Success',
           description: 'Example schema downloaded and saved successfully',
@@ -1091,11 +1097,11 @@ const ReportView = () => {
   }
 
   // Only show error state for critical errors, not SQL execution errors
-  const isCriticalError = error && error !== 'Dashboard schema is missing';
+  const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
   const shouldShowError = isCriticalError || (!dashboard && !loading);
   
   if (shouldShowError) {
-    const isSchemaMissing = error === 'Dashboard schema is missing';
+    const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
     console.log('🚨 Error state triggered:', { error, dashboard: dashboard ? 'exists' : 'null', isSchemaMissing, isCriticalError });
     
     
