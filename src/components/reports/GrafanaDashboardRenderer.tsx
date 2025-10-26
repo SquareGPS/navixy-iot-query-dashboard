@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
 import { GrafanaDashboard, GrafanaPanel, GrafanaQueryResult } from '@/types/grafana-dashboard';
 import { apiService } from '@/services/api';
 
@@ -12,6 +12,8 @@ interface GrafanaDashboardRendererProps {
     from: string;
     to: string;
   };
+  editMode?: boolean;
+  onEditPanel?: (panel: GrafanaPanel) => void;
 }
 
 interface PanelData {
@@ -24,7 +26,9 @@ interface PanelData {
 
 export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> = ({
   dashboard,
-  timeRange = { from: 'now-24h', to: 'now' }
+  timeRange = { from: 'now-24h', to: 'now' },
+  editMode = false,
+  onEditPanel
 }) => {
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
@@ -328,7 +332,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
         {dashboard.panels.map((panel, index) => (
           <Card 
             key={index} 
-            className="min-h-[200px]"
+            className="min-h-[200px] relative group"
             style={{
               gridColumn: `span ${panel.gridPos.w}`,
               gridRow: `span ${panel.gridPos.h}`
@@ -343,6 +347,19 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             <div>
               {renderPanel(panel)}
             </div>
+            
+            {/* Edit Button */}
+            {editMode && onEditPanel && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditPanel(panel);
+                }}
+                className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50 opacity-0 group-hover:opacity-100"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
           </Card>
         ))}
       </div>

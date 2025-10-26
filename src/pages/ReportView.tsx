@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
+import { PanelEditor } from '@/components/reports/PanelEditor';
 import { GrafanaDashboardRenderer } from '@/components/reports/GrafanaDashboardRenderer';
 import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
 import { AddRowButton } from '@/components/reports/AddRowButton';
@@ -77,6 +78,7 @@ const ReportView = () => {
       markdown?: boolean;
     };
   } | null>(null);
+  const [editingPanel, setEditingPanel] = useState<any>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
@@ -754,6 +756,52 @@ const ReportView = () => {
     }
   };
 
+  const handleSavePanel = async (updatedPanel: any) => {
+    if (!dashboard || !reportId) return;
+    
+    try {
+      const updatedDashboard = { ...dashboard };
+      
+      // Find and update the panel
+      const panelIndex = updatedDashboard.panels.findIndex(p => p.title === updatedPanel.title);
+      if (panelIndex !== -1) {
+        updatedDashboard.panels[panelIndex] = updatedPanel;
+      }
+      
+      // Update the dashboard config
+      const updatedDashboardConfig = {
+        ...dashboardConfig!,
+        dashboard: updatedDashboard
+      };
+      
+      const response = await apiService.updateReport(reportId, {
+        title: report?.title,
+        subtitle: report?.subtitle,
+        report_schema: updatedDashboardConfig
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to save panel');
+      }
+
+      setDashboard(updatedDashboard);
+      setDashboardConfig(updatedDashboardConfig);
+      setEditingPanel(null);
+      
+      toast({
+        title: 'Success',
+        description: 'Panel updated successfully',
+      });
+    } catch (error: any) {
+      console.error('Error saving panel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save panel',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleExportSchema = () => {
     const blob = new Blob([editorValue], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1304,6 +1352,8 @@ const ReportView = () => {
           <GrafanaDashboardRenderer 
             dashboard={dashboard}
             timeRange={{ from: 'now-24h', to: 'now' }}
+            editMode={isEditing}
+            onEditPanel={setEditingPanel}
           />
         ) : (
           /* Empty State - Show example schema download option */
@@ -1429,6 +1479,16 @@ const ReportView = () => {
           annotation={editingAnnotation.annotation}
           onSave={handleSaveAnnotation}
           onDelete={handleDeleteAnnotation}
+        />
+      )}
+
+      {/* Panel Editor Dialog */}
+      {editingPanel && (
+        <PanelEditor
+          open={!!editingPanel}
+          onClose={() => setEditingPanel(null)}
+          panel={editingPanel}
+          onSave={handleSavePanel}
         />
       )}
 
