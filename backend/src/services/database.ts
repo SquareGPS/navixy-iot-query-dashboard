@@ -776,24 +776,30 @@ export class DatabaseService {
       // Set statement timeout
       await client.query(`SET statement_timeout = ${timeoutMs}`);
 
-      // Convert parameters to PostgreSQL format
-      const paramValues: unknown[] = [];
-      const paramNames: string[] = [];
+      // Check if there are any parameters to process
+      const hasParameters = Object.keys(params).length > 0;
       
-      Object.entries(params).forEach(([name, value]) => {
-        paramNames.push(name);
-        paramValues.push(value);
-      });
-
-      // Replace named parameters with positional parameters
       let processedStatement = statement;
-      paramNames.forEach((name, index) => {
-        const placeholder = `$${index + 1}`;
-        processedStatement = processedStatement.replace(
-          new RegExp(`:${name}\\b`, 'g'), 
-          placeholder
-        );
-      });
+      let paramValues: unknown[] = [];
+
+      if (hasParameters) {
+        // Convert parameters to PostgreSQL format
+        const paramNames: string[] = [];
+        
+        Object.entries(params).forEach(([name, value]) => {
+          paramNames.push(name);
+          paramValues.push(value);
+        });
+
+        // Replace named parameters with positional parameters
+        paramNames.forEach((name, index) => {
+          const placeholder = `$${index + 1}`;
+          processedStatement = processedStatement.replace(
+            new RegExp(`:${name}\\b`, 'g'), 
+            placeholder
+          );
+        });
+      }
 
       // Execute query
       const result = await client.query(processedStatement, paramValues);

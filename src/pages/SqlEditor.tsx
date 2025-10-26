@@ -169,7 +169,14 @@ LIMIT 10;`,
       // Transform the response to match the expected format
       const transformedData = {
         columns: response.data?.columns?.map((col: any) => col.name) || [],
-        rows: response.data?.rows || [],
+        rows: response.data?.rows?.map((row: any[]) => {
+          // Convert array of values to object with column names as keys
+          const rowObj: any = {};
+          response.data?.columns?.forEach((col: any, index: number) => {
+            rowObj[col.name] = row[index];
+          });
+          return rowObj;
+        }) || [],
         columnTypes: response.data?.columns?.reduce((acc: any, col: any) => {
           acc[col.name] = col.type;
           return acc;

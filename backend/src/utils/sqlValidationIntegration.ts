@@ -20,7 +20,8 @@ export interface ValidationErrorResponse {
  * This should be used before executing any user-provided SQL
  */
 export function validateSQLQuery(req: Request, res: Response, next: NextFunction): void | Response {
-  const { sql } = req.body;
+  // Support both 'sql' (legacy) and 'statement' (new parameterized format) field names
+  const sql = req.body.sql || req.body.statement;
 
   if (!sql || typeof sql !== 'string') {
     return res.status(400).json({
