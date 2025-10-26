@@ -28,6 +28,15 @@ export interface TileResult {
   value: number | null;
 }
 
+export interface ParameterizedQueryResult {
+  columns: Array<{ name: string; type: string }>;
+  rows: unknown[][];
+  stats: {
+    rowCount: number;
+    elapsedMs: number;
+  };
+}
+
 export interface User {
   id: string;
   email: string;
@@ -734,5 +743,115 @@ export class DatabaseService {
       logger.info(`Closed external database pool: ${key}`);
     }
     this.externalPools.clear();
+  }
+
+  /**
+   * Execute parameterized SQL query with typed parameters
+   */
+  async executeParameterizedQuery(
+    statement: string,
+    params: Record<string, unknown>,
+    timeoutMs: number = 30000,
+    maxRows: number = 10000
+  ): Promise<ParameterizedQueryResult> {
+    const startTime = Date.now();
+
+    // Validate SQL using the new SQLSelectGuard
+    try {
+      SQLSelectGuard.assertSafeSelect(statement);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new CustomError(error.message, 400);
+      }
+      throw new CustomError('SQL validation failed', 400);
+    }
+
+    const config = await this.getExternalDatabaseConfig();
+    const pool = await this.getExternalPool(config);
+    let client: PoolClient | null = null;
+
+    try {
+      client = await pool.connect();
+      
+      // Set statement timeout
+      await client.query(`SET statement_timeout = ${timeoutMs}`);
+
+      // Convert parameters to PostgreSQL format
+      const paramValues: unknown[] = [];
+      const paramNames: string[] = [];
+      
+      Object.entries(params).forEach(([name, value]) => {
+        paramNames.push(name);
+        paramValues.push(value);
+      });
+
+      // Replace named parameters with positional parameters
+      let processedStatement = statement;
+      paramNames.forEach((name, index) => {
+        const placeholder = `$${index + 1}`;
+        processedStatement = processedStatement.replace(
+          new RegExp(`:${name}\\b`, 'g'), 
+          placeholder
+        );
+      });
+
+      // Execute query
+      const result = await client.query(processedStatement, paramValues);
+
+      // Convert result to standardized format
+      const columns = result.fields.map(field => ({
+        name: field.name,
+        type: this.getPostgresTypeName(field.dataTypeID)
+      }));
+
+      const rows = result.rows.map(row => 
+        Object.values(row).map(value => {
+          // Convert BigInt to string for JSON serialization
+          if (typeof value === 'bigint') {
+            return value.toString();
+          }
+          return value;
+        })
+      );
+
+      // Enforce max rows limit
+      if (rows.length > maxRows) {
+        throw new CustomError(
+          `Query returned too many rows: ${rows.length} > ${maxRows}`,
+          400
+        );
+      }
+
+      const elapsedMs = Date.now() - startTime;
+
+      return {
+        columns,
+        rows,
+        stats: {
+          rowCount: rows.length,
+          elapsedMs
+        }
+      };
+
+    } catch (error: any) {
+      logger.error('Parameterized query error:', {
+        error: error.message,
+        statement: statement.substring(0, 100) + '...',
+        paramCount: Object.keys(params).length,
+      });
+
+      if (error instanceof CustomError) {
+        throw error;
+      }
+
+      throw new CustomError(
+        error.message || 'Query execution failed',
+        error.code === 'ECONNREFUSED' ? 503 : 500
+      );
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
   }
 }
