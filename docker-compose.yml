@@ -41,7 +41,7 @@ services:
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgresql://${POSTGRES_USER:-danilnezhdanov}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
       JWT_SECRET: ${JWT_SECRET}
-      REPORT_SCHEMA_URL: ${REPORT_SCHEMA_URL:-https://raw.githubusercontent.com/DanilNezhdanov/grafana-based-dashboard/refs/heads/main/navixy/examples/fleet-status-dashboard.json}
+      REPORT_SCHEMA_URL: ${REPORT_SCHEMA_URL:-https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json}
       RATE_LIMIT_MAX_REQUESTS: 1000
       RATE_LIMIT_WINDOW_MS: 900000
     ports:

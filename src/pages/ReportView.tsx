@@ -22,6 +22,8 @@ import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Tras
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboard';
+import { ReportMigration } from '@/renderer-core/utils/migration';
+import type { ReportSchema } from '@/types/report-schema';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -148,8 +150,17 @@ const ReportView = () => {
           throw new Error('Dashboard schema is missing');
         }
 
-        // Check if this is a Grafana dashboard format
-        const schemaData = report.report_schema;
+        // Check if this is a Grafana dashboard format or report schema format
+        let schemaData = report.report_schema;
+        
+        // Check if this is a report schema format (with rows) and migrate to Grafana format
+        if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+          console.log('🔄 Detected report schema format, migrating to Grafana format...');
+          const reportSchema = schemaData as ReportSchema;
+          const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+          schemaData = migratedDashboard;
+          console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
+        }
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
         let grafanaDashboard: GrafanaDashboard;
@@ -924,15 +935,24 @@ const ReportView = () => {
           throw new Error(response.error.message || 'Failed to fetch example schema');
         }
         
-        const exampleSchema = response.data.schema;
+        let exampleSchema = response.data.schema;
         console.log('📥 Downloaded schema:', exampleSchema);
         console.log('📥 Schema title:', exampleSchema?.title);
         console.log('📥 Schema rows count:', exampleSchema?.rows?.length);
         
+        // Check if this is a report schema format (with rows) and migrate to Grafana format
+        if (exampleSchema.rows && Array.isArray(exampleSchema.rows) && exampleSchema.rows.length > 0) {
+          console.log('🔄 Detected report schema format, migrating to Grafana format...');
+          const reportSchema = exampleSchema as ReportSchema;
+          const grafanaDashboard = ReportMigration.migrateToGrafana(reportSchema);
+          exampleSchema = grafanaDashboard;
+          console.log('✅ Migration complete, panels count:', grafanaDashboard.dashboard?.panels?.length || 0);
+        }
+        
         console.log('💾 Updating report in database...', { reportId, title: report?.title });
-        // Update the report with the example schema
+        // Update the report with the example schema (now in Grafana format)
         const updateResponse = await apiService.updateReport(reportId!, {
-          title: report?.title || 'New Report', // Keep the original title
+          title: report?.title || exampleSchema.dashboard?.title || exampleSchema.title || 'New Report', // Keep the original title or use schema title
           report_schema: exampleSchema
         });
         console.log('💾 Update response:', updateResponse);
@@ -975,9 +995,51 @@ const ReportView = () => {
               console.error('❌ Fresh report has empty schema!');
               throw new Error('Report schema is missing');
             }
+            
+            let schemaData = reportData.report_schema;
+            
+            // Check if this is a report schema format (with rows) and migrate to Grafana format
+            if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+              console.log('🔄 Detected report schema format in refresh, migrating to Grafana format...');
+              const reportSchema = schemaData as ReportSchema;
+              const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+              schemaData = migratedDashboard;
+              console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
+            }
+            
+            // Extract Grafana dashboard from schema data
+            let grafanaDashboard: GrafanaDashboard;
+            if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
+              // Direct panels format
+              grafanaDashboard = schemaData as GrafanaDashboard;
+            } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
+              // Nested dashboard format
+              grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
+            } else {
+              throw new Error('Dashboard schema is missing panels');
+            }
+            
             setReport(reportData);
-            setSchema(reportData.report_schema);
-            setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+            setSchema(schemaData);
+            setDashboard(grafanaDashboard);
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: grafanaDashboard
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
             console.log('✅ Fresh report data loaded successfully');
           } catch (err: any) {
             console.error('❌ Error fetching fresh report:', err);
