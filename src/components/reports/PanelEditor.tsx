@@ -48,7 +48,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   });
   
   const [saving, setSaving] = useState(false);
-  const { executing, results, error, executeQuery } = useSqlExecution();
+  const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const { executing, error, executeQuery } = useSqlExecution();
 
   const handleSave = () => {
     setSaving(true);
@@ -94,21 +96,72 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   };
 
   const handleTestQuery = async () => {
+    // Parse parameters with better error handling
+    let parsedParams: Record<string, unknown> = {};
+    const paramsTrimmed = params.trim();
+    
+    if (paramsTrimmed) {
+      try {
+        parsedParams = JSON.parse(paramsTrimmed);
+        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+          throw new Error('Parameters must be a JSON object');
+        }
+      } catch (err: any) {
+        const errorMsg = err.message || 'Invalid JSON in parameters';
+        console.error('Failed to parse parameters:', err);
+        toast({
+          title: 'Invalid Parameters',
+          description: errorMsg + '. Proceeding with empty parameters.',
+          variant: 'destructive',
+        });
+        // Continue with empty params instead of failing completely
+        parsedParams = {};
+      }
+    }
+    
     try {
-      const parsedParams = params.trim() ? JSON.parse(params) : {};
-      await executeQuery({
-        sql,
+      // Use the returned value from executeQuery for consistency with standalone editor
+      // This ensures we use the exact same execution path and data transformation
+      const executionResult = await executeQuery({
+        sql: sql.trim(),
         params: parsedParams,
         timeout_ms: 10000,
-        row_limit: 5,
+        row_limit: 100, // Increased from 5 to allow testing queries that return more rows
+        showSuccessToast: false,
+        showErrorToast: false,
       });
+      
+      // Set results from the returned value to ensure consistency
+      // This matches the pattern used in the standalone SQL editor
+      if (executionResult) {
+        setTestResults(executionResult);
+        setTestError(null);
+        toast({
+          title: 'Success',
+          description: 'Query executed successfully',
+        });
+      } else {
+        // Error case - use the hook's error state
+        setTestResults(null);
+        setTestError(error || 'Failed to execute query');
+        if (error) {
+          toast({
+            title: 'Error',
+            description: error,
+            variant: 'destructive',
+          });
+        }
+      }
     } catch (err: any) {
-      console.error('Invalid JSON in parameters:', err);
+      console.error('Unexpected error executing query:', err);
+      const errorMsg = err.message || 'Failed to execute query';
       toast({
         title: 'Error',
-        description: 'Invalid JSON in parameters',
+        description: errorMsg,
         variant: 'destructive',
       });
+      setTestResults(null);
+      setTestError(errorMsg);
     }
   };
 
@@ -262,29 +315,31 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
 
               {/* Test Results - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
-                {error && (
+                {(error || testError) && (
                   <Alert variant="destructive" className="mb-2 flex-shrink-0">
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertDescription>{testError || error}</AlertDescription>
                   </Alert>
                 )}
 
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">Test Results</Label>
-                  {results && (
-                    <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
+                  {testResults && (
+                    <span className="text-xs text-muted-foreground">
+                      {testResults.rowCount} row{testResults.rowCount !== 1 ? 's' : ''} returned
+                    </span>
                   )}
                 </div>
                 
                 <div className="flex-1 border rounded-md overflow-auto min-h-0 bg-background">
-                  {results ? (
+                  {testResults ? (
                     <DataTable
-                      data={results.rows}
-                      columns={results.columns.map((col: string) => ({
+                      data={testResults.rows || []}
+                      columns={testResults.columns.map((col: string) => ({
                         id: col,
                         accessorKey: col,
                         header: col,
                       }))}
-                      columnTypes={results.columnTypes}
+                      columnTypes={testResults.columnTypes}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

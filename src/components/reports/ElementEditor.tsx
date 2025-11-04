@@ -52,19 +52,41 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
   };
 
   const handleTestQuery = async () => {
+    // Parse parameters with better error handling
+    let parsedParams: Record<string, unknown> = {};
+    const paramsTrimmed = params.trim();
+    
+    if (paramsTrimmed) {
+      try {
+        parsedParams = JSON.parse(paramsTrimmed);
+        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+          throw new Error('Parameters must be a JSON object');
+        }
+      } catch (err: any) {
+        const errorMsg = err.message || 'Invalid JSON in parameters';
+        console.error('Failed to parse parameters:', err);
+        toast({
+          title: 'Invalid Parameters',
+          description: errorMsg + '. Proceeding with empty parameters.',
+          variant: 'destructive',
+        });
+        // Continue with empty params instead of failing completely
+        parsedParams = {};
+      }
+    }
+    
     try {
-      const parsedParams = params.trim() ? JSON.parse(params) : {};
       await executeQuery({
-        sql,
+        sql: sql.trim(),
         params: parsedParams,
         timeout_ms: 10000,
-        row_limit: 5,
+        row_limit: 100, // Increased from 5 to allow testing queries that return more rows
       });
     } catch (err: any) {
-      console.error('Invalid JSON in parameters:', err);
+      console.error('Unexpected error executing query:', err);
       toast({
         title: 'Error',
-        description: 'Invalid JSON in parameters',
+        description: err.message || 'Failed to execute query',
         variant: 'destructive',
       });
     }
@@ -143,7 +165,9 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">Test Results</Label>
                   {results && (
-                    <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
+                    <span className="text-xs text-muted-foreground">
+                      {results.rowCount} row{results.rowCount !== 1 ? 's' : ''} returned
+                    </span>
                   )}
                 </div>
                 

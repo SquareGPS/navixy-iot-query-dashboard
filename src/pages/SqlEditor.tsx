@@ -6,12 +6,12 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { apiService } from '@/services/api';
 import { Loader2, Play, Database, Plus, X, Download } from 'lucide-react';
 import { SqlEditor as SqlEditorComponent } from '@/components/reports/SqlEditor';
 import { DataTable } from '@/components/reports/DataTable';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useSqlExecution } from '@/hooks/use-sql-execution';
 
 interface QueryTab {
   id: string;
@@ -29,6 +29,10 @@ interface QueryTab {
 const SqlEditor = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  
+  // Use the shared SQL execution hook - this ensures consistent behavior
+  const { executing, results, error, executeQuery } = useSqlExecution();
+  
   const [tabs, setTabs] = useState<QueryTab[]>([
     {
       id: '1',
@@ -48,6 +52,9 @@ LIMIT 10;`,
   const [activeTab, setActiveTab] = useState('1');
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabName, setEditingTabName] = useState('');
+  
+  // Track which tab is currently executing
+  const [executingTabId, setExecutingTabId] = useState<string | null>(null);
 
   // Redirect if not admin or editor
   if (!loading && (!user || !['admin', 'editor'].includes(user?.role || ''))) {
@@ -117,9 +124,8 @@ LIMIT 10;`,
       return;
     }
 
-    // Start timing
-    const startTime = performance.now();
-
+    // Mark this tab as executing
+    setExecutingTabId(tabId);
     setTabs(
       tabs.map((t) =>
         t.id === tabId
@@ -128,69 +134,27 @@ LIMIT 10;`,
       )
     );
 
-    try {
-      const fetchStartTime = performance.now();
-      const response = await apiService.executeSQL({
-        sql: tab.sql.trim(),
-        params: {},
-        timeout_ms: 30000,
-        row_limit: 1000
-      });
-      const fetchEndTime = performance.now();
+    // Use the shared hook's executeQuery function - this ensures consistent behavior
+    const executionResult = await executeQuery({
+      sql: tab.sql.trim(),
+      params: {},
+      timeout_ms: 30000,
+      row_limit: 1000,
+      showSuccessToast: false, // We'll handle the toast ourselves
+      showErrorToast: false, // We'll handle the toast ourselves
+    });
 
-      const executionTime = fetchEndTime - startTime;
-      const fetchTime = fetchEndTime - fetchStartTime;
-      const executedAt = new Date();
-
-      // Handle API errors
-      if (response.error) {
-        console.error('API error:', response.error);
-        const errorMsg = response.error.message || 'Failed to execute query';
-        
-        setTabs(
-          tabs.map((t) =>
-            t.id === tabId
-              ? {
-                  ...t,
-                  executing: false,
-                  error: errorMsg,
-                  executionTime,
-                  fetchTime,
-                  executedAt,
-                }
-              : t
-          )
-        );
-        toast.error(errorMsg);
-        return; // Exit early
-      }
-
-      // Success case - only reached if no errors
-      // Transform the response to match the expected format
-      console.log('SQL Editor - Raw response data:', response.data);
-      console.log('SQL Editor - Response columns:', response.data?.columns);
-      console.log('SQL Editor - Response rows:', response.data?.rows);
-      
+    // Update the tab with the results from the hook
+    if (executionResult) {
+      // Success case
       const transformedData = {
-        columns: response.data?.columns?.map((col: any) => col.name) || [],
-        rows: response.data?.rows?.map((row: any[]) => {
-          // Convert array of values to object with column names as keys
-          const rowObj: any = {};
-          response.data?.columns?.forEach((col: any, index: number) => {
-            rowObj[col.name] = row[index];
-          });
-          return rowObj;
-        }) || [],
-        columnTypes: response.data?.columns?.reduce((acc: any, col: any) => {
-          acc[col.name] = col.type;
-          return acc;
-        }, {}) || {},
-        total: response.data?.rows?.length || 0,
+        columns: executionResult.columns,
+        rows: executionResult.rows,
+        columnTypes: executionResult.columnTypes,
+        total: executionResult.rowCount,
         page: 1,
         pageSize: 1000
       };
-      
-      console.log('SQL Editor - Transformed data:', transformedData);
 
       setTabs(
         tabs.map((t) =>
@@ -199,58 +163,38 @@ LIMIT 10;`,
                 ...t,
                 executing: false,
                 results: transformedData,
-                error: null, // Clear any previous errors
-                rowCount: response.data?.rows?.length || 0,
-                executionTime,
-                fetchTime,
-                executedAt,
+                error: null,
+                rowCount: executionResult.rowCount,
+                executionTime: executionResult.executionTime,
+                fetchTime: executionResult.fetchTime,
+                executedAt: executionResult.executedAt,
               }
             : t
         )
       );
       toast.success('Query executed successfully');
-    } catch (err: any) {
-      console.error('Unexpected error executing query:', err);
-      console.error('Error details:', {
-        name: err.name,
-        message: err.message,
-        stack: err.stack,
-        context: err.context,
-      });
-      
-      let errorMessage = 'Failed to execute query';
-      
-      // Try to extract meaningful error information
-      if (err.message) {
-        errorMessage = err.message;
-      }
-      if (err.context?.body) {
-        try {
-          const bodyError = typeof err.context.body === 'string' 
-            ? JSON.parse(err.context.body) 
-            : err.context.body;
-          if (bodyError?.error?.message) {
-            errorMessage = bodyError.error.message;
-            if (bodyError.error.code) {
-              errorMessage = `[${bodyError.error.code}] ${errorMessage}`;
-            }
-          }
-        } catch (parseErr) {
-          console.error('Failed to parse error body:', parseErr);
-        }
-      }
-      
-      const executionTime = performance.now() - startTime;
-      const executedAt = new Date();
+    } else {
+      // Error case - error is already set in the hook state
       setTabs(
         tabs.map((t) =>
           t.id === tabId
-            ? { ...t, executing: false, error: errorMessage, executionTime, fetchTime: null, executedAt }
+            ? {
+                ...t,
+                executing: false,
+                error: error || 'Failed to execute query',
+                executionTime: null,
+                fetchTime: null,
+                executedAt: new Date(),
+              }
             : t
         )
       );
-      toast.error(errorMessage);
+      if (error) {
+        toast.error(error);
+      }
     }
+    
+    setExecutingTabId(null);
   };
 
   const exportToCSV = (tabId: string) => {
@@ -410,10 +354,10 @@ LIMIT 10;`,
                   <div className="flex gap-2">
                     <Button
                       onClick={() => handleExecuteQuery(tab.id)}
-                      disabled={tab.executing || !tab.sql.trim()}
+                      disabled={(executingTabId === tab.id || tab.executing) || !tab.sql.trim()}
                       size="sm"
                     >
-                      {tab.executing ? (
+                      {(executingTabId === tab.id || tab.executing) ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Executing...
