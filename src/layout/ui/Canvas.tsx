@@ -499,6 +499,47 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       // Check if drop position is below all rows (canvas drop)
       const dropY = dragPreview.y;
+      
+      // CRITICAL: If dragging from a row, check if drop position is still within that row's band
+      // If so, prioritize staying in the current row even if another row's drop zone was hovered
+      if (currentScope !== 'top-level' && currentRowId !== null) {
+        const currentBand = bands.find((b) => b.rowId === currentRowId);
+        if (currentBand && dropY >= currentBand.top && dropY < currentBand.bottom) {
+          // Still within current row's band - stay in this row regardless of what was hovered
+          console.log('Drop position still within current row band - staying in row');
+          const overId = event.over?.id.toString();
+          
+          // Only move to another row if explicitly dropped on a different row AND position is clearly outside current row
+          if (overId && overId.startsWith('row-pocket-')) {
+            const targetRowId = parseInt(overId.replace('row-pocket-', ''));
+            if (targetRowId !== currentRowId) {
+              const targetBand = bands.find((b) => b.rowId === targetRowId);
+              // Only move if drop position is actually within target row's band
+              if (targetBand && dropY >= targetBand.top && dropY < targetBand.bottom) {
+                console.log('Moving to different row - position is in target row band');
+                cmdMovePanelToRow(panelId, targetRowId);
+              } else {
+                // Drop position is still in current row, ignore the hover
+                console.log('Ignoring hover on other row - position still in current row');
+                cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+              }
+            } else {
+              // Same row - update position
+              cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+            }
+          } else {
+            // Update position within current row
+            cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+          }
+          
+          setActiveId(null);
+          setDragPreview(null);
+          setDragStartPos(null);
+          setDragOverTarget(null);
+          return;
+        }
+      }
+      
       const isBelowAllRows = (): boolean => {
         if (rows.length === 0) return true;
         
@@ -595,14 +636,27 @@ export const Canvas: React.FC<CanvasProps> = ({
           }
         }
       } else {
-        // No over target - dropped on canvas, move to top-level if not already there
-        console.log('No over target - dropped on canvas');
-        if (currentScope !== 'top-level') {
-          // Moving from a row to canvas - use drop position
-          cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
-        } else {
+        // No over target - check if we're still in the same row and update position
+        console.log('No over target - checking if still in row');
+        
+        // Check if drop position is still within the current row's band
+        if (currentScope !== 'top-level' && currentRowId !== null) {
+          const band = bands.find((b) => b.rowId === currentRowId);
+          if (band && dropY >= band.top && dropY < band.bottom) {
+            // Still in the same row - update position within row
+            console.log('Still in same row - updating position');
+            cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+          } else {
+            // Moved out of row - move to top-level
+            console.log('Moved out of row - moving to top-level');
+            cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
+          }
+        } else if (currentScope === 'top-level') {
           // Already at top-level - just update position
           cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+        } else {
+          // Moving from a row to canvas - use drop position
+          cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
         }
       }
 
@@ -972,13 +1026,23 @@ export const Canvas: React.FC<CanvasProps> = ({
               
               const bandTop = band.top * GRID_UNIT_HEIGHT;
               
+              // Check if we're dragging a panel from this row - if so, disable the drop zone
+              let isDraggingPanelFromThisRow = false;
+              if (activeId && activeId.toString().startsWith('panel-')) {
+                const draggedPanelId = parseInt(activeId.toString().replace('panel-', ''));
+                const draggedPanelScope = scopeOf(draggedPanelId, dashboard);
+                if (draggedPanelScope !== 'top-level' && draggedPanelScope.rowId === band.rowId) {
+                  isDraggingPanelFromThisRow = true;
+                }
+              }
+              
               return (
                 <DropZone
                   key={`row-pocket-${band.rowId}`}
                   zoneId={`row-pocket-${band.rowId}`}
                   type="row-pocket"
                   label={row.collapsed ? 'Drop to add to row' : 'Drop to place in this section'}
-                  visible={true}
+                  visible={!isDraggingPanelFromThisRow}
                   containerWidth={containerWidth}
                   top={bandTop}
                   isDragActive={activeId !== null}

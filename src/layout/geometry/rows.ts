@@ -352,7 +352,18 @@ export function movePanelToRow(
         (p) => p.id !== panelId
       );
       const panelPos = panel.gridPos;
-      const newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId, minY);
+      
+      // Use position hint if provided, otherwise use firstFit
+      let newPos: { x: number; y: number };
+      if (positionHint) {
+        // Clamp position to ensure it stays within the row's band and grid bounds
+        newPos = {
+          x: Math.max(0, Math.min(positionHint.x, GRID_COLUMNS - panelPos.w)),
+          y: Math.max(minY, Math.min(positionHint.y, band.bottom === Infinity ? positionHint.y : band.bottom - panelPos.h)),
+        };
+      } else {
+        newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId, minY);
+      }
       
       newDashboard.panels[panelIndex].gridPos = { ...panelPos, ...newPos };
       
