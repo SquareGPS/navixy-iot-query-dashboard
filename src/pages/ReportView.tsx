@@ -11,8 +11,8 @@ import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { PanelEditor } from '@/components/reports/PanelEditor';
 import { GrafanaDashboardRenderer } from '@/components/reports/GrafanaDashboardRenderer';
-import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
-import { AddRowButton } from '@/components/reports/AddRowButton';
+import { EditToolbar } from '@/components/reports/EditToolbar';
+import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -25,6 +25,7 @@ import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboar
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
+import { toggleLayoutEditing, cmdAddRow, cmdAddPanel } from '@/layout/state/commands';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -93,11 +94,22 @@ const ReportView = () => {
   const [showNewRowEditor, setShowNewRowEditor] = useState(false);
   const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
+  const [showPanelGallery, setShowPanelGallery] = useState(false);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
   // Memoize timeRange to prevent unnecessary re-renders and query re-executions
   const timeRange = useMemo(() => ({ from: 'now-24h', to: 'now' }), []);
+
+  // Enable layout editing when edit mode is active
+  useEffect(() => {
+    const store = useEditorStore.getState();
+    if (isEditing && !store.isEditingLayout && dashboard) {
+      store.setIsEditingLayout(true);
+    } else if (!isEditing && store.isEditingLayout) {
+      store.setIsEditingLayout(false);
+    }
+  }, [isEditing, dashboard]);
 
   // Sync local state with store when exiting layout editing mode
   useEffect(() => {
@@ -848,6 +860,62 @@ const ReportView = () => {
     setEditingBreadcrumb(null);
     setTempSectionName('');
     setTempReportName('');
+  };
+
+  const handleToggleEdit = () => {
+    setIsEditing(!isEditing);
+    if (!isEditing) {
+      setEditMode('inline');
+    }
+  };
+
+  const handleFullSchema = () => {
+    setEditMode('full');
+  };
+
+  const handleNewRow = () => {
+    // For Grafana dashboard format, use cmdAddRow
+    if (dashboard) {
+      const store = useEditorStore.getState();
+      const currentDashboard = store.dashboard || dashboard;
+      
+      // Calculate maximum Y position considering ALL panels and rows
+      const allPanels = currentDashboard.panels.filter((p) => p.id);
+      const maxY = allPanels.length > 0
+        ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
+        : 0;
+      
+      cmdAddRow(maxY, 'New row');
+    } else {
+      // For old schema format, use the dialog
+      setShowNewRowEditor(true);
+    }
+  };
+
+  const handleNewPanel = () => {
+    setShowPanelGallery(true);
+  };
+
+  const handlePanelGallerySelect = (type: string, size: { w: number; h: number }) => {
+    if (!dashboard) return;
+    
+    const store = useEditorStore.getState();
+    const currentDashboard = store.dashboard || dashboard;
+    
+    // Calculate maximum Y position for placing the panel
+    const allPanels = currentDashboard.panels.filter((p) => p.id);
+    const maxY = allPanels.length > 0
+      ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
+      : 0;
+    
+    cmdAddPanel({
+      type,
+      size,
+      target: 'top',
+      hint: { position: { x: 0, y: maxY } },
+    });
+    
+    setShowPanelGallery(false);
   };
 
   const handleAddRow = (rowType: 'tiles' | 'table' | 'charts' | 'annotation', insertAfterIndex?: number) => {
@@ -1727,16 +1795,21 @@ const ReportView = () => {
       )}
 
       {/* Floating Edit Menu */}
-      <FloatingEditMenu
+      <EditToolbar
         isEditing={isEditing}
-        editMode={editMode}
         canEdit={canEdit}
-        onToggleEdit={() => { 
-          setIsEditing(!isEditing); 
-          if (!isEditing) setEditMode('inline');
-        }}
-        onSetEditMode={setEditMode}
+        onToggleEdit={handleToggleEdit}
+        onFullSchema={handleFullSchema}
         onDeleteReport={() => setShowDeleteDialog(true)}
+        onNewRow={handleNewRow}
+        onNewPanel={handleNewPanel}
+      />
+
+      {/* Panel Gallery Dialog */}
+      <PanelGallery
+        open={showPanelGallery}
+        onClose={() => setShowPanelGallery(false)}
+        onSelect={handlePanelGallerySelect}
       />
     </AppLayout>
   );

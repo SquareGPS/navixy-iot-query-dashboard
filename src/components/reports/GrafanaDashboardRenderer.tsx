@@ -2,19 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Move } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
 import { GrafanaDashboard, GrafanaPanel, GrafanaQueryResult } from '@/types/grafana-dashboard';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { toggleLayoutEditing, cmdAddRow } from '@/layout/state/commands';
 import { canonicalizeRows } from '@/layout/geometry/rows';
-import { Button } from '@/components/ui/Button';
-import { pixelsToGrid, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
-import { getRowHeaders } from '@/layout/geometry/rows';
-import { Plus } from 'lucide-react';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -592,40 +587,8 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   // If layout editing is enabled, use Canvas component
   if (isEditingLayout && editMode) {
-    const handleAddRow = () => {
-      if (!dashboard) return;
-      
-      // Calculate maximum Y position considering ALL panels and rows
-      // This ensures the new row is placed below all existing elements
-      const allPanels = displayDashboard.panels.filter((p) => p.id);
-      const maxY = allPanels.length > 0
-        ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
-        : 0;
-      
-      cmdAddRow(maxY, 'New row');
-    };
-
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Layout Editor</h2>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={handleAddRow}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Row
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={toggleLayoutEditing}
-            >
-              <Move className="h-4 w-4 mr-2" />
-              Exit Layout Mode
-            </Button>
-          </div>
-        </div>
         <Canvas
           renderPanelContent={(panel) => (
             <div>
@@ -658,17 +621,6 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   return (
     <div className="space-y-6">
-      {editMode && (
-        <div className="flex items-center justify-end">
-          <Button
-            variant="secondary"
-            onClick={toggleLayoutEditing}
-          >
-            <Move className="h-4 w-4 mr-2" />
-            Edit Layout
-          </Button>
-        </div>
-      )}
       {/* Panels Grid - uses same 24-column system as edit mode */}
       <PanelGrid
         panels={displayDashboard.panels}
