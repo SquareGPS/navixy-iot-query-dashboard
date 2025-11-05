@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, GripVertical, MoreVertical, ArrowUp, ArrowDown, Trash2, Package, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, MoreVertical, Trash2, Package, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/Input';
@@ -18,7 +18,6 @@ interface RowHeaderProps {
   containerWidth: number;
   isSelected?: boolean;
   onSelect?: (rowId: number) => void;
-  onReorder?: (direction: 'up' | 'down') => void;
   enableDrag?: boolean;
   enableEditControls?: boolean;
   isEditingLayout?: boolean;
@@ -29,7 +28,6 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   containerWidth,
   isSelected = false,
   onSelect,
-  onReorder,
   enableDrag = true,
   enableEditControls = true,
   isEditingLayout = false,
@@ -138,14 +136,6 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
     setShowMenu(false);
   };
 
-  const handleMoveUp = () => {
-    onReorder?.('up');
-  };
-
-  const handleMoveDown = () => {
-    onReorder?.('down');
-  };
-
   const panelWidth = containerWidth; // Use containerWidth directly (already adjusted by parent)
   const panelHeight = row.gridPos.h * 30; // GRID_UNIT_HEIGHT
 
@@ -191,27 +181,6 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
 
         {enableEditControls && (
           <div className="flex items-center gap-1 relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMoveUp();
-              }}
-              className="h-6 w-6 p-0 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--surface-3)] rounded-sm transition-colors"
-              title="Move row up"
-            >
-              <ArrowUp className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMoveDown();
-              }}
-              className="h-6 w-6 p-0 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--surface-3)] rounded-sm transition-colors"
-              title="Move row down"
-            >
-              <ArrowDown className="h-3 w-3" />
-            </button>
-
             <div className="relative" ref={menuRef}>
               <button
                 ref={buttonRef}

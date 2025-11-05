@@ -574,24 +574,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   const maxY = Math.max(...dashboard.panels.map((p) => p.gridPos.y + p.gridPos.h), 0);
   const canvasHeight = (maxY + 2) * GRID_UNIT_HEIGHT;
 
-  const handleRowReorder = useCallback((rowId: number, direction: 'up' | 'down') => {
-    if (!dashboard) return;
-    const currentRows = getRowHeaders(dashboard.panels);
-    const currentOrder = currentRows.map((r) => r.id!);
-    const index = currentOrder.indexOf(rowId);
-    if (index === -1) return;
-
-    if (direction === 'up' && index > 0) {
-      const newOrder = [...currentOrder];
-      [newOrder[index], newOrder[index - 1]] = [newOrder[index - 1], newOrder[index]];
-      cmdReorderRows(newOrder);
-    } else if (direction === 'down' && index < currentOrder.length - 1) {
-      const newOrder = [...currentOrder];
-      [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
-      cmdReorderRows(newOrder);
-    }
-  }, [dashboard]);
-
   const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
     setPlacingPanelSpec({ type, size });
     setIsPlacingPanel(true);
@@ -710,7 +692,6 @@ export const Canvas: React.FC<CanvasProps> = ({
                 containerWidth={adjustedWidth}
                 isSelected={selectedPanelId === row.id}
                 onSelect={setSelectedPanel}
-                onReorder={(dir) => handleRowReorder(row.id!, dir)}
                 enableEditControls={isEditingLayout}
                 isEditingLayout={isEditingLayout}
               />

@@ -77,11 +77,15 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   
   // Use canonicalized dashboard for rendering
   const displayDashboard = React.useMemo(() => {
-    if (isEditingLayout && storeDashboard) {
-      return storeDashboard;
+    // Use store dashboard if available (it gets updated when collapsing/expanding rows)
+    // Otherwise use the prop dashboard
+    const dashboardToUse = storeDashboard || dashboard;
+    
+    if (isEditingLayout) {
+      return dashboardToUse;
     }
-    // Canonicalize the prop dashboard for view mode
-    return canonicalizeRows(dashboard);
+    // Canonicalize the dashboard for view mode
+    return canonicalizeRows(dashboardToUse);
   }, [dashboard, storeDashboard, isEditingLayout]);
   
   // Track the previous dashboard to prevent unnecessary query re-executions
@@ -150,13 +154,54 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       return;
     }
     
-    // Check if dashboard has actually changed by comparing JSON strings
-    const dashboardJson = JSON.stringify(dashboard);
-    const timeRangeJson = JSON.stringify(timeRange);
-    const cacheKey = `${dashboardJson}:${timeRangeJson}`;
+    // Create a stable cache key that includes ALL panels regardless of collapse state
+    // This prevents query re-execution when only collapse/expand state changes
+    const createStableCacheKey = (dash: GrafanaDashboard): string => {
+      // Collect all panels: top-level panels + panels from collapsed rows
+      const allPanels: GrafanaPanel[] = [];
+      
+      dash.panels.forEach(panel => {
+        if (panel.type === 'row' && panel.collapsed === true && panel.panels) {
+          // For collapsed rows, include panels from row.panels[]
+          allPanels.push(...panel.panels);
+        } else if (panel.type !== 'row') {
+          // Include all non-row panels
+          allPanels.push(panel);
+        }
+      });
+      
+      // Create a stable representation: sort by ID and include only relevant properties for cache
+      const stablePanels = allPanels
+        .map(panel => ({
+          id: panel.id,
+          title: panel.title,
+          type: panel.type,
+          // Include SQL config for cache comparison (changes to SQL should trigger reload)
+          'x-navixy': panel['x-navixy'] ? {
+            sql: panel['x-navixy'].sql ? {
+              statement: panel['x-navixy'].sql.statement,
+              params: panel['x-navixy'].sql.params,
+              bindings: panel['x-navixy'].sql.bindings,
+            } : undefined,
+          } : undefined,
+        }))
+        .sort((a, b) => (a.id || 0) - (b.id || 0));
+      
+      const cacheData = {
+        panels: stablePanels,
+        templating: dash.templating,
+        'x-navixy': dash['x-navixy'] ? {
+          parameters: dash['x-navixy'].parameters,
+        } : undefined,
+      };
+      
+      return `${JSON.stringify(cacheData)}:${JSON.stringify(timeRange)}`;
+    };
+    
+    const cacheKey = createStableCacheKey(displayDashboard);
     
     if (prevDashboardRef.current === cacheKey) {
-      // Dashboard and timeRange haven't changed, skip query execution
+      // Dashboard content (excluding collapse state and layout) hasn't changed, skip query execution
       return;
     }
     
