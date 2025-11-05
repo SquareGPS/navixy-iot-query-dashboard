@@ -54,6 +54,16 @@ export interface Band {
 
 /**
  * Compute bands for all expanded rows
+ * 
+ * Bands represent the space between row headers where panels can be placed.
+ * 
+ * Standard Grafana behavior:
+ * - Band top = row.gridPos.y + 1 (starts below header)
+ * - Band bottom = nextRow.gridPos.y (extends to next row) or Infinity (last row)
+ * 
+ * Custom extension:
+ * - If `options.rowBandHeight` is set, use explicit height instead of extending to next row
+ * - This allows explicit control over row boundaries for better drop zone positioning
  */
 export function computeBands(panels: GrafanaPanel[]): Band[] {
   const rowHeaders = getRowHeaders(panels);
@@ -68,7 +78,23 @@ export function computeBands(panels: GrafanaPanel[]): Band[] {
     }
 
     const top = row.gridPos.y + 1; // Band starts below row header
-    const bottom = nextRow ? nextRow.gridPos.y : Infinity;
+    
+    // Check if row has explicit band height set
+    const explicitHeight = (row.options as any)?.rowBandHeight;
+    let bottom: number;
+    
+    if (explicitHeight !== undefined && explicitHeight !== null) {
+      // Use explicit height: band bottom = row header bottom + explicit height
+      bottom = row.gridPos.y + row.gridPos.h + explicitHeight;
+      
+      // If there's a next row, ensure we don't exceed it
+      if (nextRow && bottom > nextRow.gridPos.y) {
+        bottom = nextRow.gridPos.y;
+      }
+    } else {
+      // Default behavior: extend to next row or Infinity
+      bottom = nextRow ? nextRow.gridPos.y : Infinity;
+    }
 
     // Find all top-level panels that fall within this band
     const childIds = panels
@@ -234,16 +260,23 @@ export function movePanelToRow(
     // Use position hint if provided, otherwise use firstFit
     let newPos: { x: number; y: number };
     if (positionHint) {
-      newPos = { x: positionHint.x, y: positionHint.y };
+      // Clamp position to ensure top-left corner stays within bounds (y >= 0, x >= 0)
+      newPos = {
+        x: Math.max(0, Math.min(positionHint.x, GRID_COLUMNS - panelPos.w)),
+        y: Math.max(0, positionHint.y),
+      };
     } else {
       newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId);
     }
     
-    newDashboard.panels[panelIndex].gridPos = { ...panelPos, ...newPos };
+    // Apply clamped position
+    const newGridPos = clampToBounds({ ...panelPos, ...newPos });
+    newDashboard.panels[panelIndex].gridPos = newGridPos;
     
-    // Resolve collisions
+    // Resolve collisions (includes rows, which will be pushed down if panel is placed above them)
+    // This allows panels to be placed at y=0 (top of canvas) and below all rows
     const afterCollisions = resolveCollisionsPushDown(
-      { id: panelId, gridPos: newDashboard.panels[panelIndex].gridPos },
+      { id: panelId, gridPos: newGridPos },
       getScopePanels(newDashboard, 'top-level')
     );
     
@@ -448,7 +481,9 @@ export function reorderRows(
       // Move row header
       const rowIndex = newDashboard.panels.findIndex((p) => p.id === row.id!);
       if (rowIndex !== -1) {
-        newDashboard.panels[rowIndex].gridPos.y = newY;
+        const movedRow = newDashboard.panels[rowIndex] as RowPanel;
+        movedRow.gridPos.y = newY;
+        movedRow.gridPos.h = Math.max(1, movedRow.gridPos.h || 1); // Ensure minimum height of 1
       }
 
       // Move band children
@@ -474,11 +509,87 @@ export function reorderRows(
   afterCollisions.forEach((resolved) => {
     const idx = newDashboard.panels.findIndex((p) => p.id === resolved.id);
     if (idx !== -1) {
-      newDashboard.panels[idx].gridPos = resolved.gridPos;
+      const panel = newDashboard.panels[idx];
+      // Ensure row panels have minimum height of 1
+      if (isRowPanel(panel)) {
+        panel.gridPos = {
+          ...resolved.gridPos,
+          h: Math.max(1, resolved.gridPos.h || 1),
+        };
+      } else {
+        panel.gridPos = resolved.gridPos;
+      }
     }
   });
 
-  return canonicalizeRows(newDashboard);
+  // Ensure minimum spacing between rows after collision resolution
+  const spacedDashboard = ensureRowSpacing(newDashboard);
+  
+  return canonicalizeRows(spacedDashboard);
+}
+
+/**
+ * Ensure minimum spacing between rows (at least 1 unit apart)
+ * This prevents rows from being placed too close together, which would prevent
+ * panels from being placed between them
+ */
+function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
+  const rows = getRowHeaders(dashboard.panels);
+  
+  // If there's only one row or no rows, no spacing needed
+  if (rows.length <= 1) {
+    return dashboard;
+  }
+
+  const newDashboard: GrafanaDashboard = {
+    ...dashboard,
+    panels: dashboard.panels.map((p) => ({ ...p })),
+  };
+
+  // Sort rows by Y position
+  const sortedRows = [...rows].sort((a, b) => a.gridPos.y - b.gridPos.y);
+
+  // Ensure each row has at least 1 unit of space after the previous row
+  for (let i = 1; i < sortedRows.length; i++) {
+    const prevRow = sortedRows[i - 1];
+    const currentRow = sortedRows[i];
+    
+    // Get updated positions from newDashboard
+    const prevRowPanel = newDashboard.panels.find((p) => p.id === prevRow.id) as RowPanel | undefined;
+    const currentRowPanel = newDashboard.panels.find((p) => p.id === currentRow.id) as RowPanel | undefined;
+    
+    if (!prevRowPanel || !currentRowPanel) continue;
+    
+    // Calculate minimum Y position for current row (prevRow bottom + 1)
+    const prevRowBottom = prevRowPanel.gridPos.y + prevRowPanel.gridPos.h;
+    const minY = prevRowBottom + 1;
+    
+    // If current row is too close, push it down
+    if (currentRowPanel.gridPos.y < minY) {
+      const deltaY = minY - currentRowPanel.gridPos.y;
+      
+      // Update the row position
+      currentRowPanel.gridPos.y = minY;
+      
+      // If row is expanded, also move its band children
+      if (currentRowPanel.collapsed !== true) {
+        const band = computeBands(newDashboard.panels).find((b) => b.rowId === currentRow.id);
+        if (band) {
+          band.childIds.forEach((childId) => {
+            const childIndex = newDashboard.panels.findIndex((p) => p.id === childId);
+            if (childIndex !== -1) {
+              newDashboard.panels[childIndex].gridPos.y += deltaY;
+            }
+          });
+        }
+      }
+      
+      // Update sortedRows array for next iteration
+      sortedRows[i].gridPos.y = minY;
+    }
+  }
+
+  return newDashboard;
 }
 
 /**
@@ -524,6 +635,7 @@ export function moveRow(
     newRow.gridPos = {
       ...newRow.gridPos,
       y: newY,
+      h: Math.max(1, newRow.gridPos.h || 1), // Ensure minimum height of 1
     };
   }
 
@@ -553,7 +665,10 @@ export function moveRow(
       if (resolved.id === rowId && resolved.gridPos.y !== newY) {
         const actualDeltaY = resolved.gridPos.y - currentY;
         const newRow = newDashboard.panels[idx] as RowPanel;
-        newRow.gridPos = resolved.gridPos;
+        newRow.gridPos = {
+          ...resolved.gridPos,
+          h: Math.max(1, resolved.gridPos.h || 1), // Ensure minimum height of 1
+        };
         
         // Adjust band children to match the actual row position
         if (row.collapsed !== true && band) {
@@ -573,7 +688,10 @@ export function moveRow(
     }
   });
 
-  return canonicalizeRows(newDashboard);
+  // Ensure minimum spacing between rows after collision resolution
+  const spacedDashboard = ensureRowSpacing(newDashboard);
+  
+  return canonicalizeRows(spacedDashboard);
 }
 
 /**
@@ -710,12 +828,12 @@ export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard 
 
     const newRow = newDashboard.panels[rowIndex] as RowPanel;
 
-    // Ensure row header has correct dimensions
+    // Ensure row header has correct dimensions (minimum height of 1)
     newRow.gridPos = {
       x: 0,
       y: newRow.gridPos.y,
       w: 24,
-      h: 1,
+      h: Math.max(1, newRow.gridPos.h || 1),
     };
 
     if (newRow.collapsed === true) {
@@ -785,7 +903,10 @@ export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard 
     newDashboard.panels.forEach(fixPanel);
   }
 
-  return newDashboard;
+  // Ensure minimum spacing between rows
+  const spacedDashboard = ensureRowSpacing(newDashboard);
+
+  return spacedDashboard;
 }
 
 /**

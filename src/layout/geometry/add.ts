@@ -214,7 +214,8 @@ export function placeNewPanel(
     initialPos = firstFit(scopePanels, clampedSize, minY);
   }
 
-  // Clamp position to bounds
+  // Clamp position to bounds to ensure top-left corner stays within bounds (y >= 0, x >= 0)
+  // This allows panels to be placed at y=0 (top of canvas) and below all rows
   const clampedPos = clampToBounds({ ...initialPos, ...clampedSize });
 
   // Create new panel with default options

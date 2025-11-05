@@ -49,7 +49,8 @@ export function movePanel(
     h: movedPanel.gridPos.h,
   };
 
-  // Step 2: Clamp to bounds
+  // Step 2: Clamp to bounds to ensure top-left corner stays within bounds (y >= 0, x >= 0)
+  // This allows panels to be placed at y=0 (top of canvas) and below all rows
   snappedPos = clampToBounds(snappedPos);
 
   // Step 3: Create updated panels array with the moved panel

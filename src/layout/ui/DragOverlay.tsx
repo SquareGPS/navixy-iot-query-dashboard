@@ -40,7 +40,7 @@ export const DraggablePanel: React.FC<DraggablePanelProps> = ({
       }}
       {...listeners}
       {...attributes}
-      className={`relative ${isDragging ? 'opacity-50' : ''}`}
+      className={`relative ${isDragging ? 'opacity-0 pointer-events-none' : ''}`}
     >
       {children}
     </div>

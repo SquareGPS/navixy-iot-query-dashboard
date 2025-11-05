@@ -97,6 +97,10 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
 
   const handleToggleCollapse = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Prevent collapsing rows in edit mode
+    if (isEditingLayout) {
+      return;
+    }
     cmdToggleRowCollapsed(row.id!, !isCollapsed);
     setShowMenu(false);
   };

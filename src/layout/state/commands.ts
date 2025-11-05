@@ -82,6 +82,74 @@ export function toggleLayoutEditing(): void {
 }
 
 /**
+ * Command to resize row band height
+ * Updates the dashboard in the store and pushes to undo history
+ * 
+ * Note: This stores the explicit band height in `options.rowBandHeight` (grid units).
+ * This is a custom extension to the Grafana JSON model - standard Grafana rows
+ * extend their band to the next row or Infinity. We use this to allow explicit
+ * control over row boundaries for better drop zone positioning.
+ * 
+ * Row panels maintain standard Grafana structure:
+ * - `gridPos: {x: 0, y: variable, w: 24, h: 1}` (header height is always 1)
+ * - Panels always have absolute `gridPos` coordinates
+ * - Band height is stored in `options.rowBandHeight` (custom extension)
+ */
+export function cmdResizeRowHeight(
+  rowId: number,
+  deltaY: number
+): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  // Get current dashboard state for undo
+  const currentDashboard = store.dashboard;
+
+  // Find the row
+  const rowIndex = store.dashboard.panels.findIndex((p) => p.id === rowId && p.type === 'row');
+  if (rowIndex === -1) {
+    return;
+  }
+
+  const row = store.dashboard.panels[rowIndex];
+  const currentBandHeight = (row.options as any)?.rowBandHeight;
+  
+  // Calculate new band height in grid units
+  // deltaY is in pixels, convert to grid units
+  const GRID_UNIT_HEIGHT = 30; // From grid.ts
+  const deltaGridUnits = Math.round(deltaY / GRID_UNIT_HEIGHT);
+  
+  // Minimum band height is 1 grid unit
+  const newBandHeight = Math.max(1, (currentBandHeight ?? 0) + deltaGridUnits);
+
+  // Create updated dashboard
+  const newDashboard: GrafanaDashboard = {
+    ...store.dashboard,
+    panels: store.dashboard.panels.map((p, idx) => {
+      if (idx === rowIndex) {
+        return {
+          ...p,
+          options: {
+            ...p.options,
+            rowBandHeight: newBandHeight,
+          },
+        };
+      }
+      return p;
+    }),
+  };
+
+  // Update store
+  store.setDashboard(newDashboard);
+  
+  // Push to history for undo
+  store.pushToHistory(currentDashboard);
+}
+
+/**
  * Command to resize a panel
  * Updates the dashboard in the store and pushes to undo history
  */
@@ -134,6 +202,11 @@ export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
+    return;
+  }
+
+  // Prevent collapsing rows in edit mode
+  if (store.isEditingLayout && collapsed) {
     return;
   }
 

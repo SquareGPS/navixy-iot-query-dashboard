@@ -17,15 +17,17 @@ import {
 import { GridOverlay } from './GridOverlay';
 import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
+import { DropPreview } from './DropPreview';
 import { RowHeader } from './RowHeader';
-import { RowDropPocket } from './RowDropPocket';
+import { RowResizeHandle } from './RowResizeHandle';
+import { DropZone } from './DropZone';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { GrafanaPanel, GrafanaDashboard } from '@/types/grafana-dashboard';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
-import { getRowHeaders, computeBands, isRowPanel, scopeOf } from '../geometry/rows';
+import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } from '../geometry/rows';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
@@ -47,8 +49,14 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number; gridPos: { x: number; y: number; w: number; h: number } } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // Track what we're hovering over
   const mouseStartRef = useRef<{ x: number; y: number } | null>(null);
   
+  // Row resize state
+  const [resizeRowId, setResizeRowId] = useState<number | null>(null);
+  const [resizeRowStartPos, setResizeRowStartPos] = useState<{ y: number } | null>(null);
+  const resizeRowStartRef = useRef<{ y: number } | null>(null);
+
   // Resize state
   const [resizeHandle, setResizeHandle] = useState<ResizeHandle | null>(null);
   const [resizePanelId, setResizePanelId] = useState<number | null>(null);
@@ -61,11 +69,37 @@ export const Canvas: React.FC<CanvasProps> = ({
   const dashboardPanelsLength = useEditorStore((state) => state.dashboard?.panels.length ?? 0);
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
+  const setDashboard = useEditorStore((state) => state.setDashboard);
   
   // Debug: Log when dashboard changes
   useEffect(() => {
     console.log('Canvas: Dashboard changed, panels count:', dashboard?.panels.length);
   }, [dashboard, dashboardPanelsLength]);
+
+  // Ensure rows stay expanded in edit mode
+  useEffect(() => {
+    if (!isEditingLayout || !dashboard) return;
+    
+    // Check if any rows are collapsed
+    const collapsedRows = dashboard.panels.filter(
+      (panel) => isRowPanel(panel) && panel.id && panel.collapsed === true
+    );
+    
+    if (collapsedRows.length > 0) {
+      // Expand all collapsed rows
+      let expandedDashboard = dashboard;
+      collapsedRows.forEach((row) => {
+        if (row.id) {
+          expandedDashboard = toggleRowCollapsed(expandedDashboard, row.id, false);
+        }
+      });
+      
+      // Only update if something changed
+      if (expandedDashboard !== dashboard) {
+        setDashboard(expandedDashboard);
+      }
+    }
+  }, [isEditingLayout, dashboard, setDashboard]);
 
   // Add panel state
   const [showPanelGallery, setShowPanelGallery] = useState(false);
@@ -343,18 +377,13 @@ export const Canvas: React.FC<CanvasProps> = ({
   const handleDragOver = useCallback((event: DragOverEvent) => {
     // Visual transform is handled by useDraggable
     // Position calculation is handled by mousemove listener
-    // Check if we're hovering over a row header
-    if (!event.over || !dashboard) return;
-    
-    const overId = event.over.id.toString();
-    if (overId.startsWith('row-')) {
-      const rowId = parseInt(overId.replace('row-', ''));
-      const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
-      if (row && isRowPanel(row)) {
-        // Could show drop zone indicator here
-      }
+    // Track what we're hovering over for drop preview
+    if (event.over) {
+      setDragOverTarget(event.over.id.toString());
+    } else {
+      setDragOverTarget(null);
     }
-  }, [dashboard]);
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -414,6 +443,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
+        setDragOverTarget(null);
         return;
       }
 
@@ -422,6 +452,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
+        setDragOverTarget(null);
         return;
       }
 
@@ -432,6 +463,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
+        setDragOverTarget(null);
         return;
       }
 
@@ -460,64 +492,90 @@ export const Canvas: React.FC<CanvasProps> = ({
         }
       };
 
-      // Check if dropped over a row pocket (preferred) or row header (fallback)
-      if (event.over) {
-        const overId = event.over.id.toString();
-        if (overId.startsWith('row-pocket-')) {
-          // Explicitly dropped on row pocket - validate position
-          const targetRowId = parseInt(overId.replace('row-pocket-', ''));
-          const dropY = dragPreview.y;
-          
-          // Only move to row if drop position is actually within the row's boundaries
-          if (isDropPositionInRow(targetRowId, dropY)) {
-            // Only move if it's a different row, otherwise update position within row
-            if (targetRowId !== currentRowId) {
-              cmdMovePanelToRow(panelId, targetRowId);
+      // Check if drop position is below all rows (canvas drop)
+      const dropY = dragPreview.y;
+      const isBelowAllRows = (): boolean => {
+        if (rows.length === 0) return true;
+        
+        // Find the bottom-most row by comparing band bottoms
+        let bottomMostBandBottom = -Infinity;
+        for (const row of rows) {
+          const band = bands.find((b) => b.rowId === row.id);
+          if (band) {
+            if (band.bottom === Infinity) {
+              // If band extends to infinity, it's the last row - check against row header
+              const rowBottom = row.gridPos.y + row.gridPos.h;
+              bottomMostBandBottom = Math.max(bottomMostBandBottom, rowBottom);
             } else {
-              // Same row - update position using movePanelToRow to handle row-scoped panels correctly
-              if (currentScope === 'top-level') {
-                cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
-              } else {
-                // Panel is in a row - use movePanelToRow to update position within same row
-                cmdMovePanelToRow(panelId, targetRowId);
-              }
+              bottomMostBandBottom = Math.max(bottomMostBandBottom, band.bottom);
             }
           } else {
-            // Drop position is outside row boundaries - treat as canvas drop
-            console.log('Drop position outside row boundaries - moving to canvas');
-            if (currentScope !== 'top-level') {
-              // Moving from a row to canvas - use drop position
-              cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
-            } else {
+            // No band (collapsed row or empty row) - use row header bottom
+            const rowBottom = row.gridPos.y + row.gridPos.h;
+            bottomMostBandBottom = Math.max(bottomMostBandBottom, rowBottom);
+          }
+        }
+        
+        // If dropY is at or below the bottom-most row's band, it's below all rows
+        return dropY >= bottomMostBandBottom;
+      };
+
+      // If dropped below all rows, treat as canvas drop regardless of droppable target
+      if (isBelowAllRows()) {
+        console.log('Dropped below all rows - moving to canvas');
+        if (currentScope !== 'top-level') {
+          // Moving from a row to canvas - use drop position
+          cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
+        } else {
+          // Already at top-level - just update position
+          cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+        }
+      } else if (event.over) {
+        const overId = event.over.id.toString();
+        
+        // Check for canvas drop zones first - these take priority
+        if (overId === 'canvas-top' || overId === 'canvas-bottom') {
+          console.log('Dropped on canvas drop zone:', overId);
+          if (currentScope !== 'top-level') {
+            // Moving from a row to canvas - use drop position
+            cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
+          } else {
+            // Already at top-level - just update position
+            cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+          }
+        } else if (overId.startsWith('row-pocket-')) {
+          // Explicitly dropped on row pocket - prioritize this target row
+          // Trust the drop target over position validation for adjacent rows
+          const targetRowId = parseInt(overId.replace('row-pocket-', ''));
+          
+          // If explicitly dropped on a different row's pocket, move to that row
+          if (targetRowId !== currentRowId) {
+            console.log('Dropped on different row pocket - moving to row:', targetRowId);
+            cmdMovePanelToRow(panelId, targetRowId);
+          } else {
+            // Same row - update position using movePanelToRow to handle row-scoped panels correctly
+            if (currentScope === 'top-level') {
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+            } else {
+              // Panel is in a row - use movePanelToRow to update position within same row
+              cmdMovePanelToRow(panelId, targetRowId);
             }
           }
-        } else if (overId.startsWith('row-')) {
-          // Dropped on row header - validate position
+        } else if (overId.startsWith('row-') && !overId.startsWith('row-pocket-')) {
+          // Dropped on row header (not pocket) - prioritize this target row
+          // Trust the drop target over position validation for adjacent rows
           const targetRowId = parseInt(overId.replace('row-', ''));
-          const dropY = dragPreview.y;
           
-          // Only move to row if drop position is actually within the row's boundaries
-          if (isDropPositionInRow(targetRowId, dropY)) {
-            // Only move if it's a different row
-            if (targetRowId !== currentRowId) {
-              cmdMovePanelToRow(panelId, targetRowId);
-            } else {
-              // Same row - update position
-              if (currentScope === 'top-level') {
-                cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
-              } else {
-                cmdMovePanelToRow(panelId, targetRowId);
-              }
-            }
+          // If explicitly dropped on a different row's header, move to that row
+          if (targetRowId !== currentRowId) {
+            console.log('Dropped on different row header - moving to row:', targetRowId);
+            cmdMovePanelToRow(panelId, targetRowId);
           } else {
-            // Drop position is outside row boundaries - treat as canvas drop
-            console.log('Drop position outside row boundaries (row header) - moving to canvas');
-            if (currentScope !== 'top-level') {
-              // Moving from a row to canvas - use drop position
-              cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
-            } else {
+            // Same row - update position
+            if (currentScope === 'top-level') {
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+            } else {
+              cmdMovePanelToRow(panelId, targetRowId);
             }
           }
         } else {
@@ -546,9 +604,91 @@ export const Canvas: React.FC<CanvasProps> = ({
       setActiveId(null);
       setDragPreview(null);
       setDragStartPos(null);
+      setDragOverTarget(null);
     },
     [dashboard, dragPreview]
   );
+
+  // Handle row resize start
+  const handleRowResizeStart = useCallback(
+    (rowId: number, e: React.PointerEvent) => {
+      // Don't allow resize if we're dragging
+      if (activeId !== null) {
+        return;
+      }
+
+      e.stopPropagation();
+      e.preventDefault();
+
+      if (!containerRef.current) {
+        return;
+      }
+
+      const rect = containerRef.current.getBoundingClientRect();
+      resizeRowStartRef.current = {
+        y: e.clientY - rect.top,
+      };
+
+      setResizeRowId(rowId);
+      setResizeRowStartPos({ y: e.clientY - rect.top });
+
+      // Capture pointer
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [activeId]
+  );
+
+  // Handle row resize move
+  useEffect(() => {
+    if (!resizeRowId || !resizeRowStartRef.current || !containerRef.current) {
+      return;
+    }
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!containerRef.current || !resizeRowStartRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const currentY = e.clientY - rect.top;
+
+      const deltaY = currentY - resizeRowStartRef.current.y;
+
+      // Update preview (could show visual feedback here)
+      // For now, we'll just commit on pointer up
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!resizeRowId || !resizeRowStartRef.current || !containerRef.current) {
+        return;
+      }
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const currentY = e.clientY - rect.top;
+
+      const deltaY = currentY - resizeRowStartRef.current.y;
+
+      // Commit resize
+      cmdResizeRowHeight(resizeRowId, deltaY);
+
+      // Release pointer
+      if (e.target instanceof HTMLElement) {
+        e.target.releasePointerCapture(e.pointerId);
+      }
+
+      // Reset resize state
+      setResizeRowId(null);
+      setResizeRowStartPos(null);
+      resizeRowStartRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      resizeRowStartRef.current = null;
+    };
+  }, [resizeRowId]);
 
   // Handle resize start
   const handleResizeStart = useCallback(
@@ -683,7 +823,63 @@ export const Canvas: React.FC<CanvasProps> = ({
   );
 
   const maxY = Math.max(...dashboard.panels.map((p) => p.gridPos.y + p.gridPos.h), 0);
-  const canvasHeight = (maxY + 2) * GRID_UNIT_HEIGHT;
+
+  // Calculate positions for canvas drop zones
+  const PANEL_SPACING = 8;
+  const topRow = rows.length > 0 ? rows[0] : null;
+  const bottomRow = rows.length > 0 ? rows[rows.length - 1] : null;
+  
+  // Check if there's space above the top row (no panels above it)
+  const hasSpaceAboveTopRow = topRow && (() => {
+    if (topRow.gridPos.y === 0) return false; // Top row starts at 0, no space above
+    const panelsAboveTopRow = topLevelPanels.filter(
+      (p) => !isRowPanel(p) && p.gridPos.y < topRow.gridPos.y
+    );
+    return panelsAboveTopRow.length === 0;
+  })();
+  
+  // Calculate bottom row band bottom position - find the actual bottom of all panels in the row
+  let bottomRowBandBottom = 0;
+  if (bottomRow) {
+    const bottomBand = bands.find((b) => b.rowId === bottomRow.id);
+    if (bottomBand) {
+      if (bottomBand.bottom === Infinity) {
+        // Band extends to infinity - find the actual bottom of panels in this row
+        const rowPanels = topLevelPanels.filter((p) => 
+          !isRowPanel(p) && p.gridPos.y >= bottomBand.top
+        );
+        if (rowPanels.length > 0) {
+          const maxPanelBottom = Math.max(...rowPanels.map(p => p.gridPos.y + p.gridPos.h));
+          bottomRowBandBottom = Math.max(bottomBand.top, maxPanelBottom);
+        } else {
+          // No panels in row - check if row has explicit height
+          const explicitHeight = (bottomRow.options as any)?.rowBandHeight;
+          if (explicitHeight !== undefined && explicitHeight !== null) {
+            bottomRowBandBottom = bottomRow.gridPos.y + bottomRow.gridPos.h + explicitHeight;
+          } else {
+            // Use row header bottom + minimum height
+            bottomRowBandBottom = bottomRow.gridPos.y + bottomRow.gridPos.h + 1;
+          }
+        }
+      } else {
+        bottomRowBandBottom = bottomBand.bottom;
+      }
+    } else {
+      // No band (collapsed row or empty row) - use row header bottom
+      bottomRowBandBottom = bottomRow.gridPos.y + bottomRow.gridPos.h;
+    }
+  }
+  
+  // Always show bottom drop zone if there are rows (regardless of panels below)
+  const showBottomDropZone = bottomRow !== null;
+  
+  // Recalculate canvas height to include space for bottom drop zone
+  const canvasHeight = Math.max(
+    (maxY + 2) * GRID_UNIT_HEIGHT,
+    showBottomDropZone && bottomRow 
+      ? (bottomRowBandBottom * GRID_UNIT_HEIGHT) + 80 // Extra space for drop zone
+      : (maxY + 2) * GRID_UNIT_HEIGHT
+  );
 
   const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
     setPlacingPanelSpec({ type, size });
@@ -748,6 +944,56 @@ export const Canvas: React.FC<CanvasProps> = ({
           visible={isEditingLayout && containerWidth > 0}
         />
 
+        {/* Unified Drop Zones */}
+        {containerWidth > 0 && isEditingLayout && (
+          <>
+            {/* Drop zone above top row - always visible if rows exist */}
+            {rows.length > 0 && (
+              <DropZone
+                zoneId="canvas-top"
+                type="canvas-top"
+                label="Drop to place above rows"
+                visible={true}
+                containerWidth={containerWidth}
+                top={0}
+              />
+            )}
+            
+            {/* Drop zones inside rows */}
+            {bands.map((band) => {
+              const row = rows.find((r) => r.id === band.rowId);
+              if (!row) return null;
+              
+              const bandTop = band.top * GRID_UNIT_HEIGHT;
+              
+              return (
+                <DropZone
+                  key={`row-pocket-${band.rowId}`}
+                  zoneId={`row-pocket-${band.rowId}`}
+                  type="row-pocket"
+                  label={row.collapsed ? 'Drop to add to row' : 'Drop to place in this section'}
+                  visible={true}
+                  containerWidth={containerWidth}
+                  top={bandTop}
+                />
+              );
+            })}
+            
+            {/* Drop zone below bottom row - always visible if rows exist */}
+            {bottomRow && (
+              <DropZone
+                zoneId="canvas-bottom"
+                type="canvas-bottom"
+                label="Drop to place below rows"
+                visible={true}
+                containerWidth={containerWidth}
+                top={bottomRowBandBottom * GRID_UNIT_HEIGHT}
+              />
+            )}
+          </>
+        )}
+
+
         {/* Row Bands - Visual indication for expanded rows */}
         {bands.map((band) => {
           const bandTop = band.top * GRID_UNIT_HEIGHT;
@@ -768,6 +1014,41 @@ export const Canvas: React.FC<CanvasProps> = ({
             >
               <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 opacity-50" />
             </div>
+          );
+        })}
+
+        {/* Row Resize Handles */}
+        {containerWidth > 0 && isEditingLayout && bands.map((band) => {
+          const row = rows.find((r) => r.id === band.rowId);
+          if (!row) {
+            return null;
+          }
+          
+          // For the last row with Infinity bottom, calculate the actual bottom
+          let actualBottom = band.bottom;
+          if (band.bottom === Infinity) {
+            // Find the bottom-most panel in this row's band
+            const rowPanels = topLevelPanels.filter((p) => 
+              !isRowPanel(p) && p.gridPos.y >= band.top
+            );
+            if (rowPanels.length > 0) {
+              const maxPanelBottom = Math.max(...rowPanels.map(p => p.gridPos.y + p.gridPos.h));
+              actualBottom = Math.max(band.top, maxPanelBottom);
+            } else {
+              // No panels in row - use row header bottom + minimum height
+              actualBottom = row.gridPos.y + row.gridPos.h + 1;
+            }
+          }
+          
+          return (
+            <RowResizeHandle
+              key={`resize-${band.rowId}`}
+              rowId={band.rowId}
+              bandBottom={actualBottom}
+              containerWidth={containerWidth}
+              visible={true}
+              onResizeStart={handleRowResizeStart}
+            />
           );
         })}
 
@@ -807,13 +1088,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 enableEditControls={isEditingLayout}
                 isEditingLayout={isEditingLayout}
               />
-              <RowDropPocket
-                rowId={row.id}
-                isCollapsed={row.collapsed === true}
-                visible={isEditingLayout}
-                headerHeight={headerHeight}
-                containerWidth={adjustedWidth}
-              />
+              {/* RowDropPocket removed - now using unified DropZone */}
             </div>
           );
         })}
@@ -938,8 +1213,21 @@ export const Canvas: React.FC<CanvasProps> = ({
           />
         )}
 
+        {/* Drop Preview - Show where panel will land */}
+        {dragPreview && activeId && activeId.toString().startsWith('panel-') && (
+          <DropPreview
+            gridPos={dragPreview.gridPos}
+            containerWidth={containerWidth}
+            isOverRow={dragOverTarget ? (
+              dragOverTarget.startsWith('row-pocket-') || 
+              (dragOverTarget.startsWith('row-') && !dragOverTarget.startsWith('row-pocket-'))
+            ) : false}
+            isOverCanvasZone={dragOverTarget === 'canvas-top' || dragOverTarget === 'canvas-bottom'}
+          />
+        )}
+
         <DndKitDragOverlay>
-          {activeId && dragPreview ? (
+          {activeId && dragPreview && activeId.toString().startsWith('panel-') ? (
             <Card
               className="opacity-80 shadow-2xl"
               style={{
