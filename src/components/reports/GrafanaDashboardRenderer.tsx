@@ -23,6 +23,7 @@ interface GrafanaDashboardRendererProps {
   };
   editMode?: boolean;
   onEditPanel?: (panel: GrafanaPanel) => void;
+  onSave?: (dashboard: GrafanaDashboard) => Promise<void>;
 }
 
 interface PanelData {
@@ -37,7 +38,8 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   dashboard,
   timeRange = { from: 'now-24h', to: 'now' },
   editMode = false,
-  onEditPanel
+  onEditPanel,
+  onSave
 }) => {
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
@@ -49,9 +51,27 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const setSelectedPanel = useEditorStore((state) => state.setSelectedPanel);
   
+  // Track if dashboard was initialized to prevent re-initialization during layout editing
+  const dashboardInitializedRef = useRef(false);
+  const prevIsEditingLayoutRef = useRef(isEditingLayout);
+  
   useEffect(() => {
-    setDashboard(dashboard);
-  }, [dashboard, setDashboard]);
+    // Reset initialization flag when exiting layout editing mode
+    // This ensures we re-initialize with the updated dashboard prop
+    if (prevIsEditingLayoutRef.current && !isEditingLayout) {
+      dashboardInitializedRef.current = false;
+      // Clear query cache so queries re-execute with updated layout
+      prevDashboardRef.current = null;
+    }
+    prevIsEditingLayoutRef.current = isEditingLayout;
+    
+    // Only initialize dashboard when not in layout editing mode
+    // or when dashboard hasn't been initialized yet
+    if (!isEditingLayout || !dashboardInitializedRef.current) {
+      setDashboard(dashboard);
+      dashboardInitializedRef.current = true;
+    }
+  }, [dashboard, setDashboard, isEditingLayout]);
   
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -114,6 +134,11 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   // Execute SQL queries for all panels
   useEffect(() => {
+    // Don't execute queries when in layout editing mode
+    if (isEditingLayout) {
+      return;
+    }
+    
     // Check if dashboard has actually changed by comparing JSON strings
     const dashboardJson = JSON.stringify(dashboard);
     const timeRangeJson = JSON.stringify(timeRange);
@@ -238,7 +263,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     };
 
     executeQueries();
-  }, [dashboard, timeRange, resolveParameterBindings]);
+  }, [dashboard, timeRange, resolveParameterBindings, isEditingLayout]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
@@ -548,11 +573,15 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
               </div>
             </div>
           )}
-          onDashboardChange={(updatedDashboard) => {
+          onDashboardChange={async (updatedDashboard) => {
             // Dashboard updated through layout editor
             // The store is already updated
-            if (updatedDashboard) {
-              // Can trigger parent update if needed
+            if (updatedDashboard && onSave) {
+              try {
+                await onSave(updatedDashboard);
+              } catch (error) {
+                console.error('Error saving dashboard changes:', error);
+              }
             }
           }}
         />

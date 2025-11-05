@@ -24,6 +24,7 @@ import { toast } from '@/hooks/use-toast';
 import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboard';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
+import { useEditorStore } from '@/layout/state/editorStore';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -97,6 +98,47 @@ const ReportView = () => {
 
   // Memoize timeRange to prevent unnecessary re-renders and query re-executions
   const timeRange = useMemo(() => ({ from: 'now-24h', to: 'now' }), []);
+
+  // Sync local state with store when exiting layout editing mode
+  useEffect(() => {
+    const store = useEditorStore.getState();
+    let prevIsEditingLayout = store.isEditingLayout;
+    
+    const unsubscribe = useEditorStore.subscribe((state) => {
+      // When exiting layout editing mode (changing from true to false), sync local state with store
+      if (prevIsEditingLayout && !state.isEditingLayout && state.dashboard) {
+        // Update local state with store values immediately
+        // This ensures the dashboard prop updates so GrafanaDashboardRenderer can see the changes
+        let updatedSchema: any;
+        if (schema?.dashboard) {
+          updatedSchema = {
+            ...schema,
+            dashboard: state.dashboard
+          };
+        } else if (schema?.panels) {
+          updatedSchema = state.dashboard;
+        } else {
+          updatedSchema = {
+            dashboard: state.dashboard
+          };
+        }
+        
+        setDashboard(state.dashboard);
+        setSchema(updatedSchema);
+        
+        if (dashboardConfig) {
+          setDashboardConfig({
+            ...dashboardConfig,
+            dashboard: state.dashboard
+          });
+        }
+      }
+      
+      prevIsEditingLayout = state.isEditingLayout;
+    });
+
+    return unsubscribe;
+  }, [schema, dashboardConfig]); // Removed dashboard from deps to avoid re-running when it updates
 
   useEffect(() => {
     const fetchDefaultUrl = async () => {
@@ -290,6 +332,73 @@ const ReportView = () => {
       setSaving(false);
     }
   };
+
+  const handleSaveDashboard = useCallback(async (updatedDashboard: GrafanaDashboard) => {
+    if (!reportId || !schema) return;
+
+    // Check if we're in layout editing mode
+    const isEditingLayout = useEditorStore.getState().isEditingLayout;
+
+    try {
+      // Preserve the existing schema structure
+      let updatedSchema: any;
+      
+      if (schema.dashboard) {
+        // Schema has nested dashboard property
+        updatedSchema = {
+          ...schema,
+          dashboard: updatedDashboard
+        };
+      } else if (schema.panels) {
+        // Schema is direct GrafanaDashboard format
+        updatedSchema = updatedDashboard;
+      } else {
+        // Fallback: wrap in dashboard property
+        updatedSchema = {
+          dashboard: updatedDashboard
+        };
+      }
+
+      const response = await apiService.updateReport(reportId, {
+        title: report?.title,
+        subtitle: report?.subtitle,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to save dashboard changes');
+      }
+
+      // Only update local state if NOT in layout editing mode
+      // During layout editing, the store is the source of truth and we don't want
+      // to trigger re-renders that might reset the layout
+      if (!isEditingLayout) {
+        setDashboard(updatedDashboard);
+        setSchema(updatedSchema);
+        
+        if (dashboardConfig) {
+          setDashboardConfig({
+            ...dashboardConfig,
+            dashboard: updatedDashboard
+          });
+        }
+      }
+
+      // Show success toast (optional, can be removed if too noisy)
+      // toast({
+      //   title: 'Success',
+      //   description: 'Panel layout updated successfully',
+      // });
+    } catch (error: any) {
+      console.error('Error saving dashboard changes:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save panel layout',
+        variant: 'destructive',
+      });
+      throw error; // Re-throw so caller can handle it
+    }
+  }, [reportId, schema, report, dashboardConfig]);
 
   const handleSaveTitle = async () => {
     if (!reportId || !schema) return;
@@ -1429,6 +1538,7 @@ const ReportView = () => {
             timeRange={timeRange}
             editMode={isEditing}
             onEditPanel={setEditingPanel}
+            onSave={handleSaveDashboard}
           />
         ) : (
           /* Empty State - Show example schema download option */

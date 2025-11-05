@@ -19,7 +19,7 @@ export interface EditorActions {
   setDashboard: (dashboard: GrafanaDashboard) => void;
   setSelectedPanel: (panelId: number | null) => void;
   setIsEditingLayout: (isEditing: boolean) => void;
-  pushToHistory: (dashboard: GrafanaDashboard) => void;
+  pushToHistory: (previousDashboard: GrafanaDashboard) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -53,14 +53,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({ isEditingLayout: isEditing });
   },
 
-  pushToHistory: (dashboard: GrafanaDashboard) => {
+  pushToHistory: (previousDashboard: GrafanaDashboard) => {
     const state = get();
-    const newUndoStack = [...state.undoStack, state.dashboard!].slice(-state.maxUndoHistory);
+    const newUndoStack = [...state.undoStack, previousDashboard].slice(-state.maxUndoHistory);
     
     set({
-      dashboard,
       undoStack: newUndoStack,
       redoStack: [], // Clear redo stack on new action
+      // Note: dashboard is NOT updated here - it should already be updated by setDashboard before calling pushToHistory
     });
   },
 
