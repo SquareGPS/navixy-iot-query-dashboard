@@ -161,7 +161,7 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
     <>
       <div
         ref={setNodeRef}
-        className={`relative flex items-center gap-2 px-4 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-md transition-shadow ring-1 ring-inset ring-white/5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] ${
+        className={`relative flex items-center gap-2 px-4 py-2 bg-[var(--surface-2)] border-t border-r border-b border-[var(--border)] rounded-md transition-shadow ring-1 ring-inset ring-white/5 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] ${
           enableDrag ? 'cursor-move' : 'cursor-default'
         } ${
           isSelected 

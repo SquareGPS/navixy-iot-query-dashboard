@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { useTheme } from 'next-themes';
 import { GRID_COLUMNS } from '../../layout/geometry/grid';
 
 interface GridOverlayProps {
@@ -18,12 +19,18 @@ export const GridOverlay: React.FC<GridOverlayProps> = ({
   gridUnitHeight,
   visible = true,
 }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   if (!visible) {
     return null;
   }
 
   const columnWidth = containerWidth / GRID_COLUMNS;
   const numRows = Math.ceil(containerHeight / gridUnitHeight);
+
+  // Grid line colors: lighter in dark mode for better visibility
+  const gridColor = isDark ? 'rgba(148, 163, 184, 0.15)' : 'rgba(156, 163, 175, 0.1)';
 
   return (
     <div
@@ -34,15 +41,15 @@ export const GridOverlay: React.FC<GridOverlayProps> = ({
             90deg,
             transparent 0,
             transparent ${columnWidth - 1}px,
-            rgba(156, 163, 175, 0.1) ${columnWidth - 1}px,
-            rgba(156, 163, 175, 0.1) ${columnWidth}px
+            ${gridColor} ${columnWidth - 1}px,
+            ${gridColor} ${columnWidth}px
           ),
           repeating-linear-gradient(
             0deg,
             transparent 0,
             transparent ${gridUnitHeight - 1}px,
-            rgba(156, 163, 175, 0.1) ${gridUnitHeight - 1}px,
-            rgba(156, 163, 175, 0.1) ${gridUnitHeight}px
+            ${gridColor} ${gridUnitHeight - 1}px,
+            ${gridColor} ${gridUnitHeight}px
           )
         `,
       }}

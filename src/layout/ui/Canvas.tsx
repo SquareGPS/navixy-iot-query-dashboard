@@ -14,6 +14,7 @@ import {
   useSensors,
   closestCenter,
 } from '@dnd-kit/core';
+import { useTheme } from 'next-themes';
 import { GridOverlay } from './GridOverlay';
 import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
@@ -53,6 +54,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number; gridPos: { x: number; y: number; w: number; h: number } } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // Track what we're hovering over
   const mouseStartRef = useRef<{ x: number; y: number } | null>(null);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   
   // Row resize state
   const [resizeRowId, setResizeRowId] = useState<number | null>(null);
@@ -936,7 +939,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       <div
         ref={setContainerRef}
         data-canvas-container
-        className="relative w-full overflow-auto bg-gray-50"
+        className="relative w-full overflow-auto bg-[var(--bg)]"
         style={{ minHeight: '100vh', height: canvasHeight, width: '100%' }}
       >
         <GridOverlay
@@ -1010,15 +1013,13 @@ export const Canvas: React.FC<CanvasProps> = ({
           return (
             <div
               key={`band-${band.rowId}`}
-              className="absolute left-0 right-0 pointer-events-none border-l-4 border-blue-400 bg-blue-50/30"
+              className="absolute left-0 right-0 pointer-events-none bg-blue-50/30"
               style={{
                 top: `${bandTop}px`,
                 height: `${bandHeight}px`,
                 zIndex: 0,
               }}
-            >
-              <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 opacity-50" />
-            </div>
+            />
           );
         })}
 
@@ -1082,6 +1083,9 @@ export const Canvas: React.FC<CanvasProps> = ({
                 width: `${adjustedWidth}px`,
                 height: `${adjustedHeight}px`,
                 zIndex: 10,
+                backgroundColor: isEditingLayout 
+                  ? (isDark ? 'rgba(22, 35, 58, 0.3)' : 'rgba(237, 242, 247, 0.4)')
+                  : 'transparent',
               }}
             >
               <RowHeader
