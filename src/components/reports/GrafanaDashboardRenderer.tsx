@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -56,6 +56,62 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
 
+  /**
+   * Resolve parameter bindings from dashboard variables and time range
+   * Supports ${var_name} and ${__from}/${__to} syntax
+   */
+  const resolveParameterBindings = useCallback((
+    bindings: Record<string, string> | undefined,
+    dashboard: GrafanaDashboard,
+    timeRange: { from: string; to: string }
+  ): Record<string, any> => {
+    const resolved: Record<string, any> = {};
+    
+    if (!bindings) return resolved;
+    
+    // Helper to resolve a binding expression
+    const resolveBinding = (binding: string): any => {
+      // Handle ${var_name} syntax
+      const varMatch = binding.match(/^\$\{([^}]+)\}$/);
+      if (varMatch) {
+        const varName = varMatch[1];
+        
+        // Handle special Grafana variables
+        if (varName === '__from') {
+          return timeRange.from;
+        }
+        if (varName === '__to') {
+          return timeRange.to;
+        }
+        
+        // Handle dashboard variables
+        if (dashboard.templating?.list) {
+          const variable = dashboard.templating.list.find(v => v.name === varName);
+          if (variable?.current?.value !== undefined) {
+            return variable.current.value;
+          }
+        }
+        
+        // Try dashboard-level bindings from x-navixy
+        if (dashboard['x-navixy']?.parameters?.bindings?.[varName]) {
+          return resolveBinding(dashboard['x-navixy'].parameters.bindings[varName]);
+        }
+        
+        return binding; // Return as-is if not resolved
+      }
+      
+      // Direct value (no ${})
+      return binding;
+    };
+    
+    // Resolve all bindings
+    Object.entries(bindings).forEach(([key, value]) => {
+      resolved[key] = resolveBinding(value);
+    });
+    
+    return resolved;
+  }, []);
+
   // Execute SQL queries for all panels
   useEffect(() => {
     // Check if dashboard has actually changed by comparing JSON strings
@@ -101,6 +157,8 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
           // Prepare parameters
           const params: Record<string, any> = {};
+          
+          // Start with default values from param definitions
           if (navixyConfig.sql.params) {
             for (const [key, paramConfig] of Object.entries(navixyConfig.sql.params)) {
               if (paramConfig.default !== undefined) {
@@ -109,14 +167,30 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             }
           }
 
-          // Add time range parameters
-          params.from = timeRange.from;
-          params.to = timeRange.to;
+          // Resolve bindings from panel-level x-navixy.sql.bindings
+          const panelBindings = resolveParameterBindings(
+            navixyConfig.sql.bindings,
+            dashboard,
+            timeRange
+          );
+          Object.assign(params, panelBindings);
 
-          // Add template variables
+          // Resolve bindings from dashboard-level x-navixy.parameters.bindings
+          const dashboardBindings = resolveParameterBindings(
+            dashboard['x-navixy']?.parameters?.bindings,
+            dashboard,
+            timeRange
+          );
+          Object.assign(params, dashboardBindings);
+
+          // Add time range parameters (fallback if not in bindings)
+          if (!params.from) params.from = timeRange.from;
+          if (!params.to) params.to = timeRange.to;
+
+          // Add template variables directly (fallback if not in bindings)
           if (dashboard.templating?.list) {
             dashboard.templating.list.forEach(variable => {
-              if (variable.current?.value) {
+              if (variable.current?.value !== undefined && !(variable.name in params)) {
                 params[variable.name] = variable.current.value;
               }
             });
@@ -164,18 +238,22 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     };
 
     executeQueries();
-  }, [dashboard, timeRange]);
+  }, [dashboard, timeRange, resolveParameterBindings]);
 
   const getPanelIcon = (panelType: string) => {
+    // Map Grafana panel types to icons
     switch (panelType) {
+      case 'stat':
       case 'kpi':
         return <Activity className="h-4 w-4" />;
+      case 'bargauge':
       case 'barchart':
         return <BarChart3 className="h-4 w-4" />;
       case 'piechart':
         return <PieChart className="h-4 w-4" />;
       case 'table':
         return <Table className="h-4 w-4" />;
+      case 'timeseries':
       case 'linechart':
         return <TrendingUp className="h-4 w-4" />;
       default:
@@ -299,6 +377,59 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     );
   };
 
+  const renderLineChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+    if (!data.rows || data.rows.length === 0) {
+      return <div className="text-gray-500">No data</div>;
+    }
+
+    // Simple line chart visualization
+    // For timeseries, expect data in format: [timestamp, value] or [timestamp, series1, series2, ...]
+    const maxValue = Math.max(...data.rows.flatMap(row => 
+      row.slice(1).map(val => typeof val === 'number' ? val : 0)
+    ));
+    
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-gray-500 mb-2">Time Series Chart</div>
+        <div className="relative h-48">
+          {/* Simple line chart visualization */}
+          <svg className="w-full h-full" viewBox="0 0 400 200" preserveAspectRatio="none">
+            {data.rows.length > 1 && data.rows.map((row, index) => {
+              if (index === 0) return null;
+              const prevRow = data.rows[index - 1];
+              const x1 = ((index - 1) / (data.rows.length - 1)) * 400;
+              const x2 = (index / (data.rows.length - 1)) * 400;
+              const y1 = 200 - ((typeof prevRow[1] === 'number' ? prevRow[1] : 0) / maxValue) * 200;
+              const y2 = 200 - ((typeof row[1] === 'number' ? row[1] : 0) / maxValue) * 200;
+              
+              return (
+                <line
+                  key={index}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke="#3AA3FF"
+                  strokeWidth="2"
+                />
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTextPanel = (panel: GrafanaPanel) => {
+    // Text panels typically have content in options or a separate content field
+    const content = panel.options?.content || panel.options?.text || panel.description || '';
+    return (
+      <div className="prose max-w-none">
+        <div dangerouslySetInnerHTML={{ __html: content }} />
+      </div>
+    );
+  };
+
   const renderPanel = (panel: GrafanaPanel) => {
     const panelState = panelData[panel.title];
     
@@ -332,15 +463,23 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       return <div className="text-gray-500">No data available</div>;
     }
 
+    // Map Grafana panel types to renderers
     switch (panel.type) {
+      case 'stat':
       case 'kpi':
         return renderKpiPanel(panel, panelState.data);
+      case 'bargauge':
       case 'barchart':
         return renderBarChartPanel(panel, panelState.data);
       case 'piechart':
         return renderPieChartPanel(panel, panelState.data);
       case 'table':
         return renderTablePanel(panel, panelState.data);
+      case 'timeseries':
+      case 'linechart':
+        return renderLineChartPanel(panel, panelState.data);
+      case 'text':
+        return renderTextPanel(panel);
       default:
         return <div className="text-gray-500">Unsupported panel type: {panel.type}</div>;
     }

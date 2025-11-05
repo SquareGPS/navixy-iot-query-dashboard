@@ -1,29 +1,50 @@
 /**
- * Grafana Dashboard Types - Based on Navixy "Grafana-JSON+SQL" format
+ * Grafana Dashboard Types - Based on Grafana JSON Schema
  * Documentation: https://github.com/DanilNezhdanov/grafana-based-dashboard
+ * Schema Reference: Grafana Dashboard JSON Model
  */
 
 export interface GrafanaDashboard {
-  title: string;
+  id?: number | null;
   uid?: string;
-  time?: {
+  title: string;
+  description?: string;
+  tags?: string[];
+  style?: 'dark' | 'light';
+  timezone?: string;
+  editable?: boolean;
+  graphTooltip?: 0 | 1 | 2;
+  time: {
     from: string;
     to: string;
   };
-  templating?: {
-    list: GrafanaVariable[];
-  };
+  refresh?: string;
+  timepicker?: TimePickerConfig;
+  schemaVersion?: number;
+  version?: number;
+  templating?: TemplatingConfig;
+  annotations?: AnnotationsConfig;
+  links?: DashboardLink[];
   'x-navixy'?: NavixyConfig;
   panels: GrafanaPanel[];
 }
 
+export interface TemplatingConfig {
+  enable?: boolean;
+  list: GrafanaVariable[];
+}
+
 export interface GrafanaVariable {
-  type: 'constant' | 'query' | 'interval' | 'datasource' | 'custom';
+  type: 'constant' | 'query' | 'interval' | 'datasource' | 'custom' | 'textbox';
   name: string;
   label?: string;
-  query: string;
+  query?: string;
+  datasource?: {
+    type?: string;
+    uid?: string;
+  };
   current?: {
-    value: string;
+    value: string | string[];
     text: string;
   };
   options?: Array<{
@@ -31,10 +52,63 @@ export interface GrafanaVariable {
     value: string;
     selected?: boolean;
   }>;
-  refresh?: 0 | 1 | 2; // Never, On Dashboard Load, On Time Range Change
+  refresh?: 0 | 1 | 2 | false; // Never, On Dashboard Load, On Time Range Change
   includeAll?: boolean;
   multi?: boolean;
   allValue?: string;
+  allFormat?: 'wildcard' | 'regex' | 'glob' | 'pipe';
+  multiFormat?: 'wildcard' | 'regex' | 'glob' | 'pipe';
+  regex?: string;
+  sort?: number;
+  hide?: number;
+  description?: string;
+}
+
+export interface TimePickerConfig {
+  collapse?: boolean;
+  enable?: boolean;
+  hidden?: boolean;
+  now?: boolean;
+  nowDelay?: string;
+  refresh_intervals?: string[];
+  time_options?: string[];
+}
+
+export interface AnnotationsConfig {
+  list: AnnotationQuery[];
+}
+
+export interface AnnotationQuery {
+  builtIn?: number;
+  name: string;
+  type?: 'dashboard' | 'tags';
+  enable?: boolean;
+  hide?: boolean;
+  iconColor?: string;
+  datasource?: {
+    type: string;
+    uid: string;
+  };
+  target?: {
+    type?: string;
+    tags?: string[];
+    limit?: number;
+    matchAny?: boolean;
+  };
+  query?: string;
+}
+
+export interface DashboardLink {
+  title: string;
+  type: 'dashboards' | 'link';
+  url?: string;
+  tags?: string[];
+  asDropdown?: boolean;
+  icon?: string;
+  tooltip?: string;
+  targetBlank?: boolean;
+  includeVars?: boolean;
+  keepTime?: boolean;
 }
 
 export interface NavixyConfig {
@@ -53,21 +127,24 @@ export interface NavixyConfig {
 }
 
 export interface GrafanaPanel {
-  id?: number; // Optional ID field for panel identification
-  type: 'kpi' | 'barchart' | 'linechart' | 'piechart' | 'table' | 'text' | 'stat' | 'timeseries' | 'row';
+  id?: number;
+  type: GrafanaPanelType;
   title: string;
+  description?: string;
   gridPos: {
     x: number;
     y: number;
     w: number;
     h: number;
   };
-  'x-navixy'?: NavixyPanelConfig;
-  collapsed?: boolean; // For row panels
-  panels?: GrafanaPanel[]; // For row panels (nested children when collapsed)
+  datasource?: {
+    type?: string;
+    uid?: string;
+  } | null;
   targets?: Array<{
     refId: string;
     expr?: string;
+    query?: string;
     datasource?: {
       type: string;
       uid: string;
@@ -77,8 +154,23 @@ export interface GrafanaPanel {
     defaults?: {
       color?: {
         mode: string;
+        fixedColor?: string;
       };
       custom?: Record<string, any>;
+      mappings?: Array<Record<string, any>>;
+      thresholds?: {
+        mode: 'absolute' | 'percentage';
+        steps: Array<{
+          value: number | null;
+          color: string;
+        }>;
+      };
+      unit?: string;
+      min?: number;
+      max?: number;
+      decimals?: number;
+      displayName?: string;
+      displayMode?: string;
     };
     overrides?: Array<{
       matcher: {
@@ -92,7 +184,30 @@ export interface GrafanaPanel {
     }>;
   };
   options?: Record<string, any>;
+  'x-navixy'?: NavixyPanelConfig;
+  transparent?: boolean;
+  maxDataPoints?: number;
+  transformations?: Array<{
+    id: string;
+    options?: Record<string, any>;
+  }>;
+  collapsed?: boolean; // For row panels
+  panels?: GrafanaPanel[]; // For row panels (nested children when collapsed)
+  pluginVersion?: string;
 }
+
+export type GrafanaPanelType = 
+  | 'stat'           // Stat panel (KPI-like)
+  | 'bargauge'       // Bar gauge panel
+  | 'timeseries'     // Time series panel
+  | 'table'          // Table panel
+  | 'text'           // Text panel
+  | 'row'            // Row panel (for grouping)
+  // Legacy/alias types for backward compatibility
+  | 'kpi'            // Alias for 'stat'
+  | 'barchart'       // Alias for 'bargauge'
+  | 'linechart'      // Alias for 'timeseries'
+  | 'piechart';      // For pie charts (may use bargauge or custom)
 
 export interface NavixyPanelConfig {
   sql: {
