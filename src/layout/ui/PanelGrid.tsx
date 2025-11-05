@@ -1,0 +1,134 @@
+/**
+ * PanelGrid - Shared component for rendering panels using Grafana's 24-column grid
+ * Used in both view mode and edit mode to ensure consistent sizing
+ */
+
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import type { GrafanaPanel } from '@/types/grafana-dashboard';
+import { gridToPixels, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
+import { Card } from '@/components/ui/Card';
+
+interface PanelGridProps {
+  panels: GrafanaPanel[];
+  renderPanel: (panel: GrafanaPanel) => React.ReactNode;
+  containerClassName?: string;
+  enableDrag?: boolean;
+  selectedPanelId?: number | null;
+  onSelectPanel?: (panelId: number) => void;
+  editMode?: boolean;
+  onEditPanel?: (panel: GrafanaPanel) => void;
+}
+
+export const PanelGrid: React.FC<PanelGridProps> = ({
+  panels,
+  renderPanel,
+  containerClassName = '',
+  enableDrag = false,
+  selectedPanelId,
+  onSelectPanel,
+  editMode = false,
+  onEditPanel,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Measure container width
+  const measureWidth = useCallback(() => {
+    if (containerRef.current) {
+      const width = containerRef.current.clientWidth;
+      if (width > 0) {
+        setContainerWidth(width);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    measureWidth();
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureWidth();
+    });
+
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    window.addEventListener('resize', measureWidth);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', measureWidth);
+    };
+  }, [measureWidth]);
+
+  const maxY = Math.max(...panels.map((p) => p.gridPos.y + p.gridPos.h), 0);
+  const canvasHeight = (maxY + 2) * GRID_UNIT_HEIGHT;
+
+  if (containerWidth === 0) {
+    return (
+      <div
+        ref={containerRef}
+        className={`relative w-full ${containerClassName}`}
+        style={{ minHeight: '200px' }}
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative w-full ${containerClassName}`}
+      style={{ minHeight: canvasHeight }}
+    >
+      {panels
+        .filter((panel) => panel.id)
+        .sort((a, b) => {
+          if (a.gridPos.y !== b.gridPos.y) {
+            return a.gridPos.y - b.gridPos.y;
+          }
+          return a.gridPos.x - b.gridPos.x;
+        })
+        .map((panel) => {
+          const panelPos = gridToPixels(
+            panel.gridPos.x,
+            panel.gridPos.y,
+            containerWidth,
+            GRID_UNIT_HEIGHT
+          );
+
+          const panelWidth = (panel.gridPos.w / 24) * containerWidth;
+          const panelHeight = panel.gridPos.h * GRID_UNIT_HEIGHT;
+          const isSelected = selectedPanelId === panel.id;
+
+          return (
+            <div
+              key={panel.id}
+              style={{
+                position: 'absolute',
+                left: `${panelPos.x}px`,
+                top: `${panelPos.y}px`,
+                width: `${panelWidth}px`,
+                height: `${panelHeight}px`,
+                zIndex: 1,
+              }}
+            >
+              <Card
+                className={`relative group h-full flex flex-col ${
+                  enableDrag ? 'cursor-move' : ''
+                } ${isSelected ? 'ring-2 ring-blue-500 shadow-lg' : ''}`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  boxSizing: 'border-box',
+                }}
+                onClick={() => onSelectPanel?.(panel.id!)}
+              >
+                {renderPanel(panel)}
+              </Card>
+            </div>
+          );
+        })}
+    </div>
+  );
+};
+

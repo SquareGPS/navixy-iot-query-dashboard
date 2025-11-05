@@ -2,10 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Move } from 'lucide-react';
 import { GrafanaDashboard, GrafanaPanel, GrafanaQueryResult } from '@/types/grafana-dashboard';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { Canvas } from '@/layout/ui/Canvas';
+import { PanelGrid } from '@/layout/ui/PanelGrid';
+import { useEditorStore } from '@/layout/state/editorStore';
+import { toggleLayoutEditing } from '@/layout/state/commands';
+import { Button } from '@/components/ui/Button';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -34,6 +39,16 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Initialize editor store with dashboard
+  const setDashboard = useEditorStore((state) => state.setDashboard);
+  const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
+  const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
+  const setSelectedPanel = useEditorStore((state) => state.setSelectedPanel);
+  
+  useEffect(() => {
+    setDashboard(dashboard);
+  }, [dashboard, setDashboard]);
   
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -345,44 +360,96 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     );
   }
 
+  // If layout editing is enabled, use Canvas component
+  if (isEditingLayout && editMode) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Layout Editor</h2>
+          <Button
+            variant="secondary"
+            onClick={toggleLayoutEditing}
+          >
+            <Move className="h-4 w-4 mr-2" />
+            Exit Layout Mode
+          </Button>
+        </div>
+        <Canvas
+          renderPanelContent={(panel) => (
+            <div>
+              <div className="pb-3">
+                <h3 className="flex items-center space-x-2 text-lg font-semibold">
+                  {getPanelIcon(panel.type)}
+                  <span>{panel.title}</span>
+                </h3>
+              </div>
+              <div>
+                {renderPanel(panel)}
+              </div>
+            </div>
+          )}
+          onDashboardChange={(updatedDashboard) => {
+            // Dashboard updated through layout editor
+            // The store is already updated
+            if (updatedDashboard) {
+              // Can trigger parent update if needed
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Panels Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {dashboard.panels.map((panel, index) => (
-          <Card 
-            key={index} 
-            className="min-h-[200px] relative group"
-            style={{
-              gridColumn: `span ${panel.gridPos.w}`,
-              gridRow: `span ${panel.gridPos.h}`
-            }}
+      {editMode && (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="secondary"
+            onClick={toggleLayoutEditing}
           >
-            <div className="pb-3">
-              <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                {getPanelIcon(panel.type)}
-                <span>{panel.title}</span>
-              </h3>
-            </div>
-            <div>
-              {renderPanel(panel)}
-            </div>
-            
-            {/* Edit Button */}
-            {editMode && onEditPanel && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditPanel(panel);
-                }}
-                className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50 opacity-0 group-hover:opacity-100"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            )}
-          </Card>
-        ))}
-      </div>
+            <Move className="h-4 w-4 mr-2" />
+            Edit Layout
+          </Button>
+        </div>
+      )}
+      {/* Panels Grid - uses same 24-column system as edit mode */}
+      <PanelGrid
+        panels={dashboard.panels}
+        renderPanel={(panel) => {
+          // Add panel title and icon
+          return (
+            <>
+              <div className="pb-3 flex-shrink-0">
+                <h3 className="flex items-center space-x-2 text-lg font-semibold">
+                  {getPanelIcon(panel.type)}
+                  <span>{panel.title}</span>
+                </h3>
+              </div>
+              <div className="flex-1 overflow-auto relative">
+                {renderPanel(panel)}
+                {/* Edit Button */}
+                {editMode && onEditPanel && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditPanel(panel);
+                    }}
+                    className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50 opacity-0 group-hover:opacity-100"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </>
+          );
+        }}
+        enableDrag={false}
+        selectedPanelId={selectedPanelId}
+        onSelectPanel={setSelectedPanel}
+        editMode={editMode}
+        onEditPanel={onEditPanel}
+      />
     </div>
   );
 };
