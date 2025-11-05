@@ -10,6 +10,7 @@ import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
 import { toggleLayoutEditing, cmdAddRow } from '@/layout/state/commands';
+import { canonicalizeRows } from '@/layout/geometry/rows';
 import { Button } from '@/components/ui/Button';
 import { pixelsToGrid, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
 import { getRowHeaders } from '@/layout/geometry/rows';
@@ -50,6 +51,10 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const setSelectedPanel = useEditorStore((state) => state.setSelectedPanel);
+  const storeDashboard = useEditorStore((state) => state.dashboard);
+  
+  // Use store dashboard if available (for layout editing), otherwise use prop dashboard
+  const activeDashboard = storeDashboard || dashboard;
   
   // Track if dashboard was initialized to prevent re-initialization during layout editing
   const dashboardInitializedRef = useRef(false);
@@ -68,10 +73,21 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     // Only initialize dashboard when not in layout editing mode
     // or when dashboard hasn't been initialized yet
     if (!isEditingLayout || !dashboardInitializedRef.current) {
-      setDashboard(dashboard);
+      // Canonicalize rows to ensure expanded rows have children in main panels array
+      const canonicalizedDashboard = canonicalizeRows(dashboard);
+      setDashboard(canonicalizedDashboard);
       dashboardInitializedRef.current = true;
     }
   }, [dashboard, setDashboard, isEditingLayout]);
+  
+  // Use canonicalized dashboard for rendering
+  const displayDashboard = React.useMemo(() => {
+    if (isEditingLayout && storeDashboard) {
+      return storeDashboard;
+    }
+    // Canonicalize the prop dashboard for view mode
+    return canonicalizeRows(dashboard);
+  }, [dashboard, storeDashboard, isEditingLayout]);
   
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -158,7 +174,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       const newPanelData: PanelData = {};
       
       // Initialize panel data
-      dashboard.panels.forEach(panel => {
+      displayDashboard.panels.forEach(panel => {
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
         
@@ -180,7 +196,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       setPanelData(newPanelData);
 
       // Execute queries for each panel
-      for (const panel of dashboard.panels) {
+      for (const panel of displayDashboard.panels) {
         try {
           const navixyConfig = panel['x-navixy'];
           
@@ -214,15 +230,15 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
           // Resolve bindings from panel-level x-navixy.sql.bindings
           const panelBindings = resolveParameterBindings(
             navixyConfig.sql.bindings,
-            dashboard,
+            displayDashboard,
             timeRange
           );
           Object.assign(params, panelBindings);
 
           // Resolve bindings from dashboard-level x-navixy.parameters.bindings
           const dashboardBindings = resolveParameterBindings(
-            dashboard['x-navixy']?.parameters?.bindings,
-            dashboard,
+            displayDashboard['x-navixy']?.parameters?.bindings,
+            displayDashboard,
             timeRange
           );
           Object.assign(params, dashboardBindings);
@@ -232,8 +248,8 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
           if (!params.to) params.to = timeRange.to;
 
           // Add template variables directly (fallback if not in bindings)
-          if (dashboard.templating?.list) {
-            dashboard.templating.list.forEach(variable => {
+          if (displayDashboard.templating?.list) {
+            displayDashboard.templating.list.forEach(variable => {
               if (variable.current?.value !== undefined && !(variable.name in params)) {
                 params[variable.name] = variable.current.value;
               }
@@ -282,7 +298,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     };
 
     executeQueries();
-  }, [dashboard, timeRange, resolveParameterBindings, isEditingLayout]);
+  }, [displayDashboard, timeRange, resolveParameterBindings, isEditingLayout]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
@@ -578,7 +594,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   if (isEditingLayout && editMode) {
     const handleAddRow = () => {
       if (!dashboard) return;
-      const rows = getRowHeaders(dashboard.panels);
+      const rows = getRowHeaders(displayDashboard.panels);
       const maxY = rows.length > 0 
         ? Math.max(...rows.map((r) => r.gridPos.y + r.gridPos.h))
         : 0;
@@ -651,7 +667,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       )}
       {/* Panels Grid - uses same 24-column system as edit mode */}
       <PanelGrid
-        panels={dashboard.panels}
+        panels={displayDashboard.panels}
         renderPanel={(panel) => {
           // Add panel title and icon
           return (

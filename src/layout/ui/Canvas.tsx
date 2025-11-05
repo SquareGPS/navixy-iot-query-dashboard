@@ -19,7 +19,7 @@ import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
 import { RowHeader } from './RowHeader';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, setSelectedPanel, cmdAddPanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { GrafanaPanel, GrafanaDashboard } from '@/types/grafana-dashboard';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
@@ -204,6 +204,19 @@ export const Canvas: React.FC<CanvasProps> = ({
           y: row.gridPos.y,
           gridPos: row.gridPos,
         });
+        
+        // Capture initial mouse position for row dragging
+        const handleInitialMouseMove = (e: MouseEvent) => {
+          if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            mouseStartRef.current = {
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+            };
+            window.removeEventListener('mousemove', handleInitialMouseMove);
+          }
+        };
+        window.addEventListener('mousemove', handleInitialMouseMove);
       }
       return;
     }
@@ -242,7 +255,43 @@ export const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    const panelId = parseInt(activeId.toString().replace('panel-', ''));
+    const activeIdStr = activeId.toString();
+    
+    // Handle row dragging
+    if (activeIdStr.startsWith('row-')) {
+      const rowId = parseInt(activeIdStr.replace('row-', ''));
+      const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
+      if (!row) return;
+
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!containerRef.current || !mouseStartRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseY = e.clientY - rect.top;
+
+        const deltaY = mouseY - mouseStartRef.current.y;
+
+        // Convert delta pixels to grid units
+        const gridDeltaY = deltaY / GRID_UNIT_HEIGHT;
+
+        const initialY = dragStartPos.y;
+        const newY = Math.max(0, Math.round(initialY + gridDeltaY));
+
+        setDragPreview({
+          x: row.gridPos.x,
+          y: newY,
+          gridPos: { ...row.gridPos, y: newY },
+        });
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        mouseStartRef.current = null;
+      };
+    }
+
+    // Handle panel dragging
+    const panelId = parseInt(activeIdStr.replace('panel-', ''));
     const panel = dashboard.panels.find((p) => p.id === panelId);
     if (!panel) return;
 
@@ -306,11 +355,12 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       const activeIdStr = event.active.id.toString();
 
-      // Handle row reordering
+      // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
         const draggedRowId = parseInt(activeIdStr.replace('row-', ''));
         
         if (event.over && event.over.id.toString().startsWith('row-')) {
+          // Dropped on another row - reorder
           const targetRowId = parseInt(event.over.id.toString().replace('row-', ''));
           if (draggedRowId !== targetRowId) {
             const rows = getRowHeaders(dashboard.panels);
@@ -325,6 +375,9 @@ export const Canvas: React.FC<CanvasProps> = ({
               cmdReorderRows(newOrder);
             }
           }
+        } else if (dragPreview) {
+          // Dropped at arbitrary position - move row to new Y position
+          cmdMoveRow(draggedRowId, dragPreview.y);
         }
         
         setActiveId(null);
@@ -593,13 +646,15 @@ export const Canvas: React.FC<CanvasProps> = ({
           return (
             <div
               key={`band-${band.rowId}`}
-              className="absolute left-0 right-0 pointer-events-none opacity-10 bg-blue-200"
+              className="absolute left-0 right-0 pointer-events-none border-l-4 border-blue-400 bg-blue-50/30"
               style={{
                 top: `${bandTop}px`,
                 height: `${bandHeight}px`,
                 zIndex: 0,
               }}
-            />
+            >
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 opacity-50" />
+            </div>
           );
         })}
 
@@ -634,29 +689,108 @@ export const Canvas: React.FC<CanvasProps> = ({
           );
         })}
 
-        {/* Top-level Panels */}
-        {containerWidth > 0 && topLevelPanels
-          .filter((panel) => !isRowPanel(panel) && panel.id)
-          .sort((a, b) => {
-            // Sort by y, then x for consistent rendering order
-            if (a.gridPos.y !== b.gridPos.y) {
-              return a.gridPos.y - b.gridPos.y;
-            }
-            return a.gridPos.x - b.gridPos.x;
-          })
-          .map((panel) => (
-            <PanelCard
-              key={panel.id}
-              panel={panel}
-              containerWidth={containerWidth}
-              gridUnitHeight={GRID_UNIT_HEIGHT}
-              isSelected={selectedPanelId === panel.id}
-              isEditingLayout={isEditingLayout}
-              onSelect={setSelectedPanel}
-              onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
-              renderContent={renderPanelContent}
-            />
-          ))}
+        {/* Top-level Panels - Group by row bands */}
+        {containerWidth > 0 && (() => {
+          // Separate panels into bands and top-level
+          const bandPanels = new Map<number, GrafanaPanel[]>();
+          const topLevelOnlyPanels: GrafanaPanel[] = [];
+          
+          topLevelPanels
+            .filter((panel) => !isRowPanel(panel) && panel.id)
+            .forEach((panel) => {
+              // Find which band this panel belongs to
+              const band = bands.find((b) => 
+                panel.gridPos.y >= b.top && panel.gridPos.y < b.bottom
+              );
+              
+              if (band) {
+                if (!bandPanels.has(band.rowId)) {
+                  bandPanels.set(band.rowId, []);
+                }
+                bandPanels.get(band.rowId)!.push(panel);
+              } else {
+                topLevelOnlyPanels.push(panel);
+              }
+            });
+          
+          return (
+            <>
+              {/* Render panels within bands */}
+              {Array.from(bandPanels.entries()).map(([rowId, bandPanelsList]) => {
+                const row = rows.find((r) => r.id === rowId);
+                const band = bands.find((b) => b.rowId === rowId);
+                if (!row || !band) return null;
+                
+                return (
+                  <React.Fragment key={`band-panels-${rowId}`}>
+                    {bandPanelsList
+                      .sort((a, b) => {
+                        if (a.gridPos.y !== b.gridPos.y) {
+                          return a.gridPos.y - b.gridPos.y;
+                        }
+                        return a.gridPos.x - b.gridPos.x;
+                      })
+                      .map((panel) => {
+                        // Calculate panel position
+                        const panelPos = gridToPixels(
+                          panel.gridPos.x,
+                          panel.gridPos.y,
+                          containerWidth,
+                          GRID_UNIT_HEIGHT
+                        );
+                        
+                        // For panels inside rows, ensure they align directly below the row header
+                        // Row header ends at (row.gridPos.y + row.gridPos.h) * GRID_UNIT_HEIGHT
+                        // Panel should start at panel.gridPos.y * GRID_UNIT_HEIGHT
+                        // If panel is at the first position in the band (y = band.top), align it right below row header
+                        const isFirstInBand = panel.gridPos.y === band.top;
+                        const rowBottom = (row.gridPos.y + row.gridPos.h) * GRID_UNIT_HEIGHT;
+                        // Use minimal spacing (2px) for first panel in band, full spacing (4px) for others
+                        const adjustedTop = isFirstInBand ? rowBottom + 2 : undefined;
+                        
+                        return (
+                          <PanelCard
+                            key={panel.id}
+                            panel={panel}
+                            containerWidth={containerWidth}
+                            gridUnitHeight={GRID_UNIT_HEIGHT}
+                            isSelected={selectedPanelId === panel.id}
+                            isEditingLayout={isEditingLayout}
+                            onSelect={setSelectedPanel}
+                            onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
+                            renderContent={renderPanelContent}
+                            customTop={adjustedTop}
+                          />
+                        );
+                      })}
+                  </React.Fragment>
+                );
+              })}
+              
+              {/* Render top-level panels (not in any band) */}
+              {topLevelOnlyPanels
+                .sort((a, b) => {
+                  if (a.gridPos.y !== b.gridPos.y) {
+                    return a.gridPos.y - b.gridPos.y;
+                  }
+                  return a.gridPos.x - b.gridPos.x;
+                })
+                .map((panel) => (
+                  <PanelCard
+                    key={panel.id}
+                    panel={panel}
+                    containerWidth={containerWidth}
+                    gridUnitHeight={GRID_UNIT_HEIGHT}
+                    isSelected={selectedPanelId === panel.id}
+                    isEditingLayout={isEditingLayout}
+                    onSelect={setSelectedPanel}
+                    onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
+                    renderContent={renderPanelContent}
+                  />
+                ))}
+            </>
+          );
+        })()}
 
         {/* Collapsed Row Children - Render separately if needed */}
         {containerWidth > 0 && rows

@@ -21,6 +21,7 @@ interface PanelCardProps {
   onSelect?: (panelId: number) => void;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   renderContent: (panel: GrafanaPanel) => React.ReactNode;
+  customTop?: number; // Optional custom top position (for panels inside rows)
 }
 
 export const PanelCard: React.FC<PanelCardProps> = ({
@@ -32,6 +33,7 @@ export const PanelCard: React.FC<PanelCardProps> = ({
   onSelect,
   onResizeStart,
   renderContent,
+  customTop,
 }) => {
   if (!panel.id) {
     return null;
@@ -53,6 +55,11 @@ export const PanelCard: React.FC<PanelCardProps> = ({
   // Adjust width/height to account for spacing (half spacing on each side)
   const adjustedWidth = panelWidth - PANEL_SPACING;
   const adjustedHeight = panelHeight - PANEL_SPACING;
+  
+  // Use custom top if provided (for panels inside rows), otherwise use calculated position with spacing
+  const topPosition = customTop !== undefined 
+    ? customTop 
+    : panelPos.y + PANEL_SPACING / 2;
 
   // Debug logging (remove in production)
   if (process.env.NODE_ENV === 'development') {
@@ -69,7 +76,7 @@ export const PanelCard: React.FC<PanelCardProps> = ({
       style={{
         position: 'absolute',
         left: `${panelPos.x + PANEL_SPACING / 2}px`,
-        top: `${panelPos.y + PANEL_SPACING / 2}px`,
+        top: `${topPosition}px`,
         width: `${adjustedWidth}px`,
         height: `${adjustedHeight}px`,
         zIndex: 1,

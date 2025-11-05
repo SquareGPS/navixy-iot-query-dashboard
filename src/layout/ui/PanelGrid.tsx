@@ -7,6 +7,9 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import { gridToPixels, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
 import { Card } from '@/components/ui/Card';
+import { isRowPanel, getRowHeaders } from '@/layout/geometry/rows';
+import { RowHeader } from './RowHeader';
+import { DndContext } from '@dnd-kit/core';
 
 interface PanelGridProps {
   panels: GrafanaPanel[];
@@ -64,6 +67,21 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
   const maxY = Math.max(...panels.map((p) => p.gridPos.y + p.gridPos.h), 0);
   const canvasHeight = (maxY + 2) * GRID_UNIT_HEIGHT;
 
+  // Filter out row panels and collapsed row children
+  const rows = getRowHeaders(panels);
+  const collapsedRowChildIds = new Set<number>();
+  rows.forEach((row) => {
+    if (row.collapsed === true && row.panels) {
+      row.panels.forEach((p) => {
+        if (p.id) collapsedRowChildIds.add(p.id);
+      });
+    }
+  });
+
+  const visiblePanels = panels.filter(
+    (panel) => panel.id && !isRowPanel(panel) && !collapsedRowChildIds.has(panel.id)
+  );
+
   if (containerWidth === 0) {
     return (
       <div
@@ -75,13 +93,51 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`relative w-full ${containerClassName}`}
-      style={{ minHeight: canvasHeight }}
-    >
-      {panels
-        .filter((panel) => panel.id)
+    <DndContext>
+      <div
+        ref={containerRef}
+        className={`relative w-full ${containerClassName}`}
+        style={{ minHeight: canvasHeight }}
+      >
+      {/* Render Row Headers */}
+      {rows.map((row) => {
+        if (!row.id) return null;
+        
+        const rowPos = gridToPixels(
+          row.gridPos.x,
+          row.gridPos.y,
+          containerWidth,
+          GRID_UNIT_HEIGHT
+        );
+        const rowWidth = (row.gridPos.w / 24) * containerWidth;
+        const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
+
+        return (
+          <div
+            key={`row-${row.id}`}
+            style={{
+              position: 'absolute',
+              left: `${rowPos.x}px`,
+              top: `${rowPos.y}px`,
+              width: `${rowWidth}px`,
+              height: `${rowHeight}px`,
+              zIndex: 2,
+            }}
+          >
+            <RowHeader
+              row={row}
+              containerWidth={containerWidth}
+              isSelected={selectedPanelId === row.id}
+              onSelect={onSelectPanel}
+              enableDrag={false}
+              enableEditControls={editMode}
+            />
+          </div>
+        );
+      })}
+      
+      {/* Render Panels */}
+      {visiblePanels
         .sort((a, b) => {
           if (a.gridPos.y !== b.gridPos.y) {
             return a.gridPos.y - b.gridPos.y;
@@ -136,7 +192,8 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
             </div>
           );
         })}
-    </div>
+      </div>
+    </DndContext>
   );
 };
 

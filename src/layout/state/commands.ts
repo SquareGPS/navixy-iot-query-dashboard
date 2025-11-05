@@ -14,6 +14,8 @@ import {
   canonicalizeRows,
   packRow,
   scopeOf,
+  moveRow,
+  deleteRow,
 } from '../geometry/rows';
 import { placeNewPanel } from '../geometry/add';
 import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
@@ -170,6 +172,40 @@ export function cmdReorderRows(newRowIdOrder: number[]): void {
 
   const currentDashboard = store.dashboard;
   const newDashboard = reorderRows(store.dashboard, newRowIdOrder);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to move a row to a new Y position
+ */
+export function cmdMoveRow(rowId: number, newY: number): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = moveRow(store.dashboard, rowId, newY);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to delete a row
+ */
+export function cmdDeleteRow(rowId: number): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = deleteRow(store.dashboard, rowId);
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);

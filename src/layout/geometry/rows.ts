@@ -257,17 +257,28 @@ export function movePanelToRow(
 
     if (targetRow.collapsed === true) {
       // Move to collapsed row's panels array
+      // Panels in collapsed rows use RELATIVE Y coordinates
       if (!targetRow.panels) {
         targetRow.panels = [];
       }
       
       const scopePanels = getScopePanels(newDashboard, { rowId: targetRowId, state: 'collapsed' });
       const panelPos = panel.gridPos;
-      const newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId);
+      
+      // Convert absolute Y to relative Y for collapsed row scope
+      const rowY = targetRow.gridPos.y;
+      const bandTop = rowY + 1;
+      const relativePanelPos = {
+        ...panelPos,
+        y: panelPos.y - bandTop, // Convert to relative
+      };
+      
+      // Find position in relative coordinate space (minY=0 for collapsed rows)
+      const newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId, 0);
       
       const newPanel: GrafanaPanel = {
         ...panel,
-        gridPos: { ...panelPos, ...newPos },
+        gridPos: { ...relativePanelPos, ...newPos }, // Use relative coordinates
       };
       
       targetRow.panels.push(newPanel);
@@ -275,13 +286,13 @@ export function movePanelToRow(
       // Remove from top-level
       newDashboard.panels = newDashboard.panels.filter((p) => p.id !== panelId);
       
-      // Resolve collisions in row scope
+      // Resolve collisions in row scope (all in relative coordinates)
       const afterCollisions = resolveCollisionsPushDown(
         { id: panelId, gridPos: newPos },
         getScopePanels(newDashboard, { rowId: targetRowId, state: 'collapsed' })
       );
       
-      // Apply resolved positions
+      // Apply resolved positions (all relative)
       afterCollisions.forEach((resolved) => {
         const rowPanel = targetRow.panels!.find((p) => p.id === resolved.id);
         if (rowPanel) {
@@ -347,10 +358,19 @@ export function toggleRowCollapsed(
 
   if (collapsed) {
     // Collapse: move band children to row.panels[]
+    // Store panels with RELATIVE Y coordinates (relative to row header)
     const band = computeBands(dashboard.panels).find((b) => b.rowId === rowId);
     if (band) {
       const children = dashboard.panels.filter((p) => p.id && band.childIds.includes(p.id));
-      newRow.panels = children.map((p) => ({ ...p }));
+      const rowY = row.gridPos.y;
+      const bandTop = rowY + 1; // Band starts below row header
+      
+      newRow.panels = children.map((p) => {
+        const panel = { ...p };
+        // Convert absolute Y to relative Y (relative to band top)
+        panel.gridPos.y = panel.gridPos.y - bandTop;
+        return panel;
+      });
       // Remove from top-level
       newDashboard.panels = newDashboard.panels.filter((p) => !(p.id && band.childIds.includes(p.id)));
     } else {
@@ -358,15 +378,16 @@ export function toggleRowCollapsed(
     }
   } else {
     // Expand: move row.panels[] back to top-level
+    // Restore panels with ABSOLUTE Y coordinates
     if (newRow.panels && newRow.panels.length > 0) {
       const children = newRow.panels.map((p) => ({ ...p }));
-      // Insert children into top-level at the band position
-      const insertY = newRow.gridPos.y + 1;
+      const rowY = newRow.gridPos.y;
+      const bandTop = rowY + 1; // Band starts below row header
+      
       children.forEach((child) => {
         if (child.id) {
-          // Preserve relative Y positions (they were relative to the row header)
-          // Add insertY to make them absolute
-          child.gridPos.y = insertY + child.gridPos.y;
+          // Convert relative Y back to absolute Y
+          child.gridPos.y = bandTop + child.gridPos.y;
         }
       });
       newDashboard.panels.push(...children);
@@ -446,6 +467,152 @@ export function reorderRows(
     const idx = newDashboard.panels.findIndex((p) => p.id === resolved.id);
     if (idx !== -1) {
       newDashboard.panels[idx].gridPos = resolved.gridPos;
+    }
+  });
+
+  return canonicalizeRows(newDashboard);
+}
+
+/**
+ * Move a row to a new Y position
+ * Moves the row header and all its band children (if expanded)
+ * Resolves collisions with other panels
+ */
+export function moveRow(
+  dashboard: GrafanaDashboard,
+  rowId: number,
+  newY: number
+): GrafanaDashboard {
+  const rowIndex = dashboard.panels.findIndex((p) => isRowPanel(p) && p.id === rowId);
+  if (rowIndex === -1) {
+    return dashboard;
+  }
+
+  const row = dashboard.panels[rowIndex] as RowPanel;
+  const currentY = row.gridPos.y;
+  const deltaY = newY - currentY;
+
+  // If no movement, return unchanged
+  if (deltaY === 0) {
+    return dashboard;
+  }
+
+  const newDashboard: GrafanaDashboard = {
+    ...dashboard,
+    panels: dashboard.panels.map((p) => ({ ...p })),
+  };
+
+  // Get band children IDs before moving (to exclude from collision resolution)
+  const band = computeBands(dashboard.panels).find((b) => b.rowId === rowId);
+  const bandChildIds = new Set<number>();
+  if (row.collapsed !== true && band) {
+    band.childIds.forEach((id) => bandChildIds.add(id));
+  }
+
+  // Move row header
+  const newRowIndex = newDashboard.panels.findIndex((p) => p.id === rowId);
+  if (newRowIndex !== -1) {
+    const newRow = newDashboard.panels[newRowIndex] as RowPanel;
+    newRow.gridPos = {
+      ...newRow.gridPos,
+      y: newY,
+    };
+  }
+
+  // Move band children if row is expanded
+  if (row.collapsed !== true && band) {
+    band.childIds.forEach((childId) => {
+      const childIndex = newDashboard.panels.findIndex((p) => p.id === childId);
+      if (childIndex !== -1) {
+        newDashboard.panels[childIndex].gridPos.y += deltaY;
+      }
+    });
+  }
+
+  // Resolve collisions for all top-level panels (band children are already moved together)
+  // We need to resolve collisions between the moved row and other panels
+  const allTopLevel = getScopePanels(newDashboard, 'top-level');
+  const afterCollisions = resolveCollisionsPushDown(
+    { id: rowId, gridPos: { x: 0, y: newY, w: 24, h: 1 } },
+    allTopLevel
+  );
+
+  // Apply resolved positions
+  afterCollisions.forEach((resolved) => {
+    const idx = newDashboard.panels.findIndex((p) => p.id === resolved.id);
+    if (idx !== -1) {
+      // If collision resolution moved the row, adjust band children accordingly
+      if (resolved.id === rowId && resolved.gridPos.y !== newY) {
+        const actualDeltaY = resolved.gridPos.y - currentY;
+        const newRow = newDashboard.panels[idx] as RowPanel;
+        newRow.gridPos = resolved.gridPos;
+        
+        // Adjust band children to match the actual row position
+        if (row.collapsed !== true && band) {
+          band.childIds.forEach((childId) => {
+            const childIndex = newDashboard.panels.findIndex((p) => p.id === childId);
+            if (childIndex !== -1) {
+              const originalChildY = dashboard.panels.find((p) => p.id === childId)?.gridPos.y || 0;
+              const relativeY = originalChildY - currentY - 1;
+              newDashboard.panels[childIndex].gridPos.y = resolved.gridPos.y + 1 + relativeY;
+            }
+          });
+        }
+      } else {
+        // For other panels, just apply the resolved position
+        newDashboard.panels[idx].gridPos = resolved.gridPos;
+      }
+    }
+  });
+
+  return canonicalizeRows(newDashboard);
+}
+
+/**
+ * Delete a row from the dashboard
+ * If row is expanded, moves its band children to top-level
+ * If row is collapsed, moves its nested panels to top-level
+ */
+export function deleteRow(
+  dashboard: GrafanaDashboard,
+  rowId: number
+): GrafanaDashboard {
+  const rowIndex = dashboard.panels.findIndex((p) => isRowPanel(p) && p.id === rowId);
+  if (rowIndex === -1) {
+    return dashboard;
+  }
+
+  const row = dashboard.panels[rowIndex] as RowPanel;
+  const newDashboard: GrafanaDashboard = {
+    ...dashboard,
+    panels: dashboard.panels.map((p) => ({ ...p })),
+  };
+
+  // Handle row's children based on collapse state
+  if (row.collapsed === true) {
+    // Collapsed row: move nested panels to top-level
+    if (row.panels && row.panels.length > 0) {
+      const children = row.panels.map((p) => ({ ...p }));
+      // Add children to top-level panels array
+      newDashboard.panels.push(...children);
+    }
+  } else {
+    // Expanded row: band children are already at top-level, just need to keep them
+    // (They're already in the panels array, so nothing to move)
+  }
+
+  // Remove the row panel
+  newDashboard.panels = newDashboard.panels.filter((p) => p.id !== rowId);
+
+  // Resolve collisions and pack remaining panels
+  const allTopLevel = getScopePanels(newDashboard, 'top-level');
+  const packed = autoPack(allTopLevel);
+
+  // Apply packed positions
+  packed.forEach((packed) => {
+    const idx = newDashboard.panels.findIndex((p) => p.id === packed.id);
+    if (idx !== -1) {
+      newDashboard.panels[idx].gridPos = packed.gridPos;
     }
   });
 
