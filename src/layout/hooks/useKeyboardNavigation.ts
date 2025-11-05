@@ -49,8 +49,8 @@ export function useKeyboardNavigation() {
 
       // Row-specific shortcuts
       if (isRow) {
-        // Space or Enter: toggle collapsed
-        if (event.key === ' ' || event.key === 'Enter') {
+        // Space or Enter: toggle collapsed (disabled in edit mode)
+        if ((event.key === ' ' || event.key === 'Enter') && !isEditing) {
           event.preventDefault();
           cmdToggleRowCollapsed(selectedPanelId, !panel.collapsed);
           return;

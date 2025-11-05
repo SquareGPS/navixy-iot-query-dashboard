@@ -711,6 +711,8 @@ export const Canvas: React.FC<CanvasProps> = ({
                 isSelected={selectedPanelId === row.id}
                 onSelect={setSelectedPanel}
                 onReorder={(dir) => handleRowReorder(row.id!, dir)}
+                enableEditControls={isEditingLayout}
+                isEditingLayout={isEditingLayout}
               />
               <RowDropPocket
                 rowId={row.id}

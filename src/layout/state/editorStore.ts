@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import { isRowPanel, toggleRowCollapsed } from '../geometry/rows';
 
 export interface EditorState {
   dashboard: GrafanaDashboard | null;
@@ -13,12 +14,16 @@ export interface EditorState {
   undoStack: GrafanaDashboard[];
   redoStack: GrafanaDashboard[];
   maxUndoHistory: number;
+  // Track original collapsed states of rows before entering edit mode
+  originalCollapsedStates: Map<number, boolean>;
 }
 
 export interface EditorActions {
   setDashboard: (dashboard: GrafanaDashboard) => void;
   setSelectedPanel: (panelId: number | null) => void;
   setIsEditingLayout: (isEditing: boolean) => void;
+  setOriginalCollapsedStates: (states: Map<number, boolean>) => void;
+  clearOriginalCollapsedStates: () => void;
   pushToHistory: (previousDashboard: GrafanaDashboard) => void;
   undo: () => void;
   redo: () => void;
@@ -36,6 +41,7 @@ const initialState: EditorState = {
   undoStack: [],
   redoStack: [],
   maxUndoHistory: 50,
+  originalCollapsedStates: new Map(),
 };
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
@@ -56,7 +62,58 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   setIsEditingLayout: (isEditing: boolean) => {
-    set({ isEditingLayout: isEditing });
+    const state = get();
+    
+    if (isEditing && !state.isEditingLayout && state.dashboard) {
+      // Entering edit mode: save collapsed states and expand all rows
+      const collapsedStates = new Map<number, boolean>();
+      let expandedDashboard = state.dashboard;
+      
+      state.dashboard.panels.forEach((panel) => {
+        if (isRowPanel(panel) && panel.id) {
+          collapsedStates.set(panel.id, panel.collapsed === true);
+          // Expand collapsed rows
+          if (panel.collapsed === true) {
+            expandedDashboard = toggleRowCollapsed(expandedDashboard, panel.id, false);
+          }
+        }
+      });
+      
+      set({ 
+        isEditingLayout: true,
+        originalCollapsedStates: collapsedStates,
+        dashboard: expandedDashboard,
+      });
+    } else if (!isEditing && state.isEditingLayout && state.dashboard) {
+      // Exiting edit mode: restore collapsed states
+      let restoredDashboard = state.dashboard;
+      
+      state.dashboard.panels.forEach((panel) => {
+        if (isRowPanel(panel) && panel.id) {
+          const originalCollapsed = state.originalCollapsedStates.get(panel.id);
+          if (originalCollapsed !== undefined && originalCollapsed !== (panel.collapsed === true)) {
+            // Restore original collapsed state
+            restoredDashboard = toggleRowCollapsed(restoredDashboard, panel.id, originalCollapsed);
+          }
+        }
+      });
+      
+      set({ 
+        isEditingLayout: false,
+        dashboard: restoredDashboard,
+        originalCollapsedStates: new Map(),
+      });
+    } else {
+      set({ isEditingLayout: isEditing });
+    }
+  },
+
+  setOriginalCollapsedStates: (states: Map<number, boolean>) => {
+    set({ originalCollapsedStates: states });
+  },
+
+  clearOriginalCollapsedStates: () => {
+    set({ originalCollapsedStates: new Map() });
   },
 
   pushToHistory: (previousDashboard: GrafanaDashboard) => {

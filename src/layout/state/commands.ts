@@ -146,6 +146,7 @@ export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
 
 /**
  * Command to move a panel to a row (or top-level if targetRowId is null)
+ * Ensures the target row is expanded if in edit mode
  */
 export function cmdMovePanelToRow(panelId: number, targetRowId: number | null): void {
   const store = useEditorStore.getState();
@@ -155,7 +156,20 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null): 
   }
 
   const currentDashboard = store.dashboard;
-  const newDashboard = movePanelToRow(store.dashboard, panelId, targetRowId);
+  let dashboardToUse = currentDashboard;
+
+  // If in edit mode and targetRowId is provided, ensure the row is expanded
+  if (store.isEditingLayout && targetRowId !== null) {
+    const targetRow = dashboardToUse.panels.find(
+      (p) => isRowPanel(p) && p.id === targetRowId
+    );
+    if (targetRow && targetRow.collapsed === true) {
+      // Expand the row first
+      dashboardToUse = toggleRowCollapsed(dashboardToUse, targetRowId, false);
+    }
+  }
+
+  const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId);
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);

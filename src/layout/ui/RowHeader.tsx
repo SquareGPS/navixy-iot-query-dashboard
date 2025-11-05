@@ -21,6 +21,7 @@ interface RowHeaderProps {
   onReorder?: (direction: 'up' | 'down') => void;
   enableDrag?: boolean;
   enableEditControls?: boolean;
+  isEditingLayout?: boolean;
 }
 
 export const RowHeader: React.FC<RowHeaderProps> = ({
@@ -31,6 +32,7 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   onReorder,
   enableDrag = true,
   enableEditControls = true,
+  isEditingLayout = false,
 }) => {
   if (!isRowPanel(row) || !row.id) {
     return null;
@@ -171,9 +173,12 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
         
         <button
           onClick={handleToggleCollapse}
-          className="p-1 hover:bg-[var(--surface-3)] rounded flex-shrink-0 transition-colors"
+          disabled={isEditingLayout}
+          className={`p-1 hover:bg-[var(--surface-3)] rounded flex-shrink-0 transition-colors ${
+            isEditingLayout ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
           aria-label={isCollapsed ? 'Expand row' : 'Collapse row'}
-          title={isCollapsed ? 'Expand row to show panels' : 'Collapse row to hide panels'}
+          title={isEditingLayout ? 'Rows are expanded in edit mode' : (isCollapsed ? 'Expand row to show panels' : 'Collapse row to hide panels')}
         >
           {isCollapsed ? (
             <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />
