@@ -112,21 +112,27 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
         const rowWidth = (row.gridPos.w / 24) * containerWidth;
         const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
 
+        // Grafana-style spacing: add margins for visual spacing (same as panels)
+        const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
+        // Adjust width/height to account for spacing (half spacing on each side)
+        const adjustedWidth = rowWidth - PANEL_SPACING;
+        const adjustedHeight = rowHeight - PANEL_SPACING;
+
         return (
           <div
             key={`row-${row.id}`}
             style={{
               position: 'absolute',
-              left: `${rowPos.x}px`,
-              top: `${rowPos.y}px`,
-              width: `${rowWidth}px`,
-              height: `${rowHeight}px`,
+              left: `${rowPos.x + PANEL_SPACING / 2}px`,
+              top: `${rowPos.y + PANEL_SPACING / 2}px`,
+              width: `${adjustedWidth}px`,
+              height: `${adjustedHeight}px`,
               zIndex: 2,
             }}
           >
             <RowHeader
               row={row}
-              containerWidth={containerWidth}
+              containerWidth={adjustedWidth}
               isSelected={selectedPanelId === row.id}
               onSelect={onSelectPanel}
               enableDrag={false}

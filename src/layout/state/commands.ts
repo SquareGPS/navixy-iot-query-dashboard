@@ -247,6 +247,34 @@ export function cmdPackRow(rowId: number): void {
 }
 
 /**
+ * Command to rename a row
+ */
+export function cmdRenameRow(rowId: number, newTitle: string): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const rowIndex = currentDashboard.panels.findIndex((p) => isRowPanel(p) && p.id === rowId);
+  
+  if (rowIndex === -1) {
+    return;
+  }
+
+  const newDashboard: GrafanaDashboard = {
+    ...currentDashboard,
+    panels: currentDashboard.panels.map((p, idx) => 
+      idx === rowIndex ? { ...p, title: newTitle } : p
+    ),
+  };
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
  * Canonicalize rows (call before saving)
  */
 export function cmdCanonicalizeRows(): void {

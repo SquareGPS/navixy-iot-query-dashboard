@@ -687,21 +687,27 @@ export const Canvas: React.FC<CanvasProps> = ({
           const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
           const headerHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
 
+          // Grafana-style spacing: add margins for visual spacing (same as panels)
+          const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
+          // Adjust width/height to account for spacing (half spacing on each side)
+          const adjustedWidth = rowWidth - PANEL_SPACING;
+          const adjustedHeight = rowHeight - PANEL_SPACING;
+
           return (
             <div
               key={`row-${row.id}`}
               style={{
                 position: 'absolute',
-                left: `${rowPos.x}px`,
-                top: `${rowPos.y}px`,
-                width: `${rowWidth}px`,
-                height: `${rowHeight}px`,
-                zIndex: 2,
+                left: `${rowPos.x + PANEL_SPACING / 2}px`,
+                top: `${rowPos.y + PANEL_SPACING / 2}px`,
+                width: `${adjustedWidth}px`,
+                height: `${adjustedHeight}px`,
+                zIndex: 10,
               }}
             >
               <RowHeader
                 row={row}
-                containerWidth={containerWidth}
+                containerWidth={adjustedWidth}
                 isSelected={selectedPanelId === row.id}
                 onSelect={setSelectedPanel}
                 onReorder={(dir) => handleRowReorder(row.id!, dir)}
@@ -711,7 +717,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 isCollapsed={row.collapsed === true}
                 visible={isEditingLayout}
                 headerHeight={headerHeight}
-                containerWidth={containerWidth}
+                containerWidth={adjustedWidth}
               />
             </div>
           );
@@ -767,14 +773,11 @@ export const Canvas: React.FC<CanvasProps> = ({
                           GRID_UNIT_HEIGHT
                         );
                         
-                        // For panels inside rows, ensure they align directly below the row header
-                        // Row header ends at (row.gridPos.y + row.gridPos.h) * GRID_UNIT_HEIGHT
-                        // Panel should start at panel.gridPos.y * GRID_UNIT_HEIGHT
-                        // If panel is at the first position in the band (y = band.top), align it right below row header
-                        const isFirstInBand = panel.gridPos.y === band.top;
-                        const rowBottom = (row.gridPos.y + row.gridPos.h) * GRID_UNIT_HEIGHT;
-                        // Use minimal spacing (2px) for first panel in band, full spacing (4px) for others
-                        const adjustedTop = isFirstInBand ? rowBottom + 2 : undefined;
+                        // For panels inside rows, use normal spacing calculation
+                        // The panel's gridPos.y already accounts for being below the row header
+                        // Just use the standard spacing calculation like other panels
+                        const PANEL_SPACING = 8;
+                        const adjustedTop = panelPos.y + PANEL_SPACING / 2;
                         
                         return (
                           <PanelCard
