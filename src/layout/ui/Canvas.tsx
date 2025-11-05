@@ -38,11 +38,13 @@ import { AddPanelGhost } from './AddPanelGhost';
 interface CanvasProps {
   renderPanelContent: (panel: GrafanaPanel) => React.ReactNode;
   onDashboardChange?: (dashboard: GrafanaDashboard) => void;
+  onEditPanel?: (panel: GrafanaPanel) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   renderPanelContent,
   onDashboardChange,
+  onEditPanel,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -1159,6 +1161,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                             isEditingLayout={isEditingLayout}
                             onSelect={setSelectedPanel}
                             onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
+                            onEditPanel={onEditPanel}
                             renderContent={renderPanelContent}
                             customTop={adjustedTop}
                           />
@@ -1186,6 +1189,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                     isEditingLayout={isEditingLayout}
                     onSelect={setSelectedPanel}
                     onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
+                    onEditPanel={onEditPanel}
                     renderContent={renderPanelContent}
                   />
                 ))}

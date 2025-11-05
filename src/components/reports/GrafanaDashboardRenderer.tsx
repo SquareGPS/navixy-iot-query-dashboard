@@ -659,6 +659,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
               }
             }
           }}
+          onEditPanel={onEditPanel}
         />
       </div>
     );

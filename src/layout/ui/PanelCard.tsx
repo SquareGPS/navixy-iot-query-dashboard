@@ -2,14 +2,14 @@
  * PanelCard component - individual draggable panel card
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { DraggablePanel } from './DragOverlay';
 import { ResizeHandles } from './ResizeHandles';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import type { ResizeHandle } from '../geometry/resize';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from '../../layout/geometry/grid';
 import { Button } from '@/components/ui/button';
-import { Copy } from 'lucide-react';
+import { Copy, Pencil } from 'lucide-react';
 import { cmdDuplicatePanel } from '../state/commands';
 
 interface PanelCardProps {
@@ -20,6 +20,7 @@ interface PanelCardProps {
   isEditingLayout?: boolean;
   onSelect?: (panelId: number) => void;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
+  onEditPanel?: (panel: GrafanaPanel) => void;
   renderContent: (panel: GrafanaPanel) => React.ReactNode;
   customTop?: number; // Optional custom top position (for panels inside rows)
 }
@@ -32,9 +33,11 @@ export const PanelCard: React.FC<PanelCardProps> = ({
   isEditingLayout = false,
   onSelect,
   onResizeStart,
+  onEditPanel,
   renderContent,
   customTop,
 }) => {
+  const [isHovered, setIsHovered] = useState(false);
   if (!panel.id) {
     return null;
   }
@@ -100,11 +103,35 @@ export const PanelCard: React.FC<PanelCardProps> = ({
             flexDirection: 'column',
           }}
           onClick={() => onSelect?.(panel.id!)}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
         >
           <div className="flex-1 overflow-auto p-4">{renderContent(panel)}</div>
+          
+          {/* Edit button - shown on hover in edit mode, always in same position */}
+          {isEditingLayout && onEditPanel && (
+            <div className="absolute top-2 right-2 flex gap-1 z-10">
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-7 w-7 p-0 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg transition-opacity ${
+                  isHovered || isSelected ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditPanel(panel);
+                }}
+                title="Edit panel"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          
+          {/* Selected panel controls - duplicate button */}
           {isEditingLayout && isSelected && (
             <>
-              <div className="absolute top-2 right-2 flex gap-1 z-10">
+              <div className="absolute top-2 right-10 flex gap-1 z-10">
                 <Button
                   variant="outline"
                   size="sm"
