@@ -43,6 +43,13 @@ export const PanelCard: React.FC<PanelCardProps> = ({
 
   const panelWidth = (panel.gridPos.w / 24) * containerWidth;
   const panelHeight = panel.gridPos.h * gridUnitHeight;
+  
+  // Grafana-style spacing: add margins for visual spacing
+  // Panels remain back-to-back in grid coordinates, but CSS positioning creates visual gaps
+  const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
+  // Adjust width/height to account for spacing (half spacing on each side)
+  const adjustedWidth = panelWidth - PANEL_SPACING;
+  const adjustedHeight = panelHeight - PANEL_SPACING;
 
   // Debug logging (remove in production)
   if (process.env.NODE_ENV === 'development') {
@@ -58,11 +65,12 @@ export const PanelCard: React.FC<PanelCardProps> = ({
     <div
       style={{
         position: 'absolute',
-        left: `${panelPos.x}px`,
-        top: `${panelPos.y}px`,
-        width: `${panelWidth}px`,
-        height: `${panelHeight}px`,
+        left: `${panelPos.x + PANEL_SPACING / 2}px`,
+        top: `${panelPos.y + PANEL_SPACING / 2}px`,
+        width: `${adjustedWidth}px`,
+        height: `${adjustedHeight}px`,
         zIndex: 1,
+        boxSizing: 'border-box',
       }}
     >
       <DraggablePanel

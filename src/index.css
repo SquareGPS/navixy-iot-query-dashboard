@@ -59,3 +59,9 @@ header {
 .group-data-\[side\=right\]\:border-l {
   border-left-color: var(--border-subtle) !important;
 }
+
+/* Grafana-style panel spacing */
+/* Panels are positioned back-to-back in grid coordinates, but CSS margins add visual spacing */
+:root {
+  --panel-spacing: 8px; /* Visual gap between panels (matching Grafana's ~8-10px) */
+}

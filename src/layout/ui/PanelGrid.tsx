@@ -99,17 +99,25 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
           const panelWidth = (panel.gridPos.w / 24) * containerWidth;
           const panelHeight = panel.gridPos.h * GRID_UNIT_HEIGHT;
           const isSelected = selectedPanelId === panel.id;
+          
+          // Grafana-style spacing: add margins for visual spacing
+          // Panels remain back-to-back in grid coordinates, but CSS margins create visual gaps
+          const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
+          // Adjust width/height to account for margins (half spacing on each side)
+          const adjustedWidth = panelWidth - PANEL_SPACING;
+          const adjustedHeight = panelHeight - PANEL_SPACING;
 
           return (
             <div
               key={panel.id}
               style={{
                 position: 'absolute',
-                left: `${panelPos.x}px`,
-                top: `${panelPos.y}px`,
-                width: `${panelWidth}px`,
-                height: `${panelHeight}px`,
+                left: `${panelPos.x + PANEL_SPACING / 2}px`,
+                top: `${panelPos.y + PANEL_SPACING / 2}px`,
+                width: `${adjustedWidth}px`,
+                height: `${adjustedHeight}px`,
                 zIndex: 1,
+                boxSizing: 'border-box',
               }}
             >
               <Card
