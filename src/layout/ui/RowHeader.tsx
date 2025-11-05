@@ -144,6 +144,12 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
     if (isDragging || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a')) {
       return;
     }
+    // Prevent click if this was part of a drag operation
+    // dnd-kit sets a data attribute on the event target when dragging
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-draggable]') || target.hasAttribute('data-draggable')) {
+      return;
+    }
     onSelect?.(row.id!);
   };
 
@@ -165,6 +171,13 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
           transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         }}
         onClick={handleClick}
+        onPointerDown={(e) => {
+          // Don't prevent drag if clicking on buttons
+          if ((e.target as HTMLElement).closest('button')) {
+            return;
+          }
+          // Let dnd-kit handle the drag
+        }}
         {...(enableDrag ? { ...listeners, ...attributes } : {})}
       >
         {enableDrag && (

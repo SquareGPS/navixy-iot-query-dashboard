@@ -52,7 +52,7 @@ export const RowDropPocket: React.FC<RowDropPocketProps> = ({
           top: `${headerHeight}px`,
           width: `${fullWidth}px`,
           height: isOver ? '64px' : '4px', // Reduced from 8px to 4px to be less intrusive
-          zIndex: 20,
+          zIndex: 5, // Lower than row header (zIndex: 10) so it doesn't intercept drag
           pointerEvents: 'auto',
         }}
       />
@@ -65,7 +65,7 @@ export const RowDropPocket: React.FC<RowDropPocketProps> = ({
         style={{
           top: `${headerHeight}px`,
           width: `${fullWidth}px`,
-          zIndex: 20,
+          zIndex: 5, // Lower than row header so it doesn't intercept drag
         }}
         aria-label="Row drop area"
         role="region"

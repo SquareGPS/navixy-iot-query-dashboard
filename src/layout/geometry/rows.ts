@@ -195,7 +195,8 @@ function firstFit(
 export function movePanelToRow(
   dashboard: GrafanaDashboard,
   panelId: number,
-  targetRowId: number | null
+  targetRowId: number | null,
+  positionHint?: { x: number; y: number }
 ): GrafanaDashboard {
   const panelIndex = dashboard.panels.findIndex((p) => p.id === panelId);
   if (panelIndex === -1) {
@@ -229,7 +230,14 @@ export function movePanelToRow(
     // Move to top-level
     const panelPos = panel.gridPos;
     const scopePanels = getScopePanels(newDashboard, 'top-level').filter((p) => p.id !== panelId);
-    const newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId);
+    
+    // Use position hint if provided, otherwise use firstFit
+    let newPos: { x: number; y: number };
+    if (positionHint) {
+      newPos = { x: positionHint.x, y: positionHint.y };
+    } else {
+      newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId);
+    }
     
     newDashboard.panels[panelIndex].gridPos = { ...panelPos, ...newPos };
     

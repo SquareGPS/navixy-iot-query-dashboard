@@ -203,9 +203,11 @@ export const Canvas: React.FC<CanvasProps> = ({
     
     // Check if it's a row header
     if (activeIdStr.startsWith('row-')) {
+      console.log('Row drag started:', activeIdStr);
       const rowId = parseInt(activeIdStr.replace('row-', ''));
       const row = dashboard?.panels.find((p) => isRowPanel(p) && p.id === rowId);
       if (row && containerRef.current) {
+        console.log('Row found, setting drag preview:', row.id, row.gridPos);
         setDragStartPos({ x: row.gridPos.x, y: row.gridPos.y });
         setDragPreview({
           x: row.gridPos.x,
@@ -225,6 +227,8 @@ export const Canvas: React.FC<CanvasProps> = ({
           }
         };
         window.addEventListener('mousemove', handleInitialMouseMove);
+      } else {
+        console.warn('Row not found or container not ready:', rowId, row, containerRef.current);
       }
       return;
     }
@@ -365,12 +369,18 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
+        console.log('Row drag ended:', activeIdStr, 'dragPreview:', dragPreview, 'over:', event.over?.id);
         const draggedRowId = parseInt(activeIdStr.replace('row-', ''));
         const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === draggedRowId);
         
-        if (event.over && event.over.id.toString().startsWith('row-')) {
-          // Dropped on another row - reorder
-          const targetRowId = parseInt(event.over.id.toString().replace('row-', ''));
+        // Ignore drop pockets - only check for actual row headers
+        const overId = event.over?.id.toString();
+        const isOverRow = overId && overId.startsWith('row-') && !overId.startsWith('row-pocket-');
+        
+        if (isOverRow) {
+          // Dropped on another row header - reorder
+          const targetRowId = parseInt(overId.replace('row-', ''));
+          console.log('Dropped on row header:', targetRowId, 'draggedRowId:', draggedRowId);
           if (draggedRowId !== targetRowId) {
             const rows = getRowHeaders(dashboard.panels);
             const currentOrder = rows.map((r) => r.id!);
@@ -381,13 +391,24 @@ export const Canvas: React.FC<CanvasProps> = ({
               const newOrder = [...currentOrder];
               newOrder.splice(draggedIndex, 1);
               newOrder.splice(targetIndex, 0, draggedRowId);
+              console.log('Reordering rows:', newOrder);
               cmdReorderRows(newOrder);
+            }
+          } else {
+            console.log('Dropped on same row - moving to position');
+            // Dropped on same row but at different position - just move
+            if (dragPreview && dragPreview.y !== row?.gridPos.y) {
+              console.log('Moving row to new position:', draggedRowId, dragPreview.y);
+              cmdMoveRow(draggedRowId, dragPreview.y);
             }
           }
         } else if (dragPreview && dragPreview.y !== row?.gridPos.y) {
-          // Dropped at arbitrary position - move row to new Y position
+          // Dropped at arbitrary position (not on another row) - move row to new Y position
           // Only move if the position actually changed
+          console.log('Moving row to new position (canvas drop):', draggedRowId, dragPreview.y, 'oldY:', row?.gridPos.y);
           cmdMoveRow(draggedRowId, dragPreview.y);
+        } else {
+          console.log('No row move - dragPreview:', dragPreview, 'row.gridPos.y:', row?.gridPos.y, 'isOverRow:', isOverRow);
         }
         
         setActiveId(null);
@@ -463,8 +484,10 @@ export const Canvas: React.FC<CanvasProps> = ({
             }
           } else {
             // Drop position is outside row boundaries - treat as canvas drop
+            console.log('Drop position outside row boundaries - moving to canvas');
             if (currentScope !== 'top-level') {
-              cmdMovePanelToRow(panelId, null);
+              // Moving from a row to canvas - use drop position
+              cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
             } else {
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
             }
@@ -489,17 +512,20 @@ export const Canvas: React.FC<CanvasProps> = ({
             }
           } else {
             // Drop position is outside row boundaries - treat as canvas drop
+            console.log('Drop position outside row boundaries (row header) - moving to canvas');
             if (currentScope !== 'top-level') {
-              cmdMovePanelToRow(panelId, null);
+              // Moving from a row to canvas - use drop position
+              cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
             } else {
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
             }
           }
         } else {
           // Dropped on canvas or other element - move to top-level if not already there
+          console.log('Dropped on canvas - moving to top-level');
           if (currentScope !== 'top-level') {
-            // Moving from a row to canvas
-            cmdMovePanelToRow(panelId, null);
+            // Moving from a row to canvas - use drop position
+            cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
           } else {
             // Already at top-level - just update position
             cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
@@ -507,9 +533,10 @@ export const Canvas: React.FC<CanvasProps> = ({
         }
       } else {
         // No over target - dropped on canvas, move to top-level if not already there
+        console.log('No over target - dropped on canvas');
         if (currentScope !== 'top-level') {
-          // Moving from a row to canvas
-          cmdMovePanelToRow(panelId, null);
+          // Moving from a row to canvas - use drop position
+          cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
         } else {
           // Already at top-level - just update position
           cmdMovePanel(panelId, dragPreview.x, dragPreview.y);

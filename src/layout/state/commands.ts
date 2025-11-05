@@ -148,7 +148,7 @@ export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
  * Command to move a panel to a row (or top-level if targetRowId is null)
  * Ensures the target row is expanded if in edit mode
  */
-export function cmdMovePanelToRow(panelId: number, targetRowId: number | null): void {
+export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, positionHint?: { x: number; y: number }): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -169,7 +169,7 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null): 
     }
   }
 
-  const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId);
+  const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId, positionHint);
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
@@ -199,11 +199,19 @@ export function cmdMoveRow(rowId: number, newY: number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
+    console.warn('cmdMoveRow: No dashboard in store');
     return;
   }
 
+  console.log('cmdMoveRow: Moving row', rowId, 'to Y position', newY);
   const currentDashboard = store.dashboard;
+  const rowBefore = currentDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
+  console.log('cmdMoveRow: Row before move:', rowBefore?.gridPos);
+  
   const newDashboard = moveRow(store.dashboard, rowId, newY);
+  
+  const rowAfter = newDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
+  console.log('cmdMoveRow: Row after move:', rowAfter?.gridPos);
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
