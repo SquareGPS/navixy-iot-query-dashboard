@@ -366,6 +366,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
         const draggedRowId = parseInt(activeIdStr.replace('row-', ''));
+        const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === draggedRowId);
         
         if (event.over && event.over.id.toString().startsWith('row-')) {
           // Dropped on another row - reorder
@@ -383,8 +384,9 @@ export const Canvas: React.FC<CanvasProps> = ({
               cmdReorderRows(newOrder);
             }
           }
-        } else if (dragPreview) {
+        } else if (dragPreview && dragPreview.y !== row?.gridPos.y) {
           // Dropped at arbitrary position - move row to new Y position
+          // Only move if the position actually changed
           cmdMoveRow(draggedRowId, dragPreview.y);
         }
         
@@ -412,24 +414,106 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
+      // Get current scope of the panel
+      const currentScope = scopeOf(panelId, dashboard);
+      const currentRowId = currentScope === 'top-level' ? null : currentScope.rowId;
+      
+      // Compute bands to check if drop position is actually within a row
+      const bands = computeBands(dashboard.panels);
+      const rows = getRowHeaders(dashboard.panels);
+
+      // Helper function to check if drop position is within a row's valid area
+      const isDropPositionInRow = (rowId: number, dropY: number): boolean => {
+        const row = rows.find((r) => r.id === rowId);
+        if (!row) return false;
+        
+        if (row.collapsed === true) {
+          // For collapsed rows, only accept drops very close to the header (within 2 grid units)
+          const headerBottom = row.gridPos.y + row.gridPos.h;
+          return dropY >= row.gridPos.y && dropY <= headerBottom + 2;
+        } else {
+          // For expanded rows, check if drop is within the band
+          const band = bands.find((b) => b.rowId === rowId);
+          if (!band) return false;
+          return dropY >= band.top && dropY < band.bottom;
+        }
+      };
+
       // Check if dropped over a row pocket (preferred) or row header (fallback)
       if (event.over) {
         const overId = event.over.id.toString();
         if (overId.startsWith('row-pocket-')) {
-          // Dropped on row pocket - move to row
+          // Explicitly dropped on row pocket - validate position
           const targetRowId = parseInt(overId.replace('row-pocket-', ''));
-          cmdMovePanelToRow(panelId, targetRowId);
+          const dropY = dragPreview.y;
+          
+          // Only move to row if drop position is actually within the row's boundaries
+          if (isDropPositionInRow(targetRowId, dropY)) {
+            // Only move if it's a different row, otherwise update position within row
+            if (targetRowId !== currentRowId) {
+              cmdMovePanelToRow(panelId, targetRowId);
+            } else {
+              // Same row - update position using movePanelToRow to handle row-scoped panels correctly
+              if (currentScope === 'top-level') {
+                cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+              } else {
+                // Panel is in a row - use movePanelToRow to update position within same row
+                cmdMovePanelToRow(panelId, targetRowId);
+              }
+            }
+          } else {
+            // Drop position is outside row boundaries - treat as canvas drop
+            if (currentScope !== 'top-level') {
+              cmdMovePanelToRow(panelId, null);
+            } else {
+              cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+            }
+          }
         } else if (overId.startsWith('row-')) {
-          // Dropped on row header - also move to row (fallback)
+          // Dropped on row header - validate position
           const targetRowId = parseInt(overId.replace('row-', ''));
-          cmdMovePanelToRow(panelId, targetRowId);
+          const dropY = dragPreview.y;
+          
+          // Only move to row if drop position is actually within the row's boundaries
+          if (isDropPositionInRow(targetRowId, dropY)) {
+            // Only move if it's a different row
+            if (targetRowId !== currentRowId) {
+              cmdMovePanelToRow(panelId, targetRowId);
+            } else {
+              // Same row - update position
+              if (currentScope === 'top-level') {
+                cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+              } else {
+                cmdMovePanelToRow(panelId, targetRowId);
+              }
+            }
+          } else {
+            // Drop position is outside row boundaries - treat as canvas drop
+            if (currentScope !== 'top-level') {
+              cmdMovePanelToRow(panelId, null);
+            } else {
+              cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+            }
+          }
         } else {
-          // Regular move (top-level)
-          cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+          // Dropped on canvas or other element - move to top-level if not already there
+          if (currentScope !== 'top-level') {
+            // Moving from a row to canvas
+            cmdMovePanelToRow(panelId, null);
+          } else {
+            // Already at top-level - just update position
+            cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+          }
         }
       } else {
-        // Regular move (top-level)
-        cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+        // No over target - dropped on canvas, move to top-level if not already there
+        if (currentScope !== 'top-level') {
+          // Moving from a row to canvas
+          cmdMovePanelToRow(panelId, null);
+        } else {
+          // Already at top-level - just update position
+          cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+        }
       }
 
       setActiveId(null);
@@ -692,6 +776,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 containerWidth={adjustedWidth}
                 isSelected={selectedPanelId === row.id}
                 onSelect={setSelectedPanel}
+                enableDrag={isEditingLayout}
                 enableEditControls={isEditingLayout}
                 isEditingLayout={isEditingLayout}
               />

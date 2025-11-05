@@ -139,6 +139,14 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   const panelWidth = containerWidth; // Use containerWidth directly (already adjusted by parent)
   const panelHeight = row.gridPos.h * 30; // GRID_UNIT_HEIGHT
 
+  const handleClick = (e: React.MouseEvent) => {
+    // Don't select if we're dragging or if click came from a button or interactive element
+    if (isDragging || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('a')) {
+      return;
+    }
+    onSelect?.(row.id!);
+  };
+
   return (
     <>
       <div
@@ -156,17 +164,31 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
           boxSizing: 'border-box',
           transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         }}
-        onClick={() => onSelect?.(row.id!)}
+        onClick={handleClick}
         {...(enableDrag ? { ...listeners, ...attributes } : {})}
       >
-        {enableDrag && <GripVertical className="h-4 w-4 text-[var(--text-muted)] flex-shrink-0" />}
+        {enableDrag && (
+          <div
+            className="cursor-grab active:cursor-grabbing p-1 -ml-1 rounded hover:bg-[var(--surface-3)] flex-shrink-0 pointer-events-none"
+            style={{ touchAction: 'none' }}
+          >
+            <GripVertical className="h-4 w-4 text-[var(--text-muted)]" />
+          </div>
+        )}
         
         <button
-          onClick={handleToggleCollapse}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleCollapse(e);
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
           disabled={isEditingLayout}
           className={`p-1 hover:bg-[var(--surface-3)] rounded flex-shrink-0 transition-colors ${
             isEditingLayout ? 'opacity-50 cursor-not-allowed' : ''
           }`}
+          style={{ pointerEvents: 'auto' }}
           aria-label={isCollapsed ? 'Expand row' : 'Collapse row'}
           title={isEditingLayout ? 'Rows are expanded in edit mode' : (isCollapsed ? 'Expand row to show panels' : 'Collapse row to hide panels')}
         >
@@ -189,6 +211,10 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
                   e.stopPropagation();
                   setShowMenu(!showMenu);
                 }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                }}
+                style={{ pointerEvents: 'auto' }}
                 title="More options"
               >
                 <MoreVertical className="h-4 w-4" />

@@ -61,15 +61,16 @@ export const PanelCard: React.FC<PanelCardProps> = ({
     ? customTop 
     : panelPos.y + PANEL_SPACING / 2;
 
-  // Debug logging (remove in production)
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`Panel ${panel.id} (${panel.title}):`, {
-      gridPos: panel.gridPos,
-      pixelPos: panelPos,
-      pixelSize: { width: panelWidth, height: panelHeight },
-      containerWidth,
-    });
-  }
+  // Debug logging removed to prevent excessive console output
+  // Uncomment for debugging:
+  // if (process.env.NODE_ENV === 'development') {
+  //   console.log(`Panel ${panel.id} (${panel.title}):`, {
+  //     gridPos: panel.gridPos,
+  //     pixelPos: panelPos,
+  //     pixelSize: { width: panelWidth, height: panelHeight },
+  //     containerWidth,
+  //   });
+  // }
 
   return (
     <div

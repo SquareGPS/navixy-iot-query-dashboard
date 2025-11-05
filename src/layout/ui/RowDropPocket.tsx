@@ -44,14 +44,14 @@ export const RowDropPocket: React.FC<RowDropPocketProps> = ({
 
   return (
     <>
-      {/* Invisible hitbox for droppable - enable pointer events when dragging */}
+      {/* Invisible hitbox for droppable - smaller when not hovering to avoid intercepting canvas drops */}
       <div
         ref={setNodeRef}
         className="absolute left-0"
         style={{
           top: `${headerHeight}px`,
           width: `${fullWidth}px`,
-          height: isOver ? '64px' : '8px',
+          height: isOver ? '64px' : '4px', // Reduced from 8px to 4px to be less intrusive
           zIndex: 20,
           pointerEvents: 'auto',
         }}
