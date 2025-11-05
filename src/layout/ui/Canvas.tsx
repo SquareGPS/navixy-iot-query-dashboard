@@ -958,6 +958,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 visible={true}
                 containerWidth={containerWidth}
                 top={0}
+                isDragActive={activeId !== null}
               />
             )}
             
@@ -977,6 +978,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                   visible={true}
                   containerWidth={containerWidth}
                   top={bandTop}
+                  isDragActive={activeId !== null}
                 />
               );
             })}
@@ -990,6 +992,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 visible={true}
                 containerWidth={containerWidth}
                 top={bottomRowBandBottom * GRID_UNIT_HEIGHT}
+                isDragActive={activeId !== null}
               />
             )}
           </>
