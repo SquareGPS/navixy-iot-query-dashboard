@@ -18,6 +18,7 @@ import { GridOverlay } from './GridOverlay';
 import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
 import { RowHeader } from './RowHeader';
+import { RowDropPocket } from './RowDropPocket';
 import { useEditorStore } from '../state/editorStore';
 import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
@@ -55,9 +56,16 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [resizePreview, setResizePreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const resizeStartRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Use a more specific selector to ensure re-renders when panels change
   const dashboard = useEditorStore((state) => state.dashboard);
+  const dashboardPanelsLength = useEditorStore((state) => state.dashboard?.panels.length ?? 0);
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
+  
+  // Debug: Log when dashboard changes
+  useEffect(() => {
+    console.log('Canvas: Dashboard changed, panels count:', dashboard?.panels.length);
+  }, [dashboard, dashboardPanelsLength]);
 
   // Add panel state
   const [showPanelGallery, setShowPanelGallery] = useState(false);
@@ -404,10 +412,21 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
-      // Check if dropped over a row header
-      if (event.over && event.over.id.toString().startsWith('row-')) {
-        const targetRowId = parseInt(event.over.id.toString().replace('row-', ''));
-        cmdMovePanelToRow(panelId, targetRowId);
+      // Check if dropped over a row pocket (preferred) or row header (fallback)
+      if (event.over) {
+        const overId = event.over.id.toString();
+        if (overId.startsWith('row-pocket-')) {
+          // Dropped on row pocket - move to row
+          const targetRowId = parseInt(overId.replace('row-pocket-', ''));
+          cmdMovePanelToRow(panelId, targetRowId);
+        } else if (overId.startsWith('row-')) {
+          // Dropped on row header - also move to row (fallback)
+          const targetRowId = parseInt(overId.replace('row-', ''));
+          cmdMovePanelToRow(panelId, targetRowId);
+        } else {
+          // Regular move (top-level)
+          cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+        }
       } else {
         // Regular move (top-level)
         cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
@@ -534,6 +553,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     return null;
   }
 
+  // Ensure we have the latest dashboard from the store
   const rows = getRowHeaders(dashboard.panels);
   const bands = computeBands(dashboard.panels);
   
@@ -665,6 +685,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           const rowPos = gridToPixels(row.gridPos.x, row.gridPos.y, containerWidth, GRID_UNIT_HEIGHT);
           const rowWidth = (row.gridPos.w / 24) * containerWidth;
           const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
+          const headerHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
 
           return (
             <div
@@ -684,6 +705,13 @@ export const Canvas: React.FC<CanvasProps> = ({
                 isSelected={selectedPanelId === row.id}
                 onSelect={setSelectedPanel}
                 onReorder={(dir) => handleRowReorder(row.id!, dir)}
+              />
+              <RowDropPocket
+                rowId={row.id}
+                isCollapsed={row.collapsed === true}
+                visible={isEditingLayout}
+                headerHeight={headerHeight}
+                containerWidth={containerWidth}
               />
             </div>
           );

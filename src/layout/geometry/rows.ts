@@ -591,8 +591,20 @@ export function deleteRow(
   // Handle row's children based on collapse state
   if (row.collapsed === true) {
     // Collapsed row: move nested panels to top-level
+    // Convert relative Y coordinates to absolute coordinates
     if (row.panels && row.panels.length > 0) {
-      const children = row.panels.map((p) => ({ ...p }));
+      const rowY = row.gridPos.y;
+      const bandTop = rowY + 1; // Band starts below row header
+      
+      const children = row.panels.map((p) => {
+        const panel = { ...p };
+        // Convert relative Y back to absolute Y
+        if (panel.id) {
+          panel.gridPos.y = bandTop + panel.gridPos.y;
+        }
+        return panel;
+      });
+      
       // Add children to top-level panels array
       newDashboard.panels.push(...children);
     }

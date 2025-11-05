@@ -65,3 +65,17 @@ header {
 :root {
   --panel-spacing: 8px; /* Visual gap between panels (matching Grafana's ~8-10px) */
 }
+
+/* Animated pulsing border for row drop pocket */
+@keyframes pulse-border {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+[data-state="active"] .border-dashed {
+  animation: pulse-border 1.5s ease-in-out infinite;
+}

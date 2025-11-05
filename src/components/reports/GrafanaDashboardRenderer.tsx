@@ -594,10 +594,14 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   if (isEditingLayout && editMode) {
     const handleAddRow = () => {
       if (!dashboard) return;
-      const rows = getRowHeaders(displayDashboard.panels);
-      const maxY = rows.length > 0 
-        ? Math.max(...rows.map((r) => r.gridPos.y + r.gridPos.h))
+      
+      // Calculate maximum Y position considering ALL panels and rows
+      // This ensures the new row is placed below all existing elements
+      const allPanels = displayDashboard.panels.filter((p) => p.id);
+      const maxY = allPanels.length > 0
+        ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
         : 0;
+      
       cmdAddRow(maxY, 'New row');
     };
 

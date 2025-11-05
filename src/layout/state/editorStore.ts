@@ -42,7 +42,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   ...initialState,
 
   setDashboard: (dashboard: GrafanaDashboard) => {
-    set({ dashboard, undoStack: [], redoStack: [] });
+    console.log('setDashboard called with panels count:', dashboard.panels.length);
+    // Ensure we create a new object reference for Zustand to detect the change
+    set({ 
+      dashboard: { ...dashboard, panels: [...dashboard.panels] }, 
+      undoStack: [], 
+      redoStack: [] 
+    });
   },
 
   setSelectedPanel: (panelId: number | null) => {

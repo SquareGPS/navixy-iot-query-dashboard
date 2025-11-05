@@ -77,9 +77,14 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   };
 
   const handleDeleteRow = () => {
-    cmdDeleteRow(row.id!);
-    setShowDeleteDialog(false);
-    setShowMenu(false);
+    console.log('handleDeleteRow called for row:', row.id);
+    try {
+      cmdDeleteRow(row.id!);
+      setShowDeleteDialog(false);
+      setShowMenu(false);
+    } catch (error) {
+      console.error('Error deleting row:', error);
+    }
   };
 
   const handleMoveUp = () => {
@@ -200,6 +205,7 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
                     className="w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[var(--surface-3)] flex items-center gap-2 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
+                      console.log('Delete button clicked, setting showDeleteDialog to true');
                       setShowDeleteDialog(true);
                       setShowMenu(false);
                     }}
@@ -216,8 +222,11 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
       </div>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        console.log('Dialog onOpenChange called with:', open);
+        setShowDeleteDialog(open);
+      }}>
+        <DialogContent className="z-[100]">
           <DialogHeader>
             <DialogTitle>Delete Row</DialogTitle>
             <DialogDescription>

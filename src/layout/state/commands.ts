@@ -16,6 +16,7 @@ import {
   scopeOf,
   moveRow,
   deleteRow,
+  isRowPanel,
 } from '../geometry/rows';
 import { placeNewPanel } from '../geometry/add';
 import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
@@ -201,12 +202,29 @@ export function cmdDeleteRow(rowId: number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
+    console.warn('cmdDeleteRow: No dashboard in store');
     return;
   }
 
+  console.log('cmdDeleteRow: Deleting row', rowId);
   const currentDashboard = store.dashboard;
   const newDashboard = deleteRow(store.dashboard, rowId);
   
+  // Check if row was actually deleted by comparing panel counts
+  const oldRowCount = currentDashboard.panels.filter((p) => isRowPanel(p) && p.id === rowId).length;
+  const newRowCount = newDashboard.panels.filter((p) => isRowPanel(p) && p.id === rowId).length;
+  
+  if (oldRowCount === 0) {
+    console.warn('cmdDeleteRow: Row not found');
+    return;
+  }
+  
+  if (oldRowCount === newRowCount) {
+    console.warn('cmdDeleteRow: Row was not deleted');
+    return;
+  }
+  
+  console.log('cmdDeleteRow: Setting new dashboard. Old panels:', currentDashboard.panels.length, 'New panels:', newDashboard.panels.length);
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
 }
