@@ -111,10 +111,8 @@ export const PanelCard: React.FC<PanelCardProps> = ({
           {/* Edit button - shown on hover in edit mode, always in same position */}
           {isEditingLayout && onEditPanel && (
             <div className="absolute top-2 right-2 flex gap-1 z-10">
-              <Button
-                variant="outline"
-                size="sm"
-                className={`h-7 w-7 p-0 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg transition-opacity ${
+              <button
+                className={`h-7 w-7 p-0 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg transition-opacity rounded-sm flex items-center justify-center ${
                   isHovered || isSelected ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
                 onClick={(e) => {
@@ -123,8 +121,8 @@ export const PanelCard: React.FC<PanelCardProps> = ({
                 }}
                 title="Edit panel"
               >
-                <Pencil className="h-4 w-4" />
-              </Button>
+                <Pencil className="h-4 w-4 text-primary-foreground" strokeWidth={2.5} />
+              </button>
             </div>
           )}
           
