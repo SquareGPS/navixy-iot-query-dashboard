@@ -6,6 +6,14 @@
 import { useEditorStore } from './editorStore';
 import { movePanel } from '../geometry/move';
 import { applyResize, type ResizeHandle, type ResizeDelta } from '../geometry/resize';
+import {
+  createRow,
+  toggleRowCollapsed,
+  movePanelToRow,
+  reorderRows,
+  canonicalizeRows,
+  packRow,
+} from '../geometry/rows';
 import type { GrafanaDashboard } from '@/types/grafana-dashboard';
 
 /**
@@ -95,5 +103,104 @@ export function cmdResizePanel(
   
   // Push to history for undo
   store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to add a new row
+ */
+export function cmdAddRow(insertY: number, title: string = 'New row'): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = createRow(store.dashboard, insertY, title);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to toggle row collapsed state
+ */
+export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = toggleRowCollapsed(store.dashboard, rowId, collapsed);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to move a panel to a row (or top-level if targetRowId is null)
+ */
+export function cmdMovePanelToRow(panelId: number, targetRowId: number | null): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = movePanelToRow(store.dashboard, panelId, targetRowId);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to reorder rows
+ */
+export function cmdReorderRows(newRowIdOrder: number[]): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = reorderRows(store.dashboard, newRowIdOrder);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to pack a row (auto-pack within row scope)
+ */
+export function cmdPackRow(rowId: number): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = packRow(store.dashboard, rowId);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Canonicalize rows (call before saving)
+ */
+export function cmdCanonicalizeRows(): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const newDashboard = canonicalizeRows(store.dashboard);
+  store.setDashboard(newDashboard);
 }
 

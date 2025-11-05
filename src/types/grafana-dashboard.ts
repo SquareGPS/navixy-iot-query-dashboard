@@ -54,7 +54,7 @@ export interface NavixyConfig {
 
 export interface GrafanaPanel {
   id?: number; // Optional ID field for panel identification
-  type: 'kpi' | 'barchart' | 'linechart' | 'piechart' | 'table' | 'text' | 'stat' | 'timeseries';
+  type: 'kpi' | 'barchart' | 'linechart' | 'piechart' | 'table' | 'text' | 'stat' | 'timeseries' | 'row';
   title: string;
   gridPos: {
     x: number;
@@ -62,7 +62,9 @@ export interface GrafanaPanel {
     w: number;
     h: number;
   };
-  'x-navixy': NavixyPanelConfig;
+  'x-navixy'?: NavixyPanelConfig;
+  collapsed?: boolean; // For row panels
+  panels?: GrafanaPanel[]; // For row panels (nested children when collapsed)
   targets?: Array<{
     refId: string;
     expr?: string;

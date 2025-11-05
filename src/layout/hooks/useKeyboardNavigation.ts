@@ -5,9 +5,10 @@
 
 import { useEffect, useRef } from 'react';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdToggleRowCollapsed, cmdPackRow, cmdReorderRows } from '../state/commands';
 import type { ResizeHandle } from '../geometry/resize';
 import { GRID_UNIT_HEIGHT, GRID_COLUMNS } from '../geometry/grid';
+import { getRowHeaders, isRowPanel } from '../geometry/rows';
 
 export function useKeyboardNavigation() {
   const dashboard = useEditorStore((state) => state.dashboard);
@@ -38,13 +39,52 @@ export function useKeyboardNavigation() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle arrow keys
-      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      const panel = dashboard.panels.find((p) => p.id === selectedPanelId);
+      if (!panel) {
         return;
       }
 
-      const panel = dashboard.panels.find((p) => p.id === selectedPanelId);
-      if (!panel) {
+      const isRow = isRowPanel(panel);
+      const isMeta = event.metaKey || event.ctrlKey;
+
+      // Row-specific shortcuts
+      if (isRow) {
+        // Space or Enter: toggle collapsed
+        if (event.key === ' ' || event.key === 'Enter') {
+          event.preventDefault();
+          cmdToggleRowCollapsed(selectedPanelId, !panel.collapsed);
+          return;
+        }
+
+        // Cmd/Ctrl+ArrowUp/Down: reorder row
+        if (isMeta && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+          event.preventDefault();
+          const rows = getRowHeaders(dashboard.panels);
+          const currentOrder = rows.map((r) => r.id!);
+          const index = currentOrder.indexOf(selectedPanelId);
+          
+          if (event.key === 'ArrowUp' && index > 0) {
+            const newOrder = [...currentOrder];
+            [newOrder[index], newOrder[index - 1]] = [newOrder[index - 1], newOrder[index]];
+            cmdReorderRows(newOrder);
+          } else if (event.key === 'ArrowDown' && index < currentOrder.length - 1) {
+            const newOrder = [...currentOrder];
+            [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+            cmdReorderRows(newOrder);
+          }
+          return;
+        }
+
+        // Cmd/Ctrl+G: Pack row
+        if (isMeta && event.key === 'g') {
+          event.preventDefault();
+          cmdPackRow(selectedPanelId);
+          return;
+        }
+      }
+
+      // Only handle arrow keys for panels
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         return;
       }
 

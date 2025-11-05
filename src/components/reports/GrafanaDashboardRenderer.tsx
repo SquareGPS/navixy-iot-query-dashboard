@@ -9,8 +9,11 @@ import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { toggleLayoutEditing } from '@/layout/state/commands';
+import { toggleLayoutEditing, cmdAddRow } from '@/layout/state/commands';
 import { Button } from '@/components/ui/Button';
+import { pixelsToGrid, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
+import { getRowHeaders } from '@/layout/geometry/rows';
+import { Plus } from 'lucide-react';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -362,17 +365,35 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   // If layout editing is enabled, use Canvas component
   if (isEditingLayout && editMode) {
+    const handleAddRow = () => {
+      if (!dashboard) return;
+      const rows = getRowHeaders(dashboard.panels);
+      const maxY = rows.length > 0 
+        ? Math.max(...rows.map((r) => r.gridPos.y + r.gridPos.h))
+        : 0;
+      cmdAddRow(maxY, 'New row');
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Layout Editor</h2>
-          <Button
-            variant="secondary"
-            onClick={toggleLayoutEditing}
-          >
-            <Move className="h-4 w-4 mr-2" />
-            Exit Layout Mode
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleAddRow}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Row
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={toggleLayoutEditing}
+            >
+              <Move className="h-4 w-4 mr-2" />
+              Exit Layout Mode
+            </Button>
+          </div>
         </div>
         <Canvas
           renderPanelContent={(panel) => (

@@ -17,12 +17,14 @@ import {
 import { GridOverlay } from './GridOverlay';
 import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
+import { RowHeader } from './RowHeader';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, setSelectedPanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, setSelectedPanel } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { GrafanaPanel, GrafanaDashboard } from '@/types/grafana-dashboard';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
+import { getRowHeaders, computeBands, isRowPanel } from '../geometry/rows';
 import { Card } from '@/components/ui/Card';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 
@@ -180,7 +182,25 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
     
     setActiveId(event.active.id as string);
-    const panelId = parseInt(event.active.id.toString().replace('panel-', ''));
+    const activeIdStr = event.active.id.toString();
+    
+    // Check if it's a row header
+    if (activeIdStr.startsWith('row-')) {
+      const rowId = parseInt(activeIdStr.replace('row-', ''));
+      const row = dashboard?.panels.find((p) => isRowPanel(p) && p.id === rowId);
+      if (row && containerRef.current) {
+        setDragStartPos({ x: row.gridPos.x, y: row.gridPos.y });
+        setDragPreview({
+          x: row.gridPos.x,
+          y: row.gridPos.y,
+          gridPos: row.gridPos,
+        });
+      }
+      return;
+    }
+    
+    // Regular panel drag
+    const panelId = parseInt(activeIdStr.replace('panel-', ''));
     const panel = dashboard?.panels.find((p) => p.id === panelId);
     if (panel && containerRef.current) {
       // Store initial panel grid position
@@ -250,21 +270,69 @@ export const Canvas: React.FC<CanvasProps> = ({
     };
   }, [activeId, dragStartPos, containerWidth, dashboard]);
 
-  const handleDragOver = useCallback(() => {
+  const handleDragOver = useCallback((event: DragOverEvent) => {
     // Visual transform is handled by useDraggable
     // Position calculation is handled by mousemove listener
-  }, []);
+    // Check if we're hovering over a row header
+    if (!event.over || !dashboard) return;
+    
+    const overId = event.over.id.toString();
+    if (overId.startsWith('row-')) {
+      const rowId = parseInt(overId.replace('row-', ''));
+      const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
+      if (row && isRowPanel(row)) {
+        // Could show drop zone indicator here
+      }
+    }
+  }, [dashboard]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (!dashboard || !dragPreview) {
+      if (!dashboard) {
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
         return;
       }
 
-      const panelId = parseInt(event.active.id.toString().replace('panel-', ''));
+      const activeIdStr = event.active.id.toString();
+
+      // Handle row reordering
+      if (activeIdStr.startsWith('row-')) {
+        const draggedRowId = parseInt(activeIdStr.replace('row-', ''));
+        
+        if (event.over && event.over.id.toString().startsWith('row-')) {
+          const targetRowId = parseInt(event.over.id.toString().replace('row-', ''));
+          if (draggedRowId !== targetRowId) {
+            const rows = getRowHeaders(dashboard.panels);
+            const currentOrder = rows.map((r) => r.id!);
+            const draggedIndex = currentOrder.indexOf(draggedRowId);
+            const targetIndex = currentOrder.indexOf(targetRowId);
+            
+            if (draggedIndex !== -1 && targetIndex !== -1) {
+              const newOrder = [...currentOrder];
+              newOrder.splice(draggedIndex, 1);
+              newOrder.splice(targetIndex, 0, draggedRowId);
+              cmdReorderRows(newOrder);
+            }
+          }
+        }
+        
+        setActiveId(null);
+        setDragPreview(null);
+        setDragStartPos(null);
+        return;
+      }
+
+      // Handle panel drag
+      if (!dragPreview) {
+        setActiveId(null);
+        setDragPreview(null);
+        setDragStartPos(null);
+        return;
+      }
+
+      const panelId = parseInt(activeIdStr.replace('panel-', ''));
       const panel = dashboard.panels.find((p) => p.id === panelId);
 
       if (!panel) {
@@ -274,8 +342,14 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
-      // Use the preview position (already calculated from mouse movement)
-      cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+      // Check if dropped over a row header
+      if (event.over && event.over.id.toString().startsWith('row-')) {
+        const targetRowId = parseInt(event.over.id.toString().replace('row-', ''));
+        cmdMovePanelToRow(panelId, targetRowId);
+      } else {
+        // Regular move (top-level)
+        cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+      }
 
       setActiveId(null);
       setDragPreview(null);
@@ -398,8 +472,43 @@ export const Canvas: React.FC<CanvasProps> = ({
     return null;
   }
 
+  const rows = getRowHeaders(dashboard.panels);
+  const bands = computeBands(dashboard.panels);
+  
+  // Get top-level panels (excluding nested children of collapsed rows)
+  const collapsedRowChildIds = new Set<number>();
+  rows.forEach((row) => {
+    if (row.collapsed === true && row.panels) {
+      row.panels.forEach((p) => {
+        if (p.id) collapsedRowChildIds.add(p.id);
+      });
+    }
+  });
+
+  const topLevelPanels = dashboard.panels.filter(
+    (p) => p.id && !collapsedRowChildIds.has(p.id)
+  );
+
   const maxY = Math.max(...dashboard.panels.map((p) => p.gridPos.y + p.gridPos.h), 0);
   const canvasHeight = (maxY + 2) * GRID_UNIT_HEIGHT;
+
+  const handleRowReorder = useCallback((rowId: number, direction: 'up' | 'down') => {
+    if (!dashboard) return;
+    const currentRows = getRowHeaders(dashboard.panels);
+    const currentOrder = currentRows.map((r) => r.id!);
+    const index = currentOrder.indexOf(rowId);
+    if (index === -1) return;
+
+    if (direction === 'up' && index > 0) {
+      const newOrder = [...currentOrder];
+      [newOrder[index], newOrder[index - 1]] = [newOrder[index - 1], newOrder[index]];
+      cmdReorderRows(newOrder);
+    } else if (direction === 'down' && index < currentOrder.length - 1) {
+      const newOrder = [...currentOrder];
+      [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+      cmdReorderRows(newOrder);
+    }
+  }, [dashboard]);
 
   return (
     <DndContext
@@ -422,8 +531,61 @@ export const Canvas: React.FC<CanvasProps> = ({
           visible={isEditingLayout && containerWidth > 0}
         />
 
-        {containerWidth > 0 && dashboard.panels
-          .filter((panel) => panel.id)
+        {/* Row Bands - Visual indication for expanded rows */}
+        {bands.map((band) => {
+          const bandTop = band.top * GRID_UNIT_HEIGHT;
+          const bandBottom = band.bottom === Infinity 
+            ? canvasHeight 
+            : band.bottom * GRID_UNIT_HEIGHT;
+          const bandHeight = bandBottom - bandTop;
+          
+          return (
+            <div
+              key={`band-${band.rowId}`}
+              className="absolute left-0 right-0 pointer-events-none opacity-10 bg-blue-200"
+              style={{
+                top: `${bandTop}px`,
+                height: `${bandHeight}px`,
+                zIndex: 0,
+              }}
+            />
+          );
+        })}
+
+        {/* Row Headers */}
+        {containerWidth > 0 && rows.map((row) => {
+          if (!row.id) return null;
+          
+          const rowPos = gridToPixels(row.gridPos.x, row.gridPos.y, containerWidth, GRID_UNIT_HEIGHT);
+          const rowWidth = (row.gridPos.w / 24) * containerWidth;
+          const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
+
+          return (
+            <div
+              key={`row-${row.id}`}
+              style={{
+                position: 'absolute',
+                left: `${rowPos.x}px`,
+                top: `${rowPos.y}px`,
+                width: `${rowWidth}px`,
+                height: `${rowHeight}px`,
+                zIndex: 2,
+              }}
+            >
+              <RowHeader
+                row={row}
+                containerWidth={containerWidth}
+                isSelected={selectedPanelId === row.id}
+                onSelect={setSelectedPanel}
+                onReorder={(dir) => handleRowReorder(row.id!, dir)}
+              />
+            </div>
+          );
+        })}
+
+        {/* Top-level Panels */}
+        {containerWidth > 0 && topLevelPanels
+          .filter((panel) => !isRowPanel(panel) && panel.id)
           .sort((a, b) => {
             // Sort by y, then x for consistent rendering order
             if (a.gridPos.y !== b.gridPos.y) {
@@ -444,6 +606,17 @@ export const Canvas: React.FC<CanvasProps> = ({
               renderContent={renderPanelContent}
             />
           ))}
+
+        {/* Collapsed Row Children - Render separately if needed */}
+        {containerWidth > 0 && rows
+          .filter((row) => row.collapsed === true && row.panels && row.panels.length > 0)
+          .map((row) => {
+            if (!row.id || !row.panels) return null;
+            
+            // For collapsed rows, children are not rendered in the main canvas
+            // They're only visible when the row is expanded
+            return null;
+          })}
 
         {/* Resize Preview */}
         {resizePreview && resizePanelId && (
