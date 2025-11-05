@@ -13,8 +13,10 @@ import {
   reorderRows,
   canonicalizeRows,
   packRow,
+  scopeOf,
 } from '../geometry/rows';
-import type { GrafanaDashboard } from '@/types/grafana-dashboard';
+import { placeNewPanel } from '../geometry/add';
+import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
 
 /**
  * Command to move a panel
@@ -202,5 +204,88 @@ export function cmdCanonicalizeRows(): void {
 
   const newDashboard = canonicalizeRows(store.dashboard);
   store.setDashboard(newDashboard);
+}
+
+/**
+ * Command to add a new panel
+ * spec: { type, title?, size?, target?: 'top' | { rowId, state }, hint?: { nearPanelId?: number } }
+ */
+export function cmdAddPanel(spec: {
+  type: string;
+  title?: string;
+  size?: { w: number; h: number };
+  target?: 'top' | { rowId: number; state: 'collapsed' | 'expanded' };
+  hint?: { nearPanelId?: number; position?: { x: number; y: number } };
+}): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = placeNewPanel(store.dashboard, spec);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to duplicate a panel
+ * Creates a new panel with the same type/options/fieldConfig, positioned near the original
+ */
+export function cmdDuplicatePanel(panelId: number): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const panel = store.dashboard.panels.find((p) => p.id === panelId);
+  if (!panel) {
+    return;
+  }
+
+  // Determine target scope
+  const scope = scopeOf(panelId, store.dashboard);
+  const target = scope === 'top-level' ? 'top' : scope;
+
+  // Get next ID before placement
+  const { nextId } = require('../geometry/add');
+  const newId = nextId(store.dashboard);
+
+  // Clone panel (new id, same type/options/fieldConfig)
+  const currentDashboard = store.dashboard;
+  const newDashboard = placeNewPanel(store.dashboard, {
+    type: panel.type,
+    title: `${panel.title} (Copy)`,
+    size: { w: panel.gridPos.w, h: panel.gridPos.h },
+    target,
+    hint: { nearPanelId: panelId },
+  });
+
+  // Find and update the newly created panel
+  let newPanel: GrafanaPanel | undefined;
+  
+  if (target === 'top') {
+    newPanel = newDashboard.panels.find((p) => p.id === newId);
+  } else {
+    const row = newDashboard.panels.find((p) => p.type === 'row' && p.id === target.rowId) as any;
+    if (row && row.panels) {
+      newPanel = row.panels.find((p: GrafanaPanel) => p.id === newId);
+    }
+  }
+
+  if (newPanel) {
+    // Deep copy options and fieldConfig
+    newPanel.options = panel.options ? JSON.parse(JSON.stringify(panel.options)) : {};
+    newPanel.fieldConfig = panel.fieldConfig ? JSON.parse(JSON.stringify(panel.fieldConfig)) : undefined;
+    if (panel['x-navixy']) {
+      newPanel['x-navixy'] = JSON.parse(JSON.stringify(panel['x-navixy']));
+    }
+  }
+
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
 }
 

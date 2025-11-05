@@ -19,14 +19,18 @@ import { PanelCard } from './PanelCard';
 import { ResizePreview } from './ResizePreview';
 import { RowHeader } from './RowHeader';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, setSelectedPanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, setSelectedPanel, cmdAddPanel } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { GrafanaPanel, GrafanaDashboard } from '@/types/grafana-dashboard';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
-import { getRowHeaders, computeBands, isRowPanel } from '../geometry/rows';
+import { getRowHeaders, computeBands, isRowPanel, scopeOf } from '../geometry/rows';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+import { PanelGallery } from './PanelGallery';
+import { AddPanelGhost } from './AddPanelGhost';
 
 interface CanvasProps {
   renderPanelContent: (panel: GrafanaPanel) => React.ReactNode;
@@ -54,6 +58,11 @@ export const Canvas: React.FC<CanvasProps> = ({
   const dashboard = useEditorStore((state) => state.dashboard);
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
+
+  // Add panel state
+  const [showPanelGallery, setShowPanelGallery] = useState(false);
+  const [isPlacingPanel, setIsPlacingPanel] = useState(false);
+  const [placingPanelSpec, setPlacingPanelSpec] = useState<{ type: string; size: { w: number; h: number } } | null>(null);
 
   // Callback ref to measure width immediately when container mounts
   const setContainerRef = useCallback((node: HTMLDivElement | null) => {
@@ -510,6 +519,33 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
   }, [dashboard]);
 
+  const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
+    setPlacingPanelSpec({ type, size });
+    setIsPlacingPanel(true);
+    setShowPanelGallery(false);
+  }, []);
+
+  const handleGhostPlace = useCallback((x: number, y: number) => {
+    if (!placingPanelSpec || !dashboard) return;
+
+    // Determine target scope (for now, always top-level)
+    // TODO: Support row targeting when hovering row headers
+    cmdAddPanel({
+      type: placingPanelSpec.type,
+      size: placingPanelSpec.size,
+      target: 'top',
+      hint: { position: { x, y } },
+    });
+
+    setIsPlacingPanel(false);
+    setPlacingPanelSpec(null);
+  }, [placingPanelSpec, dashboard]);
+
+  const handleGhostCancel = useCallback(() => {
+    setIsPlacingPanel(false);
+    setPlacingPanelSpec(null);
+  }, []);
+
   return (
     <DndContext
       sensors={sensors}
@@ -518,6 +554,21 @@ export const Canvas: React.FC<CanvasProps> = ({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
+      {/* Toolbar */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setShowPanelGallery(true)}
+            disabled={isPlacingPanel}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Panel
+          </Button>
+        </div>
+      </div>
+
       <div
         ref={setContainerRef}
         data-canvas-container
@@ -645,7 +696,25 @@ export const Canvas: React.FC<CanvasProps> = ({
             </Card>
           ) : null}
         </DndKitDragOverlay>
+
+        {/* Add Panel Ghost */}
+        {isPlacingPanel && placingPanelSpec && containerWidth > 0 && (
+          <AddPanelGhost
+            containerRef={containerRef}
+            containerWidth={containerWidth}
+            size={placingPanelSpec.size}
+            onPlace={handleGhostPlace}
+            onCancel={handleGhostCancel}
+          />
+        )}
       </div>
+
+      {/* Panel Gallery Dialog */}
+      <PanelGallery
+        open={showPanelGallery}
+        onClose={() => setShowPanelGallery(false)}
+        onSelect={handlePanelGallerySelect}
+      />
     </DndContext>
   );
 };

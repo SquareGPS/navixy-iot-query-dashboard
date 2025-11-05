@@ -159,11 +159,23 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       
       // Initialize panel data
       dashboard.panels.forEach(panel => {
-        newPanelData[panel.title] = {
-          data: null,
-          loading: true,
-          error: null
-        };
+        const navixyConfig = panel['x-navixy'];
+        const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+        
+        // For text panels or panels without SQL, don't set loading state
+        if (panel.type === 'text' || !hasSql) {
+          newPanelData[panel.title] = {
+            data: null,
+            loading: false,
+            error: null
+          };
+        } else {
+          newPanelData[panel.title] = {
+            data: null,
+            loading: true,
+            error: null
+          };
+        }
       });
       setPanelData(newPanelData);
 
@@ -171,11 +183,18 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       for (const panel of dashboard.panels) {
         try {
           const navixyConfig = panel['x-navixy'];
-          if (!navixyConfig?.sql) {
+          
+          // Skip text panels - they don't need SQL queries
+          if (panel.type === 'text') {
+            continue;
+          }
+          
+          if (!navixyConfig?.sql?.statement || !navixyConfig.sql.statement.trim()) {
+            // Panel doesn't have SQL configured - don't show error, just mark as not loading
             newPanelData[panel.title] = {
               data: null,
               loading: false,
-              error: 'No SQL configuration found'
+              error: null
             };
             continue;
           }
@@ -457,9 +476,26 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   const renderPanel = (panel: GrafanaPanel) => {
     const panelState = panelData[panel.title];
+    const navixyConfig = panel['x-navixy'];
+    const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+    
+    // For text panels, they don't need SQL - render them directly
+    if (panel.type === 'text') {
+      return renderTextPanel(panel);
+    }
     
     // Handle case where panel data hasn't been loaded yet
     if (!panelState) {
+      // If panel doesn't have SQL configured, show placeholder instead of loading
+      if (!hasSql) {
+        return (
+          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+            <div className="text-sm font-medium mb-1">No SQL configured</div>
+            <div className="text-xs">Add SQL query to display data</div>
+          </div>
+        );
+      }
+      // Panel has SQL but state not initialized yet - show loading
       return (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-6 w-6 animate-spin" />
@@ -467,10 +503,21 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       );
     }
     
+    // If panel has SQL configured but is loading, show spinner
     if (panelState.loading) {
       return (
         <div className="flex items-center justify-center h-32">
           <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      );
+    }
+    
+    // If no SQL configured and not loading, show placeholder
+    if (!hasSql && !panelState.loading) {
+      return (
+        <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+          <div className="text-sm font-medium mb-1">No SQL configured</div>
+          <div className="text-xs">Add SQL query to display data</div>
         </div>
       );
     }

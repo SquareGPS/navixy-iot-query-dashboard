@@ -8,6 +8,9 @@ import { ResizeHandles } from './ResizeHandles';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import type { ResizeHandle } from '../geometry/resize';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from '../../layout/geometry/grid';
+import { Button } from '@/components/ui/button';
+import { Copy } from 'lucide-react';
+import { cmdDuplicatePanel } from '../state/commands';
 
 interface PanelCardProps {
   panel: GrafanaPanel;
@@ -91,8 +94,26 @@ export const PanelCard: React.FC<PanelCardProps> = ({
           onClick={() => onSelect?.(panel.id!)}
         >
           <div className="flex-1 overflow-auto p-4">{renderContent(panel)}</div>
-          {isEditingLayout && isSelected && onResizeStart && (
-            <ResizeHandles onResizeStart={onResizeStart} />
+          {isEditingLayout && isSelected && (
+            <>
+              <div className="absolute top-2 right-2 flex gap-1 z-10">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (panel.id) {
+                      cmdDuplicatePanel(panel.id);
+                    }
+                  }}
+                  title="Duplicate panel"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              {onResizeStart && <ResizeHandles onResizeStart={onResizeStart} />}
+            </>
           )}
         </div>
       </DraggablePanel>
