@@ -97,10 +97,12 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
     <>
       <div
         ref={setNodeRef}
-        className={`relative flex items-center gap-2 px-4 py-2 bg-gray-100 border-2 border-gray-300 rounded transition-colors ${
+        className={`relative flex items-center gap-2 px-4 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-md transition-all ${
           enableDrag ? 'cursor-move' : 'cursor-default'
         } ${
-          isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-200'
+          isSelected 
+            ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-soft)] shadow-sm' 
+            : 'hover:bg-[var(--surface-3)]'
         } ${isDragging ? 'opacity-50' : ''}`}
         style={{
           width: `${panelWidth}px`,
@@ -110,52 +112,49 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
         onClick={() => onSelect?.(row.id!)}
         {...(enableDrag ? { ...listeners, ...attributes } : {})}
       >
-        {enableDrag && <GripVertical className="h-4 w-4 text-gray-500 flex-shrink-0" />}
+        {enableDrag && <GripVertical className="h-4 w-4 text-[var(--text-muted)] flex-shrink-0" />}
         
         <button
           onClick={handleToggleCollapse}
-          className="p-1 hover:bg-gray-300 rounded flex-shrink-0"
+          className="p-1 hover:bg-[var(--surface-3)] rounded flex-shrink-0 transition-colors"
           aria-label={isCollapsed ? 'Expand row' : 'Collapse row'}
           title={isCollapsed ? 'Expand row to show panels' : 'Collapse row to hide panels'}
         >
           {isCollapsed ? (
-            <ChevronRight className="h-4 w-4 text-gray-700" />
+            <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />
           ) : (
-            <ChevronDown className="h-4 w-4 text-gray-700" />
+            <ChevronDown className="h-4 w-4 text-[var(--text-secondary)]" />
           )}
         </button>
 
-        <span className="flex-1 font-semibold text-sm">{row.title}</span>
+        <span className="flex-1 font-semibold text-sm text-[var(--text-primary)]">{row.title}</span>
 
         {enableEditControls && (
           <div className="flex items-center gap-1 relative">
-            <Button
-              variant="ghost"
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleMoveUp();
               }}
-              className="h-6 w-6 p-0"
+              className="h-6 w-6 p-0 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--surface-3)] rounded-sm transition-colors"
               title="Move row up"
             >
               <ArrowUp className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
+            </button>
+            <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleMoveDown();
               }}
-              className="h-6 w-6 p-0"
+              className="h-6 w-6 p-0 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--surface-3)] rounded-sm transition-colors"
               title="Move row down"
             >
               <ArrowDown className="h-3 w-3" />
-            </Button>
+            </button>
 
             <div className="relative" ref={menuRef}>
-              <Button
-                variant="ghost"
-                className="h-6 w-6 p-0"
+              <button
+                className="h-6 w-6 p-0 flex items-center justify-center text-[var(--text-primary)] hover:bg-[var(--surface-3)] rounded-sm transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowMenu(!showMenu);
@@ -163,23 +162,23 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
                 title="More options"
               >
                 <MoreVertical className="h-4 w-4" />
-              </Button>
+              </button>
               {showMenu && (
-                <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-md shadow-lg z-50 min-w-[180px]">
+                <div className="absolute right-0 top-8 bg-[var(--surface-1)] border border-[var(--border)] rounded-md shadow-lg z-50 min-w-[180px]">
                   <button
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-3)] flex items-center gap-2 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       handlePackRow();
                     }}
                     title="Pack panels in this row by removing gaps"
                   >
-                    <Package className="h-4 w-4" />
+                    <Package className="h-4 w-4 text-[var(--text-secondary)]" />
                     <span>Pack Row</span>
-                    <span className="text-xs text-gray-500 ml-auto">Remove gaps</span>
+                    <span className="text-xs text-[var(--text-muted)] ml-auto">Remove gaps</span>
                   </button>
                   <button
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-3)] flex items-center gap-2 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleToggleCollapse(e);
@@ -187,18 +186,18 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
                     title={isCollapsed ? 'Expand row to show panels' : 'Collapse row to hide panels'}
                   >
                     {isCollapsed ? (
-                      <ChevronDown className="h-4 w-4" />
+                      <ChevronDown className="h-4 w-4 text-[var(--text-secondary)]" />
                     ) : (
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="h-4 w-4 text-[var(--text-secondary)]" />
                     )}
                     <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
-                    <span className="text-xs text-gray-500 ml-auto">
+                    <span className="text-xs text-[var(--text-muted)] ml-auto">
                       {isCollapsed ? 'Show panels' : 'Hide panels'}
                     </span>
                   </button>
-                  <div className="border-t border-gray-200 my-1" />
+                  <div className="border-t border-[var(--border)] my-1" />
                   <button
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[var(--surface-3)] flex items-center gap-2 transition-colors"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowDeleteDialog(true);
@@ -224,12 +223,12 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
             <DialogDescription>
               Are you sure you want to delete the row &quot;{row.title}&quot;?
               {isCollapsed && row.panels && row.panels.length > 0 && (
-                <span className="block mt-2 text-amber-600">
+                <span className="block mt-2 text-[var(--warning)]">
                   This row contains {row.panels.length} panel{row.panels.length !== 1 ? 's' : ''} that will be moved to the top level.
                 </span>
               )}
               {!isCollapsed && (
-                <span className="block mt-2 text-amber-600">
+                <span className="block mt-2 text-[var(--warning)]">
                   This row contains panels that will be moved to the top level.
                 </span>
               )}
@@ -245,7 +244,7 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
             <Button
               variant="primary"
               onClick={handleDeleteRow}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-[var(--danger)] hover:opacity-90"
             >
               Delete
             </Button>
