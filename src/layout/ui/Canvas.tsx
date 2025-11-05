@@ -30,8 +30,6 @@ import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
 import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } from '../geometry/rows';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { PanelGallery } from './PanelGallery';
 import { AddPanelGhost } from './AddPanelGhost';
@@ -976,20 +974,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       onDragEnd={handleDragEnd}
     >
       {/* Toolbar */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setShowPanelGallery(true)}
-            disabled={isPlacingPanel}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Panel
-          </Button>
-        </div>
-      </div>
-
+      
       <div
         ref={setContainerRef}
         data-canvas-container
