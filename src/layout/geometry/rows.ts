@@ -692,8 +692,24 @@ function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
     
     if (!prevRowPanel || !currentRowPanel) continue;
     
-    // Calculate minimum Y position for current row (prevRow bottom + 1)
-    const prevRowBottom = prevRowPanel.gridPos.y + prevRowPanel.gridPos.h;
+    // Calculate the actual bottom of the previous row's content
+    // For expanded rows, this includes the band content; for collapsed rows, just the header
+    let prevRowBottom = prevRowPanel.gridPos.y + prevRowPanel.gridPos.h;
+    
+    if (prevRowPanel.collapsed !== true) {
+      // Row is expanded - check if there are panels in its band
+      const prevBand = computeBands(newDashboard.panels).find((b) => b.rowId === prevRow.id);
+      if (prevBand && prevBand.childIds.length > 0) {
+        // Find the actual bottom of the band's content
+        const bandPanels = newDashboard.panels.filter((p) => p.id && prevBand.childIds.includes(p.id));
+        if (bandPanels.length > 0) {
+          const maxPanelBottom = Math.max(...bandPanels.map(p => p.gridPos.y + p.gridPos.h));
+          // Use the maximum of row header bottom and actual panel bottom
+          prevRowBottom = Math.max(prevRowBottom, maxPanelBottom);
+        }
+      }
+    }
+    
     const minY = prevRowBottom + 1;
     
     // If current row is too close, push it down
