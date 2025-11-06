@@ -718,6 +718,23 @@ export function MenuEditor() {
             </SidebarGroup>
           </DndContext>
 
+          {/* Done editing button - visible when in edit mode, placed above Tools menu */}
+          {isEditMode && (user?.role === 'admin' || user?.role === 'editor') && (
+            <SidebarGroup className="mt-auto">
+              <SidebarGroupContent>
+                <div className="px-2 py-2">
+                  <Button
+                    onClick={() => setIsEditMode(false)}
+                    className="w-full justify-center bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 font-medium shadow-sm"
+                  >
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Done editing
+                  </Button>
+                </div>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
           {/* Admin Tools Menu */}
           {user?.role === 'admin' || user?.role === 'editor' ? (
             <SidebarGroup className="mt-auto">
@@ -741,9 +758,13 @@ export function MenuEditor() {
                           <FileText className="h-4 w-4 mr-2" />
                           New report
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsEditMode(!isEditMode)} className="py-1.5">
+                        <DropdownMenuItem 
+                          onClick={() => setIsEditMode(true)} 
+                          className="py-1.5"
+                          disabled={isEditMode}
+                        >
                           <Edit2 className="h-4 w-4 mr-2" />
-                          {isEditMode ? 'Done editing' : 'Edit menu'}
+                          Edit menu
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => navigate('/app/sql-editor')} className="py-1.5">
                           <Code className="h-4 w-4 mr-2" />
