@@ -406,6 +406,28 @@ export function toggleRowCollapsed(
   };
 
   const newRow = newDashboard.panels[rowIndex] as RowPanel;
+  const rowY = row.gridPos.y;
+  const bandTop = rowY + 1; // Band starts below row header
+  
+  // Calculate band height before collapse/expand
+  const bandBefore = computeBands(dashboard.panels).find((b) => b.rowId === rowId);
+  let bandHeightBefore = 0;
+  if (bandBefore) {
+    if (bandBefore.bottom === Infinity) {
+      // Calculate from actual panels in the band
+      const childrenBefore = dashboard.panels.filter((p) => p.id && bandBefore.childIds.includes(p.id));
+      if (childrenBefore.length > 0) {
+        const maxPanelBottom = Math.max(...childrenBefore.map(p => p.gridPos.y + p.gridPos.h));
+        bandHeightBefore = maxPanelBottom - bandBefore.top;
+      }
+    } else {
+      bandHeightBefore = bandBefore.bottom - bandBefore.top;
+    }
+  }
+  
+  // Store original collapsed state
+  const wasCollapsed = row.collapsed === true;
+  
   newRow.collapsed = collapsed;
 
   if (collapsed) {
@@ -414,8 +436,18 @@ export function toggleRowCollapsed(
     const band = computeBands(dashboard.panels).find((b) => b.rowId === rowId);
     if (band) {
       const children = dashboard.panels.filter((p) => p.id && band.childIds.includes(p.id));
-      const rowY = row.gridPos.y;
-      const bandTop = rowY + 1; // Band starts below row header
+      
+      // Calculate actual space saved based on the panels being collapsed
+      // Only save the space actually occupied by panels, not including spacing to next row
+      let actualBandBottom = band.top;
+      if (children.length > 0) {
+        // Find the actual bottom of the panels (not including spacing to next row)
+        const maxPanelBottom = Math.max(...children.map(p => p.gridPos.y + p.gridPos.h));
+        actualBandBottom = maxPanelBottom;
+      }
+      
+      // Space saved is the difference between actual panel bottom and band top
+      const spaceSaved = actualBandBottom - band.top;
       
       newRow.panels = children.map((p) => {
         const panel = { ...p };
@@ -425,6 +457,34 @@ export function toggleRowCollapsed(
       });
       // Remove from top-level
       newDashboard.panels = newDashboard.panels.filter((p) => !(p.id && band.childIds.includes(p.id)));
+      
+      // Move all panels and rows below this row up by the space saved
+      if (spaceSaved > 0) {
+        newDashboard.panels.forEach((panel) => {
+          if (panel.id !== rowId) {
+            const panelY = panel.gridPos.y;
+            // If panel/row is at or below the collapsed row's actual panel bottom, move it up
+            if (panelY >= actualBandBottom) {
+              panel.gridPos.y = Math.max(0, panelY - spaceSaved);
+            }
+          }
+        });
+      }
+      
+      // After moving panels up, ensure they don't overlap with the collapsed row header
+      // The collapsed row header is at rowY with height newRow.gridPos.h
+      const collapsedRowBottom = rowY + (newRow.gridPos.h || 1);
+      newDashboard.panels.forEach((panel) => {
+        if (!isRowPanel(panel) && panel.id && panel.id !== rowId) {
+          const panelTop = panel.gridPos.y;
+          const panelBottom = panelTop + panel.gridPos.h;
+          
+          // If panel overlaps with collapsed row header, move it below
+          if (panelTop < collapsedRowBottom && panelBottom > rowY) {
+            panel.gridPos.y = collapsedRowBottom;
+          }
+        }
+      });
     } else {
       newRow.panels = [];
     }
@@ -433,9 +493,24 @@ export function toggleRowCollapsed(
     // Restore panels with ABSOLUTE Y coordinates
     if (newRow.panels && newRow.panels.length > 0) {
       const children = newRow.panels.map((p) => ({ ...p }));
-      const rowY = newRow.gridPos.y;
-      const bandTop = rowY + 1; // Band starts below row header
       
+      // Calculate the height needed for expanded panels BEFORE moving them
+      // This is the maximum bottom position of panels in the row
+      let maxPanelBottom = bandTop;
+      children.forEach((child) => {
+        if (child.id && child.gridPos) {
+          const absoluteY = bandTop + child.gridPos.y;
+          maxPanelBottom = Math.max(maxPanelBottom, absoluteY + child.gridPos.h);
+        }
+      });
+      const spaceNeeded = maxPanelBottom - bandTop;
+      
+      // Calculate how much space we're adding
+      // If was collapsed, we're adding the full space needed
+      // If was expanded, we're adding the difference
+      const spaceAdded = wasCollapsed ? spaceNeeded : Math.max(0, spaceNeeded - bandHeightBefore);
+      
+      // Convert relative Y back to absolute Y and add to top-level first
       children.forEach((child) => {
         if (child.id) {
           // Convert relative Y back to absolute Y
@@ -444,10 +519,55 @@ export function toggleRowCollapsed(
       });
       newDashboard.panels.push(...children);
       newRow.panels = [];
+      
+      // Move all panels and rows below this row down by the space added
+      if (spaceAdded > 0) {
+        newDashboard.panels.forEach((panel) => {
+          if (panel.id !== rowId && !children.some(c => c.id === panel.id)) {
+            const panelY = panel.gridPos.y;
+            // If panel/row is below the row header, move it down
+            if (panelY > rowY) {
+              panel.gridPos.y = panelY + spaceAdded;
+            }
+          }
+        });
+      }
+    } else if (!wasCollapsed && bandHeightBefore > 0) {
+      // Row was expanded but now has no panels - move everything below up
+      newDashboard.panels.forEach((panel) => {
+        if (panel.id !== rowId) {
+          const panelY = panel.gridPos.y;
+          // If panel/row is below the row header, move it up
+          if (panelY > rowY) {
+            panel.gridPos.y = Math.max(0, panelY - bandHeightBefore);
+          }
+        }
+      });
     }
   }
 
-  return canonicalizeRows(newDashboard);
+  // After adjusting positions, use collision resolution to properly space everything
+  // This ensures panels don't overlap and maintains proper spacing between rows
+  const allTopLevel = getScopePanels(newDashboard, 'top-level');
+  
+  // Resolve collisions starting from the row header to ensure proper spacing
+  const afterCollisions = resolveCollisionsPushDown(
+    { id: rowId, gridPos: { x: 0, y: rowY, w: 24, h: newRow.gridPos.h || 1 } },
+    allTopLevel
+  );
+  
+  // Apply resolved positions
+  afterCollisions.forEach((resolved) => {
+    const idx = newDashboard.panels.findIndex((p) => p.id === resolved.id);
+    if (idx !== -1) {
+      newDashboard.panels[idx].gridPos = resolved.gridPos;
+    }
+  });
+  
+  // Ensure proper spacing between rows (and panels relative to rows)
+  const spacedDashboard = ensureRowSpacing(newDashboard);
+  
+  return canonicalizeRows(spacedDashboard);
 }
 
 /**
@@ -543,6 +663,7 @@ export function reorderRows(
  * Ensure minimum spacing between rows (at least 1 unit apart)
  * This prevents rows from being placed too close together, which would prevent
  * panels from being placed between them
+ * Also ensures panels don't overlap with row headers
  */
 function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
   const rows = getRowHeaders(dashboard.panels);
@@ -595,8 +716,63 @@ function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
         }
       }
       
+      // Also move any panels that might overlap with the previous row header
+      // Panels should be at least at prevRowBottom + 1 (below the row header)
+      newDashboard.panels.forEach((panel) => {
+        if (!isRowPanel(panel) && panel.id && panel.gridPos.y < minY) {
+          // Panel overlaps with or is above the current row header, move it down
+          panel.gridPos.y = minY;
+        }
+      });
+      
       // Update sortedRows array for next iteration
       sortedRows[i].gridPos.y = minY;
+    } else {
+      // Row is correctly positioned, but check if any panels overlap with the current row header
+      const currentRowTop = currentRowPanel.gridPos.y;
+      const currentRowBottom = currentRowTop + currentRowPanel.gridPos.h;
+      
+      // Get band for current row to know which panels belong to it
+      const currentBand = computeBands(newDashboard.panels).find((b) => b.rowId === currentRow.id);
+      
+      // Find panels that might overlap with the current row header
+      // Only check panels that don't belong to this row's band
+      newDashboard.panels.forEach((panel) => {
+        if (!isRowPanel(panel) && panel.id) {
+          // Skip panels that belong to this row's band
+          if (currentBand && currentBand.childIds.includes(panel.id)) {
+            return;
+          }
+          
+          const panelTop = panel.gridPos.y;
+          const panelBottom = panelTop + panel.gridPos.h;
+          
+          // If panel overlaps with row header, move it below the row header
+          if (panelTop < currentRowBottom && panelBottom > currentRowTop) {
+            panel.gridPos.y = currentRowBottom;
+          }
+        }
+      });
+    }
+  }
+  
+  // Also check panels before the first row - ensure they don't overlap with first row
+  if (sortedRows.length > 0) {
+    const firstRow = sortedRows[0];
+    const firstRowPanel = newDashboard.panels.find((p) => p.id === firstRow.id) as RowPanel | undefined;
+    if (firstRowPanel) {
+      const firstRowBottom = firstRowPanel.gridPos.y + firstRowPanel.gridPos.h;
+      newDashboard.panels.forEach((panel) => {
+        if (!isRowPanel(panel) && panel.id) {
+          const panelTop = panel.gridPos.y;
+          const panelBottom = panelTop + panel.gridPos.h;
+          
+          // If panel overlaps with first row header, move it below
+          if (panelTop < firstRowBottom && panelBottom > firstRowPanel.gridPos.y) {
+            panel.gridPos.y = firstRowBottom;
+          }
+        }
+      });
     }
   }
 
