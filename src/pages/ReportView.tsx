@@ -267,14 +267,17 @@ const ReportView = () => {
   }, [reportId]);
 
   const handleSaveSchema = async () => {
-    if (!reportId) return;
+    if (!reportId || !report) return;
 
     setSaving(true);
     try {
       const parsedSchema = JSON.parse(editorValue);
       
+      // IMPORTANT: Preserve the database title (menu label) when updating schema
+      // The schema may contain a title field (report page header), but we don't want
+      // to overwrite the database title (menu label) unless explicitly editing it
       const response = await apiService.updateReport(reportId, { 
-        title: parsedSchema.title || report?.title,
+        title: report.title, // Preserve database title (menu label)
         subtitle: parsedSchema.subtitle,
         report_schema: parsedSchema 
       });
@@ -413,10 +416,14 @@ const ReportView = () => {
   }, [reportId, schema, report, dashboardConfig]);
 
   const handleSaveTitle = async () => {
-    if (!reportId || !schema) return;
+    if (!reportId || !schema || !report) return;
     
     try {
       setSaving(true);
+      
+      // IMPORTANT: This updates the REPORT PAGE HEADER (displayed on the report page itself)
+      // It does NOT update the REPORT LABEL IN THE LEFT MENU (which is stored in database.title)
+      // The menu label is managed separately via breadcrumb editing or menu editor
       
       // Update the title in the JSON schema
       let updatedSchema;
@@ -438,8 +445,9 @@ const ReportView = () => {
       }
       
       // Send the updated schema to the backend
+      // CRITICAL: Preserve the database title (menu label) - only update the schema
       const updateData = {
-        title: tempTitle,
+        title: report.title, // Keep the original database title (menu label)
         report_schema: updatedSchema
       };
       await apiService.updateReport(reportId, updateData);
@@ -449,13 +457,13 @@ const ReportView = () => {
       setEditingTitle(false);
       toast({
         title: "Success",
-        description: "Report title updated successfully",
+        description: "Report page header updated successfully",
       });
     } catch (error) {
       console.error('Error saving title:', error);
       toast({
         title: "Error",
-        description: "Failed to update report title",
+        description: "Failed to update report page header",
         variant: "destructive",
       });
     } finally {
@@ -512,8 +520,9 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
+      // Preserve database title (menu label) when updating schema
       const response = await apiService.updateReport(reportId!, { 
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema 
       });
@@ -594,8 +603,9 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
+      // Preserve database title (menu label) when updating schema
       const response = await apiService.updateReport(reportId!, { 
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema 
       });
@@ -770,8 +780,9 @@ const ReportView = () => {
         title: tempRowTitle.trim() || undefined
       };
       
+      // Preserve database title (menu label) when updating row title
       const response = await apiService.updateReport(reportId, {
-        title: schema.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: schema.subtitle,
         report_schema: updatedSchema
       });
@@ -825,11 +836,13 @@ const ReportView = () => {
         }
         setReport(prev => prev ? { ...prev, section_name: tempSectionName.trim() } : null);
       } else {
-        // Update report title (database column)
+        // IMPORTANT: This updates the REPORT LABEL IN THE LEFT MENU (database.title)
+        // This is different from the report page header (schema.title or dashboard.title)
+        // The breadcrumb shows the menu label, which is stored in the database title column
         const response = await apiService.updateReport(reportId, {
-          title: tempReportName.trim(),
+          title: tempReportName.trim(), // Update database title (menu label)
           subtitle: report?.subtitle,
-          report_schema: schema
+          report_schema: schema // Preserve schema (including page header)
         });
         if (response.error) {
           throw new Error(response.error.message || 'Failed to update report');
@@ -943,8 +956,9 @@ const ReportView = () => {
         last_updated: new Date().toISOString()
       };
 
+      // Preserve database title (menu label) when adding new row
       const response = await apiService.updateReport(reportId, {
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema
       });
@@ -1128,8 +1142,9 @@ const ReportView = () => {
         
         console.log('💾 Updating report in database...', { reportId, title: report?.title });
         // Update the report with the example schema (now in Grafana format)
+        // Preserve database title (menu label) when importing example schema
         const updateResponse = await apiService.updateReport(reportId!, {
-          title: report?.title || exampleSchema.dashboard?.title || exampleSchema.title || 'New Report', // Keep the original title or use schema title
+          title: report?.title || 'New Report', // Preserve database title (menu label)
           report_schema: exampleSchema
         });
         console.log('💾 Update response:', updateResponse);
@@ -1257,9 +1272,10 @@ const ReportView = () => {
       console.log('✅ Valid Grafana dashboard loaded:', grafanaDashboard.title);
       console.log('📊 Panels count:', grafanaDashboard.panels.length);
       
-      // Update the report with the Grafana dashboard
+      // Preserve database title (menu label) when importing Grafana dashboard
+      // The dashboard.title is the report page header, not the menu label
       const updateResponse = await apiService.updateReport(reportId!, {
-        title: grafanaDashboard.title || report?.title || 'New Dashboard', // Use dashboard title
+        title: report?.title || 'New Dashboard', // Preserve database title (menu label)
         report_schema: grafanaDashboard
       });
 
@@ -1481,6 +1497,8 @@ const ReportView = () => {
         {/* Top Navigation Bar */}
         <div className="flex items-center justify-between">
           {/* Breadcrumb Navigation */}
+          {/* IMPORTANT: Breadcrumb shows REPORT LABEL IN THE LEFT MENU (database.title) */}
+          {/* This is different from the report page header (schema.title or dashboard.title) */}
           {report && (
             <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               {editingBreadcrumb === 'section' ? (
@@ -1555,7 +1573,10 @@ const ReportView = () => {
           </div>
         </div>
 
-        {/* Report Title and Subtitle */}
+        {/* Report Page Header */}
+        {/* IMPORTANT: This is the REPORT PAGE HEADER (schema.dashboard.title or schema.title) */}
+        {/* This is different from the REPORT LABEL IN THE LEFT MENU (database.title) */}
+        {/* Editing this does NOT affect the menu label */}
         <div className="space-y-2">
           {isEditing && editingTitle ? (
             <div>

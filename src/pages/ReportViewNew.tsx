@@ -307,17 +307,20 @@ const ReportView = () => {
                         };
                       }
                       
-                      // Send the updated schema to the backend
+                      // IMPORTANT: This updates the REPORT PAGE HEADER (displayed on the report page itself)
+                      // It does NOT update the REPORT LABEL IN THE LEFT MENU (which is stored in database.title)
+                      // Preserve the database title (menu label) - only update the schema
                       const updateData = {
-                        title: tempTitle,
+                        title: legacyReport.title, // Keep the original database title (menu label)
                         report_schema: updatedSchema
                       };
                       await apiService.updateReport(reportId, updateData);
                       
                       // Update local state with the new schema
+                      // Preserve the database title (menu label) in local state
                       setLegacyReport({ 
                         ...legacyReport, 
-                        title: tempTitle,
+                        title: legacyReport.title, // Keep original database title (menu label)
                         report_schema: updatedSchema
                       });
                       setEditingTitle(false);
