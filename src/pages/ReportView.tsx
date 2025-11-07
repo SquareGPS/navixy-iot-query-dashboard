@@ -1045,16 +1045,44 @@ const ReportView = () => {
       
       if (panelIndex !== -1) {
         console.log('✅ Found panel at index', panelIndex);
-        console.log('📝 Old panel SQL:', updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement?.substring(0, 50));
-        console.log('📝 New panel SQL:', updatedPanel['x-navixy']?.sql?.statement?.substring(0, 50));
+        const oldPanel = updatedDashboard.panels[panelIndex];
+        const oldSQL = oldPanel['x-navixy']?.sql?.statement;
+        const newSQL = updatedPanel['x-navixy']?.sql?.statement;
+        console.log('📝 Old panel SQL length:', oldSQL?.length || 0);
+        console.log('📝 New panel SQL length:', newSQL?.length || 0);
+        console.log('📝 Old panel SQL:', oldSQL?.substring(0, 100));
+        console.log('📝 New panel SQL:', newSQL?.substring(0, 100));
         
         // Preserve all existing panel properties and merge with updates
+        // Ensure x-navixy is properly merged to preserve all nested properties
         updatedDashboard.panels[panelIndex] = {
-          ...updatedDashboard.panels[panelIndex],
-          ...updatedPanel
+          ...oldPanel,
+          ...updatedPanel,
+          'x-navixy': {
+            ...oldPanel['x-navixy'],
+            ...updatedPanel['x-navixy'],
+            sql: {
+              ...oldPanel['x-navixy']?.sql,
+              ...updatedPanel['x-navixy']?.sql,
+              // Ensure statement is not truncated
+              statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
+            }
+          }
         };
         
-        console.log('✅ Panel updated, new SQL:', updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement?.substring(0, 50));
+        const finalSQL = updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement;
+        console.log('✅ Panel updated, final SQL length:', finalSQL?.length || 0);
+        console.log('✅ Panel updated, final SQL:', finalSQL?.substring(0, 100));
+        
+        // Verify SQL was not truncated
+        if (newSQL && finalSQL && finalSQL.length < newSQL.length) {
+          console.error('❌ SQL was truncated!', {
+            expectedLength: newSQL.length,
+            actualLength: finalSQL.length,
+            expected: newSQL.substring(0, 200),
+            actual: finalSQL.substring(0, 200)
+          });
+        }
       } else {
         console.error('❌ Could not find panel to update', {
           editingPanel: editingPanel,
@@ -1109,6 +1137,22 @@ const ReportView = () => {
       setDashboard(updatedDashboard);
       setSchema(updatedSchema);
       
+      // Also update editorStore to ensure it has the latest data
+      const store = useEditorStore.getState();
+      if (store.isEditingLayout) {
+        console.log('🔄 Updating editorStore with latest dashboard');
+        store.setDashboard(updatedDashboard);
+      }
+      
+      // Update editingPanel if it's still open, to ensure it has the latest data
+      if (editingPanel && updatedPanel.id) {
+        const updatedPanelFromDashboard = updatedDashboard.panels.find(p => p.id === updatedPanel.id);
+        if (updatedPanelFromDashboard) {
+          console.log('🔄 Updating editingPanel with latest data from dashboard');
+          setEditingPanel(updatedPanelFromDashboard);
+        }
+      }
+      
       // Update editorValue so JSON source view shows the updated schema
       // Determine which format to use for editorValue
       let editorSchema = updatedSchema;
@@ -1127,7 +1171,7 @@ const ReportView = () => {
       
       setEditingPanel(null);
       
-      // Reload report from database to verify the save worked
+      // Reload report from database to verify the save worked and update state
       console.log('🔄 Reloading report from database to verify save...');
       try {
         const reloadResponse = await apiService.getReportById(reportId);
@@ -1139,12 +1183,16 @@ const ReportView = () => {
           
           // Find the panel in the reloaded schema to verify SQL was saved
           let reloadedPanel: any = null;
+          let reloadedDashboard: GrafanaDashboard | null = null;
+          
           if (reloadedSchema.dashboard?.panels) {
+            reloadedDashboard = reloadedSchema.dashboard;
             reloadedPanel = reloadedSchema.dashboard.panels.find((p: any) => 
               p.id === updatedPanel.id || 
               (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
             );
           } else if (reloadedSchema.panels) {
+            reloadedDashboard = reloadedSchema;
             reloadedPanel = reloadedSchema.panels.find((p: any) => 
               p.id === updatedPanel.id || 
               (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
@@ -1157,11 +1205,15 @@ const ReportView = () => {
             console.log('🔍 Verification:', {
               savedSQL: savedSQL?.substring(0, 100),
               expectedSQL: expectedSQL?.substring(0, 100),
-              match: savedSQL === expectedSQL
+              match: savedSQL === expectedSQL,
+              savedSQLLength: savedSQL?.length,
+              expectedSQLLength: expectedSQL?.length
             });
             
             if (savedSQL !== expectedSQL) {
               console.error('❌ SQL mismatch! Database has different SQL than what we saved.');
+              console.error('Expected length:', expectedSQL?.length);
+              console.error('Got length:', savedSQL?.length);
               console.error('Expected:', expectedSQL);
               console.error('Got:', savedSQL);
             } else {
@@ -1169,6 +1221,35 @@ const ReportView = () => {
             }
           } else {
             console.warn('⚠️ Could not find panel in reloaded schema for verification');
+          }
+          
+          // Update dashboard state with reloaded data to ensure consistency
+          if (reloadedDashboard) {
+            console.log('🔄 Updating dashboard state with reloaded data');
+            setDashboard(reloadedDashboard);
+            setSchema(reloadedSchema);
+            
+            // Also update editorStore if in edit mode
+            const store = useEditorStore.getState();
+            if (store.isEditingLayout) {
+              console.log('🔄 Updating editorStore with reloaded dashboard');
+              store.setDashboard(reloadedDashboard);
+            }
+            
+            // Update editorValue
+            let editorSchema = reloadedSchema;
+            if (reloadedSchema.dashboard) {
+              editorSchema = reloadedSchema.dashboard;
+            }
+            setEditorValue(JSON.stringify(editorSchema, null, 2));
+            
+            // Update dashboardConfig if it exists
+            if (dashboardConfig) {
+              setDashboardConfig({
+                ...dashboardConfig,
+                dashboard: reloadedDashboard
+              });
+            }
           }
         }
       } catch (reloadError) {
@@ -1753,11 +1834,19 @@ const ReportView = () => {
 
         {/* Report Content */}
         {dashboard ? (
-          <GrafanaDashboardRenderer 
+          <GrafanaDashboardRenderer
             dashboard={dashboard}
             timeRange={timeRange}
             editMode={isEditing}
-            onEditPanel={setEditingPanel}
+            onEditPanel={(panel) => {
+              // Always get the latest panel from the current dashboard to ensure fresh data
+              const latestPanel = dashboard?.panels.find(p => 
+                p.id === panel.id || 
+                (p.gridPos?.x === panel.gridPos?.x && p.gridPos?.y === panel.gridPos?.y)
+              ) || panel;
+              console.log('📝 Opening panel editor for panel:', latestPanel.id, 'SQL length:', latestPanel['x-navixy']?.sql?.statement?.length || 0);
+              setEditingPanel(latestPanel);
+            }}
             onSave={handleSaveDashboard}
           />
         ) : (
@@ -1889,6 +1978,7 @@ const ReportView = () => {
       {/* Panel Editor Dialog */}
       {editingPanel && (
         <PanelEditor
+          key={editingPanel.id} // Force remount when panel ID changes to ensure fresh state
           open={!!editingPanel}
           onClose={() => setEditingPanel(null)}
           panel={editingPanel}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/Button';
 import { SqlEditor } from './SqlEditor';
@@ -52,6 +52,21 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   const [testError, setTestError] = useState<string | null>(null);
   const { executing, error, executeQuery } = useSqlExecution();
 
+  // Update state when panel prop changes (e.g., after save)
+  useEffect(() => {
+    if (panel) {
+      const navixyConfig = panel['x-navixy'];
+      setTitle(panel.title);
+      setDescription(panel.description || '');
+      setPanelType(panel.type);
+      setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
+      setParams(JSON.stringify(navixyConfig?.sql?.params || {}, null, 2));
+      setDatasetShape(navixyConfig?.dataset?.shape || 'table');
+      setColumns(navixyConfig?.dataset?.columns || {});
+      setMaxRows(navixyConfig?.verify?.max_rows || 1000);
+    }
+  }, [panel, open]); // Update when panel changes or dialog opens
+
   const handleSave = () => {
     setSaving(true);
     try {
@@ -60,7 +75,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       // Build updated Navixy configuration
       const updatedNavixyConfig: NavixyPanelConfig = {
         sql: {
-          statement: sql,
+          statement: sql.trim(), // Ensure no leading/trailing whitespace but preserve content
           params: parsedParams
         },
         dataset: {
@@ -80,6 +95,10 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         type: panelType as any,
         'x-navixy': updatedNavixyConfig
       };
+
+      // Debug: Log SQL length to verify it's not truncated
+      console.log('💾 PanelEditor: Saving panel with SQL length:', updatedNavixyConfig.sql.statement.length);
+      console.log('💾 PanelEditor: SQL preview:', updatedNavixyConfig.sql.statement.substring(0, 200));
 
       onSave(updatedPanel);
       onClose();
