@@ -235,6 +235,14 @@ const ReportView = () => {
         
         setDashboard(grafanaDashboard);
         setSchema(schemaData); // Set schema for compatibility
+        
+        console.log('📊 Schema structure after load:', {
+          hasDashboard: !!schemaData.dashboard,
+          hasPanels: !!schemaData.panels,
+          hasXNavixy: !!schemaData['x-navixy'],
+          schemaKeys: Object.keys(schemaData),
+          panelsCount: schemaData.panels?.length || schemaData.dashboard?.panels?.length || 0
+        });
           
         const config: DashboardConfig = {
           title: report.title,
@@ -988,10 +996,24 @@ const ReportView = () => {
   };
 
   const handleSavePanel = async (updatedPanel: any) => {
-    if (!dashboard || !reportId) return;
+    if (!dashboard || !reportId || !schema) {
+      console.error('handleSavePanel: Missing required data', { dashboard: !!dashboard, reportId, schema: !!schema });
+      return;
+    }
     
     try {
-      const updatedDashboard = { ...dashboard };
+      console.log('🔧 handleSavePanel: Starting panel save', {
+        editingPanelId: editingPanel?.id,
+        updatedPanelId: updatedPanel.id,
+        updatedPanelSQL: updatedPanel['x-navixy']?.sql?.statement?.substring(0, 50),
+        dashboardPanelsCount: dashboard.panels.length
+      });
+
+      // Deep clone dashboard to avoid reference issues
+      const updatedDashboard = {
+        ...dashboard,
+        panels: dashboard.panels.map(p => ({ ...p }))
+      };
       
       // Find and update the panel using multiple strategies for reliability
       let panelIndex = -1;
@@ -999,57 +1021,166 @@ const ReportView = () => {
       // Strategy 1: Use ID if available (most reliable)
       if (updatedPanel.id && editingPanel?.id) {
         panelIndex = updatedDashboard.panels.findIndex(p => p.id === editingPanel.id);
+        console.log('🔍 Strategy 1 (ID):', { panelIndex, editingPanelId: editingPanel.id });
       }
       
       // Strategy 2: Use gridPos as unique identifier
-      if (panelIndex === -1) {
+      if (panelIndex === -1 && updatedPanel.gridPos) {
         panelIndex = updatedDashboard.panels.findIndex(p => 
-          p.gridPos.x === updatedPanel.gridPos.x && 
-          p.gridPos.y === updatedPanel.gridPos.y &&
-          p.gridPos.w === updatedPanel.gridPos.w &&
-          p.gridPos.h === updatedPanel.gridPos.h
+          p.gridPos?.x === updatedPanel.gridPos.x && 
+          p.gridPos?.y === updatedPanel.gridPos.y &&
+          p.gridPos?.w === updatedPanel.gridPos.w &&
+          p.gridPos?.h === updatedPanel.gridPos.h
         );
+        console.log('🔍 Strategy 2 (gridPos):', { panelIndex, gridPos: updatedPanel.gridPos });
       }
       
       // Strategy 3: Fallback to original title
-      if (panelIndex === -1 && editingPanel) {
+      if (panelIndex === -1 && editingPanel?.title) {
         panelIndex = updatedDashboard.panels.findIndex(p => 
           p.title === editingPanel.title
         );
+        console.log('🔍 Strategy 3 (title):', { panelIndex, title: editingPanel.title });
       }
       
       if (panelIndex !== -1) {
-        updatedDashboard.panels[panelIndex] = updatedPanel;
+        console.log('✅ Found panel at index', panelIndex);
+        console.log('📝 Old panel SQL:', updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement?.substring(0, 50));
+        console.log('📝 New panel SQL:', updatedPanel['x-navixy']?.sql?.statement?.substring(0, 50));
+        
+        // Preserve all existing panel properties and merge with updates
+        updatedDashboard.panels[panelIndex] = {
+          ...updatedDashboard.panels[panelIndex],
+          ...updatedPanel
+        };
+        
+        console.log('✅ Panel updated, new SQL:', updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement?.substring(0, 50));
       } else {
+        console.error('❌ Could not find panel to update', {
+          editingPanel: editingPanel,
+          updatedPanel: updatedPanel,
+          availablePanels: updatedDashboard.panels.map(p => ({ id: p.id, title: p.title, gridPos: p.gridPos }))
+        });
         throw new Error('Could not find panel to update');
       }
       
-      // Update the dashboard config
-      const updatedDashboardConfig = {
-        ...dashboardConfig!,
-        dashboard: updatedDashboard
-      };
+      // Preserve the existing schema structure (same pattern as handleSaveDashboard)
+      let updatedSchema: any;
+      
+      if (schema.dashboard) {
+        // Schema has nested dashboard property
+        updatedSchema = {
+          ...schema,
+          dashboard: updatedDashboard
+        };
+        console.log('📦 Schema structure: nested dashboard');
+      } else if (schema.panels) {
+        // Schema is direct GrafanaDashboard format
+        updatedSchema = updatedDashboard;
+        console.log('📦 Schema structure: direct panels');
+      } else {
+        // Fallback: wrap in dashboard property
+        updatedSchema = {
+          dashboard: updatedDashboard
+        };
+        console.log('📦 Schema structure: fallback wrapper');
+      }
+      
+      console.log('💾 Saving to API:', {
+        reportId,
+        schemaHasDashboard: !!updatedSchema.dashboard,
+        schemaHasPanels: !!updatedSchema.panels,
+        panelsCount: updatedSchema.dashboard?.panels?.length || updatedSchema.panels?.length
+      });
       
       const response = await apiService.updateReport(reportId, {
         title: report?.title,
         subtitle: report?.subtitle,
-        report_schema: updatedDashboardConfig
+        report_schema: updatedSchema
       });
 
       if (response.error) {
+        console.error('❌ API error:', response.error);
         throw new Error(response.error.message || 'Failed to save panel');
       }
 
+      console.log('✅ API response received, updating local state');
+      
       setDashboard(updatedDashboard);
-      setDashboardConfig(updatedDashboardConfig);
+      setSchema(updatedSchema);
+      
+      // Update editorValue so JSON source view shows the updated schema
+      // Determine which format to use for editorValue
+      let editorSchema = updatedSchema;
+      if (updatedSchema.dashboard) {
+        // If schema has nested dashboard, use the dashboard for editor
+        editorSchema = updatedSchema.dashboard;
+      }
+      setEditorValue(JSON.stringify(editorSchema, null, 2));
+      
+      if (dashboardConfig) {
+        setDashboardConfig({
+          ...dashboardConfig,
+          dashboard: updatedDashboard
+        });
+      }
+      
       setEditingPanel(null);
+      
+      // Reload report from database to verify the save worked
+      console.log('🔄 Reloading report from database to verify save...');
+      try {
+        const reloadResponse = await apiService.getReportById(reportId);
+        if (reloadResponse.error) {
+          console.error('⚠️ Failed to reload report:', reloadResponse.error);
+        } else {
+          const reloadedReport = reloadResponse.data.report;
+          const reloadedSchema = reloadedReport.report_schema;
+          
+          // Find the panel in the reloaded schema to verify SQL was saved
+          let reloadedPanel: any = null;
+          if (reloadedSchema.dashboard?.panels) {
+            reloadedPanel = reloadedSchema.dashboard.panels.find((p: any) => 
+              p.id === updatedPanel.id || 
+              (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
+            );
+          } else if (reloadedSchema.panels) {
+            reloadedPanel = reloadedSchema.panels.find((p: any) => 
+              p.id === updatedPanel.id || 
+              (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
+            );
+          }
+          
+          if (reloadedPanel) {
+            const savedSQL = reloadedPanel['x-navixy']?.sql?.statement;
+            const expectedSQL = updatedPanel['x-navixy']?.sql?.statement;
+            console.log('🔍 Verification:', {
+              savedSQL: savedSQL?.substring(0, 100),
+              expectedSQL: expectedSQL?.substring(0, 100),
+              match: savedSQL === expectedSQL
+            });
+            
+            if (savedSQL !== expectedSQL) {
+              console.error('❌ SQL mismatch! Database has different SQL than what we saved.');
+              console.error('Expected:', expectedSQL);
+              console.error('Got:', savedSQL);
+            } else {
+              console.log('✅ Verified: SQL matches what we saved');
+            }
+          } else {
+            console.warn('⚠️ Could not find panel in reloaded schema for verification');
+          }
+        }
+      } catch (reloadError) {
+        console.error('⚠️ Error during reload verification:', reloadError);
+      }
       
       toast({
         title: 'Success',
         description: 'Panel updated successfully',
       });
     } catch (error: any) {
-      console.error('Error saving panel:', error);
+      console.error('❌ Error saving panel:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to save panel',
