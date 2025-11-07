@@ -110,7 +110,7 @@ const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
     );
   };
 
-  // Custom tooltip content
+  // Custom tooltip content with position adjustment to avoid center
   const renderTooltipContent = (props: any) => {
     if (!props.active || !props.payload || props.payload.length === 0) {
       return null;
@@ -121,17 +121,48 @@ const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
     const name = data.name;
     const percent = ((value / total) * 100).toFixed(1);
     
+    // Get tooltip coordinates from Recharts
+    // The coordinate object contains x, y (tooltip position) and cx, cy (chart center)
+    const coordinate = props.coordinate || {};
+    const chartCenterX = coordinate.cx ?? 0;
+    const chartCenterY = coordinate.cy ?? 0;
+    const tooltipX = coordinate.x ?? 0;
+    const tooltipY = coordinate.y ?? 0;
+    
+    // Calculate distance from center
+    const dx = tooltipX - chartCenterX;
+    const dy = tooltipY - chartCenterY;
+    const distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
+    
+    // If tooltip is too close to center (within ~80px radius), offset it outward
+    const centerRadius = 80; // Increased radius to better avoid center area
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    if (distanceFromCenter < centerRadius && distanceFromCenter > 0) {
+      // Calculate direction vector and normalize
+      const directionX = dx / distanceFromCenter;
+      const directionY = dy / distanceFromCenter;
+      // Push tooltip outward by the difference plus padding (increased padding)
+      offsetX = directionX * (centerRadius - distanceFromCenter + 50);
+      offsetY = directionY * (centerRadius - distanceFromCenter + 50);
+    }
+    
     return (
       <div
+        className="bg-surface-1 border border-border rounded-md shadow-lg px-3 py-2"
         style={{
-          backgroundColor: 'var(--background)',
-          border: '1px solid var(--border)',
-          borderRadius: '6px',
-          padding: '8px 12px',
+          backgroundColor: 'var(--surface-1)',
+          borderColor: 'var(--border)',
+          color: 'var(--text-primary)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+          transform: `translate(${offsetX}px, ${offsetY}px)`,
+          zIndex: 1000, // Ensure tooltip appears above center label
+          position: 'relative',
         }}
       >
-        <div className="text-sm font-medium text-text-primary">{name}</div>
-        <div className="text-xs text-text-muted">
+        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{name}</div>
+        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
           {value.toFixed(1)} ({percent}%)
         </div>
       </div>
@@ -208,13 +239,21 @@ const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
                 />
               ))}
             </Pie>
-            <Tooltip content={renderTooltipContent} />
+            <Tooltip 
+              content={renderTooltipContent}
+              wrapperStyle={{ zIndex: 1000 }}
+            />
           </RechartsPieChart>
         </ResponsiveContainer>
         {/* Center label showing Total */}
         <div 
           className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-          style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+          style={{ 
+            left: '50%', 
+            top: '50%', 
+            transform: 'translate(-50%, -50%)',
+            zIndex: 1 // Lower z-index than tooltip
+          }}
         >
           <div className="text-sm font-semibold text-text-primary">Total</div>
           <div className="text-lg font-bold text-text-muted mt-1">
