@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -10,7 +10,7 @@ import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { PanelEditor } from '@/components/reports/PanelEditor';
-import { GrafanaDashboardRenderer } from '@/components/reports/GrafanaDashboardRenderer';
+import { GrafanaDashboardRenderer, GrafanaDashboardRendererRef } from '@/components/reports/GrafanaDashboardRenderer';
 import { EditToolbar } from '@/components/reports/EditToolbar';
 import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
@@ -77,6 +77,7 @@ const ReportView = () => {
   const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
   const [showPanelGallery, setShowPanelGallery] = useState(false);
+  const dashboardRendererRef = useRef<GrafanaDashboardRendererRef>(null);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
@@ -1087,75 +1088,15 @@ const ReportView = () => {
       
       setEditingPanel(null);
       
-      // Reload report from database to verify the save worked and update state
-      try {
-        const reloadResponse = await apiService.getReportById(reportId);
-        if (reloadResponse.error) {
-          console.error('⚠️ Failed to reload report:', reloadResponse.error);
-        } else {
-          const reloadedReport = reloadResponse.data.report;
-          const reloadedSchema = reloadedReport.report_schema;
-          
-          // Find the panel in the reloaded schema to verify SQL was saved
-          let reloadedPanel: any = null;
-          let reloadedDashboard: GrafanaDashboard | null = null;
-          
-          if (reloadedSchema.dashboard?.panels) {
-            reloadedDashboard = reloadedSchema.dashboard;
-            reloadedPanel = reloadedSchema.dashboard.panels.find((p: any) => 
-              p.id === updatedPanel.id || 
-              (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
-            );
-          } else if (reloadedSchema.panels) {
-            reloadedDashboard = reloadedSchema;
-            reloadedPanel = reloadedSchema.panels.find((p: any) => 
-              p.id === updatedPanel.id || 
-              (p.gridPos?.x === updatedPanel.gridPos?.x && p.gridPos?.y === updatedPanel.gridPos?.y)
-            );
-          }
-          
-          if (reloadedPanel) {
-            const savedSQL = reloadedPanel['x-navixy']?.sql?.statement;
-            const expectedSQL = updatedPanel['x-navixy']?.sql?.statement;
-            if (savedSQL !== expectedSQL) {
-              console.error('SQL mismatch! Database has different SQL than what we saved.', {
-                expectedLength: expectedSQL?.length,
-                gotLength: savedSQL?.length
-              });
-            }
-          } else {
-            console.warn('⚠️ Could not find panel in reloaded schema for verification');
-          }
-          
-          // Update dashboard state with reloaded data to ensure consistency
-          if (reloadedDashboard) {
-            setDashboard(reloadedDashboard);
-            setSchema(reloadedSchema);
-            
-            // Also update editorStore if in edit mode
-            const store = useEditorStore.getState();
-            if (store.isEditingLayout) {
-              store.setDashboard(reloadedDashboard);
-            }
-            
-            // Update editorValue
-            let editorSchema = reloadedSchema;
-            if (reloadedSchema.dashboard) {
-              editorSchema = reloadedSchema.dashboard;
-            }
-            setEditorValue(JSON.stringify(editorSchema, null, 2));
-            
-            // Update dashboardConfig if it exists
-            if (dashboardConfig) {
-              setDashboardConfig({
-                ...dashboardConfig,
-                dashboard: reloadedDashboard
-              });
-            }
-          }
+      // Refresh only the updated panel's view instead of reloading entire dashboard
+      if (updatedPanel.id && dashboardRendererRef.current) {
+        try {
+          // Pass the updated dashboard to ensure refreshPanel uses the latest data
+          await dashboardRendererRef.current.refreshPanel(updatedPanel.id, updatedDashboard);
+        } catch (refreshError) {
+          // If refresh fails, fall back to full reload
+          console.error('Failed to refresh panel, falling back to full reload:', refreshError);
         }
-      } catch (reloadError) {
-        console.error('⚠️ Error during reload verification:', reloadError);
       }
       
       toast({
@@ -1737,6 +1678,7 @@ const ReportView = () => {
         {/* Report Content */}
         {dashboard ? (
           <GrafanaDashboardRenderer
+            ref={dashboardRendererRef}
             dashboard={dashboard}
             timeRange={timeRange}
             editMode={isEditing}

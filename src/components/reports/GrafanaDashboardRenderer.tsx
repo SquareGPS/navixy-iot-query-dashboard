@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -25,6 +25,10 @@ interface GrafanaDashboardRendererProps {
   onSave?: (dashboard: GrafanaDashboard) => Promise<void>;
 }
 
+export interface GrafanaDashboardRendererRef {
+  refreshPanel: (panelId: number, dashboard?: GrafanaDashboard) => Promise<void>;
+}
+
 interface PanelData {
   [panelId: string]: {
     data: GrafanaQueryResult | null;
@@ -33,13 +37,13 @@ interface PanelData {
   };
 }
 
-export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> = ({
+export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, GrafanaDashboardRendererProps>(({
   dashboard,
   timeRange = { from: 'now-24h', to: 'now' },
   editMode = false,
   onEditPanel,
   onSave
-}) => {
+}, ref) => {
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +158,193 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     return resolved;
   }, []);
 
+  /**
+   * Execute query for a single panel
+   */
+  const executePanelQuery = useCallback(async (
+    panel: GrafanaPanel,
+    dashboard: GrafanaDashboard
+  ): Promise<GrafanaQueryResult | null> => {
+    const navixyConfig = panel['x-navixy'];
+    
+    // Skip text panels - they don't need SQL queries
+    if (panel.type === 'text') {
+      return null;
+    }
+    
+    if (!navixyConfig?.sql?.statement || !navixyConfig.sql.statement.trim()) {
+      return null;
+    }
+
+    // Prepare parameters - start with ParameterBar values (highest priority)
+    const params: Record<string, any> = {};
+    
+    // Use parameter values from ParameterBar (user-selected values)
+    Object.entries(parameterValues).forEach(([key, value]) => {
+      // Convert Date objects to ISO strings for binding
+      if (value instanceof Date) {
+        params[key] = formatDateToISO(value);
+      } else {
+        params[key] = value;
+      }
+    });
+
+    // Fallback to default values from param definitions if not in ParameterBar
+    if (navixyConfig.sql.params) {
+      for (const [key, paramConfig] of Object.entries(navixyConfig.sql.params)) {
+        if (!(key in params) && paramConfig.default !== undefined) {
+          params[key] = paramConfig.default;
+        }
+      }
+    }
+
+    // Resolve bindings from panel-level x-navixy.sql.bindings (lower priority)
+    const panelBindings = resolveParameterBindings(
+      navixyConfig.sql.bindings,
+      dashboard,
+      timeRange
+    );
+    // Only add if not already set from ParameterBar
+    Object.entries(panelBindings).forEach(([key, value]) => {
+      if (!(key in params)) {
+        params[key] = value;
+      }
+    });
+
+    // Resolve bindings from dashboard-level x-navixy.parameters.bindings (lower priority)
+    const dashboardBindings = resolveParameterBindings(
+      dashboard['x-navixy']?.parameters?.bindings,
+      dashboard,
+      timeRange
+    );
+    // Only add if not already set from ParameterBar
+    Object.entries(dashboardBindings).forEach(([key, value]) => {
+      if (!(key in params)) {
+        params[key] = value;
+      }
+    });
+
+    // Add time range parameters (fallback if not in bindings or ParameterBar)
+    // Use __from and __to (consistent with SQL parameter naming)
+    if (!params.__from) {
+      if (parameterValues.__from instanceof Date) {
+        params.__from = formatDateToISO(parameterValues.__from);
+      } else if (parameterValues.from instanceof Date) {
+        params.__from = formatDateToISO(parameterValues.from);
+      } else {
+        const fromDate = parseGrafanaTime(timeRange.from);
+        params.__from = formatDateToISO(fromDate);
+      }
+    }
+    if (!params.__to) {
+      if (parameterValues.__to instanceof Date) {
+        params.__to = formatDateToISO(parameterValues.__to);
+      } else if (parameterValues.to instanceof Date) {
+        params.__to = formatDateToISO(parameterValues.to);
+      } else {
+        const toDate = parseGrafanaTime(timeRange.to);
+        params.__to = formatDateToISO(toDate);
+      }
+    }
+
+    // Add template variables directly (fallback if not in bindings)
+    if (dashboard.templating?.list) {
+      dashboard.templating.list.forEach(variable => {
+        if (variable.current?.value !== undefined && !(variable.name in params)) {
+          params[variable.name] = variable.current.value;
+        }
+      });
+    }
+
+    // Prepare parameters for binding (convert Dates, etc.)
+    const preparedParams = prepareParametersForBinding(params);
+
+    // Filter parameters to only include those actually used in the SQL
+    const filteredParams = filterUsedParameters(navixyConfig.sql.statement, preparedParams);
+
+    // Execute SQL query using the validated endpoint
+    const result = await apiService.executeSQL({
+      sql: navixyConfig.sql.statement,
+      params: filteredParams,
+      timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
+      row_limit: navixyConfig.verify?.max_rows || 1000
+    });
+
+    if (result.error) {
+      throw new Error(result.error.message || 'SQL execution failed');
+    }
+
+    // Transform the response to match the expected format
+    return {
+      columns: result.data?.columns || [],
+      rows: result.data?.rows || [],
+      stats: result.data?.stats
+    };
+  }, [parameterValues, resolveParameterBindings, timeRange]);
+
+  /**
+   * Refresh a single panel by executing its query
+   */
+  const refreshPanel = useCallback(async (panelId: number, dashboardOverride?: GrafanaDashboard) => {
+    const dashboardToUse = dashboardOverride || displayDashboard;
+    const panel = dashboardToUse.panels.find(p => p.id === panelId);
+    if (!panel) {
+      return;
+    }
+
+    const navixyConfig = panel['x-navixy'];
+    const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+
+    // Set loading state for this panel
+    setPanelData(prev => ({
+      ...prev,
+      [panel.title]: {
+        ...prev[panel.title],
+        loading: hasSql && panel.type !== 'text',
+        error: null
+      }
+    }));
+
+    try {
+      if (panel.type === 'text' || !hasSql) {
+        setPanelData(prev => ({
+          ...prev,
+          [panel.title]: {
+            data: null,
+            loading: false,
+            error: null
+          }
+        }));
+        return;
+      }
+
+      const data = await executePanelQuery(panel, dashboardToUse);
+      
+      setPanelData(prev => ({
+        ...prev,
+        [panel.title]: {
+          data,
+          loading: false,
+          error: null
+        }
+      }));
+    } catch (err: any) {
+      setPanelData(prev => ({
+        ...prev,
+        [panel.title]: {
+          data: null,
+          loading: false,
+          error: err.message || 'Query execution failed'
+        }
+      }));
+    }
+  }, [displayDashboard, executePanelQuery]);
+
+  // Expose refreshPanel via ref
+  useImperativeHandle(ref, () => ({
+    refreshPanel
+  }), [refreshPanel]);
+
   // Execute SQL queries for all panels
   useEffect(() => {
     // Don't execute queries when in layout editing mode
@@ -257,137 +448,24 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       // Execute queries for each panel
       for (const panel of displayDashboard.panels) {
         try {
-          const navixyConfig = panel['x-navixy'];
+          const data = await executePanelQuery(panel, displayDashboard);
           
-          // Skip text panels - they don't need SQL queries
-          if (panel.type === 'text') {
-            continue;
-          }
-          
-          if (!navixyConfig?.sql?.statement || !navixyConfig.sql.statement.trim()) {
-            // Panel doesn't have SQL configured - don't show error, just mark as not loading
+          if (data === null) {
+            // Text panel or no SQL - mark as not loading
+            const navixyConfig = panel['x-navixy'];
+            const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
             newPanelData[panel.title] = {
               data: null,
               loading: false,
               error: null
             };
-            continue;
+          } else {
+            newPanelData[panel.title] = {
+              data,
+              loading: false,
+              error: null
+            };
           }
-
-          // Prepare parameters - start with ParameterBar values (highest priority)
-          const params: Record<string, any> = {};
-          
-          // Use parameter values from ParameterBar (user-selected values)
-          Object.entries(parameterValues).forEach(([key, value]) => {
-            // Convert Date objects to ISO strings for binding
-            if (value instanceof Date) {
-              params[key] = formatDateToISO(value);
-            } else {
-              params[key] = value;
-            }
-          });
-
-          // Fallback to default values from param definitions if not in ParameterBar
-          if (navixyConfig.sql.params) {
-            for (const [key, paramConfig] of Object.entries(navixyConfig.sql.params)) {
-              if (!(key in params) && paramConfig.default !== undefined) {
-                params[key] = paramConfig.default;
-              }
-            }
-          }
-
-          // Resolve bindings from panel-level x-navixy.sql.bindings (lower priority)
-          const panelBindings = resolveParameterBindings(
-            navixyConfig.sql.bindings,
-            displayDashboard,
-            timeRange
-          );
-          // Only add if not already set from ParameterBar
-          Object.entries(panelBindings).forEach(([key, value]) => {
-            if (!(key in params)) {
-              params[key] = value;
-            }
-          });
-
-          // Resolve bindings from dashboard-level x-navixy.parameters.bindings (lower priority)
-          const dashboardBindings = resolveParameterBindings(
-            displayDashboard['x-navixy']?.parameters?.bindings,
-            displayDashboard,
-            timeRange
-          );
-          // Only add if not already set from ParameterBar
-          Object.entries(dashboardBindings).forEach(([key, value]) => {
-            if (!(key in params)) {
-              params[key] = value;
-            }
-          });
-
-          // Add time range parameters (fallback if not in bindings or ParameterBar)
-          // Use __from and __to (consistent with SQL parameter naming)
-          if (!params.__from) {
-            // Use ParameterBar value if available, otherwise parse timeRange
-            if (parameterValues.__from instanceof Date) {
-              params.__from = formatDateToISO(parameterValues.__from);
-            } else if (parameterValues.from instanceof Date) {
-              // Legacy support: migrate from/to to __from/__to
-              params.__from = formatDateToISO(parameterValues.from);
-            } else {
-              const fromDate = parseGrafanaTime(timeRange.from);
-              params.__from = formatDateToISO(fromDate);
-            }
-          }
-          if (!params.__to) {
-            // Use ParameterBar value if available, otherwise parse timeRange
-            if (parameterValues.__to instanceof Date) {
-              params.__to = formatDateToISO(parameterValues.__to);
-            } else if (parameterValues.to instanceof Date) {
-              // Legacy support: migrate from/to to __from/__to
-              params.__to = formatDateToISO(parameterValues.to);
-            } else {
-              const toDate = parseGrafanaTime(timeRange.to);
-              params.__to = formatDateToISO(toDate);
-            }
-          }
-
-          // Add template variables directly (fallback if not in bindings)
-          if (displayDashboard.templating?.list) {
-            displayDashboard.templating.list.forEach(variable => {
-              if (variable.current?.value !== undefined && !(variable.name in params)) {
-                params[variable.name] = variable.current.value;
-              }
-            });
-          }
-
-          // Prepare parameters for binding (convert Dates, etc.)
-          const preparedParams = prepareParametersForBinding(params);
-
-          // Filter parameters to only include those actually used in the SQL
-          const filteredParams = filterUsedParameters(navixyConfig.sql.statement, preparedParams);
-
-          // Execute SQL query using the validated endpoint
-          const result = await apiService.executeSQL({
-            sql: navixyConfig.sql.statement,
-            params: filteredParams,
-            timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
-            row_limit: navixyConfig.verify?.max_rows || 1000
-          });
-
-          if (result.error) {
-            throw new Error(result.error.message || 'SQL execution failed');
-          }
-
-          // Transform the response to match the expected format
-          const transformedData = {
-            columns: result.data?.columns || [],
-            rows: result.data?.rows || [],
-            stats: result.data?.stats
-          };
-
-          newPanelData[panel.title] = {
-            data: transformedData,
-            loading: false,
-            error: null
-          };
         } catch (err: any) {
           console.error(`Error executing query for panel ${panel.title}:`, err);
           newPanelData[panel.title] = {
@@ -785,4 +863,6 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       />
     </div>
   );
-};
+});
+
+GrafanaDashboardRenderer.displayName = 'GrafanaDashboardRenderer';
