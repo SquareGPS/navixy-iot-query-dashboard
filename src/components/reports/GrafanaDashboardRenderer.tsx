@@ -13,6 +13,7 @@ import { canonicalizeRows } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -36,6 +37,200 @@ interface PanelData {
     error: string | null;
   };
 }
+
+// Pie Chart Panel Component
+const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
+  const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+
+  if (!data.rows || data.rows.length === 0) {
+    return <div className="text-gray-500">No data</div>;
+  }
+
+  const total = data.rows.reduce((sum, row) => sum + (Number(row[1]) || 0), 0);
+  
+  // Process data for pie chart
+  let chartData = data.rows
+    .map((row, index) => ({
+      name: String(row[0]),
+      value: Number(row[1]) || 0,
+    }))
+    .sort((a, b) => b.value - a.value); // Sort by descending value
+
+  // Limit to top 10 items, group the rest into "Other"
+  const MAX_ITEMS = 10;
+  if (chartData.length > MAX_ITEMS) {
+    const topItems = chartData.slice(0, MAX_ITEMS);
+    const remainingItems = chartData.slice(MAX_ITEMS);
+    const otherValue = remainingItems.reduce((sum, item) => sum + item.value, 0);
+    chartData = [...topItems, { name: 'Other', value: otherValue }];
+  }
+
+  // Calculate angles for positioning largest slice
+  // Anchor angle: 240° positions largest slice in top-left quadrant
+  // Increase to rotate clockwise further, decrease to rotate counter-clockwise
+  const anchorDeg = 240; // Top-left quadrant
+  const firstSliceAngle = chartData.length > 0 && total > 0 
+    ? (chartData[0].value / total) * 360 
+    : 0;
+  
+  // Center the largest slice at anchorDeg
+  // Center = startAngle + firstSliceAngle/2, so: startAngle = anchorDeg - firstSliceAngle/2
+  // To rotate clockwise: endAngle = startAngle - 360
+  const startAngle = anchorDeg - (firstSliceAngle / 2);
+  const endAngle = startAngle - 360;
+
+  const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181'];
+  const colors = chartData.map((_, index) => DEFAULT_COLORS[index % DEFAULT_COLORS.length]);
+
+  // Active shape for hover effect
+  const renderActiveShape = (props: any) => {
+    const {
+      cx,
+      cy,
+      innerRadius,
+      outerRadius,
+      startAngle,
+      endAngle,
+      fill,
+    } = props;
+    const enlargedOuterRadius = outerRadius * 1.05;
+    return (
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={enlargedOuterRadius}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+    );
+  };
+
+  // Custom tooltip content
+  const renderTooltipContent = (props: any) => {
+    if (!props.active || !props.payload || props.payload.length === 0) {
+      return null;
+    }
+    
+    const data = props.payload[0];
+    const value = data.value;
+    const name = data.name;
+    const percent = ((value / total) * 100).toFixed(1);
+    
+    return (
+      <div
+        style={{
+          backgroundColor: 'var(--background)',
+          border: '1px solid var(--border)',
+          borderRadius: '6px',
+          padding: '8px 12px',
+        }}
+      >
+        <div className="text-sm font-medium text-text-primary">{name}</div>
+        <div className="text-xs text-text-muted">
+          {value.toFixed(1)} ({percent}%)
+        </div>
+      </div>
+    );
+  };
+
+  // Custom legend renderer
+  const renderLegend = () => {
+    return (
+      <div className="flex flex-col gap-3 ml-6">
+        {chartData.map((entry, index) => {
+          const percent = ((entry.value / total) * 100).toFixed(1);
+          return (
+            <div key={`legend-${index}`} className="flex items-start gap-2">
+              <div
+                className="w-4 h-4 rounded-sm mt-0.5 flex-shrink-0"
+                style={{ backgroundColor: colors[index] }}
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-text-primary">
+                  {entry.name}
+                </span>
+                <span className="text-xs text-text-muted">
+                  {entry.value.toFixed(1)} ({percent}%)
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex items-center gap-4 md:gap-6 h-full w-full overflow-hidden">
+      <div className="relative flex-shrink-0" style={{ 
+        width: 'clamp(200px, 55%, 400px)', 
+        aspectRatio: '1',
+        height: '100%',
+        maxHeight: '100%'
+      }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsPieChart>
+            <Pie
+              data={chartData}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              label={false}
+              outerRadius="80%"
+              innerRadius="44%"
+              fill="#8884d8"
+              dataKey="value"
+              paddingAngle={2}
+              startAngle={startAngle}
+              endAngle={endAngle}
+              activeIndex={activeIndex}
+              activeShape={renderActiveShape}
+              onMouseEnter={(_, index) => setActiveIndex(index)}
+              onMouseLeave={() => setActiveIndex(undefined)}
+              isAnimationActive={true}
+              animationBegin={0}
+              animationDuration={250}
+              animationEasing="ease-out"
+            >
+              {chartData.map((entry, index) => (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={colors[index]}
+                  style={{
+                    filter: activeIndex === index ? 'brightness(1.1)' : 'none',
+                    transition: 'filter 0.2s ease-out',
+                  }}
+                />
+              ))}
+            </Pie>
+            <Tooltip content={renderTooltipContent} />
+          </RechartsPieChart>
+        </ResponsiveContainer>
+        {/* Center label showing Total */}
+        <div 
+          className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+          style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+        >
+          <div className="text-sm font-semibold text-text-primary">Total</div>
+          <div className="text-lg font-bold text-text-muted mt-1">
+            {total.toLocaleString()}
+          </div>
+        </div>
+      </div>
+      {/* Legend on the right */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 self-center" style={{ 
+        minWidth: '200px', 
+        maxWidth: '45%',
+        height: 'clamp(200px, 55%, 400px)',
+        maxHeight: 'clamp(200px, 55%, 400px)'
+      }}>
+        {renderLegend()}
+      </div>
+    </div>
+  );
+};
 
 export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, GrafanaDashboardRendererProps>(({
   dashboard,
@@ -552,39 +747,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   };
 
   const renderPieChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
-    if (!data.rows || data.rows.length === 0) {
-      return <div className="text-gray-500">No data</div>;
-    }
-
-    const total = data.rows.reduce((sum, row) => sum + (row[1] as number), 0);
-    
-    return (
-      <div className="space-y-2">
-        {data.rows.map((row, index) => {
-          const category = row[0];
-          const value = row[1] as number;
-          const percentage = ((value / total) * 100).toFixed(1);
-          
-          return (
-            <div key={index} className="flex items-center justify-between text-sm">
-              <div className="flex items-center space-x-2">
-                <div 
-                  className="w-3 h-3 rounded-full"
-                  style={{ 
-                    backgroundColor: `hsl(${(index * 137.5) % 360}, 70%, 50%)` 
-                  }}
-                />
-                <span>{category}</span>
-              </div>
-              <div className="text-right">
-                <div className="font-medium">{value}</div>
-                <div className="text-xs text-gray-500">{percentage}%</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
+    return <PieChartPanel data={data} />;
   };
 
   const renderTablePanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
