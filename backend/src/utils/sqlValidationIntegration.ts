@@ -33,7 +33,14 @@ export function validateSQLQuery(req: Request, res: Response, next: NextFunction
   }
 
   try {
-    SQLSelectGuard.assertSafeSelect(sql);
+    // Check if SQL contains template placeholders (${variable_name})
+    // If so, use template validator (less strict), otherwise use strict validator
+    const hasTemplatePlaceholders = /\$\{[^}]+\}/.test(sql);
+    if (hasTemplatePlaceholders) {
+      SQLSelectGuard.assertSafeTemplate(sql);
+    } else {
+      SQLSelectGuard.assertSafeSelect(sql);
+    }
     next();
   } catch (error) {
     if (error instanceof SelectValidationError) {
@@ -91,7 +98,11 @@ export function validateSQLQuerySafe(sql: string): {
     };
   }
 
-  const result = SQLSelectGuard.validate(sql);
+  // Check if SQL contains template placeholders
+  const hasTemplatePlaceholders = /\$\{[^}]+\}/.test(sql);
+  const result = hasTemplatePlaceholders 
+    ? SQLSelectGuard.validateTemplate(sql)
+    : SQLSelectGuard.validate(sql);
   
   if (result.valid) {
     return { valid: true };

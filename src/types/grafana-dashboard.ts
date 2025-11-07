@@ -72,6 +72,11 @@ export interface TimePickerConfig {
   nowDelay?: string;
   refresh_intervals?: string[];
   time_options?: string[];
+  quickRanges?: Array<{
+    from: string;
+    to: string;
+    display: string;
+  }>;
 }
 
 export interface AnnotationsConfig {
@@ -124,6 +129,25 @@ export interface NavixyConfig {
   parameters?: {
     bindings?: Record<string, string>;
   };
+  params?: DashboardParameter[];
+}
+
+export interface DashboardParameter {
+  name: string;
+  type: 'time' | 'datetime' | 'number' | 'integer' | 'text' | 'boolean' | 'select' | 'multiselect';
+  label?: string;
+  description?: string;
+  default?: any;
+  required?: boolean;
+  placeholder?: string;
+  order?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  pattern?: string;
+  format?: string;
+  options?: Array<{ value: any; label: string }>;
+  allowCustom?: boolean;
 }
 
 export interface GrafanaPanel {

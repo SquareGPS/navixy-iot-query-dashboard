@@ -757,14 +757,14 @@ export class DatabaseService {
   ): Promise<ParameterizedQueryResult> {
     const startTime = Date.now();
 
-    // Validate SQL using the new SQLSelectGuard
+    // Validate SQL template (with ${variable_name} placeholders) - less strict
     try {
-      SQLSelectGuard.assertSafeSelect(statement);
+      SQLSelectGuard.assertSafeTemplate(statement);
     } catch (error) {
       if (error instanceof Error) {
-        throw new CustomError(error.message, 400);
+        throw new CustomError(`SQL template validation failed: ${error.message}`, 400);
       }
-      throw new CustomError('SQL validation failed', 400);
+      throw new CustomError('SQL template validation failed', 400);
     }
 
     const config = await this.getExternalDatabaseConfig();
@@ -787,19 +787,32 @@ export class DatabaseService {
       if (hasParameters) {
         // Convert parameters to PostgreSQL format
         // Only include parameters that are actually used in the SQL
+        // Uses ${variable_name} syntax (Grafana-style template variables)
         Object.entries(params).forEach(([name, value]) => {
           // Check if this parameter is used in the SQL
-          const paramPattern = new RegExp(`:${name}\\b`, 'g');
+          // Escape special regex characters in paramName
+          const escapedParamName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const paramPattern = new RegExp(`\\$\\{${escapedParamName}\\}`, 'g');
           if (paramPattern.test(processedStatement)) {
             usedParamCount++;
             const placeholder = `$${usedParamCount}`;
             processedStatement = processedStatement.replace(
-              new RegExp(`:${name}\\b`, 'g'), 
+              paramPattern, 
               placeholder
             );
             paramValues.push(value);
           }
         });
+      }
+
+      // Validate SQL again after parameter binding to ensure final SQL is safe
+      try {
+        SQLSelectGuard.assertSafeSelect(processedStatement);
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new CustomError(`SQL validation failed after parameter binding: ${error.message}`, 400);
+        }
+        throw new CustomError('SQL validation failed after parameter binding', 400);
       }
 
       // Execute query

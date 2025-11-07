@@ -10,6 +10,9 @@ import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
 import { canonicalizeRows } from '@/layout/geometry/rows';
+import { ParameterBar, ParameterValues } from './ParameterBar';
+import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
+import { prepareParametersForBinding } from '@/utils/parameterBinder';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -40,6 +43,8 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [parameterValues, setParameterValues] = useState<ParameterValues>({});
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Initialize editor store with dashboard
   const setDashboard = useEditorStore((state) => state.setDashboard);
@@ -111,12 +116,14 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
       if (varMatch) {
         const varName = varMatch[1];
         
-        // Handle special Grafana variables
+        // Handle special Grafana variables (convert to Date then ISO string)
         if (varName === '__from') {
-          return timeRange.from;
+          const date = parseGrafanaTime(timeRange.from);
+          return formatDateToISO(date);
         }
         if (varName === '__to') {
-          return timeRange.to;
+          const date = parseGrafanaTime(timeRange.to);
+          return formatDateToISO(date);
         }
         
         // Handle dashboard variables
@@ -127,7 +134,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
           }
         }
         
-        // Try dashboard-level bindings from x-navixy
+        // Try dashboard-level bindings from x-navixy (recursive resolution)
         if (dashboard['x-navixy']?.parameters?.bindings?.[varName]) {
           return resolveBinding(dashboard['x-navixy'].parameters.bindings[varName]);
         }
@@ -195,7 +202,19 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
         } : undefined,
       };
       
-      return `${JSON.stringify(cacheData)}:${JSON.stringify(timeRange)}`;
+      // Include parameterValues in cache key so queries re-execute when parameters change
+      // Convert Date objects to ISO strings for consistent serialization
+      const serializedParams: Record<string, unknown> = {};
+      Object.entries(parameterValues).forEach(([key, value]) => {
+        if (value instanceof Date) {
+          serializedParams[key] = formatDateToISO(value);
+        } else {
+          serializedParams[key] = value;
+        }
+      });
+      
+      // Include refreshTrigger to force re-execution when Refresh is clicked
+      return `${JSON.stringify(cacheData)}:${JSON.stringify(timeRange)}:${JSON.stringify(serializedParams)}:${refreshTrigger}`;
     };
     
     const cacheKey = createStableCacheKey(displayDashboard);
@@ -255,37 +274,71 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             continue;
           }
 
-          // Prepare parameters
+          // Prepare parameters - start with ParameterBar values (highest priority)
           const params: Record<string, any> = {};
           
-          // Start with default values from param definitions
+          // Use parameter values from ParameterBar (user-selected values)
+          Object.entries(parameterValues).forEach(([key, value]) => {
+            // Convert Date objects to ISO strings for binding
+            if (value instanceof Date) {
+              params[key] = formatDateToISO(value);
+            } else {
+              params[key] = value;
+            }
+          });
+
+          // Fallback to default values from param definitions if not in ParameterBar
           if (navixyConfig.sql.params) {
             for (const [key, paramConfig] of Object.entries(navixyConfig.sql.params)) {
-              if (paramConfig.default !== undefined) {
+              if (!(key in params) && paramConfig.default !== undefined) {
                 params[key] = paramConfig.default;
               }
             }
           }
 
-          // Resolve bindings from panel-level x-navixy.sql.bindings
+          // Resolve bindings from panel-level x-navixy.sql.bindings (lower priority)
           const panelBindings = resolveParameterBindings(
             navixyConfig.sql.bindings,
             displayDashboard,
             timeRange
           );
-          Object.assign(params, panelBindings);
+          // Only add if not already set from ParameterBar
+          Object.entries(panelBindings).forEach(([key, value]) => {
+            if (!(key in params)) {
+              params[key] = value;
+            }
+          });
 
-          // Resolve bindings from dashboard-level x-navixy.parameters.bindings
+          // Resolve bindings from dashboard-level x-navixy.parameters.bindings (lower priority)
           const dashboardBindings = resolveParameterBindings(
             displayDashboard['x-navixy']?.parameters?.bindings,
             displayDashboard,
             timeRange
           );
-          Object.assign(params, dashboardBindings);
+          // Only add if not already set from ParameterBar
+          Object.entries(dashboardBindings).forEach(([key, value]) => {
+            if (!(key in params)) {
+              params[key] = value;
+            }
+          });
 
-          // Add time range parameters (fallback if not in bindings)
-          if (!params.from) params.from = timeRange.from;
-          if (!params.to) params.to = timeRange.to;
+          // Add time range parameters (fallback if not in bindings or ParameterBar)
+          if (!params.from) {
+            // Use ParameterBar value if available, otherwise parse timeRange
+            if (parameterValues.from instanceof Date) {
+              params.from = formatDateToISO(parameterValues.from);
+            } else {
+              params.from = timeRange.from;
+            }
+          }
+          if (!params.to) {
+            // Use ParameterBar value if available, otherwise parse timeRange
+            if (parameterValues.to instanceof Date) {
+              params.to = formatDateToISO(parameterValues.to);
+            } else {
+              params.to = timeRange.to;
+            }
+          }
 
           // Add template variables directly (fallback if not in bindings)
           if (displayDashboard.templating?.list) {
@@ -296,8 +349,11 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
             });
           }
 
+          // Prepare parameters for binding (convert Dates, etc.)
+          const preparedParams = prepareParametersForBinding(params);
+
           // Filter parameters to only include those actually used in the SQL
-          const filteredParams = filterUsedParameters(navixyConfig.sql.statement, params);
+          const filteredParams = filterUsedParameters(navixyConfig.sql.statement, preparedParams);
 
           // Execute SQL query using the validated endpoint
           const result = await apiService.executeSQL({
@@ -338,7 +394,7 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, resolveParameterBindings, isEditingLayout]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, isEditingLayout]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
@@ -667,6 +723,20 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
 
   return (
     <div className="space-y-6">
+      {/* Parameter Bar - Show if dashboard has params or time range */}
+      {(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0) || 
+       (dashboard.time && dashboard.time.from && dashboard.time.to) ? (
+        <ParameterBar
+          dashboard={dashboard}
+          values={parameterValues}
+          onChange={(newValues) => {
+            setParameterValues(newValues);
+            // Increment refresh trigger to force query re-execution
+            setRefreshTrigger(prev => prev + 1);
+          }}
+        />
+      ) : null}
+
       {/* Panels Grid - uses same 24-column system as edit mode */}
       <PanelGrid
         panels={displayDashboard.panels}
