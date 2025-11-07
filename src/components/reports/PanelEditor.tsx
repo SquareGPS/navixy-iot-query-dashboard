@@ -96,10 +96,6 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         'x-navixy': updatedNavixyConfig
       };
 
-      // Debug: Log SQL length to verify it's not truncated
-      console.log('💾 PanelEditor: Saving panel with SQL length:', updatedNavixyConfig.sql.statement.length);
-      console.log('💾 PanelEditor: SQL preview:', updatedNavixyConfig.sql.statement.substring(0, 200));
-
       onSave(updatedPanel);
       onClose();
     } catch (err) {

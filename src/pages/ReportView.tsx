@@ -40,24 +40,6 @@ const ReportView = () => {
   const [tempTitle, setTempTitle] = useState('');
   const [isTitleHovered, setIsTitleHovered] = useState(false);
 
-  // Add logging for state changes
-  useEffect(() => {
-    console.log('📊 State changed - schema:', schema ? `${schema.title} (${schema.rows?.length} rows)` : 'null');
-    if (!schema) {
-      console.log('🚨 SCHEMA SET TO NULL! Stack trace:', new Error().stack);
-    }
-  }, [schema]);
-
-  useEffect(() => {
-    console.log('📊 State changed - error:', error);
-    if (error) {
-      console.log('🚨 ERROR SET! Stack trace:', new Error().stack);
-    }
-  }, [error]);
-
-  useEffect(() => {
-    console.log('📊 State changed - loading:', loading);
-  }, [loading]);
   const [isEditing, setIsEditing] = useState(false);
   const [editMode, setEditMode] = useState<'full' | 'inline'>('inline');
   const [editorValue, setEditorValue] = useState('');
@@ -169,7 +151,6 @@ const ReportView = () => {
 
   useEffect(() => {
     const fetchReport = async () => {
-      console.log('🔄 Main fetchReport called...', { reportId });
       if (!reportId) return;
 
       setLoading(true);
@@ -180,27 +161,18 @@ const ReportView = () => {
       setSchema(null);
 
       try {
-        console.log('📡 Fetching report from API...', { reportId });
         const response = await apiService.getReportById(reportId);
-        console.log('📡 API response:', response);
         
         if (response.error) {
-          console.error('❌ API error:', response.error);
           throw new Error(response.error.message || 'Failed to fetch report');
         }
         
         const report = response.data.report;
-        console.log('📡 Report data:', report);
-        console.log('📡 Report schema:', report.report_schema);
-        console.log('📡 Schema type:', typeof report.report_schema);
-        console.log('📡 Schema keys:', report.report_schema ? Object.keys(report.report_schema) : 'null');
-        console.log('📡 Schema length:', report.report_schema ? Object.keys(report.report_schema).length : 'null');
         
         setReport(report);
         
         if (!report.report_schema || 
             (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
-          console.log('❌ Dashboard schema is missing or empty, throwing error');
           throw new Error('Dashboard schema is missing');
         }
 
@@ -209,40 +181,27 @@ const ReportView = () => {
         
         // Check if this is a report schema format (with rows) and migrate to Grafana format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
-          console.log('🔄 Detected report schema format, migrating to Grafana format...');
           const reportSchema = schemaData as ReportSchema;
           const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
           schemaData = migratedDashboard;
-          console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
         }
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
         let grafanaDashboard: GrafanaDashboard;
         if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
           // Direct panels format with content
-          console.log('✅ Detected Grafana dashboard format (direct panels)');
           grafanaDashboard = schemaData as GrafanaDashboard;
         } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
           // Nested dashboard format with content
-          console.log('✅ Detected Grafana dashboard format (nested dashboard)');
           grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
         } else {
           // Empty or legacy format - show helpful message
-          console.log('⚠️ Empty dashboard or legacy format detected');
           setError('Dashboard is empty. You can download a Grafana dashboard template to get started.');
           return;
         }
         
         setDashboard(grafanaDashboard);
         setSchema(schemaData); // Set schema for compatibility
-        
-        console.log('📊 Schema structure after load:', {
-          hasDashboard: !!schemaData.dashboard,
-          hasPanels: !!schemaData.panels,
-          hasXNavixy: !!schemaData['x-navixy'],
-          schemaKeys: Object.keys(schemaData),
-          panelsCount: schemaData.panels?.length || schemaData.dashboard?.panels?.length || 0
-        });
           
         const config: DashboardConfig = {
           title: report.title,
@@ -262,7 +221,6 @@ const ReportView = () => {
         setDashboardConfig(config);
         setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
         
-        console.log('✅ Dashboard loaded successfully');
       } catch (err: any) {
         console.error('❌ Error fetching report:', err);
         setError(err.message || 'Failed to load report');
@@ -1002,12 +960,6 @@ const ReportView = () => {
     }
     
     try {
-      console.log('🔧 handleSavePanel: Starting panel save', {
-        editingPanelId: editingPanel?.id,
-        updatedPanelId: updatedPanel.id,
-        updatedPanelSQL: updatedPanel['x-navixy']?.sql?.statement?.substring(0, 50),
-        dashboardPanelsCount: dashboard.panels.length
-      });
 
       // Deep clone dashboard to avoid reference issues
       const updatedDashboard = {
@@ -1021,7 +973,6 @@ const ReportView = () => {
       // Strategy 1: Use ID if available (most reliable)
       if (updatedPanel.id && editingPanel?.id) {
         panelIndex = updatedDashboard.panels.findIndex(p => p.id === editingPanel.id);
-        console.log('🔍 Strategy 1 (ID):', { panelIndex, editingPanelId: editingPanel.id });
       }
       
       // Strategy 2: Use gridPos as unique identifier
@@ -1032,7 +983,6 @@ const ReportView = () => {
           p.gridPos?.w === updatedPanel.gridPos.w &&
           p.gridPos?.h === updatedPanel.gridPos.h
         );
-        console.log('🔍 Strategy 2 (gridPos):', { panelIndex, gridPos: updatedPanel.gridPos });
       }
       
       // Strategy 3: Fallback to original title
@@ -1040,18 +990,10 @@ const ReportView = () => {
         panelIndex = updatedDashboard.panels.findIndex(p => 
           p.title === editingPanel.title
         );
-        console.log('🔍 Strategy 3 (title):', { panelIndex, title: editingPanel.title });
       }
       
       if (panelIndex !== -1) {
-        console.log('✅ Found panel at index', panelIndex);
         const oldPanel = updatedDashboard.panels[panelIndex];
-        const oldSQL = oldPanel['x-navixy']?.sql?.statement;
-        const newSQL = updatedPanel['x-navixy']?.sql?.statement;
-        console.log('📝 Old panel SQL length:', oldSQL?.length || 0);
-        console.log('📝 New panel SQL length:', newSQL?.length || 0);
-        console.log('📝 Old panel SQL:', oldSQL?.substring(0, 100));
-        console.log('📝 New panel SQL:', newSQL?.substring(0, 100));
         
         // Preserve all existing panel properties and merge with updates
         // Ensure x-navixy is properly merged to preserve all nested properties
@@ -1070,19 +1012,6 @@ const ReportView = () => {
           }
         };
         
-        const finalSQL = updatedDashboard.panels[panelIndex]['x-navixy']?.sql?.statement;
-        console.log('✅ Panel updated, final SQL length:', finalSQL?.length || 0);
-        console.log('✅ Panel updated, final SQL:', finalSQL?.substring(0, 100));
-        
-        // Verify SQL was not truncated
-        if (newSQL && finalSQL && finalSQL.length < newSQL.length) {
-          console.error('❌ SQL was truncated!', {
-            expectedLength: newSQL.length,
-            actualLength: finalSQL.length,
-            expected: newSQL.substring(0, 200),
-            actual: finalSQL.substring(0, 200)
-          });
-        }
       } else {
         console.error('❌ Could not find panel to update', {
           editingPanel: editingPanel,
@@ -1101,25 +1030,16 @@ const ReportView = () => {
           ...schema,
           dashboard: updatedDashboard
         };
-        console.log('📦 Schema structure: nested dashboard');
       } else if (schema.panels) {
         // Schema is direct GrafanaDashboard format
         updatedSchema = updatedDashboard;
-        console.log('📦 Schema structure: direct panels');
       } else {
         // Fallback: wrap in dashboard property
         updatedSchema = {
           dashboard: updatedDashboard
         };
-        console.log('📦 Schema structure: fallback wrapper');
       }
       
-      console.log('💾 Saving to API:', {
-        reportId,
-        schemaHasDashboard: !!updatedSchema.dashboard,
-        schemaHasPanels: !!updatedSchema.panels,
-        panelsCount: updatedSchema.dashboard?.panels?.length || updatedSchema.panels?.length
-      });
       
       const response = await apiService.updateReport(reportId, {
         title: report?.title,
@@ -1132,15 +1052,12 @@ const ReportView = () => {
         throw new Error(response.error.message || 'Failed to save panel');
       }
 
-      console.log('✅ API response received, updating local state');
-      
       setDashboard(updatedDashboard);
       setSchema(updatedSchema);
       
       // Also update editorStore to ensure it has the latest data
       const store = useEditorStore.getState();
       if (store.isEditingLayout) {
-        console.log('🔄 Updating editorStore with latest dashboard');
         store.setDashboard(updatedDashboard);
       }
       
@@ -1148,7 +1065,6 @@ const ReportView = () => {
       if (editingPanel && updatedPanel.id) {
         const updatedPanelFromDashboard = updatedDashboard.panels.find(p => p.id === updatedPanel.id);
         if (updatedPanelFromDashboard) {
-          console.log('🔄 Updating editingPanel with latest data from dashboard');
           setEditingPanel(updatedPanelFromDashboard);
         }
       }
@@ -1172,7 +1088,6 @@ const ReportView = () => {
       setEditingPanel(null);
       
       // Reload report from database to verify the save worked and update state
-      console.log('🔄 Reloading report from database to verify save...');
       try {
         const reloadResponse = await apiService.getReportById(reportId);
         if (reloadResponse.error) {
@@ -1202,22 +1117,11 @@ const ReportView = () => {
           if (reloadedPanel) {
             const savedSQL = reloadedPanel['x-navixy']?.sql?.statement;
             const expectedSQL = updatedPanel['x-navixy']?.sql?.statement;
-            console.log('🔍 Verification:', {
-              savedSQL: savedSQL?.substring(0, 100),
-              expectedSQL: expectedSQL?.substring(0, 100),
-              match: savedSQL === expectedSQL,
-              savedSQLLength: savedSQL?.length,
-              expectedSQLLength: expectedSQL?.length
-            });
-            
             if (savedSQL !== expectedSQL) {
-              console.error('❌ SQL mismatch! Database has different SQL than what we saved.');
-              console.error('Expected length:', expectedSQL?.length);
-              console.error('Got length:', savedSQL?.length);
-              console.error('Expected:', expectedSQL);
-              console.error('Got:', savedSQL);
-            } else {
-              console.log('✅ Verified: SQL matches what we saved');
+              console.error('SQL mismatch! Database has different SQL than what we saved.', {
+                expectedLength: expectedSQL?.length,
+                gotLength: savedSQL?.length
+              });
             }
           } else {
             console.warn('⚠️ Could not find panel in reloaded schema for verification');
@@ -1225,14 +1129,12 @@ const ReportView = () => {
           
           // Update dashboard state with reloaded data to ensure consistency
           if (reloadedDashboard) {
-            console.log('🔄 Updating dashboard state with reloaded data');
             setDashboard(reloadedDashboard);
             setSchema(reloadedSchema);
             
             // Also update editorStore if in edit mode
             const store = useEditorStore.getState();
             if (store.isEditingLayout) {
-              console.log('🔄 Updating editorStore with reloaded dashboard');
               store.setDashboard(reloadedDashboard);
             }
             
@@ -1844,7 +1746,6 @@ const ReportView = () => {
                 p.id === panel.id || 
                 (p.gridPos?.x === panel.gridPos?.x && p.gridPos?.y === panel.gridPos?.y)
               ) || panel;
-              console.log('📝 Opening panel editor for panel:', latestPanel.id, 'SQL length:', latestPanel['x-navixy']?.sql?.statement?.length || 0);
               setEditingPanel(latestPanel);
             }}
             onSave={handleSaveDashboard}
