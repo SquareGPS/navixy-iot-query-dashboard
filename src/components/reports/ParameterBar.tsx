@@ -95,30 +95,32 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       }
     });
 
-    // Always add time range parameters if dashboard.time exists (even if not declared or used)
-    // This allows users to adjust the time range even if it's not explicitly parameterized
-    if (dashboard.time && dashboard.time.from && dashboard.time.to) {
-      // Add 'from' parameter if not already present
-      if (!paramMap.has('from')) {
-        paramMap.set('from', {
-          name: 'from',
+    // Check if __from or __to parameters exist (from SQL inference or declaration)
+    const hasFromParam = paramMap.has('__from');
+    const hasToParam = paramMap.has('__to');
+    
+    // If __from or __to are found, ensure they're marked as time parameters
+    // and have defaults from dashboard.time
+    if ((hasFromParam || hasToParam) && dashboard.time) {
+      if (hasFromParam) {
+        const fromParam = paramMap.get('__from')!;
+        paramMap.set('__from', {
+          ...fromParam,
           type: 'time',
-          label: 'From',
-          default: dashboard.time.from,
-          required: true,
-          order: -2 // Put time params first
+          label: fromParam.label || 'From',
+          default: fromParam.default || dashboard.time.from,
+          order: fromParam.order ?? -2
         });
       }
       
-      // Add 'to' parameter if not already present
-      if (!paramMap.has('to')) {
-        paramMap.set('to', {
-          name: 'to',
+      if (hasToParam) {
+        const toParam = paramMap.get('__to')!;
+        paramMap.set('__to', {
+          ...toParam,
           type: 'time',
-          label: 'To',
-          default: dashboard.time.to,
-          required: true,
-          order: -1 // Put time params first
+          label: toParam.label || 'To',
+          default: toParam.default || dashboard.time.to,
+          order: toParam.order ?? -1
         });
       }
     }
@@ -139,12 +141,12 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     const defaults: ParameterValues = {};
     
     allParams.forEach(param => {
-      if (param.name === 'from' || param.name === 'to') {
+      if (param.name === '__from' || param.name === '__to') {
         // Time range params get defaults from dashboard.time
-        if (param.name === 'from') {
-          defaults.from = parseGrafanaTime(defaultTimeRange.from);
+        if (param.name === '__from') {
+          defaults.__from = parseGrafanaTime(defaultTimeRange.from);
         } else {
-          defaults.to = parseGrafanaTime(defaultTimeRange.to);
+          defaults.__to = parseGrafanaTime(defaultTimeRange.to);
         }
       } else if (param.default !== undefined && param.default !== null) {
         // Handle default based on type
@@ -218,8 +220,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     const to = parseGrafanaTime(preset.to);
     setPendingValues(prev => ({
       ...prev,
-      from,
-      to
+      __from: from,
+      __to: to
     }));
   }, []);
 
@@ -229,12 +231,21 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   }, [defaultValues, onChange]);
 
   // Get current time range values from pending (for display)
-  const fromDate = pendingValues.from instanceof Date ? pendingValues.from : parseGrafanaTime(defaultTimeRange.from);
-  const toDate = pendingValues.to instanceof Date ? pendingValues.to : parseGrafanaTime(defaultTimeRange.to);
+  // Support both __from/__to (new) and from/to (legacy migration)
+  const fromDate = pendingValues.__from instanceof Date 
+    ? pendingValues.__from 
+    : (pendingValues.from instanceof Date 
+      ? pendingValues.from 
+      : parseGrafanaTime(defaultTimeRange.from));
+  const toDate = pendingValues.__to instanceof Date 
+    ? pendingValues.__to 
+    : (pendingValues.to instanceof Date 
+      ? pendingValues.to 
+      : parseGrafanaTime(defaultTimeRange.to));
 
-  // Group parameters: time range first, then others
-  const timeParams = allParams.filter(p => p.name === 'from' || p.name === 'to');
-  const otherParams = allParams.filter(p => p.name !== 'from' && p.name !== 'to');
+  // Group parameters: time range (__from/__to) first, then others
+  const timeParams = allParams.filter(p => p.name === '__from' || p.name === '__to');
+  const otherParams = allParams.filter(p => p.name !== '__from' && p.name !== '__to');
 
   return (
     <Card className={cn("p-4 space-y-4", className)}>
@@ -325,8 +336,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
                         const newFrom = new Date(e.target.value);
                         setPendingValues(prev => ({
                           ...prev,
-                          from: newFrom,
-                          to: toDate
+                          __from: newFrom,
+                          __to: toDate
                         }));
                       }}
                       className="h-8 text-xs"
@@ -341,8 +352,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
                         const newTo = new Date(e.target.value);
                         setPendingValues(prev => ({
                           ...prev,
-                          from: fromDate,
-                          to: newTo
+                          __from: fromDate,
+                          __to: newTo
                         }));
                       }}
                       className="h-8 text-xs"
@@ -503,9 +514,11 @@ function useInferredParameters(dashboard: GrafanaDashboard): DashboardParameter[
 
         // Create implicit parameter
         if (!params.has(name)) {
+          // Special handling for __from and __to - mark as time type
+          const isTimeParam = name === '__from' || name === '__to';
           params.set(name, {
             name,
-            type: 'text', // Default to text for implicit params
+            type: isTimeParam ? 'time' : 'text', // Mark __from/__to as time type
             label: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
           });
         }

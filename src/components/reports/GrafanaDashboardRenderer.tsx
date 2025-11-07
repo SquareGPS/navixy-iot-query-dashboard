@@ -323,20 +323,29 @@ export const GrafanaDashboardRenderer: React.FC<GrafanaDashboardRendererProps> =
           });
 
           // Add time range parameters (fallback if not in bindings or ParameterBar)
-          if (!params.from) {
+          // Use __from and __to (consistent with SQL parameter naming)
+          if (!params.__from) {
             // Use ParameterBar value if available, otherwise parse timeRange
-            if (parameterValues.from instanceof Date) {
-              params.from = formatDateToISO(parameterValues.from);
+            if (parameterValues.__from instanceof Date) {
+              params.__from = formatDateToISO(parameterValues.__from);
+            } else if (parameterValues.from instanceof Date) {
+              // Legacy support: migrate from/to to __from/__to
+              params.__from = formatDateToISO(parameterValues.from);
             } else {
-              params.from = timeRange.from;
+              const fromDate = parseGrafanaTime(timeRange.from);
+              params.__from = formatDateToISO(fromDate);
             }
           }
-          if (!params.to) {
+          if (!params.__to) {
             // Use ParameterBar value if available, otherwise parse timeRange
-            if (parameterValues.to instanceof Date) {
-              params.to = formatDateToISO(parameterValues.to);
+            if (parameterValues.__to instanceof Date) {
+              params.__to = formatDateToISO(parameterValues.__to);
+            } else if (parameterValues.to instanceof Date) {
+              // Legacy support: migrate from/to to __from/__to
+              params.__to = formatDateToISO(parameterValues.to);
             } else {
-              params.to = timeRange.to;
+              const toDate = parseGrafanaTime(timeRange.to);
+              params.__to = formatDateToISO(toDate);
             }
           }
 
