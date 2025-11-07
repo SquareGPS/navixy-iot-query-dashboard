@@ -14,6 +14,7 @@ import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
+import { chartColors } from '@/lib/chartColors';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -79,8 +80,10 @@ const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
   const startAngle = anchorDeg - (firstSliceAngle / 2);
   const endAngle = startAngle - 360;
 
-  const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181'];
-  const colors = chartData.map((_, index) => DEFAULT_COLORS[index % DEFAULT_COLORS.length]);
+  // Assign colors: use neutral for "Other", otherwise use palette colors
+  const colors = chartData.map((entry, index) => 
+    entry.name === 'Other' ? chartColors.neutral : chartColors.getColor(index)
+  );
 
   // Active shape for hover effect
   const renderActiveShape = (props: any) => {

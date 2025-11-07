@@ -6,6 +6,7 @@ import { apiService } from '@/services/api';
 import { Pencil } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } from 'recharts';
 import type { PieVisual } from '@/types/report-schema';
+import { chartColors } from '@/lib/chartColors';
 
 interface PieChartComponentProps {
   visual: PieVisual;
@@ -13,8 +14,6 @@ interface PieChartComponentProps {
   editMode: boolean;
   onEdit: () => void;
 }
-
-const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8'];
 
 // Active shape for hover effect - enlarges slice
 const renderActiveShape = (props: any) => {
@@ -111,7 +110,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
     fetchData();
   }, [visual.query.sql, visual.options]);
 
-  const colors = visual.options.palette || DEFAULT_COLORS;
+  const colors = visual.options.palette || chartColors.primary;
   const isDonut = visual.options.donut !== false; // Default to donut style
   const innerRadiusPercent = isDonut ? (visual.options.inner_radius || 0.55) * 100 : 0;
   const showLegend = visual.options.show_legend !== false;
@@ -245,16 +244,22 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
                       animationDuration={250}
                       animationEasing="ease-out"
                     >
-                      {data.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={colors[index % colors.length]}
-                          style={{
-                            filter: activeIndex === index ? 'brightness(1.1)' : 'none',
-                            transition: 'filter 0.2s ease-out',
-                          }}
-                        />
-                      ))}
+                      {data.map((entry, index) => {
+                        // Use neutral color for "Other" category, otherwise use palette colors
+                        const fillColor = entry.name === 'Other' 
+                          ? chartColors.neutral 
+                          : colors[index % colors.length];
+                        return (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={fillColor}
+                            style={{
+                              filter: activeIndex === index ? 'brightness(1.1)' : 'none',
+                              transition: 'filter 0.2s ease-out',
+                            }}
+                          />
+                        );
+                      })}
                     </Pie>
                     {visual.options.show_tooltips !== false && (
                       <Tooltip content={renderTooltipContent} />
@@ -286,7 +291,9 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
                   {renderCustomLegend({ payload: data.map((entry, index) => ({
                     value: entry.value,
                     name: entry.name,
-                    color: colors[index % colors.length],
+                    color: entry.name === 'Other' 
+                      ? chartColors.neutral 
+                      : colors[index % colors.length],
                   })) })}
                 </div>
               )}
