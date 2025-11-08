@@ -248,6 +248,18 @@ export interface NavixyPanelConfig {
     min_rows?: number;
     max_rows?: number;
   };
+  visualization?: NavixyVisualizationConfig;
+}
+
+export interface NavixyVisualizationConfig {
+  showHeader?: boolean;
+  sortable?: boolean;
+  pageSize?: number;
+  showPagination?: boolean;
+  columnWidth?: 'auto' | 'equal' | 'fit';
+  rowHighlighting?: 'none' | 'alternating' | 'hover' | 'both';
+  showTotals?: boolean;
+  totalsRow?: 'top' | 'bottom';
 }
 
 export interface NavixyParam {

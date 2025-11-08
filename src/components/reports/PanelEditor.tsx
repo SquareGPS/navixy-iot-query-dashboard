@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/Button';
 import { SqlEditor } from './SqlEditor';
 import { DataTable } from './DataTable';
+import { VisualizationSettings } from './VisualizationSettings';
 import { Save, X, Play, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,7 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType, GrafanaPanelType } from '@/types/grafana-dashboard';
+import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType, GrafanaPanelType, NavixyVisualizationConfig } from '@/types/grafana-dashboard';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames } from '@/utils/sqlParameterExtractor';
 
@@ -62,6 +63,11 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     return navixyConfig?.verify?.max_rows || 1000;
   });
   
+  const [visualization, setVisualization] = useState<NavixyVisualizationConfig | undefined>(() => {
+    const navixyConfig = panel['x-navixy'];
+    return navixyConfig?.visualization;
+  });
+  
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -76,6 +82,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       setPanelType(panel.type);
       setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
       setMaxRows(navixyConfig?.verify?.max_rows || 1000);
+      setVisualization(navixyConfig?.visualization);
     }
   }, [panel, open]); // Update when panel changes or dialog opens
 
@@ -149,7 +156,8 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         },
         verify: {
           max_rows: maxRows
-        }
+        },
+        ...(visualization && Object.keys(visualization).length > 0 && { visualization })
       };
 
       // Create updated panel
@@ -240,9 +248,10 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         </DialogHeader>
 
         <Tabs defaultValue="properties" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-2 flex-shrink-0">
+          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-3 flex-shrink-0">
             <TabsTrigger value="properties">Panel Properties</TabsTrigger>
             <TabsTrigger value="sql">SQL Query</TabsTrigger>
+            <TabsTrigger value="visualization">Visualization Settings</TabsTrigger>
           </TabsList>
           
           {/* Panel Properties Tab */}
@@ -353,6 +362,17 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                   )}
                 </div>
               </div>
+            </div>
+          </TabsContent>
+          
+          {/* Visualization Settings Tab */}
+          <TabsContent value="visualization" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-y-auto bg-[var(--surface-1)]">
+            <div className="py-2">
+              <VisualizationSettings
+                panelType={panelType}
+                visualization={visualization}
+                onChange={setVisualization}
+              />
             </div>
           </TabsContent>
         </Tabs>

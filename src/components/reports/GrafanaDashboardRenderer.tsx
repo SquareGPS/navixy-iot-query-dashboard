@@ -15,6 +15,7 @@ import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
+import { TablePanel } from './TablePanel';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -808,36 +809,8 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   };
 
   const renderTablePanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
-    if (!data.rows || data.rows.length === 0) {
-      return <div className="text-gray-500">No data</div>;
-    }
-
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              {data.columns.map((column, index) => (
-                <th key={index} className="text-left py-2 px-3 font-medium text-gray-700">
-                  {column.name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="border-b hover:bg-gray-50">
-                {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="py-2 px-3">
-                    {cell}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+    const visualization = panel['x-navixy']?.visualization;
+    return <TablePanel data={data} visualization={visualization} />;
   };
 
   const renderLineChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
