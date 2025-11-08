@@ -380,11 +380,16 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
       let sortOrder = 1000;
       if (parentSectionId) {
         const sectionReports = menuTree?.sectionReports?.[parentSectionId] || [];
-        const maxSortOrder = Math.max(...(sectionReports.map(r => r.sortOrder) || [0]));
-        sortOrder = maxSortOrder + 1000;
+        if (sectionReports.length > 0) {
+          const maxSortOrder = Math.max(...sectionReports.map(r => r.sortOrder));
+          sortOrder = maxSortOrder + 1000;
+        }
       } else {
-        const maxSortOrder = Math.max(...(menuTree?.rootReports.map(r => r.sortOrder) || [0]));
-        sortOrder = maxSortOrder + 1000;
+        const rootReports = menuTree?.rootReports || [];
+        if (rootReports.length > 0) {
+          const maxSortOrder = Math.max(...rootReports.map(r => r.sortOrder));
+          sortOrder = maxSortOrder + 1000;
+        }
       }
 
       // Create a basic Grafana dashboard schema

@@ -410,10 +410,14 @@ INSERT INTO public.users (id, email, password_hash, email_confirmed_at, is_super
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'admin@example.com',
-  '$2a$10$rQZ8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K', -- admin123
+  '$2a$10$II1oY4f/PntIIkkDX53tFOiePrvbwLgLHfhDiXmMzwDgl5Azq6SBu', -- admin123
   NOW(),
   TRUE
-);
+)
+ON CONFLICT (email) DO UPDATE SET
+  password_hash = EXCLUDED.password_hash,
+  email_confirmed_at = EXCLUDED.email_confirmed_at,
+  is_super_admin = EXCLUDED.is_super_admin;
 
 -- Assign admin role
 INSERT INTO public.user_roles (user_id, role)
