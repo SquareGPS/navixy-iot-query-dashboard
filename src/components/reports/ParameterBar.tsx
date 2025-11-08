@@ -248,42 +248,21 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   const otherParams = allParams.filter(p => p.name !== '__from' && p.name !== '__to');
 
   return (
-    <Card className={cn("p-4 space-y-4", className)}>
-      <div className="flex items-center justify-between">
+    <Card className={cn("p-4 flex flex-col", className)}>
+      <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold">Parameters</h3>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReset}
-            className="h-8"
-          >
-            <RotateCcw className="h-3 w-3 mr-1" />
-            Reset to defaults
-          </Button>
-          <Button
-            variant={hasPendingChanges ? "default" : "outline"}
-            size="sm"
-            onClick={handleApply}
-            className="h-8"
-            disabled={false}
-          >
-            {hasPendingChanges ? (
-              <>
-                <Check className="h-3 w-3 mr-1" />
-                Apply
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Refresh
-              </>
-            )}
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReset}
+          className="h-8"
+        >
+          <RotateCcw className="h-3 w-3 mr-1" />
+          Reset to defaults
+        </Button>
       </div>
 
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap gap-4 flex-1">
         {/* Time Range Picker */}
         {timeParams.length > 0 && (
           <div className="flex items-center gap-2">
@@ -376,6 +355,27 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
             )}
           </div>
         ))}
+      </div>
+
+      {/* Apply button - always visible, reserved space at bottom */}
+      <div className="flex justify-end mt-4 pt-4 border-t h-[52px] items-center">
+        <Button
+          variant="primary"
+          onClick={handleApply}
+          disabled={!hasPendingChanges}
+        >
+          {hasPendingChanges ? (
+            <>
+              <Check className="h-4 w-4" />
+              Apply
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4" />
+              Update
+            </>
+          )}
+        </Button>
       </div>
     </Card>
   );
