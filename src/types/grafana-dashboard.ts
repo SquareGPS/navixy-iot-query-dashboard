@@ -270,6 +270,14 @@ export interface NavixyVisualizationConfig {
   colorPalette?: 'classic' | 'modern' | 'pastel' | 'vibrant';
   showLegend?: boolean;
   legendPosition?: 'top' | 'bottom' | 'left' | 'right';
+  // Line chart settings
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  lineWidth?: number;
+  showPoints?: 'always' | 'auto' | 'never';
+  pointSize?: number;
+  interpolation?: 'linear' | 'step' | 'smooth';
+  fillArea?: 'none' | 'below' | 'above';
+  showGrid?: boolean;
 }
 
 export interface NavixyParam {

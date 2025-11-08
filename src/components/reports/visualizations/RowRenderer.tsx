@@ -3,6 +3,7 @@ import { TableVisualComponent } from './TableVisualComponent';
 import { AnnotationComponent } from './AnnotationComponent';
 import { BarChartComponent } from './BarChartComponent';
 import { PieChartComponent } from './PieChartComponent';
+import { LineChartComponent } from './LineChartComponent';
 import { UnsupportedVisualComponent } from './UnsupportedVisualComponent';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -197,6 +198,22 @@ export function RowRenderer({
               } else if (visual.kind === 'pie') {
                 return (
                   <PieChartComponent
+                    key={`${visualIdx}-${visual.query.sql}`}
+                    visual={visual}
+                    title={visual.label}
+                    editMode={editMode}
+                    onEdit={() => onEdit({
+                      rowIndex,
+                      visualIndex: visualIdx,
+                      label: visual.label,
+                      sql: visual.query.sql,
+                      params: visual.query.params,
+                    })}
+                  />
+                );
+              } else if (visual.kind === 'line') {
+                return (
+                  <LineChartComponent
                     key={`${visualIdx}-${visual.query.sql}`}
                     visual={visual}
                     title={visual.label}

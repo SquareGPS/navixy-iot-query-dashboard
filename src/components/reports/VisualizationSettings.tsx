@@ -364,6 +364,227 @@ export function VisualizationSettings({ panelType, visualization, onChange }: Vi
     );
   }
 
+  // Line chart-specific settings
+  if (panelType === 'linechart' || panelType === 'timeseries') {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Line Chart Display Options</h3>
+          
+          <div>
+            <Label htmlFor="lineStyle" className="text-sm font-medium">
+              Line Style
+            </Label>
+            <Select
+              value={settings.lineStyle || 'solid'}
+              onValueChange={(value: 'solid' | 'dashed' | 'dotted') => updateSetting('lineStyle', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="solid">Solid</SelectItem>
+                <SelectItem value="dashed">Dashed</SelectItem>
+                <SelectItem value="dotted">Dotted</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Line style (default: solid)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="lineWidth" className="text-sm font-medium">
+              Line Width
+            </Label>
+            <Input
+              id="lineWidth"
+              type="number"
+              min={1}
+              max={10}
+              step={1}
+              value={settings.lineWidth !== undefined ? settings.lineWidth : 2}
+              onChange={(e) => updateSetting('lineWidth', parseInt(e.target.value) || 2)}
+              className="mt-1"
+            />
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Line thickness in pixels (default: 2)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="showPoints" className="text-sm font-medium">
+              Show Points
+            </Label>
+            <Select
+              value={settings.showPoints || 'auto'}
+              onValueChange={(value: 'always' | 'auto' | 'never') => updateSetting('showPoints', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="always">Always</SelectItem>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="never">Never</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              When to show data points (default: auto - shows when ≤50 points)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="pointSize" className="text-sm font-medium">
+              Point Size
+            </Label>
+            <Input
+              id="pointSize"
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              value={settings.pointSize !== undefined ? settings.pointSize : 5}
+              onChange={(e) => updateSetting('pointSize', parseInt(e.target.value) || 5)}
+              className="mt-1"
+            />
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Size of data points in pixels (default: 5)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="interpolation" className="text-sm font-medium">
+              Interpolation
+            </Label>
+            <Select
+              value={settings.interpolation || 'linear'}
+              onValueChange={(value: 'linear' | 'step' | 'smooth') => updateSetting('interpolation', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="linear">Linear</SelectItem>
+                <SelectItem value="step">Step</SelectItem>
+                <SelectItem value="smooth">Smooth</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Line interpolation method (default: linear)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="fillArea" className="text-sm font-medium">
+              Fill Area
+            </Label>
+            <Select
+              value={settings.fillArea || 'none'}
+              onValueChange={(value: 'none' | 'below' | 'above') => updateSetting('fillArea', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="below">Below</SelectItem>
+                <SelectItem value="above">Above</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Fill area under/over line (default: none)
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="showGrid" className="text-sm font-medium">
+                Show Grid
+              </Label>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Show grid lines
+              </p>
+            </div>
+            <Switch
+              id="showGrid"
+              checked={settings.showGrid !== false}
+              onCheckedChange={(checked) => updateSetting('showGrid', checked)}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-[var(--border)] pt-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Color & Legend</h3>
+          
+          <div>
+            <Label htmlFor="colorPalette" className="text-sm font-medium">
+              Color Palette
+            </Label>
+            <Select
+              value={settings.colorPalette || 'classic'}
+              onValueChange={(value: 'classic' | 'modern' | 'pastel' | 'vibrant') => updateSetting('colorPalette', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="classic">Classic</SelectItem>
+                <SelectItem value="modern">Modern</SelectItem>
+                <SelectItem value="pastel">Pastel</SelectItem>
+                <SelectItem value="vibrant">Vibrant</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Color scheme (default: classic)
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="showLegend" className="text-sm font-medium">
+                Show Legend
+              </Label>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Show legend when series column present
+              </p>
+            </div>
+            <Switch
+              id="showLegend"
+              checked={settings.showLegend !== false}
+              onCheckedChange={(checked) => updateSetting('showLegend', checked)}
+            />
+          </div>
+
+          {settings.showLegend !== false && (
+            <div>
+              <Label htmlFor="legendPosition" className="text-sm font-medium">
+                Legend Position
+              </Label>
+              <Select
+                value={settings.legendPosition || 'bottom'}
+                onValueChange={(value: 'top' | 'bottom' | 'left' | 'right') => updateSetting('legendPosition', value)}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="top">Top</SelectItem>
+                  <SelectItem value="bottom">Bottom</SelectItem>
+                  <SelectItem value="left">Left</SelectItem>
+                  <SelectItem value="right">Right</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                Legend placement (default: bottom)
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Placeholder for other panel types
   return (
     <div className="space-y-4">

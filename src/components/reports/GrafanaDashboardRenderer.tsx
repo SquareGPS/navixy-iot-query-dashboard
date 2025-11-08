@@ -13,7 +13,7 @@ import { canonicalizeRows } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList } from 'recharts';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
 import type { NavixyVisualizationConfig } from '@/types/grafana-dashboard';
@@ -464,7 +464,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     // Fallback to default values from param definitions if not in ParameterBar
     if (navixyConfig.sql.params) {
       for (const [key, paramConfig] of Object.entries(navixyConfig.sql.params)) {
-        if (!(key in params) && paramConfig.default !== undefined) {
+        if (paramConfig && typeof paramConfig === 'object' && !(key in params) && paramConfig.default !== undefined) {
           params[key] = paramConfig.default;
         }
       }
@@ -1189,40 +1189,217 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       return <div className="text-gray-500">No data</div>;
     }
 
-    // Simple line chart visualization
-    // For timeseries, expect data in format: [timestamp, value] or [timestamp, series1, series2, ...]
-    const maxValue = Math.max(...data.rows.flatMap(row => 
-      row.slice(1).map(val => typeof val === 'number' ? val : 0)
-    ));
+    // Get visualization options from Navixy config
+    const visualization: NavixyVisualizationConfig | undefined = panel['x-navixy']?.visualization;
     
+    // Extract options with defaults
+    const lineStyle = visualization?.lineStyle || 'solid';
+    const lineWidth = visualization?.lineWidth ?? 2;
+    const showPoints = visualization?.showPoints || 'auto';
+    const pointSize = visualization?.pointSize ?? 5;
+    const interpolation = visualization?.interpolation || 'linear';
+    const fillArea = visualization?.fillArea || 'none';
+    const showGrid = visualization?.showGrid !== false;
+    const showLegend = visualization?.showLegend !== false;
+    const legendPosition = visualization?.legendPosition || 'bottom';
+    const colorPalette = visualization?.colorPalette || 'classic';
+
+    // Get color palette
+    const colors = chartColors.getPalette(colorPalette);
+
+    // Transform data from GrafanaQueryResult format (arrays) to Recharts format (objects)
+    // First column is typically timestamp/category, remaining columns are values
+    const columns = data.columns || [];
+    const chartData: any[] = [];
+    
+    data.rows.forEach((row: any[]) => {
+      const dataPoint: any = {};
+      
+      // First column is x-axis (timestamp/category)
+      if (columns.length > 0) {
+        const xColumnName = columns[0]?.name || 'x';
+        dataPoint[xColumnName] = row[0];
+      } else {
+        dataPoint.x = row[0];
+      }
+      
+      // Remaining columns are series values
+      for (let i = 1; i < row.length && i < columns.length; i++) {
+        const colName = columns[i]?.name || `series${i}`;
+        const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
+        dataPoint[colName] = isNaN(value) || !isFinite(value) ? null : value;
+      }
+      
+      // If no column names, use default names
+      if (columns.length === 0) {
+        for (let i = 1; i < row.length; i++) {
+          const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
+          dataPoint[`value${i}`] = isNaN(value) || !isFinite(value) ? null : value;
+        }
+      }
+      
+      chartData.push(dataPoint);
+    });
+
+    // Sort data by x value (assuming it's a date/timestamp)
+    chartData.sort((a, b) => {
+      const aVal = a[columns[0]?.name || 'x'];
+      const bVal = b[columns[0]?.name || 'x'];
+      const aDate = new Date(aVal);
+      const bDate = new Date(bVal);
+      if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+        return aDate.getTime() - bDate.getTime();
+      }
+      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+    });
+
+    // Get series names (all keys except the x-axis key)
+    const xKey = columns[0]?.name || 'x';
+    const seriesNames = chartData.length > 0 
+      ? Object.keys(chartData[0] || {}).filter(key => key !== xKey)
+      : [];
+
+    // If no series found, return early
+    if (seriesNames.length === 0) {
+      return <div className="text-gray-500">No data series found</div>;
+    }
+
+    // Map line style to strokeDasharray
+    const getStrokeDasharray = () => {
+      switch (lineStyle) {
+        case 'dashed':
+          return '5 5';
+        case 'dotted':
+          return '2 2';
+        case 'solid':
+        default:
+          return '0';
+      }
+    };
+
+    // Map interpolation to curve type
+    const getCurveType = () => {
+      switch (interpolation) {
+        case 'step':
+          return 'step';
+        case 'smooth':
+          return 'monotone';
+        case 'linear':
+        default:
+          return 'linear';
+      }
+    };
+
+    // Determine if points should be shown
+    const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && chartData.length <= 50);
+
+    // Format x-axis labels (try to format as dates)
+    const formatXAxisLabel = (value: any) => {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        const hasTime = value.toString().includes(':') || value.toString().includes('T');
+        if (hasTime) {
+          return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+        }
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+      return String(value);
+    };
+
+    const ChartComponent = fillArea !== 'none' ? ComposedChart : LineChart;
+
     return (
-      <div className="space-y-2">
-        <div className="text-xs text-gray-500 mb-2">Time Series Chart</div>
-        <div className="relative h-48">
-          {/* Simple line chart visualization */}
-          <svg className="w-full h-full" viewBox="0 0 400 200" preserveAspectRatio="none">
-            {data.rows.length > 1 && data.rows.map((row, index) => {
-              if (index === 0) return null;
-              const prevRow = data.rows[index - 1];
-              const x1 = ((index - 1) / (data.rows.length - 1)) * 400;
-              const x2 = (index / (data.rows.length - 1)) * 400;
-              const y1 = 200 - ((typeof prevRow[1] === 'number' ? prevRow[1] : 0) / maxValue) * 200;
-              const y2 = 200 - ((typeof row[1] === 'number' ? row[1] : 0) / maxValue) * 200;
-              
-              return (
-                <line
-                  key={index}
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke="#3AA3FF"
-                  strokeWidth="2"
-                />
-              );
-            })}
-          </svg>
-        </div>
+      <div className="h-full">
+        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+          <ChartComponent
+            data={chartData}
+            margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+          >
+            {showGrid && (
+              <CartesianGrid 
+                strokeDasharray="3 3" 
+                stroke="var(--border)" 
+                opacity={0.3}
+              />
+            )}
+            <XAxis
+              dataKey={xKey}
+              angle={-45}
+              textAnchor="end"
+              height={80}
+              interval={0}
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              axisLine={{ stroke: 'var(--border)' }}
+              tickFormatter={formatXAxisLabel}
+            />
+            <YAxis
+              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+              axisLine={{ stroke: 'var(--border)' }}
+              tickFormatter={(value) => value.toLocaleString()}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'var(--surface-1)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                color: 'var(--text-primary)',
+              }}
+              labelFormatter={(value) => formatXAxisLabel(value)}
+              formatter={(value: any, name: string) => [
+                value?.toLocaleString() || '0',
+                name,
+              ]}
+            />
+            {showLegend && legendPosition !== 'none' && (
+              <Legend
+                verticalAlign={legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle'}
+                align={legendPosition === 'left' ? 'left' : 'center'}
+                wrapperStyle={{ paddingTop: '20px' }}
+              />
+            )}
+            
+            {/* Render area fill if needed */}
+            {fillArea !== 'none' && seriesNames.map((seriesName, index) => (
+              <Area
+                key={`area-${seriesName}`}
+                type={getCurveType()}
+                dataKey={seriesName}
+                stroke="none"
+                fill={colors[index % colors.length]}
+                fillOpacity={0.1}
+                isAnimationActive={false}
+              />
+            ))}
+
+            {/* Render lines */}
+            {seriesNames.map((seriesName, index) => (
+              <Line
+                key={`line-${seriesName}`}
+                type={getCurveType()}
+                dataKey={seriesName}
+                name={seriesName}
+                stroke={colors[index % colors.length]}
+                strokeWidth={lineWidth}
+                strokeDasharray={getStrokeDasharray()}
+                dot={shouldShowPoints ? {
+                  r: pointSize,
+                  fill: colors[index % colors.length],
+                  strokeWidth: 2,
+                  stroke: 'var(--surface-1)',
+                } : false}
+                activeDot={{ r: pointSize + 2 }}
+                isAnimationActive={true}
+                animationDuration={300}
+                animationEasing="ease-out"
+              />
+            ))}
+          </ChartComponent>
+        </ResponsiveContainer>
       </div>
     );
   };

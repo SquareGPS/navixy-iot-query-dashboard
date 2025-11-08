@@ -12,6 +12,7 @@ import ReportView from "./pages/ReportView";
 import Settings from "./pages/Settings";
 import SqlEditor from "./pages/SqlEditor";
 import NotFound from "./pages/NotFound";
+import LineChartTest from "./pages/LineChartTest";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => (
               <Route path="/app/report/:reportId" element={<ReportView />} />
               <Route path="/app/settings" element={<Settings />} />
               <Route path="/app/sql-editor" element={<SqlEditor />} />
+              <Route path="/test/line-chart" element={<LineChartTest />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>
