@@ -157,15 +157,26 @@ sql-report-dash/
 For a completely containerized development environment:
 
 ```bash
-# Start all services in Docker
-npm run docker:up
+# Start all services in Docker (automatically sets up .env if needed)
+npm run docker:start
 
 # View logs
 npm run docker:logs
 
 # Stop all services
-npm run docker:down
+npm run docker:stop
+
+# Restart services
+npm run docker:restart
 ```
+
+**First time setup?** The `docker:start` command automatically:
+- Creates `.env` file from `.env.example` if missing
+- Generates a secure `JWT_SECRET` if not set
+- Validates Docker is running
+- Starts all services
+
+See [DOCKER_SETUP.md](./docs/DOCKER_SETUP.md) for detailed Docker setup instructions.
 
 ## 🔍 Troubleshooting
 

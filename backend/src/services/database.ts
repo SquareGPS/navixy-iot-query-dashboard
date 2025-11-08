@@ -648,7 +648,7 @@ export class DatabaseService {
         } else {
           // Fallback to simple query
           const result = await client.query(
-            'SELECT * FROM public.sections ORDER BY sort_index'
+            'SELECT * FROM public.sections ORDER BY sort_order'
           );
           return result.rows;
         }
@@ -670,7 +670,7 @@ export class DatabaseService {
           SELECT r.*, s.name as section_name 
           FROM public.reports r 
           LEFT JOIN public.sections s ON r.section_id = s.id 
-          ORDER BY s.sort_index, r.sort_index
+          ORDER BY s.sort_order, r.sort_order
         `);
 
         // Parse report_schema JSONB fields for all reports

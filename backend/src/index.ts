@@ -156,6 +156,12 @@ process.on('SIGINT', async () => {
 // Initialize services and start server
 async function startServer() {
   try {
+    // Validate required environment variables
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'fallback-secret') {
+      logger.error('JWT_SECRET is not set or is using fallback value. Please set JWT_SECRET in your environment variables.');
+      process.exit(1);
+    }
+
     // Initialize database connection
     await DatabaseService.initialize();
     logger.info('Database service initialized');
