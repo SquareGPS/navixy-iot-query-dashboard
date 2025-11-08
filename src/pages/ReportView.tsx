@@ -1425,7 +1425,7 @@ const ReportView = () => {
     }
   };
 
-  if (loading) {
+  if (loading || downloadingSchema) {
     return (
       <AppLayout>
         <div className="space-y-6">
@@ -1465,7 +1465,7 @@ const ReportView = () => {
 
   // Only show error state for critical errors, not SQL execution errors
   const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
-  const shouldShowError = isCriticalError || (!dashboard && !loading);
+  const shouldShowError = isCriticalError || (!dashboard && !loading && !downloadingSchema);
   
   if (shouldShowError) {
     const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
