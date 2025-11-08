@@ -146,18 +146,18 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
 
   // Get row highlighting class
   const getRowClassName = (index: number) => {
-    const baseClass = 'border-b';
+    const baseClass = 'border-b border-[var(--border)]';
     if (rowHighlighting === 'none') {
       return baseClass;
     }
     if (rowHighlighting === 'alternating') {
-      return `${baseClass} ${index % 2 === 0 ? 'bg-gray-50 dark:bg-gray-900' : ''}`;
+      return `${baseClass} ${index % 2 === 0 ? 'bg-[var(--surface-3)]' : ''}`;
     }
     if (rowHighlighting === 'hover') {
-      return `${baseClass} hover:bg-gray-50 dark:hover:bg-gray-900`;
+      return `${baseClass} hover:bg-[var(--surface-3)]`;
     }
     if (rowHighlighting === 'both') {
-      return `${baseClass} ${index % 2 === 0 ? 'bg-gray-50 dark:bg-gray-900' : ''} hover:bg-gray-100 dark:hover:bg-gray-800`;
+      return `${baseClass} ${index % 2 === 0 ? 'bg-[var(--surface-3)]' : ''} hover:bg-[var(--surface-2)]`;
     }
     return baseClass;
   };
@@ -166,29 +166,29 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
   const getSortIcon = (columnName: string) => {
     if (!sortable) return null;
     if (sortConfig?.column !== columnName) {
-      return <ArrowUpDown className="h-3.5 w-3.5 ml-1 text-gray-400" />;
+      return <ArrowUpDown className="h-3.5 w-3.5 ml-1 text-[var(--text-muted)]" />;
     }
     return sortConfig.direction === 'asc' 
-      ? <ArrowUp className="h-3.5 w-3.5 ml-1 text-gray-700 dark:text-gray-300" />
-      : <ArrowDown className="h-3.5 w-3.5 ml-1 text-gray-700 dark:text-gray-300" />;
+      ? <ArrowUp className="h-3.5 w-3.5 ml-1 text-[var(--text-primary)]" />
+      : <ArrowDown className="h-3.5 w-3.5 ml-1 text-[var(--text-primary)]" />;
   };
 
   if (!data.rows || data.rows.length === 0) {
-    return <div className="text-gray-500 py-4">No data</div>;
+    return <div className="text-[var(--text-muted)] py-4">No data</div>;
   }
 
   return (
-    <div className="space-y-4">
-      <div className="overflow-x-auto">
+    <div className="flex flex-col h-full">
+      <div className={`flex-1 overflow-x-auto overflow-y-auto min-h-0 ${showPagination && sortedRows.length > 0 ? 'pb-20' : ''}`}>
         <table className="w-full text-sm" style={getTableStyle()}>
           {showHeader && (
-            <thead>
-              <tr className="border-b">
+            <thead className="sticky top-0 bg-[var(--surface-3)] z-10">
+              <tr className="border-b border-[var(--border)]">
                 {data.columns.map((column) => (
                   <th
                     key={column.name}
-                    className={`text-left py-2 px-3 font-medium text-gray-700 dark:text-gray-300 ${
-                      sortable ? 'cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-800' : ''
+                    className={`text-left py-2 px-3 font-medium text-[var(--text-primary)] ${
+                      sortable ? 'cursor-pointer select-none hover:bg-[var(--surface-2)]' : ''
                     }`}
                     onClick={() => handleSort(column.name)}
                   >
@@ -204,9 +204,9 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
           
           {totalsRow === 'top' && showTotals && totalsRowData && (
             <tfoot>
-              <tr className="border-t-2 border-gray-400 dark:border-gray-600 font-semibold bg-gray-100 dark:bg-gray-800">
+              <tr className="border-t-2 border-[var(--border)] font-semibold bg-[var(--surface-3)]">
                 {data.columns.map((column) => (
-                  <td key={column.name} className="py-2 px-3">
+                  <td key={column.name} className="py-2 px-3 text-[var(--text-primary)]">
                     {totalsRowData[column.name]}
                   </td>
                 ))}
@@ -217,7 +217,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
           <tbody>
             {paginatedRows.length === 0 ? (
               <tr>
-                <td colSpan={data.columns.length} className="py-8 text-center text-gray-500">
+                <td colSpan={data.columns.length} className="py-8 text-center text-[var(--text-muted)]">
                   No data to display
                 </td>
               </tr>
@@ -240,9 +240,9 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
           
           {totalsRow === 'bottom' && showTotals && totalsRowData && (
             <tfoot>
-              <tr className="border-t-2 border-gray-400 dark:border-gray-600 font-semibold bg-gray-100 dark:bg-gray-800">
+              <tr className="border-t-2 border-[var(--border)] font-semibold bg-[var(--surface-3)]">
                 {data.columns.map((column) => (
-                  <td key={column.name} className="py-2 px-3">
+                  <td key={column.name} className="py-2 px-3 text-[var(--text-primary)]">
                     {totalsRowData[column.name]}
                   </td>
                 ))}
@@ -253,10 +253,10 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
       </div>
 
       {showPagination && sortedRows.length > 0 && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2 pb-1 border-t border-[var(--border)] bg-[var(--surface-2)] sticky bottom-0 z-20">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400">Rows per page:</span>
+              <span className="text-sm text-[var(--text-secondary)]">Rows per page:</span>
               {localPageSize !== undefined ? (
                 <Select
                   value={localPageSize.toString()}
@@ -268,7 +268,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-gray-600 dark:text-gray-400 border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
+                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-[var(--text-secondary)] border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -293,7 +293,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-gray-600 dark:text-gray-400 border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
+                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-[var(--text-secondary)] border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
                     <SelectValue placeholder="" />
                   </SelectTrigger>
                   <SelectContent>
@@ -306,7 +306,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
                 </Select>
               )}
             </div>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
+            <span className="text-sm text-[var(--text-secondary)]">
               {localPageSize 
                 ? `Showing ${sortedRows.length === 0 ? 0 : ((currentPage - 1) * effectivePageSize) + 1} to ${Math.min(currentPage * effectivePageSize, sortedRows.length)} of ${sortedRows.length} rows`
                 : `${sortedRows.length} row${sortedRows.length !== 1 ? 's' : ''}`
@@ -316,7 +316,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
 
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="text-sm text-[var(--text-secondary)]">
                 Page {currentPage} of {totalPages}
               </span>
               <div className="flex gap-1">
