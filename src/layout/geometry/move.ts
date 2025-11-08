@@ -13,7 +13,7 @@ import { autoPack } from './autopack';
  * 1. Snap to grid (x, y are already integers typically)
  * 2. Clamp to bounds
  * 3. Resolve collisions (push-down)
- * 4. Auto-pack (slide upward)
+ * 4. Auto-pack (slide upward) - only if skipAutoPack is false
  * 
  * Returns a new dashboard object (immutable)
  * Idempotent: calling movePanel twice with same inputs yields identical output
@@ -21,7 +21,8 @@ import { autoPack } from './autopack';
 export function movePanel(
   dashboard: GrafanaDashboard,
   panelId: number,
-  to: { x: number; y: number }
+  to: { x: number; y: number },
+  skipAutoPack: boolean = false
 ): GrafanaDashboard {
   // Find the panel to move
   const panelIndex = dashboard.panels.findIndex((p) => p.id === panelId);
@@ -68,13 +69,25 @@ export function movePanel(
     { id: panelId, gridPos: snappedPos },
     updatedPanels.map((p) => ({ id: p.id!, gridPos: p.gridPos }))
   );
+  
+  console.log('movePanel: After collisions, panel position:', afterCollisions.find(p => p.id === panelId)?.gridPos);
 
-  // Step 5: Auto-pack
-  const afterPack = autoPack(afterCollisions);
+  // Step 5: Auto-pack (skip during user drag operations to preserve exact drop position)
+  let finalPositions = afterCollisions;
+  if (!skipAutoPack) {
+    const afterPack = autoPack(afterCollisions);
+    const packedPanel = afterPack.find((p) => p.id === panelId);
+    console.log('movePanel: After autoPack, panel position:', packedPanel?.gridPos);
+    console.log('movePanel: Target was:', snappedPos);
+    console.log('movePanel: Position changed by autoPack?', packedPanel?.gridPos.y !== snappedPos.y);
+    finalPositions = afterPack;
+  } else {
+    console.log('movePanel: Skipping autoPack (user drag operation)');
+  }
 
   // Step 6: Create new dashboard with updated panels
   const resultPanels = dashboard.panels.map((p) => {
-    const packed = afterPack.find((packed) => packed.id === p.id);
+    const packed = finalPositions.find((packed) => packed.id === p.id);
     if (packed) {
       return {
         ...p,

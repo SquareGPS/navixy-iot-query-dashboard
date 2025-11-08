@@ -318,9 +318,18 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   const prevIsEditingLayoutRef = useRef(isEditingLayout);
   
   useEffect(() => {
+    console.log('GrafanaDashboardRenderer: useEffect triggered', {
+      isEditingLayout,
+      dashboardInitialized: dashboardInitializedRef.current,
+      prevIsEditingLayout: prevIsEditingLayoutRef.current,
+      dashboardPanelsCount: dashboard?.panels?.length,
+      storeDashboardPanelsCount: storeDashboard?.panels?.length,
+    });
+    
     // Reset initialization flag when exiting layout editing mode
     // This ensures we re-initialize with the updated dashboard prop
     if (prevIsEditingLayoutRef.current && !isEditingLayout) {
+      console.log('GrafanaDashboardRenderer: Exiting edit mode, resetting initialization flag');
       dashboardInitializedRef.current = false;
       // Clear query cache so queries re-execute with updated layout
       prevDashboardRef.current = null;
@@ -329,12 +338,21 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     
     // Only initialize dashboard when not in layout editing mode
     // or when dashboard hasn't been initialized yet
-    if (!isEditingLayout || !dashboardInitializedRef.current) {
-      // Canonicalize rows to ensure expanded rows have children in main panels array
-      const canonicalizedDashboard = canonicalizeRows(dashboard);
-      setDashboard(canonicalizedDashboard);
-      dashboardInitializedRef.current = true;
+    // IMPORTANT: When in editing mode, don't overwrite the store with prop changes
+    // because the store is the source of truth during editing (user is making changes)
+    if (isEditingLayout && dashboardInitializedRef.current) {
+      console.log('GrafanaDashboardRenderer: Skipping store update - in edit mode and already initialized');
+      return; // Early return to prevent overwriting store during editing
     }
+    
+    // Only update if we're not in edit mode, or if we haven't initialized yet
+    console.log('GrafanaDashboardRenderer: Initializing dashboard in store');
+    // Canonicalize rows to ensure expanded rows have children in main panels array
+    const canonicalizedDashboard = canonicalizeRows(dashboard);
+    setDashboard(canonicalizedDashboard);
+    dashboardInitializedRef.current = true;
+    // When in editing mode and already initialized, ignore prop changes
+    // The store is the source of truth during editing
   }, [dashboard, setDashboard, isEditingLayout]);
   
   // Use canonicalized dashboard for rendering

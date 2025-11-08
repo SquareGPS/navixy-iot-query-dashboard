@@ -230,13 +230,21 @@ export const Canvas: React.FC<CanvasProps> = ({
   }, [onDashboardChange]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    console.log('=== DRAG START DEBUG ===');
+    console.log('Event:', event);
+    console.log('Active ID:', event.active.id);
+    console.log('Dashboard:', dashboard);
+    console.log('Resize Handle:', resizeHandle);
+    
     // Don't allow drag if we're resizing
     if (resizeHandle !== null) {
+      console.log('Drag blocked - resize in progress');
       return;
     }
     
     setActiveId(event.active.id as string);
     const activeIdStr = event.active.id.toString();
+    console.log('Active ID String:', activeIdStr);
     
     // Check if it's a row header
     if (activeIdStr.startsWith('row-')) {
@@ -272,15 +280,22 @@ export const Canvas: React.FC<CanvasProps> = ({
     
     // Regular panel drag
     const panelId = parseInt(activeIdStr.replace('panel-', ''));
+    console.log('Panel drag started - Panel ID:', panelId);
     const panel = dashboard?.panels.find((p) => p.id === panelId);
+    console.log('Found Panel:', panel);
+    console.log('Panel GridPos:', panel?.gridPos);
+    
     if (panel && containerRef.current) {
       // Store initial panel grid position
-      setDragStartPos({ x: panel.gridPos.x, y: panel.gridPos.y });
+      const startPos = { x: panel.gridPos.x, y: panel.gridPos.y };
+      console.log('Setting drag start position:', startPos);
+      setDragStartPos(startPos);
       setDragPreview({
         x: panel.gridPos.x,
         y: panel.gridPos.y,
         gridPos: panel.gridPos,
       });
+      console.log('Drag preview set:', { x: panel.gridPos.x, y: panel.gridPos.y });
       
       // Capture initial mouse position
       const handleInitialMouseMove = (e: MouseEvent) => {
@@ -390,7 +405,17 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      console.log('=== DRAG END DEBUG ===');
+      console.log('Event:', event);
+      console.log('Active ID:', event.active.id);
+      console.log('Over ID:', event.over?.id);
+      console.log('Dashboard:', dashboard);
+      console.log('Drag Preview:', dragPreview);
+      console.log('Drag Start Pos:', dragStartPos);
+      console.log('Active ID:', activeId);
+      
       if (!dashboard) {
+        console.warn('No dashboard - clearing drag state');
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
@@ -398,6 +423,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
 
       const activeIdStr = event.active.id.toString();
+      console.log('Active ID String:', activeIdStr);
 
       // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
@@ -452,6 +478,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       // Handle panel drag
       if (!dragPreview) {
+        console.warn('No dragPreview - clearing drag state');
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
@@ -460,9 +487,14 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
 
       const panelId = parseInt(activeIdStr.replace('panel-', ''));
+      console.log('Panel ID:', panelId);
       const panel = dashboard.panels.find((p) => p.id === panelId);
+      console.log('Found Panel:', panel);
+      console.log('Panel GridPos:', panel?.gridPos);
+      console.log('DragPreview GridPos:', dragPreview?.gridPos);
 
       if (!panel) {
+        console.error('Panel not found!', panelId, 'Available panels:', dashboard.panels.map(p => p.id));
         setActiveId(null);
         setDragPreview(null);
         setDragStartPos(null);
@@ -473,10 +505,14 @@ export const Canvas: React.FC<CanvasProps> = ({
       // Get current scope of the panel
       const currentScope = scopeOf(panelId, dashboard);
       const currentRowId = currentScope === 'top-level' ? null : currentScope.rowId;
+      console.log('Current Scope:', currentScope);
+      console.log('Current Row ID:', currentRowId);
       
       // Compute bands to check if drop position is actually within a row
       const bands = computeBands(dashboard.panels);
       const rows = getRowHeaders(dashboard.panels);
+      console.log('Bands:', bands);
+      console.log('Rows:', rows);
 
       // Helper function to check if drop position is within a row's valid area
       const isDropPositionInRow = (rowId: number, dropY: number): boolean => {
@@ -519,15 +555,38 @@ export const Canvas: React.FC<CanvasProps> = ({
               } else {
                 // Drop position is still in current row, ignore the hover
                 console.log('Ignoring hover on other row - position still in current row');
+                console.log('Before move - Panel gridPos:', panel.gridPos);
+                console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
                 cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+                setTimeout(() => {
+                  const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+                  console.log('Panel after move:', updatedPanel);
+                  console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+                }, 100);
               }
             } else {
               // Same row - update position
+              console.log('Same row pocket - updating position');
+              console.log('Before move - Panel gridPos:', panel.gridPos);
+              console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
               cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+              setTimeout(() => {
+                const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+                console.log('Panel after move:', updatedPanel);
+                console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+              }, 100);
             }
           } else {
             // Update position within current row
+            console.log('Updating position within current row');
+            console.log('Before move - Panel gridPos:', panel.gridPos);
+            console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
             cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+            setTimeout(() => {
+              const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+              console.log('Panel after move:', updatedPanel);
+              console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+            }, 100);
           }
           
           setActiveId(null);
@@ -591,6 +650,9 @@ export const Canvas: React.FC<CanvasProps> = ({
           // Explicitly dropped on row pocket - prioritize this target row
           // Trust the drop target over position validation for adjacent rows
           const targetRowId = parseInt(overId.replace('row-pocket-', ''));
+          console.log('Dropped on row-pocket:', targetRowId, 'Current row:', currentRowId);
+          console.log('Before move - Panel gridPos:', panel.gridPos);
+          console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
           
           // If explicitly dropped on a different row's pocket, move to that row
           if (targetRowId !== currentRowId) {
@@ -599,12 +661,21 @@ export const Canvas: React.FC<CanvasProps> = ({
           } else {
             // Same row - update position using movePanelToRow to handle row-scoped panels correctly
             if (currentScope === 'top-level') {
+              console.log('Calling cmdMovePanel (top-level, same row pocket)');
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
             } else {
               // Panel is in a row - use movePanelToRow to update position within same row
+              console.log('Calling cmdMovePanelToRow (same row, updating position)');
               cmdMovePanelToRow(panelId, targetRowId);
             }
           }
+          setTimeout(() => {
+            const store = useEditorStore.getState();
+            const updatedPanel = store.dashboard?.panels.find((p) => p.id === panelId);
+            console.log('Panel after move (from store):', updatedPanel);
+            console.log('Panel gridPos after move (from store):', updatedPanel?.gridPos);
+            console.log('Store dashboard panels count:', store.dashboard?.panels.length);
+          }, 100);
         } else if (overId.startsWith('row-') && !overId.startsWith('row-pocket-')) {
           // Dropped on row header (not pocket) - prioritize this target row
           // Trust the drop target over position validation for adjacent rows
@@ -616,22 +687,43 @@ export const Canvas: React.FC<CanvasProps> = ({
             cmdMovePanelToRow(panelId, targetRowId);
           } else {
             // Same row - update position
+            console.log('Same row header - updating position');
+            console.log('Before move - Panel gridPos:', panel.gridPos);
+            console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
             if (currentScope === 'top-level') {
+              console.log('Calling cmdMovePanel (top-level, same row header)');
               cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
             } else {
+              console.log('Calling cmdMovePanelToRow (same row header)');
               cmdMovePanelToRow(panelId, targetRowId);
             }
+            setTimeout(() => {
+              const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+              console.log('Panel after move:', updatedPanel);
+              console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+            }, 100);
           }
         } else {
           // Dropped on canvas or other element - move to top-level if not already there
           console.log('Dropped on canvas - moving to top-level');
+          console.log('Before move - Panel gridPos:', panel.gridPos);
+          console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
           if (currentScope !== 'top-level') {
             // Moving from a row to canvas - use drop position
+            console.log('Calling cmdMovePanelToRow with null rowId (from row to canvas)');
             cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
           } else {
             // Already at top-level - just update position
+            console.log('Calling cmdMovePanel (top-level, canvas drop)');
             cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
           }
+          setTimeout(() => {
+            const store = useEditorStore.getState();
+            const updatedPanel = store.dashboard?.panels.find((p) => p.id === panelId);
+            console.log('Panel after move (from store):', updatedPanel);
+            console.log('Panel gridPos after move (from store):', updatedPanel?.gridPos);
+            console.log('Store dashboard panels count:', store.dashboard?.panels.length);
+          }, 100);
         }
       } else {
         // No over target - check if we're still in the same row and update position
@@ -640,21 +732,56 @@ export const Canvas: React.FC<CanvasProps> = ({
         // Check if drop position is still within the current row's band
         if (currentScope !== 'top-level' && currentRowId !== null) {
           const band = bands.find((b) => b.rowId === currentRowId);
+          console.log('Checking if still in row band:', band, 'dropY:', dropY);
           if (band && dropY >= band.top && dropY < band.bottom) {
             // Still in the same row - update position within row
             console.log('Still in same row - updating position');
+            console.log('Before move - Panel gridPos:', panel.gridPos);
+            console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
             cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
+            setTimeout(() => {
+              const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+              console.log('Panel after move:', updatedPanel);
+              console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+            }, 100);
           } else {
             // Moved out of row - move to top-level
             console.log('Moved out of row - moving to top-level');
+            console.log('Before move - Panel gridPos:', panel.gridPos);
+            console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
             cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
+            setTimeout(() => {
+              const updatedPanel = dashboard.panels.find((p) => p.id === panelId);
+              console.log('Panel after move:', updatedPanel);
+              console.log('Panel gridPos after move:', updatedPanel?.gridPos);
+            }, 100);
           }
         } else if (currentScope === 'top-level') {
           // Already at top-level - just update position
+          console.log('Top-level, no over target - updating position');
+          console.log('Before move - Panel gridPos:', panel.gridPos);
+          console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
           cmdMovePanel(panelId, dragPreview.x, dragPreview.y);
+          setTimeout(() => {
+            const store = useEditorStore.getState();
+            const updatedPanel = store.dashboard?.panels.find((p) => p.id === panelId);
+            console.log('Panel after move (from store):', updatedPanel);
+            console.log('Panel gridPos after move (from store):', updatedPanel?.gridPos);
+            console.log('Store dashboard panels count:', store.dashboard?.panels.length);
+          }, 100);
         } else {
           // Moving from a row to canvas - use drop position
+          console.log('Moving from row to canvas (no over target)');
+          console.log('Before move - Panel gridPos:', panel.gridPos);
+          console.log('DragPreview position:', { x: dragPreview.x, y: dragPreview.y });
           cmdMovePanelToRow(panelId, null, { x: dragPreview.x, y: dragPreview.y });
+          setTimeout(() => {
+            const store = useEditorStore.getState();
+            const updatedPanel = store.dashboard?.panels.find((p) => p.id === panelId);
+            console.log('Panel after move (from store):', updatedPanel);
+            console.log('Panel gridPos after move (from store):', updatedPanel?.gridPos);
+            console.log('Store dashboard panels count:', store.dashboard?.panels.length);
+          }, 100);
         }
       }
 
@@ -662,6 +789,17 @@ export const Canvas: React.FC<CanvasProps> = ({
       setDragPreview(null);
       setDragStartPos(null);
       setDragOverTarget(null);
+      
+      // Final state check
+      setTimeout(() => {
+        const store = useEditorStore.getState();
+        const finalPanel = store.dashboard?.panels.find((p) => p.id === panelId);
+        console.log('=== FINAL STATE CHECK ===');
+        console.log('Final panel position:', finalPanel?.gridPos);
+        console.log('Expected position:', { x: dragPreview.x, y: dragPreview.y });
+        console.log('Match:', finalPanel?.gridPos?.x === dragPreview.x && finalPanel?.gridPos?.y === dragPreview.y);
+        console.log('=== END DRAG END DEBUG ===');
+      }, 300);
     },
     [dashboard, dragPreview]
   );
