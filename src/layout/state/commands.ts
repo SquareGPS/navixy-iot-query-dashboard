@@ -27,10 +27,6 @@ import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
  * Updates the dashboard in the store and pushes to undo history
  */
 export function cmdMovePanel(panelId: number, x: number, y: number): void {
-  console.log('=== cmdMovePanel ===');
-  console.log('Panel ID:', panelId);
-  console.log('Target position:', { x, y });
-  
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -40,31 +36,15 @@ export function cmdMovePanel(panelId: number, x: number, y: number): void {
 
   // Get current dashboard state for undo
   const currentDashboard = store.dashboard;
-  const panelBefore = currentDashboard.panels.find((p) => p.id === panelId);
-  console.log('Panel before move:', panelBefore);
-  console.log('Panel gridPos before:', panelBefore?.gridPos);
 
   // Execute the move - skip autoPack during user drag operations to preserve exact drop position
   const newDashboard = movePanel(store.dashboard, panelId, { x, y }, true);
-  
-  const panelAfter = newDashboard.panels.find((p) => p.id === panelId);
-  console.log('Panel after move:', panelAfter);
-  console.log('Panel gridPos after:', panelAfter?.gridPos);
-  console.log('Dashboard panels count:', currentDashboard.panels.length, '->', newDashboard.panels.length);
 
   // Update store
   store.setDashboard(newDashboard);
   
   // Push to history for undo
   store.pushToHistory(currentDashboard);
-  
-  // Check state after a short delay
-  setTimeout(() => {
-    const storeAfter = useEditorStore.getState();
-    const panelAfterDelay = storeAfter.dashboard?.panels.find((p) => p.id === panelId);
-    console.log('Panel after delay (checking store state):', panelAfterDelay);
-    console.log('Panel gridPos after delay:', panelAfterDelay?.gridPos);
-  }, 200);
 }
 
 /**
@@ -244,11 +224,6 @@ export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
  * Ensures the target row is expanded if in edit mode
  */
 export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, positionHint?: { x: number; y: number }): void {
-  console.log('=== cmdMovePanelToRow ===');
-  console.log('Panel ID:', panelId);
-  console.log('Target Row ID:', targetRowId);
-  console.log('Position Hint:', positionHint);
-  
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -257,9 +232,6 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, p
   }
 
   const currentDashboard = store.dashboard;
-  const panelBefore = currentDashboard.panels.find((p) => p.id === panelId);
-  console.log('Panel before move:', panelBefore);
-  console.log('Panel gridPos before:', panelBefore?.gridPos);
   
   let dashboardToUse = currentDashboard;
 
@@ -269,7 +241,6 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, p
       (p) => isRowPanel(p) && p.id === targetRowId
     );
     if (targetRow && targetRow.collapsed === true) {
-      console.log('Expanding collapsed row:', targetRowId);
       // Expand the row first
       dashboardToUse = toggleRowCollapsed(dashboardToUse, targetRowId, false);
     }
@@ -277,31 +248,8 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, p
 
   const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId, positionHint);
   
-  const panelAfter = newDashboard.panels.find((p) => p.id === panelId);
-  console.log('Panel after move:', panelAfter);
-  console.log('Panel gridPos after:', panelAfter?.gridPos);
-  console.log('Dashboard panels count:', currentDashboard.panels.length, '->', newDashboard.panels.length);
-  
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
-  
-  // Check state after a short delay
-  setTimeout(() => {
-    const storeAfter = useEditorStore.getState();
-    const panelAfterDelay = storeAfter.dashboard?.panels.find((p) => p.id === panelId);
-    console.log('Panel after delay (checking store state):', panelAfterDelay);
-    console.log('Panel gridPos after delay:', panelAfterDelay?.gridPos);
-    
-    // Also check if panel is in a row's panels array
-    if (targetRowId !== null) {
-      const row = storeAfter.dashboard?.panels.find((p) => isRowPanel(p) && p.id === targetRowId) as any;
-      if (row?.panels) {
-        const panelInRow = row.panels.find((p: GrafanaPanel) => p.id === panelId);
-        console.log('Panel in row.panels array:', panelInRow);
-        console.log('Panel gridPos in row:', panelInRow?.gridPos);
-      }
-    }
-  }, 200);
 }
 
 /**
@@ -332,15 +280,9 @@ export function cmdMoveRow(rowId: number, newY: number): void {
     return;
   }
 
-  console.log('cmdMoveRow: Moving row', rowId, 'to Y position', newY);
   const currentDashboard = store.dashboard;
-  const rowBefore = currentDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
-  console.log('cmdMoveRow: Row before move:', rowBefore?.gridPos);
   
   const newDashboard = moveRow(store.dashboard, rowId, newY);
-  
-  const rowAfter = newDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
-  console.log('cmdMoveRow: Row after move:', rowAfter?.gridPos);
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
@@ -357,7 +299,6 @@ export function cmdDeleteRow(rowId: number): void {
     return;
   }
 
-  console.log('cmdDeleteRow: Deleting row', rowId);
   const currentDashboard = store.dashboard;
   const newDashboard = deleteRow(store.dashboard, rowId);
   
@@ -375,7 +316,6 @@ export function cmdDeleteRow(rowId: number): void {
     return;
   }
   
-  console.log('cmdDeleteRow: Setting new dashboard. Old panels:', currentDashboard.panels.length, 'New panels:', newDashboard.panels.length);
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
 }

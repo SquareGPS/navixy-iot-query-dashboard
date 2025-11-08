@@ -20,14 +20,8 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
-  console.log('TableVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
-
   useEffect(() => {
     const fetchData = async () => {
-      console.log('=== TableVisualComponent fetchData ===');
-      console.log('SQL query:', visual.query.sql);
-      console.log('Full visual object:', visual);
-      
       setLoading(true);
       setError(null);
       try {
@@ -38,8 +32,6 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
           row_limit: visual.options?.page_size || 25
         });
 
-        console.log('Query result:', response);
-
         if (response.error) {
           console.error('Table query error:', response.error);
           setError(response.error.message || 'Query failed');
@@ -49,7 +41,6 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
         }
 
         if (response.data?.rows) {
-          console.log('Setting table data, row count:', response.data.rows.length);
           setData(response.data.rows);
           
           // Build columns from schema or result
@@ -89,7 +80,6 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
             cols = [];
           }
           
-          console.log('Setting columns, count:', cols.length);
           setColumns(cols);
         }
       } catch (err: any) {
@@ -99,7 +89,6 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
         setColumns([]);
       } finally {
         setLoading(false);
-        console.log('=== TableVisualComponent fetchData complete ===');
       }
     };
 

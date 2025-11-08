@@ -70,19 +70,11 @@ export function movePanel(
     updatedPanels.map((p) => ({ id: p.id!, gridPos: p.gridPos }))
   );
   
-  console.log('movePanel: After collisions, panel position:', afterCollisions.find(p => p.id === panelId)?.gridPos);
-
   // Step 5: Auto-pack (skip during user drag operations to preserve exact drop position)
   let finalPositions = afterCollisions;
   if (!skipAutoPack) {
     const afterPack = autoPack(afterCollisions);
-    const packedPanel = afterPack.find((p) => p.id === panelId);
-    console.log('movePanel: After autoPack, panel position:', packedPanel?.gridPos);
-    console.log('movePanel: Target was:', snappedPos);
-    console.log('movePanel: Position changed by autoPack?', packedPanel?.gridPos.y !== snappedPos.y);
     finalPositions = afterPack;
-  } else {
-    console.log('movePanel: Skipping autoPack (user drag operation)');
   }
 
   // Step 6: Create new dashboard with updated panels

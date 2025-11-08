@@ -50,13 +50,6 @@ class ApiService {
       ...this.getAuthHeaders(),
       ...options.headers,
     };
-    
-    console.log('API: Making request', {
-      url,
-      method: options.method || 'GET',
-      headers,
-      body: options.body
-    });
 
     try {
       const response = await fetch(url, {
@@ -64,23 +57,9 @@ class ApiService {
         ...options,
       });
 
-      console.log('API: Response received', {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
       const data = await response.json();
-      console.log('API: Response data', { url, data });
 
       if (!response.ok) {
-        console.error('API: Request failed', {
-          url,
-          status: response.status,
-          statusText: response.statusText,
-          data
-        });
         return {
           error: {
             code: data.error?.code || 'HTTP_ERROR',
@@ -95,7 +74,6 @@ class ApiService {
       console.error('API: Network error', {
         url,
         error: error.message,
-        stack: error.stack
       });
       return {
         error: {
@@ -291,15 +269,12 @@ class ApiService {
   }
 
   async reorderMenu(payload: any): Promise<ApiResponse<any>> {
-    console.log('API: reorderMenu called with payload:', payload);
-    
     try {
       const result = await this.request('/api/v1/menu/reorder', {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
       
-      console.log('API: reorderMenu success:', result);
       return result;
     } catch (error) {
       console.error('API: reorderMenu error:', error);

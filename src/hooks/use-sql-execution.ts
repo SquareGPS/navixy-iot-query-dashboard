@@ -80,10 +80,6 @@ export function useSqlExecution() {
       }
 
       // Success case - transform the response to match the expected format
-      console.log('SQL Execution - Raw response data:', response.data);
-      console.log('SQL Execution - Response columns:', response.data?.columns);
-      console.log('SQL Execution - Response rows:', response.data?.rows);
-      
       const transformedData: SqlExecutionResult = {
         columns: response.data?.columns?.map((col: any) => col.name) || [],
         rows: response.data?.rows?.map((row: any[]) => {
@@ -103,8 +99,6 @@ export function useSqlExecution() {
         fetchTime,
         executedAt,
       };
-      
-      console.log('SQL Execution - Transformed data:', transformedData);
 
       setResults(transformedData);
       if (showSuccessToast) {
@@ -139,7 +133,7 @@ export function useSqlExecution() {
             }
           }
         } catch (parseErr) {
-          console.error('Failed to parse error body:', parseErr);
+          // Failed to parse error body, continue with existing error message
         }
       }
       

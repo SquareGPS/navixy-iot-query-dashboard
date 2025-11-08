@@ -104,9 +104,6 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
     Math.ceil(maxValue * 1.05)   // 5% padding above max
   ];
 
-  console.log('Bar chart data:', data);
-  console.log('Y-axis domain:', yAxisDomain);
-
   return (
     <div 
       className="relative"
