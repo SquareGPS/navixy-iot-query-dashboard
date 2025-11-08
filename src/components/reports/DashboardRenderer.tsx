@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
-import { GrafanaDashboard, GrafanaPanel, GrafanaQueryResult } from '@/types/grafana-dashboard';
+import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
@@ -11,38 +11,38 @@ import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
 import { canonicalizeRows } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
-import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
+import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
-import type { NavixyVisualizationConfig } from '@/types/grafana-dashboard';
+import type { VisualizationConfig } from '@/types/dashboard-types';
 
-interface GrafanaDashboardRendererProps {
-  dashboard: GrafanaDashboard;
+interface DashboardRendererProps {
+  dashboard: Dashboard;
   timeRange?: {
     from: string;
     to: string;
   };
   editMode?: boolean;
-  onEditPanel?: (panel: GrafanaPanel) => void;
-  onSave?: (dashboard: GrafanaDashboard) => Promise<void>;
+  onEditPanel?: (panel: Panel) => void;
+  onSave?: (dashboard: Dashboard) => Promise<void>;
 }
 
-export interface GrafanaDashboardRendererRef {
-  refreshPanel: (panelId: number, dashboard?: GrafanaDashboard) => Promise<void>;
+export interface DashboardRendererRef {
+  refreshPanel: (panelId: number, dashboard?: Dashboard) => Promise<void>;
 }
 
 interface PanelData {
   [panelId: string]: {
-    data: GrafanaQueryResult | null;
+    data: QueryResult | null;
     loading: boolean;
     error: string | null;
   };
 }
 
 // Pie Chart Panel Component
-const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
+const PieChartPanel = ({ data }: { data: QueryResult }) => {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
 
   if (!data.rows || data.rows.length === 0) {
@@ -291,7 +291,7 @@ const PieChartPanel = ({ data }: { data: GrafanaQueryResult }) => {
   );
 };
 
-export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, GrafanaDashboardRendererProps>(({
+export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRendererProps>(({
   dashboard,
   timeRange = { from: 'now-24h', to: 'now' },
   editMode = false,
@@ -319,7 +319,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   const prevIsEditingLayoutRef = useRef(isEditingLayout);
   
   useEffect(() => {
-    console.log('GrafanaDashboardRenderer: useEffect triggered', {
+    console.log('DashboardRenderer: useEffect triggered', {
       isEditingLayout,
       dashboardInitialized: dashboardInitializedRef.current,
       prevIsEditingLayout: prevIsEditingLayoutRef.current,
@@ -330,7 +330,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     // Reset initialization flag when exiting layout editing mode
     // This ensures we re-initialize with the updated dashboard prop
     if (prevIsEditingLayoutRef.current && !isEditingLayout) {
-      console.log('GrafanaDashboardRenderer: Exiting edit mode, resetting initialization flag');
+      console.log('DashboardRenderer: Exiting edit mode, resetting initialization flag');
       dashboardInitializedRef.current = false;
       // Clear query cache so queries re-execute with updated layout
       prevDashboardRef.current = null;
@@ -342,12 +342,12 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     // IMPORTANT: When in editing mode, don't overwrite the store with prop changes
     // because the store is the source of truth during editing (user is making changes)
     if (isEditingLayout && dashboardInitializedRef.current) {
-      console.log('GrafanaDashboardRenderer: Skipping store update - in edit mode and already initialized');
+      console.log('DashboardRenderer: Skipping store update - in edit mode and already initialized');
       return; // Early return to prevent overwriting store during editing
     }
     
     // Only update if we're not in edit mode, or if we haven't initialized yet
-    console.log('GrafanaDashboardRenderer: Initializing dashboard in store');
+    console.log('DashboardRenderer: Initializing dashboard in store');
     // Canonicalize rows to ensure expanded rows have children in main panels array
     const canonicalizedDashboard = canonicalizeRows(dashboard);
     setDashboard(canonicalizedDashboard);
@@ -378,7 +378,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
    */
   const resolveParameterBindings = useCallback((
     bindings: Record<string, string> | undefined,
-    dashboard: GrafanaDashboard,
+    dashboard: Dashboard,
     timeRange: { from: string; to: string }
   ): Record<string, any> => {
     const resolved: Record<string, any> = {};
@@ -392,13 +392,13 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       if (varMatch) {
         const varName = varMatch[1];
         
-        // Handle special Grafana variables (convert to Date then ISO string)
+        // Handle special time variables (convert to Date then ISO string)
         if (varName === '__from') {
-          const date = parseGrafanaTime(timeRange.from);
+          const date = parseTimeExpression(timeRange.from);
           return formatDateToISO(date);
         }
         if (varName === '__to') {
-          const date = parseGrafanaTime(timeRange.to);
+          const date = parseTimeExpression(timeRange.to);
           return formatDateToISO(date);
         }
         
@@ -434,9 +434,9 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
    * Execute query for a single panel
    */
   const executePanelQuery = useCallback(async (
-    panel: GrafanaPanel,
-    dashboard: GrafanaDashboard
-  ): Promise<GrafanaQueryResult | null> => {
+    panel: Panel,
+    dashboard: Dashboard
+  ): Promise<QueryResult | null> => {
     const navixyConfig = panel['x-navixy'];
     
     // Skip text panels - they don't need SQL queries
@@ -504,7 +504,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       } else if (parameterValues.from instanceof Date) {
         params.__from = formatDateToISO(parameterValues.from);
       } else {
-        const fromDate = parseGrafanaTime(timeRange.from);
+        const fromDate = parseTimeExpression(timeRange.from);
         params.__from = formatDateToISO(fromDate);
       }
     }
@@ -514,7 +514,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       } else if (parameterValues.to instanceof Date) {
         params.__to = formatDateToISO(parameterValues.to);
       } else {
-        const toDate = parseGrafanaTime(timeRange.to);
+        const toDate = parseTimeExpression(timeRange.to);
         params.__to = formatDateToISO(toDate);
       }
     }
@@ -557,7 +557,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   /**
    * Refresh a single panel by executing its query
    */
-  const refreshPanel = useCallback(async (panelId: number, dashboardOverride?: GrafanaDashboard) => {
+  const refreshPanel = useCallback(async (panelId: number, dashboardOverride?: Dashboard) => {
     const dashboardToUse = dashboardOverride || displayDashboard;
     const panel = dashboardToUse.panels.find(p => p.id === panelId);
     if (!panel) {
@@ -626,9 +626,9 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     
     // Create a stable cache key that includes ALL panels regardless of collapse state
     // This prevents query re-execution when only collapse/expand state changes
-    const createStableCacheKey = (dash: GrafanaDashboard): string => {
+    const createStableCacheKey = (dash: Dashboard): string => {
       // Collect all panels: top-level panels + panels from collapsed rows
-      const allPanels: GrafanaPanel[] = [];
+      const allPanels: Panel[] = [];
       
       dash.panels.forEach(panel => {
         if (panel.type === 'row' && panel.collapsed === true && panel.panels) {
@@ -776,7 +776,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     }
   };
 
-  const renderKpiPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+  const renderKpiPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0) {
       return <div className="text-gray-500">No data</div>;
     }
@@ -790,7 +790,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     );
   };
 
-  const renderBarChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+  const renderBarChartPanel = (panel: Panel, data: QueryResult) => {
     console.log('[BarChart] renderBarChartPanel called', {
       panelTitle: panel.title,
       rowCount: data.rows?.length,
@@ -804,7 +804,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       return <div className="text-gray-500">No data</div>;
     }
 
-    const visualization: NavixyVisualizationConfig | undefined = panel['x-navixy']?.visualization;
+    const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
     
     // Get visualization settings with defaults
     // Force vertical for now - horizontal bars need more work
@@ -1175,22 +1175,22 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     );
   };
 
-  const renderPieChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+  const renderPieChartPanel = (panel: Panel, data: QueryResult) => {
     return <PieChartPanel data={data} />;
   };
 
-  const renderTablePanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+  const renderTablePanel = (panel: Panel, data: QueryResult) => {
     const visualization = panel['x-navixy']?.visualization;
     return <TablePanel data={data} visualization={visualization} />;
   };
 
-  const renderLineChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+  const renderLineChartPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0) {
       return <div className="text-gray-500">No data</div>;
     }
 
     // Get visualization options from Navixy config
-    const visualization: NavixyVisualizationConfig | undefined = panel['x-navixy']?.visualization;
+    const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
     
     // Extract options with defaults
     const lineStyle = visualization?.lineStyle || 'solid';
@@ -1207,7 +1207,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     // Get color palette
     const colors = chartColors.getPalette(colorPalette);
 
-    // Transform data from GrafanaQueryResult format (arrays) to Recharts format (objects)
+    // Transform data from QueryResult format (arrays) to Recharts format (objects)
     // First column is typically timestamp/category, remaining columns are values
     const columns = data.columns || [];
     const chartData: any[] = [];
@@ -1404,7 +1404,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     );
   };
 
-  const renderTextPanel = (panel: GrafanaPanel) => {
+  const renderTextPanel = (panel: Panel) => {
     // Text panels typically have content in options or a separate content field
     const content = panel.options?.content || panel.options?.text || panel.description || '';
     return (
@@ -1414,7 +1414,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
     );
   };
 
-  const renderPanel = (panel: GrafanaPanel) => {
+  const renderPanel = (panel: Panel) => {
     const panelState = panelData[panel.title];
     const navixyConfig = panel['x-navixy'];
     const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
@@ -1475,7 +1475,7 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
       return <div className="text-gray-500">No data available</div>;
     }
 
-    // Map Grafana panel types to renderers
+    // Map panel types to renderers
     switch (panel.type) {
       case 'stat':
       case 'kpi':
@@ -1606,4 +1606,4 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   );
 });
 
-GrafanaDashboardRenderer.displayName = 'GrafanaDashboardRenderer';
+DashboardRenderer.displayName = 'DashboardRenderer';

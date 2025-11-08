@@ -14,14 +14,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType, GrafanaPanelType, NavixyVisualizationConfig } from '@/types/grafana-dashboard';
+import type { Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames } from '@/utils/sqlParameterExtractor';
 
 /**
  * Maps panel type to default dataset shape
  */
-function getDefaultDatasetShape(panelType: GrafanaPanelType): 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie' {
+function getDefaultDatasetShape(panelType: PanelType): 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie' {
   switch (panelType) {
     case 'kpi':
     case 'stat':
@@ -46,8 +46,8 @@ function getDefaultDatasetShape(panelType: GrafanaPanelType): 'kpi' | 'category_
 interface PanelEditorProps {
   open: boolean;
   onClose: () => void;
-  panel: GrafanaPanel;
-  onSave: (updatedPanel: GrafanaPanel) => void;
+  panel: Panel;
+  onSave: (updatedPanel: Panel) => void;
 }
 
 export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) {
@@ -64,7 +64,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     return navixyConfig?.verify?.max_rows || 1000;
   });
   
-  const [visualization, setVisualization] = useState<NavixyVisualizationConfig | undefined>(() => {
+  const [visualization, setVisualization] = useState<VisualizationConfig | undefined>(() => {
     const navixyConfig = panel['x-navixy'];
     return navixyConfig?.visualization;
   });
@@ -162,7 +162,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       };
 
       // Create updated panel
-      const updatedPanel: GrafanaPanel = {
+      const updatedPanel: Panel = {
         ...panel,
         title: title.trim(),
         description: description.trim() || undefined,

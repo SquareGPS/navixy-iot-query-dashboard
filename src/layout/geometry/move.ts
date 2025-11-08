@@ -2,7 +2,7 @@
  * Main movePanel function that orchestrates snapping, clamping, collision resolution, and auto-pack
  */
 
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import { clampToBounds } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import { autoPack } from './autopack';
@@ -19,11 +19,11 @@ import { autoPack } from './autopack';
  * Idempotent: calling movePanel twice with same inputs yields identical output
  */
 export function movePanel(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   panelId: number,
   to: { x: number; y: number },
   skipAutoPack: boolean = false
-): GrafanaDashboard {
+): Dashboard {
   // Find the panel to move
   const panelIndex = dashboard.panels.findIndex((p) => p.id === panelId);
   if (panelIndex === -1) {
@@ -33,7 +33,7 @@ export function movePanel(
   const panel = dashboard.panels[panelIndex];
 
   // Create a copy of the panel with new position
-  const movedPanel: GrafanaPanel = {
+  const movedPanel: Panel = {
     ...panel,
     gridPos: {
       ...panel.gridPos,

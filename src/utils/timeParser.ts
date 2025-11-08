@@ -1,11 +1,11 @@
 /**
- * Grafana Time Expression Parser
- * Parses Grafana-style relative time expressions (e.g., now-7d/d, now-24h)
+ * Time Expression Parser
+ * Parses relative time expressions (e.g., now-7d/d, now-24h)
  * and converts them to absolute Date objects
  */
 
 /**
- * Parse a Grafana time expression to an absolute Date
+ * Parse a time expression to an absolute Date
  * Supports:
  * - now (current time)
  * - now-Nh (N hours ago)
@@ -19,11 +19,11 @@
  * - now-NM/M (N months ago, rounded to start of month)
  * - ISO-8601 absolute timestamps (e.g., 2025-11-06T00:00:00Z)
  * 
- * @param expression Grafana time expression or ISO-8601 timestamp
+ * @param expression Time expression or ISO-8601 timestamp
  * @param timezone Timezone offset in minutes (default: browser timezone)
  * @returns Absolute Date object
  */
-export function parseGrafanaTime(
+export function parseTimeExpression(
   expression: string,
   timezone?: number
 ): Date {
@@ -108,18 +108,18 @@ export function parseGrafanaTime(
 }
 
 /**
- * Parse a Grafana time range expression
+ * Parse a time range expression
  * @param fromExpression From time expression
  * @param toExpression To time expression
  * @returns Object with from and to Date objects
  */
-export function parseGrafanaTimeRange(
+export function parseTimeRange(
   fromExpression: string,
   toExpression: string
 ): { from: Date; to: Date } {
   return {
-    from: parseGrafanaTime(fromExpression),
-    to: parseGrafanaTime(toExpression)
+    from: parseTimeExpression(fromExpression),
+    to: parseTimeExpression(toExpression)
   };
 }
 

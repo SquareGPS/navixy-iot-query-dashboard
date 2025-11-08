@@ -1,10 +1,9 @@
 /**
- * Grafana Dashboard Types - Based on Grafana JSON Schema
+ * Dashboard Types - Dashboard JSON Schema
  * Documentation: https://github.com/DanilNezhdanov/grafana-based-dashboard
- * Schema Reference: Grafana Dashboard JSON Model
  */
 
-export interface GrafanaDashboard {
+export interface Dashboard {
   id?: number | null;
   uid?: string;
   title: string;
@@ -26,15 +25,15 @@ export interface GrafanaDashboard {
   annotations?: AnnotationsConfig;
   links?: DashboardLink[];
   'x-navixy'?: NavixyConfig;
-  panels: GrafanaPanel[];
+  panels: Panel[];
 }
 
 export interface TemplatingConfig {
   enable?: boolean;
-  list: GrafanaVariable[];
+  list: Variable[];
 }
 
-export interface GrafanaVariable {
+export interface Variable {
   type: 'constant' | 'query' | 'interval' | 'datasource' | 'custom' | 'textbox';
   name: string;
   label?: string;
@@ -150,9 +149,9 @@ export interface DashboardParameter {
   allowCustom?: boolean;
 }
 
-export interface GrafanaPanel {
+export interface Panel {
   id?: number;
-  type: GrafanaPanelType;
+  type: PanelType;
   title: string;
   description?: string;
   gridPos: {
@@ -216,11 +215,11 @@ export interface GrafanaPanel {
     options?: Record<string, any>;
   }>;
   collapsed?: boolean; // For row panels
-  panels?: GrafanaPanel[]; // For row panels (nested children when collapsed)
+  panels?: Panel[]; // For row panels (nested children when collapsed)
   pluginVersion?: string;
 }
 
-export type GrafanaPanelType = 
+export type PanelType = 
   | 'stat'           // Stat panel (KPI-like)
   | 'bargauge'       // Bar gauge panel
   | 'timeseries'     // Time series panel
@@ -248,10 +247,10 @@ export interface NavixyPanelConfig {
     min_rows?: number;
     max_rows?: number;
   };
-  visualization?: NavixyVisualizationConfig;
+  visualization?: VisualizationConfig;
 }
 
-export interface NavixyVisualizationConfig {
+export interface VisualizationConfig {
   // Table settings
   showHeader?: boolean;
   sortable?: boolean;
@@ -300,7 +299,7 @@ export type NavixyColumnType =
   | 'numeric' 
   | 'decimal';
 
-export interface GrafanaTimeRange {
+export interface TimeRange {
   from: string;
   to: string;
   raw?: {
@@ -309,7 +308,7 @@ export interface GrafanaTimeRange {
   };
 }
 
-export interface GrafanaQueryResult {
+export interface QueryResult {
   columns: Array<{
     name: string;
     type: NavixyColumnType;
@@ -322,7 +321,7 @@ export interface GrafanaQueryResult {
   };
 }
 
-export interface GrafanaPanelData {
+export interface PanelData {
   series?: Array<{
     name: string;
     fields: Array<{
@@ -358,7 +357,7 @@ export interface DashboardMeta {
 export interface DashboardConfig {
   title: string;
   meta: DashboardMeta;
-  dashboard: GrafanaDashboard;
+  dashboard: Dashboard;
 }
 
 // Panel type-specific configurations

@@ -8,11 +8,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import type { GrafanaQueryResult, NavixyVisualizationConfig } from '@/types/grafana-dashboard';
+import type { QueryResult, VisualizationConfig } from '@/types/dashboard-types';
 
 interface TablePanelProps {
-  data: GrafanaQueryResult;
-  visualization?: NavixyVisualizationConfig;
+  data: QueryResult;
+  visualization?: VisualizationConfig;
 }
 
 type SortConfig = {

@@ -10,7 +10,7 @@ import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { PanelEditor } from '@/components/reports/PanelEditor';
-import { GrafanaDashboardRenderer, GrafanaDashboardRendererRef } from '@/components/reports/GrafanaDashboardRenderer';
+import { DashboardRenderer, DashboardRendererRef } from '@/components/reports/DashboardRenderer';
 import { EditToolbar } from '@/components/reports/EditToolbar';
 import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
@@ -21,7 +21,7 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboard';
+import type { Dashboard, DashboardConfig } from '@/types/dashboard-types';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
@@ -30,7 +30,7 @@ import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp } from '@/layout
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
   const { user, loading: authLoading } = useAuth();
-  const [dashboard, setDashboard] = useState<GrafanaDashboard | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
   const [schema, setSchema] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
@@ -77,7 +77,7 @@ const ReportView = () => {
   const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
   const [showPanelGallery, setShowPanelGallery] = useState(false);
-  const dashboardRendererRef = useRef<GrafanaDashboardRendererRef>(null);
+  const dashboardRendererRef = useRef<DashboardRendererRef>(null);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
@@ -103,7 +103,7 @@ const ReportView = () => {
       // When exiting layout editing mode (changing from true to false), sync local state with store
       if (prevIsEditingLayout && !state.isEditingLayout && state.dashboard) {
         // Update local state with store values immediately
-        // This ensures the dashboard prop updates so GrafanaDashboardRenderer can see the changes
+        // This ensures the dashboard prop updates so DashboardRenderer can see the changes
         let updatedSchema: any;
         if (schema?.dashboard) {
           updatedSchema = {
@@ -177,10 +177,10 @@ const ReportView = () => {
           throw new Error('Dashboard schema is missing');
         }
 
-        // Check if this is a Grafana dashboard format or report schema format
+        // Check if this is a dashboard format or report schema format
         let schemaData = report.report_schema;
         
-        // Check if this is a report schema format (with rows) and migrate to Grafana format
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
           const reportSchema = schemaData as ReportSchema;
           const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
@@ -188,20 +188,20 @@ const ReportView = () => {
         }
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
-        let grafanaDashboard: GrafanaDashboard;
+        let dashboardData: Dashboard;
         if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
           // Direct panels format with content
-          grafanaDashboard = schemaData as GrafanaDashboard;
+          dashboardData = schemaData as Dashboard;
         } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
           // Nested dashboard format with content
-          grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
+          dashboardData = schemaData.dashboard as Dashboard;
         } else {
           // Empty or legacy format - show helpful message
-          setError('Dashboard is empty. You can download a Grafana dashboard template to get started.');
+          setError('Dashboard is empty. You can download a dashboard template to get started.');
           return;
         }
         
-        setDashboard(grafanaDashboard);
+        setDashboard(dashboardData);
         setSchema(schemaData); // Set schema for compatibility
           
         const config: DashboardConfig = {
@@ -217,10 +217,10 @@ const ReportView = () => {
               email: user?.email
             }
           },
-          dashboard: grafanaDashboard
+          dashboard: dashboardData
         };
         setDashboardConfig(config);
-        setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+        setEditorValue(JSON.stringify(dashboardData, null, 2));
         
       } catch (err: any) {
         console.error('❌ Error fetching report:', err);
@@ -278,24 +278,24 @@ const ReportView = () => {
             throw new Error('Dashboard schema is missing');
           }
 
-          // Check if this is a Grafana dashboard format
+          // Check if this is a dashboard format
           const schemaData = report.report_schema;
           
           // Check for direct panels (old format) or nested dashboard.panels (new format)
-          let grafanaDashboard: GrafanaDashboard;
+          let dashboardData: Dashboard;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
             // Direct panels format
-            grafanaDashboard = schemaData as GrafanaDashboard;
+            dashboardData = schemaData as Dashboard;
           } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
             // Nested dashboard format
-            grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
+            dashboardData = schemaData.dashboard as Dashboard;
           } else {
-            // Legacy format - convert to Grafana dashboard
-            throw new Error('Legacy schema format detected. Please use Grafana dashboard format.');
+            // Legacy format - convert to dashboard
+            throw new Error('Legacy schema format detected. Please use dashboard format.');
           }
           
-          setSchema(grafanaDashboard);
-          setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+          setSchema(dashboardData);
+          setEditorValue(JSON.stringify(dashboardData, null, 2));
         } catch (err: any) {
           console.error('Error reloading report:', err);
           setError(err.message || 'Failed to reload report');
@@ -315,7 +315,7 @@ const ReportView = () => {
     }
   };
 
-  const handleSaveDashboard = useCallback(async (updatedDashboard: GrafanaDashboard) => {
+  const handleSaveDashboard = useCallback(async (updatedDashboard: Dashboard) => {
     if (!reportId || !schema) return;
 
     // Check if we're in layout editing mode
@@ -332,7 +332,7 @@ const ReportView = () => {
           dashboard: updatedDashboard
         };
       } else if (schema.panels) {
-        // Schema is direct GrafanaDashboard format
+        // Schema is direct Dashboard format
         updatedSchema = updatedDashboard;
       } else {
         // Fallback: wrap in dashboard property
@@ -395,7 +395,7 @@ const ReportView = () => {
       // Update the title in the JSON schema
       let updatedSchema;
       if (schema.dashboard) {
-        // Grafana dashboard format
+        // Dashboard format
         updatedSchema = {
           ...schema,
           dashboard: {
@@ -854,7 +854,7 @@ const ReportView = () => {
   };
 
   const handleNewRow = () => {
-    // For Grafana dashboard format, use cmdAddRow
+    // For dashboard format, use cmdAddRow
     if (dashboard) {
       const store = useEditorStore.getState();
       const currentDashboard = store.dashboard || dashboard;
@@ -1040,7 +1040,7 @@ const ReportView = () => {
           dashboard: updatedDashboard
         };
       } else if (schema.panels) {
-        // Schema is direct GrafanaDashboard format
+        // Schema is direct Dashboard format
         updatedSchema = updatedDashboard;
       } else {
         // Fallback: wrap in dashboard property
@@ -1194,17 +1194,17 @@ const ReportView = () => {
         console.log('📥 Schema title:', exampleSchema?.title);
         console.log('📥 Schema rows count:', exampleSchema?.rows?.length);
         
-        // Check if this is a report schema format (with rows) and migrate to Grafana format
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (exampleSchema.rows && Array.isArray(exampleSchema.rows) && exampleSchema.rows.length > 0) {
-          console.log('🔄 Detected report schema format, migrating to Grafana format...');
+          console.log('🔄 Detected report schema format, migrating to dashboard format...');
           const reportSchema = exampleSchema as ReportSchema;
-          const grafanaDashboard = ReportMigration.migrateToGrafana(reportSchema);
-          exampleSchema = grafanaDashboard;
-          console.log('✅ Migration complete, panels count:', grafanaDashboard.dashboard?.panels?.length || 0);
+          const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
+          exampleSchema = dashboardData;
+          console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
         console.log('💾 Updating report in database...', { reportId, title: report?.title });
-        // Update the report with the example schema (now in Grafana format)
+        // Update the report with the example schema (now in dashboard format)
         // Preserve database title (menu label) when importing example schema
         const updateResponse = await apiService.updateReport(reportId!, {
           title: report?.title || 'New Report', // Preserve database title (menu label)
@@ -1253,30 +1253,30 @@ const ReportView = () => {
             
             let schemaData = reportData.report_schema;
             
-            // Check if this is a report schema format (with rows) and migrate to Grafana format
+            // Check if this is a report schema format (with rows) and migrate to dashboard format
             if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
-              console.log('🔄 Detected report schema format in refresh, migrating to Grafana format...');
+              console.log('🔄 Detected report schema format in refresh, migrating to dashboard format...');
               const reportSchema = schemaData as ReportSchema;
               const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
               schemaData = migratedDashboard;
               console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
             }
             
-            // Extract Grafana dashboard from schema data
-            let grafanaDashboard: GrafanaDashboard;
+            // Extract dashboard from schema data
+            let dashboardData: Dashboard;
             if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
               // Direct panels format
-              grafanaDashboard = schemaData as GrafanaDashboard;
+              dashboardData = schemaData as Dashboard;
             } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
               // Nested dashboard format
-              grafanaDashboard = schemaData.dashboard as GrafanaDashboard;
+              dashboardData = schemaData.dashboard as Dashboard;
             } else {
               throw new Error('Dashboard schema is missing panels');
             }
             
             setReport(reportData);
             setSchema(schemaData);
-            setDashboard(grafanaDashboard);
+            setDashboard(dashboardData);
             
             const config: DashboardConfig = {
               title: reportData.title,
@@ -1291,10 +1291,10 @@ const ReportView = () => {
                   email: user?.email
                 }
               },
-              dashboard: grafanaDashboard
+              dashboard: dashboardData
             };
             setDashboardConfig(config);
-            setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
             console.log('✅ Fresh report data loaded successfully');
           } catch (err: any) {
             console.error('❌ Error fetching fresh report:', err);
@@ -1325,21 +1325,21 @@ const ReportView = () => {
         throw new Error(`Failed to fetch schema from URL: ${response.statusText}`);
       }
 
-      const grafanaDashboard = await response.json();
+      const dashboardData = await response.json();
       
-      // Validate that this is a Grafana dashboard
-      if (!grafanaDashboard.panels || !Array.isArray(grafanaDashboard.panels)) {
-        throw new Error('Invalid Grafana dashboard format. Expected panels array.');
+      // Validate that this is a dashboard
+      if (!dashboardData.panels || !Array.isArray(dashboardData.panels)) {
+        throw new Error('Invalid dashboard format. Expected panels array.');
       }
       
-      console.log('✅ Valid Grafana dashboard loaded:', grafanaDashboard.title);
-      console.log('📊 Panels count:', grafanaDashboard.panels.length);
+      console.log('✅ Valid dashboard loaded:', dashboardData.title);
+      console.log('📊 Panels count:', dashboardData.panels.length);
       
-      // Preserve database title (menu label) when importing Grafana dashboard
+      // Preserve database title (menu label) when importing dashboard
       // The dashboard.title is the report page header, not the menu label
       const updateResponse = await apiService.updateReport(reportId!, {
         title: report?.title || 'New Dashboard', // Preserve database title (menu label)
-        report_schema: grafanaDashboard
+        report_schema: dashboardData
       });
 
       if (updateResponse.error) {
@@ -1370,11 +1370,11 @@ const ReportView = () => {
           
           setReport(reportData);
           
-          // Handle Grafana dashboard format
+          // Handle dashboard format
           const schemaData = reportData.report_schema;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            const grafanaDashboard = schemaData as GrafanaDashboard;
-            setDashboard(grafanaDashboard);
+            const dashboardData = schemaData as Dashboard;
+            setDashboard(dashboardData);
             setSchema(schemaData); // Set schema for compatibility
             
             const config: DashboardConfig = {
@@ -1390,10 +1390,10 @@ const ReportView = () => {
                   email: user?.email
                 }
               },
-              dashboard: grafanaDashboard
+              dashboard: dashboardData
             };
             setDashboardConfig(config);
-            setEditorValue(JSON.stringify(grafanaDashboard, null, 2));
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
           } else {
             throw new Error('Invalid dashboard format');
           }
@@ -1411,7 +1411,7 @@ const ReportView = () => {
       
       toast({
         title: 'Success',
-        description: 'Grafana dashboard downloaded and saved successfully',
+        description: 'Dashboard downloaded and saved successfully',
       });
     } catch (err: any) {
       console.error('Error downloading schema:', err);
@@ -1464,11 +1464,11 @@ const ReportView = () => {
   }
 
   // Only show error state for critical errors, not SQL execution errors
-  const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
+  const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a dashboard template to get started.';
   const shouldShowError = isCriticalError || (!dashboard && !loading && !downloadingSchema);
   
   if (shouldShowError) {
-    const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a Grafana dashboard template to get started.';
+    const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a dashboard template to get started.';
     console.log('🚨 Error state triggered:', { error, dashboard: dashboard ? 'exists' : 'null', isSchemaMissing, isCriticalError });
     
     
@@ -1543,7 +1543,7 @@ const ReportView = () => {
                     Need Help Getting Started?
                   </h4>
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This report needs a Grafana dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
+                    This report needs a dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
                   </p>
                 </div>
               </div>
@@ -1680,12 +1680,12 @@ const ReportView = () => {
             </div>
           )}
           
-          {/* Remove subtitle editing UI as it doesn't conform to Grafana model */}
+          {/* Remove subtitle editing UI as it doesn't conform to dashboard model */}
         </div>
 
         {/* Report Content */}
         {dashboard ? (
-          <GrafanaDashboardRenderer
+          <DashboardRenderer
             ref={dashboardRendererRef}
             dashboard={dashboard}
             timeRange={timeRange}
@@ -1713,8 +1713,8 @@ const ReportView = () => {
                 </h3>
                 <p className="text-[var(--text-muted)] mb-6">
                   {dashboard 
-                    ? 'This dashboard doesn\'t have any panels yet. Download an example Grafana dashboard to get started.'
-                    : 'This report needs a Grafana dashboard schema to display content. Download an example dashboard to get started.'
+                    ? 'This dashboard doesn\'t have any panels yet. Download an example dashboard to get started.'
+                    : 'This report needs a dashboard schema to display content. Download an example dashboard to get started.'
                   }
                 </p>
               </div>

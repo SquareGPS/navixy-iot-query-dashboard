@@ -1,6 +1,6 @@
 /**
- * Grafana Dashboard Validator
- * Inspired by grafana/dashboard-linter but adapted for our app's needs
+ * Dashboard Validator
+ * Validates dashboard JSON structure and configuration
  */
 
 export interface ValidationRule {
@@ -31,7 +31,7 @@ export interface ValidationReport {
   };
 }
 
-export class GrafanaDashboardValidator {
+export class DashboardValidator {
   private rules: ValidationRule[] = [];
 
   constructor() {
@@ -39,7 +39,7 @@ export class GrafanaDashboardValidator {
   }
 
   /**
-   * Validate a Grafana dashboard JSON
+   * Validate a dashboard JSON
    */
   validate(dashboardJson: string | object): ValidationReport {
     let dashboard: any;
@@ -383,7 +383,7 @@ export async function validateDashboardFile(filePath: string): Promise<Validatio
   try {
     const fs = await import('fs/promises');
     const content = await fs.readFile(filePath, 'utf-8');
-    const validator = new GrafanaDashboardValidator();
+    const validator = new DashboardValidator();
     return validator.validate(content);
   } catch (error) {
     return {

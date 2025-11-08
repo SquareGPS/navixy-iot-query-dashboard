@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ParameterValues } from '@/components/reports/ParameterBar';
-import { formatDateToISO } from '@/utils/grafanaTimeParser';
+import { formatDateToISO } from '@/utils/timeParser';
 
 /**
  * Hook to sync parameter values with URL query parameters

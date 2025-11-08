@@ -19,8 +19,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CalendarIcon, RotateCcw, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { GrafanaDashboard, DashboardParameter } from '@/types/grafana-dashboard';
-import { parseGrafanaTime, formatDateToLocalInput } from '@/utils/grafanaTimeParser';
+import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
+import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
 import { extractParameterNames } from '@/utils/sqlParameterExtractor';
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 
@@ -38,7 +38,7 @@ export interface ParameterValues {
 }
 
 interface ParameterBarProps {
-  dashboard: GrafanaDashboard;
+  dashboard: Dashboard;
   values: ParameterValues;
   onChange: (values: ParameterValues) => void;
   className?: string;
@@ -144,14 +144,14 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       if (param.name === '__from' || param.name === '__to') {
         // Time range params get defaults from dashboard.time
         if (param.name === '__from') {
-          defaults.__from = parseGrafanaTime(defaultTimeRange.from);
+          defaults.__from = parseTimeExpression(defaultTimeRange.from);
         } else {
-          defaults.__to = parseGrafanaTime(defaultTimeRange.to);
+          defaults.__to = parseTimeExpression(defaultTimeRange.to);
         }
       } else if (param.default !== undefined && param.default !== null) {
         // Handle default based on type
         if (param.type === 'time' || param.type === 'datetime') {
-          defaults[param.name] = parseGrafanaTime(String(param.default));
+          defaults[param.name] = parseTimeExpression(String(param.default));
         } else {
           defaults[param.name] = param.default;
         }
@@ -216,8 +216,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   }, [pendingValues, values, hasPendingChanges, onChange]);
 
   const handlePresetSelect = useCallback((preset: TimeRangePreset) => {
-    const from = parseGrafanaTime(preset.from);
-    const to = parseGrafanaTime(preset.to);
+    const from = parseTimeExpression(preset.from);
+    const to = parseTimeExpression(preset.to);
     setPendingValues(prev => ({
       ...prev,
       __from: from,
@@ -236,12 +236,12 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     ? pendingValues.__from 
     : (pendingValues.from instanceof Date 
       ? pendingValues.from 
-      : parseGrafanaTime(defaultTimeRange.from));
+      : parseTimeExpression(defaultTimeRange.from));
   const toDate = pendingValues.__to instanceof Date 
     ? pendingValues.__to 
     : (pendingValues.to instanceof Date 
       ? pendingValues.to 
-      : parseGrafanaTime(defaultTimeRange.to));
+      : parseTimeExpression(defaultTimeRange.to));
 
   // Group parameters: time range (__from/__to) first, then others
   const timeParams = allParams.filter(p => p.name === '__from' || p.name === '__to');
@@ -494,7 +494,7 @@ function renderParameterInput(
 /**
  * Infer parameters from panel SQL queries
  */
-function useInferredParameters(dashboard: GrafanaDashboard): DashboardParameter[] {
+function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
   const [inferred, setInferred] = useState<DashboardParameter[]>([]);
 
   useEffect(() => {

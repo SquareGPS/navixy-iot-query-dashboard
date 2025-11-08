@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { Info, ChevronDown, ChevronRight } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import type { GrafanaPanelType } from '@/types/grafana-dashboard';
+import type { PanelType } from '@/types/dashboard-types';
 
 interface DatasetRequirementsProps {
-  panelType: GrafanaPanelType;
+  panelType: PanelType;
 }
 
 /**
  * Returns dataset requirements description for each panel type
  */
-function getDatasetRequirements(panelType: GrafanaPanelType): string {
+function getDatasetRequirements(panelType: PanelType): string {
   switch (panelType) {
     case 'kpi':
     case 'stat':

@@ -25,7 +25,7 @@ import { DropZone } from './DropZone';
 import { useEditorStore } from '../state/editorStore';
 import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
-import type { GrafanaPanel, GrafanaDashboard } from '@/types/grafana-dashboard';
+import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
 import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } from '../geometry/rows';
@@ -35,9 +35,9 @@ import { PanelGallery } from './PanelGallery';
 import { AddPanelGhost } from './AddPanelGhost';
 
 interface CanvasProps {
-  renderPanelContent: (panel: GrafanaPanel) => React.ReactNode;
-  onDashboardChange?: (dashboard: GrafanaDashboard) => void;
-  onEditPanel?: (panel: GrafanaPanel) => void;
+  renderPanelContent: (panel: Panel) => React.ReactNode;
+  onDashboardChange?: (dashboard: Dashboard) => void;
+  onEditPanel?: (panel: Panel) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
@@ -1095,8 +1095,8 @@ export const Canvas: React.FC<CanvasProps> = ({
           const rowHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
           const headerHeight = row.gridPos.h * GRID_UNIT_HEIGHT;
 
-          // Grafana-style spacing: add margins for visual spacing (same as panels)
-          const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
+          // Dashboard-style spacing: add margins for visual spacing (same as panels)
+          const PANEL_SPACING = 8; // px - matches dashboard visual spacing (~8-10px)
           // Adjust width/height to account for spacing (half spacing on each side)
           const adjustedWidth = rowWidth - PANEL_SPACING;
           const adjustedHeight = rowHeight - PANEL_SPACING;
@@ -1133,8 +1133,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         {/* Top-level Panels - Group by row bands */}
         {containerWidth > 0 && (() => {
           // Separate panels into bands and top-level
-          const bandPanels = new Map<number, GrafanaPanel[]>();
-          const topLevelOnlyPanels: GrafanaPanel[] = [];
+          const bandPanels = new Map<number, Panel[]>();
+          const topLevelOnlyPanels: Panel[] = [];
           
           topLevelPanels
             .filter((panel) => !isRowPanel(panel) && panel.id)

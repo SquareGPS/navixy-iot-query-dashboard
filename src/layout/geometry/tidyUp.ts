@@ -5,7 +5,7 @@
  * - Fix overlapping elements by automatically repositioning them
  */
 
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
 import { GRID_COLUMNS } from './grid';
 import { rectOverlap } from './collisions';
@@ -151,7 +151,7 @@ function resolveOverlaps(
  * 4. Distribute panels evenly within each row
  * 5. Auto-pack to remove empty vertical spaces
  */
-export function tidyUp(dashboard: GrafanaDashboard): GrafanaDashboard {
+export function tidyUp(dashboard: Dashboard): Dashboard {
   // Get all non-row panels
   const nonRowPanels = dashboard.panels
     .filter((p) => !isRowPanel(p) && p.id !== undefined)

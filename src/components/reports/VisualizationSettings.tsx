@@ -2,20 +2,20 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import type { GrafanaPanelType, NavixyVisualizationConfig } from '@/types/grafana-dashboard';
+import type { PanelType, VisualizationConfig } from '@/types/dashboard-types';
 
 interface VisualizationSettingsProps {
-  panelType: GrafanaPanelType;
-  visualization: NavixyVisualizationConfig | undefined;
-  onChange: (visualization: NavixyVisualizationConfig) => void;
+  panelType: PanelType;
+  visualization: VisualizationConfig | undefined;
+  onChange: (visualization: VisualizationConfig) => void;
 }
 
 export function VisualizationSettings({ panelType, visualization, onChange }: VisualizationSettingsProps) {
   const settings = visualization || {};
 
-  const updateSetting = <K extends keyof NavixyVisualizationConfig>(
+  const updateSetting = <K extends keyof VisualizationConfig>(
     key: K,
-    value: NavixyVisualizationConfig[K]
+    value: VisualizationConfig[K]
   ) => {
     onChange({
       ...settings,
@@ -203,7 +203,7 @@ export function VisualizationSettings({ panelType, visualization, onChange }: Vi
               NOTE: Orientation is hardcoded to 'vertical' for now.
               Horizontal bar charts have rendering issues with Recharts that need to be resolved.
               The renderer ignores the orientation setting and always renders vertical bars.
-              See GrafanaDashboardRenderer.tsx renderBarChartPanel for details.
+              See DashboardRenderer.tsx renderBarChartPanel for details.
             */}
             <div className="mt-1 px-3 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-md text-sm text-[var(--text-secondary)]">
               Vertical

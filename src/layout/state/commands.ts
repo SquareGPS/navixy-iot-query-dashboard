@@ -20,7 +20,7 @@ import {
 } from '../geometry/rows';
 import { placeNewPanel } from '../geometry/add';
 import { tidyUp } from '../geometry/tidyUp';
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 
 /**
  * Command to move a panel
@@ -50,7 +50,7 @@ export function cmdMovePanel(panelId: number, x: number, y: number): void {
 /**
  * Get the current dashboard from the store
  */
-export function getDashboard(): GrafanaDashboard | null {
+export function getDashboard(): Dashboard | null {
   return useEditorStore.getState().dashboard;
 }
 
@@ -128,7 +128,7 @@ export function cmdResizeRowHeight(
   const newBandHeight = Math.max(1, (currentBandHeight ?? 0) + deltaGridUnits);
 
   // Create updated dashboard
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...store.dashboard,
     panels: store.dashboard.panels.map((p, idx) => {
       if (idx === rowIndex) {
@@ -354,7 +354,7 @@ export function cmdRenameRow(rowId: number, newTitle: string): void {
     return;
   }
 
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...currentDashboard,
     panels: currentDashboard.panels.map((p, idx) => 
       idx === rowIndex ? { ...p, title: newTitle } : p
@@ -438,14 +438,14 @@ export function cmdDuplicatePanel(panelId: number): void {
   });
 
   // Find and update the newly created panel
-  let newPanel: GrafanaPanel | undefined;
+  let newPanel: Panel | undefined;
   
   if (target === 'top') {
     newPanel = newDashboard.panels.find((p) => p.id === newId);
   } else {
     const row = newDashboard.panels.find((p) => p.type === 'row' && p.id === target.rowId) as any;
     if (row && row.panels) {
-      newPanel = row.panels.find((p: GrafanaPanel) => p.id === newId);
+      newPanel = row.panels.find((p: Panel) => p.id === newId);
     }
   }
 
