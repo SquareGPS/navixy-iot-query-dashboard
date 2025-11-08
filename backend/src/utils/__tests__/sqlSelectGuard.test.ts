@@ -334,6 +334,31 @@ describe('SQLSelectGuard', () => {
       expect(() => SQLSelectGuard.assertSafeSelect(sql)).not.toThrow();
     });
 
+    test('should handle schema-qualified table names with CTEs and window functions', () => {
+      const sql = `
+        WITH latest AS (
+          SELECT 
+            device_id, 
+            device_time, 
+            latitude, 
+            longitude, 
+            ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY device_time DESC) AS rn
+          FROM raw_telematics_data.tracking_data_core
+        )
+        SELECT 
+          device_id AS "Device ID",
+          latitude::float / 10000000 AS "Latitude",
+          longitude::float / 10000000 AS "Longitude",
+          device_time AS "Last Updated"
+        FROM latest
+        WHERE rn = 1
+        ORDER BY device_id 
+        LIMIT 100
+      `;
+      
+      expect(() => SQLSelectGuard.assertSafeSelect(sql)).not.toThrow();
+    });
+
     test('should handle array operations', () => {
       const sql = `
         SELECT 

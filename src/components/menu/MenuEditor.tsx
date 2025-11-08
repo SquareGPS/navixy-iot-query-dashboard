@@ -324,8 +324,6 @@ export function MenuEditor() {
 
     if (!over || !menuTree) return;
     
-    console.log('Drag end event:', { active: active.id, over: over.id, overData: over.data.current });
-
     const activeItem = active.data.current as DragItem;
     const overItem = over.data.current as DragItem;
 
@@ -346,8 +344,6 @@ export function MenuEditor() {
       const overElement = over.id as string;
       const overData = over.data.current;
       
-      console.log('Processing drop zone:', { overElement, overData });
-      
       // Check if dropped on a drop zone
       if (overData?.type === 'drop-zone') {
         const dropZoneType = overData.dropZoneType;
@@ -362,7 +358,6 @@ export function MenuEditor() {
           };
         } else if (dropZoneType === 'section') {
           const sectionId = overData.sectionId;
-          console.log('Dropping on section drop zone:', { sectionId });
           dropResult = {
             activeId: active.id as string,
             overId: `drop-zone-section-${sectionId}`,
@@ -466,7 +461,6 @@ export function MenuEditor() {
         } else if (overType === 'drop-zone' && overItem?.dropZoneType === 'section') {
           // Handle dropping on section drop zone
           newParentSectionId = overParentSectionId || overItem.sectionId;
-          console.log('Processing section drop zone:', { newParentSectionId, overParentSectionId, overItem });
           // Add to end of section reports
           const sectionReports = menuTree.sectionReports?.[newParentSectionId] || [];
           newSortOrder = (sectionReports.length + 1) * 1000;
@@ -503,10 +497,7 @@ export function MenuEditor() {
 
     // Send the reorder request
     if (sections.length > 0 || reports.length > 0) {
-      console.log('Sending reorder request:', { sections, reports });
       reorderMutation.mutate({ sections, reports });
-    } else {
-      console.log('No changes to send');
     }
   }, [menuTree, reorderMutation]);
 
@@ -718,6 +709,23 @@ export function MenuEditor() {
             </SidebarGroup>
           </DndContext>
 
+          {/* Done editing button - visible when in edit mode, placed above Tools menu */}
+          {isEditMode && (user?.role === 'admin' || user?.role === 'editor') && (
+            <SidebarGroup className="mt-auto">
+              <SidebarGroupContent>
+                <div className="px-2 py-2">
+                  <Button
+                    onClick={() => setIsEditMode(false)}
+                    className="w-full justify-center bg-[var(--accent)] dark:bg-gray-800 hover:bg-[var(--accent-hover)] dark:hover:bg-gray-700 border border-[var(--accent)] dark:border-gray-600 text-white dark:text-gray-100 font-medium shadow-sm"
+                  >
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Done editing
+                  </Button>
+                </div>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
+
           {/* Admin Tools Menu */}
           {user?.role === 'admin' || user?.role === 'editor' ? (
             <SidebarGroup className="mt-auto">
@@ -741,9 +749,13 @@ export function MenuEditor() {
                           <FileText className="h-4 w-4 mr-2" />
                           New report
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setIsEditMode(!isEditMode)} className="py-1.5">
+                        <DropdownMenuItem 
+                          onClick={() => setIsEditMode(true)} 
+                          className="py-1.5"
+                          disabled={isEditMode}
+                        >
                           <Edit2 className="h-4 w-4 mr-2" />
-                          {isEditMode ? 'Done editing' : 'Edit menu'}
+                          Edit menu
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => navigate('/app/sql-editor')} className="py-1.5">
                           <Code className="h-4 w-4 mr-2" />

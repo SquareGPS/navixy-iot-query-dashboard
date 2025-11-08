@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,9 +9,10 @@ import { Card } from '@/components/ui/card';
 import { SqlEditor } from '@/components/reports/SqlEditor';
 import { ElementEditor } from '@/components/reports/ElementEditor';
 import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
-import { RowRenderer } from '@/components/reports/visualizations/RowRenderer';
-import { FloatingEditMenu } from '@/components/reports/FloatingEditMenu';
-import { AddRowButton } from '@/components/reports/AddRowButton';
+import { PanelEditor } from '@/components/reports/PanelEditor';
+import { DashboardRenderer, DashboardRendererRef } from '@/components/reports/DashboardRenderer';
+import { EditToolbar } from '@/components/reports/EditToolbar';
+import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -20,34 +21,25 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import type { Dashboard, DashboardConfig } from '@/types/dashboard-types';
+import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
+import { useEditorStore } from '@/layout/state/editorStore';
+import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp } from '@/layout/state/commands';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
   const { user, loading: authLoading } = useAuth();
-  const [schema, setSchema] = useState<ReportSchema | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
+  const [schema, setSchema] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState('');
+  const [isTitleHovered, setIsTitleHovered] = useState(false);
 
-  // Add logging for state changes
-  useEffect(() => {
-    console.log('📊 State changed - schema:', schema ? `${schema.title} (${schema.rows?.length} rows)` : 'null');
-    if (!schema) {
-      console.log('🚨 SCHEMA SET TO NULL! Stack trace:', new Error().stack);
-    }
-  }, [schema]);
-
-  useEffect(() => {
-    console.log('📊 State changed - error:', error);
-    if (error) {
-      console.log('🚨 ERROR SET! Stack trace:', new Error().stack);
-    }
-  }, [error]);
-
-  useEffect(() => {
-    console.log('📊 State changed - loading:', loading);
-  }, [loading]);
   const [isEditing, setIsEditing] = useState(false);
   const [editMode, setEditMode] = useState<'full' | 'inline'>('inline');
   const [editorValue, setEditorValue] = useState('');
@@ -75,12 +67,7 @@ const ReportView = () => {
       markdown?: boolean;
     };
   } | null>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [editingSubtitle, setEditingSubtitle] = useState(false);
-  const [tempTitle, setTempTitle] = useState('');
-  const [tempSubtitle, setTempSubtitle] = useState('');
-  const [isTitleHovered, setIsTitleHovered] = useState(false);
-  const [isSubtitleHovered, setIsSubtitleHovered] = useState(false);
+  const [editingPanel, setEditingPanel] = useState<any>(null);
   const [editingRowTitle, setEditingRowTitle] = useState<number | null>(null);
   const [tempRowTitle, setTempRowTitle] = useState('');
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
@@ -89,8 +76,64 @@ const ReportView = () => {
   const [showNewRowEditor, setShowNewRowEditor] = useState(false);
   const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
+  const [showPanelGallery, setShowPanelGallery] = useState(false);
+  const dashboardRendererRef = useRef<DashboardRendererRef>(null);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
+
+  // Memoize timeRange to prevent unnecessary re-renders and query re-executions
+  const timeRange = useMemo(() => ({ from: 'now-24h', to: 'now' }), []);
+
+  // Enable layout editing when edit mode is active
+  useEffect(() => {
+    const store = useEditorStore.getState();
+    if (isEditing && !store.isEditingLayout && dashboard) {
+      store.setIsEditingLayout(true);
+    } else if (!isEditing && store.isEditingLayout) {
+      store.setIsEditingLayout(false);
+    }
+  }, [isEditing, dashboard]);
+
+  // Sync local state with store when exiting layout editing mode
+  useEffect(() => {
+    const store = useEditorStore.getState();
+    let prevIsEditingLayout = store.isEditingLayout;
+    
+    const unsubscribe = useEditorStore.subscribe((state) => {
+      // When exiting layout editing mode (changing from true to false), sync local state with store
+      if (prevIsEditingLayout && !state.isEditingLayout && state.dashboard) {
+        // Update local state with store values immediately
+        // This ensures the dashboard prop updates so DashboardRenderer can see the changes
+        let updatedSchema: any;
+        if (schema?.dashboard) {
+          updatedSchema = {
+            ...schema,
+            dashboard: state.dashboard
+          };
+        } else if (schema?.panels) {
+          updatedSchema = state.dashboard;
+        } else {
+          updatedSchema = {
+            dashboard: state.dashboard
+          };
+        }
+        
+        setDashboard(state.dashboard);
+        setSchema(updatedSchema);
+        
+        if (dashboardConfig) {
+          setDashboardConfig({
+            ...dashboardConfig,
+            dashboard: state.dashboard
+          });
+        }
+      }
+      
+      prevIsEditingLayout = state.isEditingLayout;
+    });
+
+    return unsubscribe;
+  }, [schema, dashboardConfig]); // Removed dashboard from deps to avoid re-running when it updates
 
   useEffect(() => {
     const fetchDefaultUrl = async () => {
@@ -109,42 +152,76 @@ const ReportView = () => {
 
   useEffect(() => {
     const fetchReport = async () => {
-      console.log('🔄 Main fetchReport called...', { reportId });
       if (!reportId) return;
 
       setLoading(true);
       setError(null);
+      // Clear previous dashboard state when switching reports
+      setDashboard(null);
+      setDashboardConfig(null);
+      setSchema(null);
 
       try {
-        console.log('📡 Fetching report from API...', { reportId });
         const response = await apiService.getReportById(reportId);
-        console.log('📡 API response:', response);
         
         if (response.error) {
-          console.error('❌ API error:', response.error);
           throw new Error(response.error.message || 'Failed to fetch report');
         }
         
         const report = response.data.report;
-        console.log('📡 Report data:', report);
-        console.log('📡 Report schema:', report.report_schema);
-        console.log('📡 Schema type:', typeof report.report_schema);
-        console.log('📡 Schema keys:', report.report_schema ? Object.keys(report.report_schema) : 'null');
-        console.log('📡 Schema length:', report.report_schema ? Object.keys(report.report_schema).length : 'null');
         
         setReport(report);
         
         if (!report.report_schema || 
             (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
-          console.log('❌ Schema is missing or empty, throwing error');
-          throw new Error('Report schema is missing');
+          throw new Error('Dashboard schema is missing');
         }
 
-        const reportSchema = report.report_schema as unknown as ReportSchema;
-        console.log('✅ Setting schema:', reportSchema);
-        setSchema(reportSchema);
-        setEditorValue(JSON.stringify(reportSchema, null, 2));
-        console.log('✅ Report loaded successfully');
+        // Check if this is a dashboard format or report schema format
+        let schemaData = report.report_schema;
+        
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
+        if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+          const reportSchema = schemaData as ReportSchema;
+          const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+          schemaData = migratedDashboard;
+        }
+        
+        // Check for direct panels (old format) or nested dashboard.panels (new format)
+        let dashboardData: Dashboard;
+        if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
+          // Direct panels format with content
+          dashboardData = schemaData as Dashboard;
+        } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
+          // Nested dashboard format with content
+          dashboardData = schemaData.dashboard as Dashboard;
+        } else {
+          // Empty or legacy format - show helpful message
+          setError('Dashboard is empty. You can download a dashboard template to get started.');
+          return;
+        }
+        
+        setDashboard(dashboardData);
+        setSchema(schemaData); // Set schema for compatibility
+          
+        const config: DashboardConfig = {
+          title: report.title,
+          meta: {
+            schema_version: '1.0.0',
+            dashboard_id: report.id,
+            slug: report.slug,
+            last_updated: new Date().toISOString(),
+            updated_by: {
+              id: user?.userId || 'unknown',
+              name: user?.name || 'Unknown User',
+              email: user?.email
+            }
+          },
+          dashboard: dashboardData
+        };
+        setDashboardConfig(config);
+        setEditorValue(JSON.stringify(dashboardData, null, 2));
+        
       } catch (err: any) {
         console.error('❌ Error fetching report:', err);
         setError(err.message || 'Failed to load report');
@@ -157,14 +234,17 @@ const ReportView = () => {
   }, [reportId]);
 
   const handleSaveSchema = async () => {
-    if (!reportId) return;
+    if (!reportId || !report) return;
 
     setSaving(true);
     try {
       const parsedSchema = JSON.parse(editorValue);
       
+      // IMPORTANT: Preserve the database title (menu label) when updating schema
+      // The schema may contain a title field (report page header), but we don't want
+      // to overwrite the database title (menu label) unless explicitly editing it
       const response = await apiService.updateReport(reportId, { 
-        title: parsedSchema.title || report?.title,
+        title: report.title, // Preserve database title (menu label)
         subtitle: parsedSchema.subtitle,
         report_schema: parsedSchema 
       });
@@ -179,6 +259,50 @@ const ReportView = () => {
         title: 'Success',
         description: 'Report schema updated successfully',
       });
+      
+      // Reload report data to reflect schema changes
+      const fetchReport = async () => {
+        if (!reportId) return;
+        
+        try {
+          const response = await apiService.getReportById(reportId);
+          if (response.error) {
+            throw new Error(response.error.message || 'Failed to fetch report');
+          }
+          
+          const report = response.data.report;
+          setReport(report);
+          
+          if (!report.report_schema || 
+              (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
+            throw new Error('Dashboard schema is missing');
+          }
+
+          // Check if this is a dashboard format
+          const schemaData = report.report_schema;
+          
+          // Check for direct panels (old format) or nested dashboard.panels (new format)
+          let dashboardData: Dashboard;
+          if (schemaData.panels && Array.isArray(schemaData.panels)) {
+            // Direct panels format
+            dashboardData = schemaData as Dashboard;
+          } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
+            // Nested dashboard format
+            dashboardData = schemaData.dashboard as Dashboard;
+          } else {
+            // Legacy format - convert to dashboard
+            throw new Error('Legacy schema format detected. Please use dashboard format.');
+          }
+          
+          setSchema(dashboardData);
+          setEditorValue(JSON.stringify(dashboardData, null, 2));
+        } catch (err: any) {
+          console.error('Error reloading report:', err);
+          setError(err.message || 'Failed to reload report');
+        }
+      };
+      
+      fetchReport();
     } catch (err: any) {
       console.error('Error saving schema:', err);
       toast({
@@ -189,6 +313,141 @@ const ReportView = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveDashboard = useCallback(async (updatedDashboard: Dashboard) => {
+    if (!reportId || !schema) return;
+
+    // Check if we're in layout editing mode
+    const isEditingLayout = useEditorStore.getState().isEditingLayout;
+
+    try {
+      // Preserve the existing schema structure
+      let updatedSchema: any;
+      
+      if (schema.dashboard) {
+        // Schema has nested dashboard property
+        updatedSchema = {
+          ...schema,
+          dashboard: updatedDashboard
+        };
+      } else if (schema.panels) {
+        // Schema is direct Dashboard format
+        updatedSchema = updatedDashboard;
+      } else {
+        // Fallback: wrap in dashboard property
+        updatedSchema = {
+          dashboard: updatedDashboard
+        };
+      }
+
+      const response = await apiService.updateReport(reportId, {
+        title: report?.title,
+        subtitle: report?.subtitle,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to save dashboard changes');
+      }
+
+      // Only update local state if NOT in layout editing mode
+      // During layout editing, the store is the source of truth and we don't want
+      // to trigger re-renders that might reset the layout
+      if (!isEditingLayout) {
+        setDashboard(updatedDashboard);
+        setSchema(updatedSchema);
+        
+        if (dashboardConfig) {
+          setDashboardConfig({
+            ...dashboardConfig,
+            dashboard: updatedDashboard
+          });
+        }
+      }
+
+      // Show success toast (optional, can be removed if too noisy)
+      // toast({
+      //   title: 'Success',
+      //   description: 'Panel layout updated successfully',
+      // });
+    } catch (error: any) {
+      console.error('Error saving dashboard changes:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save panel layout',
+        variant: 'destructive',
+      });
+      throw error; // Re-throw so caller can handle it
+    }
+  }, [reportId, schema, report, dashboardConfig]);
+
+  const handleSaveTitle = async () => {
+    if (!reportId || !schema || !report) return;
+    
+    try {
+      setSaving(true);
+      
+      // IMPORTANT: This updates the REPORT PAGE HEADER (displayed on the report page itself)
+      // It does NOT update the REPORT LABEL IN THE LEFT MENU (which is stored in database.title)
+      // The menu label is managed separately via breadcrumb editing or menu editor
+      
+      // Update the title in the JSON schema
+      let updatedSchema;
+      if (schema.dashboard) {
+        // Dashboard format
+        updatedSchema = {
+          ...schema,
+          dashboard: {
+            ...schema.dashboard,
+            title: tempTitle
+          }
+        };
+      } else {
+        // Report schema format
+        updatedSchema = {
+          ...schema,
+          title: tempTitle
+        };
+      }
+      
+      // Send the updated schema to the backend
+      // CRITICAL: Preserve the database title (menu label) - only update the schema
+      const updateData = {
+        title: report.title, // Keep the original database title (menu label)
+        report_schema: updatedSchema
+      };
+      await apiService.updateReport(reportId, updateData);
+      
+      // Update local state with the new schema
+      setSchema(updatedSchema);
+      setEditingTitle(false);
+      toast({
+        title: "Success",
+        description: "Report page header updated successfully",
+      });
+    } catch (error) {
+      console.error('Error saving title:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update report page header",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelEditTitle = () => {
+    const currentTitle = schema?.dashboard?.title || schema?.title || '';
+    setTempTitle(currentTitle);
+    setEditingTitle(false);
+  };
+
+  const handleStartEditTitle = () => {
+    const currentTitle = schema?.dashboard?.title || schema?.title || '';
+    setTempTitle(currentTitle);
+    setEditingTitle(true);
   };
 
   const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
@@ -228,8 +487,9 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
+      // Preserve database title (menu label) when updating schema
       const response = await apiService.updateReport(reportId!, { 
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema 
       });
@@ -310,8 +570,9 @@ const ReportView = () => {
     try {
       console.log('Saving to database with reportId:', reportId);
       
+      // Preserve database title (menu label) when updating schema
       const response = await apiService.updateReport(reportId!, { 
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema 
       });
@@ -465,15 +726,6 @@ const ReportView = () => {
     }
   };
 
-  const handleStartEditTitle = () => {
-    setTempTitle(schema?.title || '');
-    setEditingTitle(true);
-  };
-
-  const handleStartEditSubtitle = () => {
-    setTempSubtitle(schema?.subtitle || '');
-    setEditingSubtitle(true);
-  };
 
   const handleStartEditRowTitle = useCallback((rowIndex: number) => {
     if (!canEdit) return;
@@ -495,8 +747,9 @@ const ReportView = () => {
         title: tempRowTitle.trim() || undefined
       };
       
+      // Preserve database title (menu label) when updating row title
       const response = await apiService.updateReport(reportId, {
-        title: schema.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: schema.subtitle,
         report_schema: updatedSchema
       });
@@ -528,88 +781,6 @@ const ReportView = () => {
     setTempRowTitle('');
   }, []);
 
-  const handleSaveTitle = async () => {
-    if (!reportId || !tempTitle.trim()) return;
-    
-    try {
-      // Update both database columns and JSON schema
-      const updatedSchema = schema ? { ...schema, title: tempTitle.trim() } : null;
-      
-      const response = await apiService.updateReport(reportId, {
-        title: tempTitle.trim(),
-        subtitle: schema?.subtitle,
-        report_schema: updatedSchema
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to update title');
-      }
-
-      setSchema(updatedSchema);
-      setEditorValue(JSON.stringify(updatedSchema, null, 2));
-      setEditingTitle(false);
-      
-      toast({
-        title: 'Success',
-        description: 'Title updated successfully',
-      });
-    } catch (error: any) {
-      console.error('Error updating title:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update title',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleSaveSubtitle = async () => {
-    if (!reportId) return;
-    
-    try {
-      // Update both database columns and JSON schema
-      const updatedSchema = schema ? { 
-        ...schema, 
-        subtitle: tempSubtitle.trim() || undefined 
-      } : null;
-      
-      const response = await apiService.updateReport(reportId, {
-        title: schema?.title || '',
-        subtitle: tempSubtitle.trim() || null,
-        report_schema: updatedSchema
-      });
-
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to update subtitle');
-      }
-
-      setSchema(updatedSchema);
-      setEditorValue(JSON.stringify(updatedSchema, null, 2));
-      setEditingSubtitle(false);
-      
-      toast({
-        title: 'Success',
-        description: 'Subtitle updated successfully',
-      });
-    } catch (error: any) {
-      console.error('Error updating subtitle:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update subtitle',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleCancelEditTitle = () => {
-    setEditingTitle(false);
-    setTempTitle('');
-  };
-
-  const handleCancelEditSubtitle = () => {
-    setEditingSubtitle(false);
-    setTempSubtitle('');
-  };
 
   const handleStartEditBreadcrumb = (type: 'section' | 'report') => {
     if (type === 'section') {
@@ -632,11 +803,13 @@ const ReportView = () => {
         }
         setReport(prev => prev ? { ...prev, section_name: tempSectionName.trim() } : null);
       } else {
-        // Update report title (database column)
+        // IMPORTANT: This updates the REPORT LABEL IN THE LEFT MENU (database.title)
+        // This is different from the report page header (schema.title or dashboard.title)
+        // The breadcrumb shows the menu label, which is stored in the database title column
         const response = await apiService.updateReport(reportId, {
-          title: tempReportName.trim(),
+          title: tempReportName.trim(), // Update database title (menu label)
           subtitle: report?.subtitle,
-          report_schema: schema
+          report_schema: schema // Preserve schema (including page header)
         });
         if (response.error) {
           throw new Error(response.error.message || 'Failed to update report');
@@ -669,6 +842,70 @@ const ReportView = () => {
     setTempReportName('');
   };
 
+  const handleToggleEdit = () => {
+    setIsEditing(!isEditing);
+    if (!isEditing) {
+      setEditMode('inline');
+    }
+  };
+
+  const handleFullSchema = () => {
+    setEditMode('full');
+  };
+
+  const handleNewRow = () => {
+    // For dashboard format, use cmdAddRow
+    if (dashboard) {
+      const store = useEditorStore.getState();
+      const currentDashboard = store.dashboard || dashboard;
+      
+      // Calculate maximum Y position considering ALL panels and rows
+      const allPanels = currentDashboard.panels.filter((p) => p.id);
+      const maxY = allPanels.length > 0
+        ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
+        : 0;
+      
+      cmdAddRow(maxY, 'New row');
+    } else {
+      // For old schema format, use the dialog
+      setShowNewRowEditor(true);
+    }
+  };
+
+  const handleNewPanel = () => {
+    setShowPanelGallery(true);
+  };
+
+  const handlePanelGallerySelect = (type: string, size: { w: number; h: number }) => {
+    if (!dashboard) return;
+    
+    const store = useEditorStore.getState();
+    const currentDashboard = store.dashboard || dashboard;
+    
+    // Calculate maximum Y position for placing the panel
+    const allPanels = currentDashboard.panels.filter((p) => p.id);
+    const maxY = allPanels.length > 0
+      ? Math.max(...allPanels.map((p) => p.gridPos.y + p.gridPos.h))
+      : 0;
+    
+    cmdAddPanel({
+      type,
+      size,
+      target: 'top',
+      hint: { position: { x: 0, y: maxY } },
+    });
+    
+    setShowPanelGallery(false);
+  };
+
+  const handleTidyUp = () => {
+    cmdTidyUp();
+    toast({
+      title: 'Layout tidied up',
+      description: 'Empty spaces removed and panels repositioned.',
+    });
+  };
+
   const handleAddRow = (rowType: 'tiles' | 'table' | 'charts' | 'annotation', insertAfterIndex?: number) => {
     setNewRowType(rowType);
     setInsertAfterIndex(insertAfterIndex);
@@ -694,8 +931,9 @@ const ReportView = () => {
         last_updated: new Date().toISOString()
       };
 
+      // Preserve database title (menu label) when adding new row
       const response = await apiService.updateReport(reportId, {
-        title: updatedSchema.title || report?.title,
+        title: report?.title || '', // Preserve database title (menu label)
         subtitle: updatedSchema.subtitle,
         report_schema: updatedSchema
       });
@@ -719,6 +957,165 @@ const ReportView = () => {
       toast({
         title: 'Error',
         description: error.message || 'Failed to add row',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSavePanel = async (updatedPanel: any) => {
+    if (!dashboard || !reportId || !schema) {
+      console.error('handleSavePanel: Missing required data', { dashboard: !!dashboard, reportId, schema: !!schema });
+      return;
+    }
+    
+    try {
+
+      // Deep clone dashboard to avoid reference issues
+      const updatedDashboard = {
+        ...dashboard,
+        panels: dashboard.panels.map(p => ({ ...p }))
+      };
+      
+      // Find and update the panel using multiple strategies for reliability
+      let panelIndex = -1;
+      
+      // Strategy 1: Use ID if available (most reliable)
+      if (updatedPanel.id && editingPanel?.id) {
+        panelIndex = updatedDashboard.panels.findIndex(p => p.id === editingPanel.id);
+      }
+      
+      // Strategy 2: Use gridPos as unique identifier
+      if (panelIndex === -1 && updatedPanel.gridPos) {
+        panelIndex = updatedDashboard.panels.findIndex(p => 
+          p.gridPos?.x === updatedPanel.gridPos.x && 
+          p.gridPos?.y === updatedPanel.gridPos.y &&
+          p.gridPos?.w === updatedPanel.gridPos.w &&
+          p.gridPos?.h === updatedPanel.gridPos.h
+        );
+      }
+      
+      // Strategy 3: Fallback to original title
+      if (panelIndex === -1 && editingPanel?.title) {
+        panelIndex = updatedDashboard.panels.findIndex(p => 
+          p.title === editingPanel.title
+        );
+      }
+      
+      if (panelIndex !== -1) {
+        const oldPanel = updatedDashboard.panels[panelIndex];
+        
+        // Preserve all existing panel properties and merge with updates
+        // Ensure x-navixy is properly merged to preserve all nested properties
+        updatedDashboard.panels[panelIndex] = {
+          ...oldPanel,
+          ...updatedPanel,
+          'x-navixy': {
+            ...oldPanel['x-navixy'],
+            ...updatedPanel['x-navixy'],
+            sql: {
+              ...oldPanel['x-navixy']?.sql,
+              ...updatedPanel['x-navixy']?.sql,
+              // Ensure statement is not truncated
+              statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
+            }
+          }
+        };
+        
+      } else {
+        console.error('❌ Could not find panel to update', {
+          editingPanel: editingPanel,
+          updatedPanel: updatedPanel,
+          availablePanels: updatedDashboard.panels.map(p => ({ id: p.id, title: p.title, gridPos: p.gridPos }))
+        });
+        throw new Error('Could not find panel to update');
+      }
+      
+      // Preserve the existing schema structure (same pattern as handleSaveDashboard)
+      let updatedSchema: any;
+      
+      if (schema.dashboard) {
+        // Schema has nested dashboard property
+        updatedSchema = {
+          ...schema,
+          dashboard: updatedDashboard
+        };
+      } else if (schema.panels) {
+        // Schema is direct Dashboard format
+        updatedSchema = updatedDashboard;
+      } else {
+        // Fallback: wrap in dashboard property
+        updatedSchema = {
+          dashboard: updatedDashboard
+        };
+      }
+      
+      
+      const response = await apiService.updateReport(reportId, {
+        title: report?.title,
+        subtitle: report?.subtitle,
+        report_schema: updatedSchema
+      });
+
+      if (response.error) {
+        console.error('❌ API error:', response.error);
+        throw new Error(response.error.message || 'Failed to save panel');
+      }
+
+      setDashboard(updatedDashboard);
+      setSchema(updatedSchema);
+      
+      // Also update editorStore to ensure it has the latest data
+      const store = useEditorStore.getState();
+      if (store.isEditingLayout) {
+        store.setDashboard(updatedDashboard);
+      }
+      
+      // Update editingPanel if it's still open, to ensure it has the latest data
+      if (editingPanel && updatedPanel.id) {
+        const updatedPanelFromDashboard = updatedDashboard.panels.find(p => p.id === updatedPanel.id);
+        if (updatedPanelFromDashboard) {
+          setEditingPanel(updatedPanelFromDashboard);
+        }
+      }
+      
+      // Update editorValue so JSON source view shows the updated schema
+      // Determine which format to use for editorValue
+      let editorSchema = updatedSchema;
+      if (updatedSchema.dashboard) {
+        // If schema has nested dashboard, use the dashboard for editor
+        editorSchema = updatedSchema.dashboard;
+      }
+      setEditorValue(JSON.stringify(editorSchema, null, 2));
+      
+      if (dashboardConfig) {
+        setDashboardConfig({
+          ...dashboardConfig,
+          dashboard: updatedDashboard
+        });
+      }
+      
+      setEditingPanel(null);
+      
+      // Refresh only the updated panel's view instead of reloading entire dashboard
+      if (updatedPanel.id && dashboardRendererRef.current) {
+        try {
+          // Pass the updated dashboard to ensure refreshPanel uses the latest data
+          await dashboardRendererRef.current.refreshPanel(updatedPanel.id, updatedDashboard);
+        } catch (refreshError) {
+          // If refresh fails, fall back to full reload
+          console.error('Failed to refresh panel, falling back to full reload:', refreshError);
+        }
+      }
+      
+      toast({
+        title: 'Success',
+        description: 'Panel updated successfully',
+      });
+    } catch (error: any) {
+      console.error('❌ Error saving panel:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save panel',
         variant: 'destructive',
       });
     }
@@ -792,15 +1189,25 @@ const ReportView = () => {
           throw new Error(response.error.message || 'Failed to fetch example schema');
         }
         
-        const exampleSchema = response.data.schema;
+        let exampleSchema = response.data.schema;
         console.log('📥 Downloaded schema:', exampleSchema);
         console.log('📥 Schema title:', exampleSchema?.title);
         console.log('📥 Schema rows count:', exampleSchema?.rows?.length);
         
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
+        if (exampleSchema.rows && Array.isArray(exampleSchema.rows) && exampleSchema.rows.length > 0) {
+          console.log('🔄 Detected report schema format, migrating to dashboard format...');
+          const reportSchema = exampleSchema as ReportSchema;
+          const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
+          exampleSchema = dashboardData;
+          console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
+        }
+        
         console.log('💾 Updating report in database...', { reportId, title: report?.title });
-        // Update the report with the example schema
+        // Update the report with the example schema (now in dashboard format)
+        // Preserve database title (menu label) when importing example schema
         const updateResponse = await apiService.updateReport(reportId!, {
-          title: report?.title || 'New Report', // Keep the original title
+          title: report?.title || 'New Report', // Preserve database title (menu label)
           report_schema: exampleSchema
         });
         console.log('💾 Update response:', updateResponse);
@@ -843,9 +1250,51 @@ const ReportView = () => {
               console.error('❌ Fresh report has empty schema!');
               throw new Error('Report schema is missing');
             }
+            
+            let schemaData = reportData.report_schema;
+            
+            // Check if this is a report schema format (with rows) and migrate to dashboard format
+            if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+              console.log('🔄 Detected report schema format in refresh, migrating to dashboard format...');
+              const reportSchema = schemaData as ReportSchema;
+              const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+              schemaData = migratedDashboard;
+              console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
+            }
+            
+            // Extract dashboard from schema data
+            let dashboardData: Dashboard;
+            if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
+              // Direct panels format
+              dashboardData = schemaData as Dashboard;
+            } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
+              // Nested dashboard format
+              dashboardData = schemaData.dashboard as Dashboard;
+            } else {
+              throw new Error('Dashboard schema is missing panels');
+            }
+            
             setReport(reportData);
-            setSchema(reportData.report_schema);
-            setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+            setSchema(schemaData);
+            setDashboard(dashboardData);
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: dashboardData
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
             console.log('✅ Fresh report data loaded successfully');
           } catch (err: any) {
             console.error('❌ Error fetching fresh report:', err);
@@ -861,6 +1310,7 @@ const ReportView = () => {
         await fetchReport();
         
         console.log('🎉 Schema download completed successfully');
+        setError(null);
         toast({
           title: 'Success',
           description: 'Example schema downloaded and saved successfully',
@@ -875,12 +1325,21 @@ const ReportView = () => {
         throw new Error(`Failed to fetch schema from URL: ${response.statusText}`);
       }
 
-      const exampleSchema = await response.json();
+      const dashboardData = await response.json();
       
-      // Update the report with the custom schema
+      // Validate that this is a dashboard
+      if (!dashboardData.panels || !Array.isArray(dashboardData.panels)) {
+        throw new Error('Invalid dashboard format. Expected panels array.');
+      }
+      
+      console.log('✅ Valid dashboard loaded:', dashboardData.title);
+      console.log('📊 Panels count:', dashboardData.panels.length);
+      
+      // Preserve database title (menu label) when importing dashboard
+      // The dashboard.title is the report page header, not the menu label
       const updateResponse = await apiService.updateReport(reportId!, {
-        title: report?.title || 'New Report', // Keep the original title
-        report_schema: exampleSchema
+        title: report?.title || 'New Dashboard', // Preserve database title (menu label)
+        report_schema: dashboardData
       });
 
       if (updateResponse.error) {
@@ -888,7 +1347,8 @@ const ReportView = () => {
       }
 
       // Clear current state to prevent immediate SQL execution
-      setSchema(null);
+      setDashboard(null);
+      setDashboardConfig(null);
       setEditorValue('');
       setError(null);
       
@@ -902,14 +1362,41 @@ const ReportView = () => {
           if (response.error) {
             throw new Error(response.error.message || 'Failed to fetch report');
           }
-          const reportData = response.data;
+          const reportData = response.data.report;
           if (!reportData.report_schema || 
               (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
-            throw new Error('Report schema is missing');
+            throw new Error('Dashboard schema is missing');
           }
+          
           setReport(reportData);
-          setSchema(reportData.report_schema);
-          setEditorValue(JSON.stringify(reportData.report_schema, null, 2));
+          
+          // Handle dashboard format
+          const schemaData = reportData.report_schema;
+          if (schemaData.panels && Array.isArray(schemaData.panels)) {
+            const dashboardData = schemaData as Dashboard;
+            setDashboard(dashboardData);
+            setSchema(schemaData); // Set schema for compatibility
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: dashboardData
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
+          } else {
+            throw new Error('Invalid dashboard format');
+          }
         } catch (err: any) {
           console.error('Error fetching report:', err);
           setError(err.message);
@@ -924,7 +1411,7 @@ const ReportView = () => {
       
       toast({
         title: 'Success',
-        description: 'Schema downloaded and saved successfully',
+        description: 'Dashboard downloaded and saved successfully',
       });
     } catch (err: any) {
       console.error('Error downloading schema:', err);
@@ -938,7 +1425,7 @@ const ReportView = () => {
     }
   };
 
-  if (loading) {
+  if (loading || downloadingSchema) {
     return (
       <AppLayout>
         <div className="space-y-6">
@@ -977,12 +1464,12 @@ const ReportView = () => {
   }
 
   // Only show error state for critical errors, not SQL execution errors
-  const isCriticalError = error && error !== 'Report schema is missing';
-  const shouldShowError = isCriticalError || (!schema && !loading);
+  const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a dashboard template to get started.';
+  const shouldShowError = isCriticalError || (!dashboard && !loading && !downloadingSchema);
   
   if (shouldShowError) {
-    const isSchemaMissing = error === 'Report schema is missing';
-    console.log('🚨 Error state triggered:', { error, schema: schema ? 'exists' : 'null', isSchemaMissing, isCriticalError });
+    const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a dashboard template to get started.';
+    console.log('🚨 Error state triggered:', { error, dashboard: dashboard ? 'exists' : 'null', isSchemaMissing, isCriticalError });
     
     
     return (
@@ -1056,7 +1543,7 @@ const ReportView = () => {
                     Need Help Getting Started?
                   </h4>
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This report needs a schema to display data. Click the button above to download a pre-configured example schema that you can customize for your needs. Use the Advanced Options to specify a custom schema URL from GitHub or other sources.
+                    This report needs a dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
                   </p>
                 </div>
               </div>
@@ -1073,6 +1560,8 @@ const ReportView = () => {
         {/* Top Navigation Bar */}
         <div className="flex items-center justify-between">
           {/* Breadcrumb Navigation */}
+          {/* IMPORTANT: Breadcrumb shows REPORT LABEL IN THE LEFT MENU (database.title) */}
+          {/* This is different from the report page header (schema.title or dashboard.title) */}
           {report && (
             <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               {editingBreadcrumb === 'section' ? (
@@ -1147,7 +1636,10 @@ const ReportView = () => {
           </div>
         </div>
 
-        {/* Report Title and Subtitle */}
+        {/* Report Page Header */}
+        {/* IMPORTANT: This is the REPORT PAGE HEADER (schema.dashboard.title or schema.title) */}
+        {/* This is different from the REPORT LABEL IN THE LEFT MENU (database.title) */}
+        {/* Editing this does NOT affect the menu label */}
         <div className="space-y-2">
           {isEditing && editingTitle ? (
             <div>
@@ -1184,97 +1676,30 @@ const ReportView = () => {
               onMouseLeave={() => setIsTitleHovered(false)}
               onClick={() => isEditing && handleStartEditTitle()}
             >
-              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema?.title || 'Untitled Report'}</h1>
+              <h1 className="text-[24px] font-bold text-[var(--text-primary)]">{schema?.dashboard?.title || schema?.title || 'Untitled Report'}</h1>
             </div>
           )}
           
-          {isEditing && editingSubtitle ? (
-            <div>
-              <Input
-                value={tempSubtitle}
-                onChange={(e) => setTempSubtitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveSubtitle();
-                  if (e.key === 'Escape') handleCancelEditSubtitle();
-                }}
-                className="text-[var(--text-muted)] h-8 px-3"
-                placeholder="Report subtitle (optional)"
-                autoFocus
-              />
-              <div className="flex gap-2 mt-2">
-                <Button onClick={handleSaveSubtitle} size="sm" variant="default">
-                  <Save className="h-4 w-4 mr-1" />
-                  Save
-                </Button>
-                <Button onClick={handleCancelEditSubtitle} size="sm" variant="outline">
-                  <X className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div 
-              className={`flex items-center gap-3 w-fit transition-all ${
-                isEditing ? 'cursor-pointer hover:text-[var(--text-primary)]' : ''
-              }`}
-              onMouseEnter={() => {
-                if (isEditing) setIsSubtitleHovered(true);
-              }}
-              onMouseLeave={() => setIsSubtitleHovered(false)}
-              onClick={() => isEditing && handleStartEditSubtitle()}
-            >
-              {schema?.subtitle ? (
-                <p className="text-[var(--text-muted)]">{schema.subtitle}</p>
-              ) : isEditing ? (
-                <p className="text-[var(--text-muted)] italic">No subtitle</p>
-              ) : null}
-            </div>
-          )}
+          {/* Remove subtitle editing UI as it doesn't conform to dashboard model */}
         </div>
 
         {/* Report Content */}
-        <div className="space-y-6">
-        {schema && schema.rows && schema.rows.length > 0 ? (
-          <>
-            {/* Add row button at the top */}
-            <AddRowButton 
-              onAddRow={handleAddRow} 
-              canEdit={canEdit} 
-              isEditing={isEditing && editMode === 'inline'} 
-            />
-            
-            {schema.rows.map((row, rowIdx) => {
-              const inlineEditActive = isEditing && editMode === 'inline';
-              const rowKey = `${rowIdx}-${JSON.stringify(row.visuals.map(v => v.query?.sql || ''))}`;
-              
-              return (
-                <div key={rowKey}>
-                  <RowRenderer
-                    row={row}
-                    rowIndex={rowIdx}
-                    editMode={inlineEditActive}
-                    onEdit={setEditingElement}
-                    onEditAnnotation={setEditingAnnotation}
-                    editingRowTitle={editingRowTitle === rowIdx}
-                    tempRowTitle={tempRowTitle}
-                    onStartEditRowTitle={handleStartEditRowTitle}
-                    onSaveRowTitle={handleSaveRowTitle}
-                    onCancelEditRowTitle={handleCancelEditRowTitle}
-                    onRowTitleChange={setTempRowTitle}
-                    canEdit={canEdit}
-                  />
-                  
-                  {/* Add row button after each row */}
-                  <AddRowButton 
-                    onAddRow={handleAddRow} 
-                    insertAfterIndex={rowIdx}
-                    canEdit={canEdit} 
-                    isEditing={isEditing && editMode === 'inline'} 
-                  />
-                </div>
-              );
-            })}
-          </>
+        {dashboard ? (
+          <DashboardRenderer
+            ref={dashboardRendererRef}
+            dashboard={dashboard}
+            timeRange={timeRange}
+            editMode={isEditing}
+            onEditPanel={(panel) => {
+              // Always get the latest panel from the current dashboard to ensure fresh data
+              const latestPanel = dashboard?.panels.find(p => 
+                p.id === panel.id || 
+                (p.gridPos?.x === panel.gridPos?.x && p.gridPos?.y === panel.gridPos?.y)
+              ) || panel;
+              setEditingPanel(latestPanel);
+            }}
+            onSave={handleSaveDashboard}
+          />
         ) : (
           /* Empty State - Show example schema download option */
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-8 shadow-sm">
@@ -1284,12 +1709,12 @@ const ReportView = () => {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                  {schema ? 'Report Schema is Empty' : 'No Report Schema Found'}
+                  {dashboard ? 'Dashboard Schema is Empty' : 'No Dashboard Schema Found'}
                 </h3>
                 <p className="text-[var(--text-muted)] mb-6">
-                  {schema 
-                    ? 'This report doesn\'t have any content yet. Download an example schema to get started.'
-                    : 'This report needs a schema to display content. Download an example schema to get started.'
+                  {dashboard 
+                    ? 'This dashboard doesn\'t have any panels yet. Download an example dashboard to get started.'
+                    : 'This report needs a dashboard schema to display content. Download an example dashboard to get started.'
                   }
                 </p>
               </div>
@@ -1333,7 +1758,6 @@ const ReportView = () => {
             </div>
           </div>
         )}
-        </div>
       </div>
 
       {/* Full Schema Editor Dialog */}
@@ -1402,6 +1826,17 @@ const ReportView = () => {
         />
       )}
 
+      {/* Panel Editor Dialog */}
+      {editingPanel && (
+        <PanelEditor
+          key={editingPanel.id} // Force remount when panel ID changes to ensure fresh state
+          open={!!editingPanel}
+          onClose={() => setEditingPanel(null)}
+          panel={editingPanel}
+          onSave={handleSavePanel}
+        />
+      )}
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent className="max-w-md">
@@ -1453,16 +1888,22 @@ const ReportView = () => {
       )}
 
       {/* Floating Edit Menu */}
-      <FloatingEditMenu
+      <EditToolbar
         isEditing={isEditing}
-        editMode={editMode}
         canEdit={canEdit}
-        onToggleEdit={() => { 
-          setIsEditing(!isEditing); 
-          if (!isEditing) setEditMode('inline');
-        }}
-        onSetEditMode={setEditMode}
+        onToggleEdit={handleToggleEdit}
+        onFullSchema={handleFullSchema}
         onDeleteReport={() => setShowDeleteDialog(true)}
+        onNewRow={handleNewRow}
+        onNewPanel={handleNewPanel}
+        onTidyUp={handleTidyUp}
+      />
+
+      {/* Panel Gallery Dialog */}
+      <PanelGallery
+        open={showPanelGallery}
+        onClose={() => setShowPanelGallery(false)}
+        onSelect={handlePanelGallerySelect}
       />
     </AppLayout>
   );

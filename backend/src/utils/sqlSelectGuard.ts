@@ -58,9 +58,66 @@ export class SQLSelectGuard {
   ];
 
   /**
+   * Replace ${variable_name} placeholders with safe placeholder values for template validation
+   * This allows validating SQL templates before parameter binding
+   */
+  private static replaceTemplatePlaceholders(sql: string): string {
+    // Replace ${variable_name} with placeholder values that are valid SQL
+    // Use a timestamp placeholder for date/time parameters, string for others
+    return sql.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+      // For time-related variables, use a timestamp placeholder
+      if (varName === '__from' || varName === '__to' || varName === 'from' || varName === 'to' || 
+          varName.includes('time') || varName.includes('date')) {
+        return "TIMESTAMP '2000-01-01 00:00:00'";
+      }
+      // For numeric variables, use a number placeholder
+      if (varName.includes('id') || varName.includes('count') || varName.includes('num')) {
+        return '1';
+      }
+      // Default to string placeholder
+      return "'PLACEHOLDER'";
+    });
+  }
+
+  /**
+   * Validate SQL template with ${variable_name} placeholders
+   * Less strict validation for templates - replaces placeholders before parsing
+   * Raises SelectValidationError if invalid.
+   */
+  static assertSafeTemplate(sql: string): void {
+    // Replace template placeholders with valid SQL values
+    const templateSql = this.replaceTemplatePlaceholders(sql);
+    // Validate the template SQL
+    this.assertSafeSelect(templateSql);
+  }
+
+  /**
+   * Validate SQL template and return result without throwing
+   * Useful for non-throwing validation contexts
+   */
+  static validateTemplate(sql: string): { valid: boolean; issues: ValidationIssue[] } {
+    try {
+      this.assertSafeTemplate(sql);
+      return { valid: true, issues: [] };
+    } catch (error) {
+      if (error instanceof SelectValidationError) {
+        return { valid: false, issues: error.issues };
+      }
+      return {
+        valid: false,
+        issues: [{
+          code: 'UNKNOWN_ERROR',
+          message: error instanceof Error ? error.message : 'Unknown validation error'
+        }]
+      };
+    }
+  }
+
+  /**
    * Parse & validate SQL using node-sql-parser.
    * Raises SelectValidationError with one or more ValidationIssue if invalid.
    * Returns None if safe.
+   * Use assertSafeTemplate() for SQL with ${variable_name} placeholders.
    */
   static assertSafeSelect(sql: string): void {
     const issues: ValidationIssue[] = [];
@@ -258,27 +315,55 @@ export class SQLSelectGuard {
 
   /**
    * Validate AST for additional security checks
+   * Properly traverses the AST structure to detect dangerous operations
    */
   private static validateAST(ast: any): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
-    const astString = JSON.stringify(ast).toUpperCase();
-
-    // Check for dangerous operations in AST
-    const dangerousKeywords = [
+    const dangerousTypes = [
       'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE',
-      'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL'
+      'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL',
+      'MERGE', 'UPSERT', 'REPLACE'
     ];
-
-    for (const keyword of dangerousKeywords) {
-      if (astString.includes(keyword)) {
-        issues.push({
-          code: 'DANGEROUS_OPERATION',
-          message: `Prohibited operation detected: ${keyword}`
-        });
-        break;
+    
+    // Recursively traverse the AST to find statement types
+    const traverse = (node: any): void => {
+      if (!node || typeof node !== 'object') {
+        return;
       }
-    }
 
+      // Check if this node represents a statement type
+      if (node.type && typeof node.type === 'string') {
+        const nodeType = node.type.toUpperCase();
+        if (dangerousTypes.includes(nodeType)) {
+          issues.push({
+            code: 'DANGEROUS_OPERATION',
+            message: `Prohibited operation detected: ${nodeType}`
+          });
+          return; // Don't traverse further once we found a dangerous operation
+        }
+      }
+
+      // Recursively traverse all properties
+      for (const key in node) {
+        // Skip certain properties that might contain keywords as string values (like column names)
+        // but still traverse objects and arrays
+        if ((key === 'name' || key === 'alias' || key === 'value') && typeof node[key] === 'string') {
+          // These might contain keywords as identifiers (e.g., column named "order"), skip
+          continue;
+        }
+
+        // Traverse arrays and objects
+        if (Array.isArray(node[key])) {
+          for (const item of node[key]) {
+            traverse(item);
+          }
+        } else if (typeof node[key] === 'object' && node[key] !== null) {
+          traverse(node[key]);
+        }
+      }
+    };
+
+    traverse(ast);
     return issues;
   }
 
@@ -332,6 +417,8 @@ export class SQLSelectGuard {
       /XML/i,
       /RANGE/i,
       /MULTIRANGE/i,
+      // Schema-qualified table names (schema.table)
+      /\w+\.\w+/i,
     ];
 
     return postgresqlPatterns.some(pattern => pattern.test(sql));

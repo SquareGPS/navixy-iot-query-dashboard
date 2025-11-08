@@ -28,6 +28,16 @@ export interface TileResult {
   value: number | null;
 }
 
+export interface ParameterizedQueryResult {
+  columns: Array<{ name: string; type: string }>;
+  rows: unknown[][];
+  stats: {
+    rowCount: number;
+    elapsedMs: number;
+    usedParamCount?: number;
+  };
+}
+
 export interface User {
   id: string;
   email: string;
@@ -734,5 +744,140 @@ export class DatabaseService {
       logger.info(`Closed external database pool: ${key}`);
     }
     this.externalPools.clear();
+  }
+
+  /**
+   * Execute parameterized SQL query with typed parameters
+   */
+  async executeParameterizedQuery(
+    statement: string,
+    params: Record<string, unknown>,
+    timeoutMs: number = 30000,
+    maxRows: number = 10000
+  ): Promise<ParameterizedQueryResult> {
+    const startTime = Date.now();
+
+    // Validate SQL template (with ${variable_name} placeholders) - less strict
+    try {
+      SQLSelectGuard.assertSafeTemplate(statement);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new CustomError(`SQL template validation failed: ${error.message}`, 400);
+      }
+      throw new CustomError('SQL template validation failed', 400);
+    }
+
+    const config = await this.getExternalDatabaseConfig();
+    const pool = await this.getExternalPool(config);
+    let client: PoolClient | null = null;
+
+    try {
+      client = await pool.connect();
+      
+      // Set statement timeout
+      await client.query(`SET statement_timeout = ${timeoutMs}`);
+
+      // Check if there are any parameters to process
+      const hasParameters = Object.keys(params).length > 0;
+      
+      let processedStatement = statement;
+      let paramValues: unknown[] = [];
+      let usedParamCount = 0;
+
+      if (hasParameters) {
+        // Convert parameters to PostgreSQL format
+        // Only include parameters that are actually used in the SQL
+        // Uses ${variable_name} syntax (Grafana-style template variables)
+        Object.entries(params).forEach(([name, value]) => {
+          // Check if this parameter is used in the SQL
+          // Escape special regex characters in paramName
+          const escapedParamName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const paramPattern = new RegExp(`\\$\\{${escapedParamName}\\}`, 'g');
+          if (paramPattern.test(processedStatement)) {
+            usedParamCount++;
+            const placeholder = `$${usedParamCount}`;
+            processedStatement = processedStatement.replace(
+              paramPattern, 
+              placeholder
+            );
+            paramValues.push(value);
+          }
+        });
+      }
+
+      // Validate SQL again after parameter binding to ensure final SQL is safe
+      try {
+        SQLSelectGuard.assertSafeSelect(processedStatement);
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new CustomError(`SQL validation failed after parameter binding: ${error.message}`, 400);
+        }
+        throw new CustomError('SQL validation failed after parameter binding', 400);
+      }
+
+      // Execute query
+      // Only pass paramValues if there are actual parameters used in the SQL
+      const result = usedParamCount > 0
+        ? await client.query(processedStatement, paramValues)
+        : await client.query(processedStatement);
+
+      // Convert result to standardized format
+      const columns = result.fields.map(field => ({
+        name: field.name,
+        type: this.getPostgresTypeName(field.dataTypeID)
+      }));
+
+      const rows = result.rows.map(row => 
+        Object.values(row).map(value => {
+          // Convert BigInt to string for JSON serialization
+          if (typeof value === 'bigint') {
+            return value.toString();
+          }
+          return value;
+        })
+      );
+
+      // Enforce max rows limit - but only if the SQL doesn't already have a LIMIT clause
+      // If SQL has LIMIT, respect it; otherwise apply our maxRows limit
+      const hasLimitClause = /\bLIMIT\s+\d+/i.test(statement);
+      if (!hasLimitClause && rows.length > maxRows) {
+        throw new CustomError(
+          `Query returned too many rows: ${rows.length} > ${maxRows}`,
+          400
+        );
+      }
+
+      const elapsedMs = Date.now() - startTime;
+
+      return {
+        columns,
+        rows,
+        stats: {
+          rowCount: rows.length,
+          elapsedMs,
+          usedParamCount
+        }
+      };
+
+    } catch (error: any) {
+      logger.error('Parameterized query error:', {
+        error: error.message,
+        statement: statement.substring(0, 100) + '...',
+        paramCount: Object.keys(params).length,
+      });
+
+      if (error instanceof CustomError) {
+        throw error;
+      }
+
+      throw new CustomError(
+        error.message || 'Query execution failed',
+        error.code === 'ECONNREFUSED' ? 503 : 500
+      );
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
   }
 }

@@ -8,9 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
+import { useSqlExecution } from '@/hooks/use-sql-execution';
 
 interface ElementEditorProps {
   open: boolean;
@@ -28,11 +28,9 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
   const [sql, setSql] = useState(() => formatSql(element.sql));
   const [params, setParams] = useState(JSON.stringify(element.params || {}, null, 2));
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResults, setTestResults] = useState<{ columns: any[], rows: any[] } | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { executing, results, error, executeQuery } = useSqlExecution();
 
   const handleSave = () => {
     setSaving(true);
@@ -54,65 +52,43 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
   };
 
   const handleTestQuery = async () => {
-    setTesting(true);
-    setTestError(null);
-    setTestResults(null);
-
-    try {
-      const response = await apiService.executeTableQuery({
-        sql,
-        page: 1,
-        pageSize: 5,
-      });
-
-      if (response.error) {
-        setTestError(response.error.message || 'Query failed');
-        return;
-      }
-
-      if (response.data?.rows) {
-        // Build columns from result
-        let cols;
-        if (response.data.columns && response.data.columns.length > 0) {
-          cols = response.data.columns.map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
-            cell: ({ getValue }: any) => {
-              const value = getValue();
-              return value !== null && value !== undefined ? String(value) : '';
-            },
-          }));
-        } else if (response.data.rows.length > 0) {
-          cols = Object.keys(response.data.rows[0]).map((col: string) => ({
-            id: col,
-            accessorKey: col,
-            header: col,
-            cell: ({ getValue }: any) => {
-              const value = getValue();
-              return value !== null && value !== undefined ? String(value) : '';
-            },
-          }));
-        } else {
-          cols = [];
+    // Parse parameters with better error handling
+    let parsedParams: Record<string, unknown> = {};
+    const paramsTrimmed = params.trim();
+    
+    if (paramsTrimmed) {
+      try {
+        parsedParams = JSON.parse(paramsTrimmed);
+        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+          throw new Error('Parameters must be a JSON object');
         }
-
-        setTestResults({ columns: cols, rows: response.data.rows });
+      } catch (err: any) {
+        const errorMsg = err.message || 'Invalid JSON in parameters';
+        console.error('Failed to parse parameters:', err);
         toast({
-          title: 'Success',
-          description: 'Query executed successfully',
+          title: 'Invalid Parameters',
+          description: errorMsg + '. Proceeding with empty parameters.',
+          variant: 'destructive',
         });
+        // Continue with empty params instead of failing completely
+        parsedParams = {};
       }
+    }
+    
+    try {
+      await executeQuery({
+        sql: sql.trim(),
+        params: parsedParams,
+        timeout_ms: 10000,
+        row_limit: 100, // Increased from 5 to allow testing queries that return more rows
+      });
     } catch (err: any) {
-      console.error('Error testing query:', err);
-      setTestError(err.message || 'Failed to execute query');
+      console.error('Unexpected error executing query:', err);
       toast({
         title: 'Error',
         description: err.message || 'Failed to execute query',
         variant: 'destructive',
       });
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -163,9 +139,9 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
               <div className="flex-1 flex flex-col min-h-0 basis-0">
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">SQL Query</Label>
-                  <Button onClick={handleTestQuery} disabled={testing || !sql.trim()} size="sm" variant="outline">
+                  <Button onClick={handleTestQuery} disabled={executing || !sql.trim()} size="sm" variant="outline">
                     <Play className="h-3.5 w-3.5 mr-1.5" />
-                    {testing ? 'Testing...' : 'Test Query'}
+                    {executing ? 'Testing...' : 'Test Query'}
                   </Button>
                 </div>
                 <div className="flex-1 border rounded-md overflow-hidden min-h-0">
@@ -180,22 +156,32 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
 
               {/* Test Results - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
-                {testError && (
+                {error && (
                   <Alert variant="destructive" className="mb-2 flex-shrink-0">
-                    <AlertDescription>{testError}</AlertDescription>
+                    <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 )}
 
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">
                   <Label className="text-sm font-medium">Test Results</Label>
-                  {testResults && (
-                    <span className="text-xs text-muted-foreground">Showing first 5 rows</span>
+                  {results && (
+                    <span className="text-xs text-muted-foreground">
+                      {results.rowCount} row{results.rowCount !== 1 ? 's' : ''} returned
+                    </span>
                   )}
                 </div>
                 
                 <div className="flex-1 border rounded-md overflow-auto min-h-0 bg-background">
-                  {testResults ? (
-                    <DataTable data={testResults.rows} columns={testResults.columns} />
+                  {results ? (
+                    <DataTable
+                      data={results.rows}
+                      columns={results.columns.map((col: string) => ({
+                        id: col,
+                        accessorKey: col,
+                        header: col,
+                      }))}
+                      columnTypes={results.columnTypes}
+                    />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                       Click "Test Query" to see results

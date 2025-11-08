@@ -54,9 +54,13 @@ CREATE TABLE public.user_roles (
 CREATE TABLE public.sections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-    sort_index INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     created_by UUID,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    version INTEGER NOT NULL DEFAULT 1
 );
 
 -- Reports table
@@ -67,11 +71,13 @@ CREATE TABLE public.reports (
     slug TEXT,
   report_schema JSONB NOT NULL,
     section_id UUID,
-    sort_index INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     created_by UUID,
     updated_by UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    version INTEGER NOT NULL DEFAULT 1
 );
 
 -- ==========================================
@@ -159,7 +165,6 @@ BEGIN
   END IF;
   
   IF NOT (
-    schema ? 'title' AND
     schema ? 'meta' AND
     schema ? 'rows' AND
     jsonb_typeof(schema->'rows') = 'array'
@@ -277,14 +282,158 @@ CREATE POLICY "Admins and editors can manage reports" ON public.reports
   FOR ALL USING (is_admin_or_editor(auth_uid()));
 
 -- ==========================================
+-- Menu Editor Functions
+-- ==========================================
+
+-- Create function to get next sort order for inserting between items
+CREATE OR REPLACE FUNCTION public.get_next_sort_order(
+  _parent_section_id UUID DEFAULT NULL,
+  _after_sort_order INTEGER DEFAULT NULL
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  next_order INTEGER;
+BEGIN
+  IF _after_sort_order IS NULL THEN
+    -- Insert at beginning
+    SELECT COALESCE(MIN(sort_order) - 1000, 1000)
+    INTO next_order
+    FROM public.reports
+    WHERE section_id = _parent_section_id 
+      AND is_deleted = FALSE;
+  ELSE
+    -- Insert after specified item
+    SELECT COALESCE(MIN(sort_order), _after_sort_order + 2000)
+    INTO next_order
+    FROM public.reports
+    WHERE section_id = _parent_section_id 
+      AND is_deleted = FALSE
+      AND sort_order > _after_sort_order;
+    
+    -- If no items after, just add 1000
+    IF next_order IS NULL THEN
+      next_order := _after_sort_order + 1000;
+    ELSE
+      -- Calculate midpoint
+      next_order := (_after_sort_order + next_order) / 2;
+      
+      -- If midpoint is same as after_sort_order, renumber the group
+      IF next_order = _after_sort_order THEN
+        -- Trigger renumbering by returning a special value
+        next_order := -1;
+      END IF;
+    END IF;
+  END IF;
+  
+  RETURN next_order;
+END;
+$$;
+
+-- Create function to renumber sort orders in a group
+CREATE OR REPLACE FUNCTION public.renumber_sort_orders(
+  _parent_section_id UUID DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  rec RECORD;
+  new_order INTEGER := 1000;
+BEGIN
+  -- Renumber reports in the specified container
+  FOR rec IN 
+    SELECT id 
+    FROM public.reports
+    WHERE section_id = _parent_section_id 
+      AND is_deleted = FALSE
+    ORDER BY sort_order
+  LOOP
+    UPDATE public.reports 
+    SET sort_order = new_order
+    WHERE id = rec.id;
+    
+    new_order := new_order + 1000;
+  END LOOP;
+END;
+$$;
+
+-- Create function to get menu tree structure
+CREATE OR REPLACE FUNCTION public.get_menu_tree(_include_deleted BOOLEAN DEFAULT FALSE)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  result JSONB;
+BEGIN
+  SELECT jsonb_build_object(
+    'sections', (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', id,
+          'name', name,
+          'sortOrder', sort_order,
+          'version', version
+        ) ORDER BY sort_order
+      )
+      FROM public.sections
+      WHERE (_include_deleted = TRUE OR is_deleted = FALSE)
+    ),
+    'rootReports', (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', id,
+          'name', title,
+          'sortOrder', sort_order,
+          'version', version
+        ) ORDER BY sort_order
+      )
+      FROM public.reports
+      WHERE section_id IS NULL 
+        AND (_include_deleted = TRUE OR is_deleted = FALSE)
+    ),
+    'sectionReports', (
+      SELECT jsonb_object_agg(
+        section_id::text,
+        reports
+      )
+      FROM (
+        SELECT 
+          section_id,
+          jsonb_agg(
+            jsonb_build_object(
+              'id', id,
+              'name', title,
+              'sortOrder', sort_order,
+              'version', version
+            ) ORDER BY sort_order
+          ) as reports
+        FROM public.reports
+        WHERE section_id IS NOT NULL 
+          AND (_include_deleted = TRUE OR is_deleted = FALSE)
+        GROUP BY section_id
+      ) grouped_reports
+    )
+  ) INTO result;
+  
+  RETURN result;
+END;
+$$;
+
+-- ==========================================
 -- Indexes
 -- ==========================================
 
 CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON public.user_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_role ON public.user_roles(role);
-CREATE INDEX IF NOT EXISTS idx_sections_sort_index ON public.sections(sort_index);
+CREATE INDEX IF NOT EXISTS idx_sections_sort_order ON public.sections(sort_order);
+CREATE INDEX IF NOT EXISTS idx_sections_is_deleted_sort_order ON public.sections(is_deleted, sort_order);
+CREATE INDEX IF NOT EXISTS idx_sections_updated_at ON public.sections(updated_at);
 CREATE INDEX IF NOT EXISTS idx_reports_section_id ON public.reports(section_id);
-CREATE INDEX IF NOT EXISTS idx_reports_sort_index ON public.reports(sort_index);
+CREATE INDEX IF NOT EXISTS idx_reports_sort_order ON public.reports(sort_order);
+CREATE INDEX IF NOT EXISTS idx_reports_is_deleted_parent_section_sort_order ON public.reports(is_deleted, section_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_reports_updated_at ON public.reports(updated_at);
 CREATE INDEX IF NOT EXISTS idx_reports_created_by ON public.reports(created_by);
 
 -- ==========================================
@@ -304,7 +453,7 @@ INSERT INTO public.users (id, email, password_hash, email_confirmed_at, is_super
 VALUES (
   '00000000-0000-0000-0000-000000000001'::UUID, 
   'admin@example.com',
-  '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', -- admin123
+  '$2a$10$II1oY4f/PntIIkkDX53tFOiePrvbwLgLHfhDiXmMzwDgl5Azq6SBu', -- admin123
   NOW(),
   true
 )
@@ -319,7 +468,7 @@ VALUES ('00000000-0000-0000-0000-000000000001'::UUID, 'admin')
 ON CONFLICT (user_id, role) DO NOTHING;
 
 -- Default section
-INSERT INTO public.sections (id, name, sort_index, created_by) 
+INSERT INTO public.sections (id, name, sort_order, created_by) 
 VALUES (
   '00000000-0000-0000-0000-000000000002'::UUID, 
   'Default Section', 

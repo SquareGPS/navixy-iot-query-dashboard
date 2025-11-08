@@ -16,22 +16,17 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
-  console.log('TileVisualComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
-
   useEffect(() => {
     const fetchValue = async () => {
-      console.log('=== TileVisualComponent fetchValue ===');
-      console.log('SQL query:', visual.query.sql);
-      console.log('Visual label:', visual.label);
-      
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTileQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: 1
         });
-
-        console.log('Tile query result:', response);
 
         if (response.error) {
           console.error('Tile query error:', response.error);
@@ -40,8 +35,7 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
           return;
         }
         
-        const newValue = response.data?.value !== undefined ? Number(response.data.value) : null;
-        console.log('Setting tile value:', newValue);
+        const newValue = response.data?.rows?.[0]?.[0] !== undefined ? Number(response.data.rows[0][0]) : null;
         setValue(newValue);
       } catch (err: any) {
         console.error('Error fetching tile value:', err);
@@ -49,7 +43,6 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
         setValue(null);
       } finally {
         setLoading(false);
-        console.log('=== TileVisualComponent fetchValue complete ===');
       }
     };
 

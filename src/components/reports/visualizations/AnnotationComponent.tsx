@@ -19,12 +19,8 @@ export function AnnotationComponent({ row, editMode = false, onEdit }: Annotatio
       onMouseLeave={() => setIsHovered(false)}
     >
       {row.title && <h2 className="text-2xl font-semibold">{row.title}</h2>}
-      {row.subtitle && <p className="text-muted-foreground">{row.subtitle}</p>}
       {visual.options?.section_name && (
         <h3 className="text-xl font-semibold">{visual.options.section_name}</h3>
-      )}
-      {visual.options?.subtitle && (
-        <p className="text-sm text-muted-foreground">{visual.options.subtitle}</p>
       )}
       {visual.options?.text && (
         <div className="prose prose-sm dark:prose-invert max-w-none">

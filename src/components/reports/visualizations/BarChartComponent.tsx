@@ -27,10 +27,11 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTableQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
-          page: 1,
-          pageSize: 1000,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: 1000
         });
 
         if (response.error) {
@@ -102,9 +103,6 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
     Math.floor(minValue * 0.95), // 5% padding below min
     Math.ceil(maxValue * 1.05)   // 5% padding above max
   ];
-
-  console.log('Bar chart data:', data);
-  console.log('Y-axis domain:', yAxisDomain);
 
   return (
     <div 

@@ -380,22 +380,46 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
       let sortOrder = 1000;
       if (parentSectionId) {
         const sectionReports = menuTree?.sectionReports?.[parentSectionId] || [];
-        const maxSortOrder = Math.max(...(sectionReports.map(r => r.sortOrder) || [0]));
-        sortOrder = maxSortOrder + 1000;
+        if (sectionReports.length > 0) {
+          const maxSortOrder = Math.max(...sectionReports.map(r => r.sortOrder));
+          sortOrder = maxSortOrder + 1000;
+        }
       } else {
-        const maxSortOrder = Math.max(...(menuTree?.rootReports.map(r => r.sortOrder) || [0]));
-        sortOrder = maxSortOrder + 1000;
+        const rootReports = menuTree?.rootReports || [];
+        if (rootReports.length > 0) {
+          const maxSortOrder = Math.max(...rootReports.map(r => r.sortOrder));
+          sortOrder = maxSortOrder + 1000;
+        }
       }
 
-      // Create a basic report schema
+      // Create a basic Grafana dashboard schema
       const reportSchema = {
-        tiles: [],
-        tables: [],
-        layout: {
-          type: 'grid',
-          columns: 12,
-          rows: 8,
-          items: []
+        dashboard: {
+          uid: `report_${Date.now()}`,
+          title: title.trim(),
+          description: `Report: ${title.trim()}`,
+          tags: [],
+          timezone: 'UTC',
+          refresh: '30s',
+          time: {
+            from: 'now-24h',
+            to: 'now'
+          },
+          templating: {
+            list: []
+          },
+          panels: []
+        },
+        'x-navixy': {
+          schemaVersion: '1.0.0',
+          execution: {
+            endpoint: '/api/sql-new/execute',
+            dialect: 'postgresql',
+            timeoutMs: 30000,
+            maxRows: 10000,
+            readOnly: true,
+            allowedSchemas: ['public']
+          }
         }
       };
 

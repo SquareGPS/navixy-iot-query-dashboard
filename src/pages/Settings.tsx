@@ -30,39 +30,7 @@ const Settings = () => {
     external_db_ssl: true,
   });
   const [currentSettings, setCurrentSettings] = useState<any>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Check if current form data differs from saved settings
-  const checkForChanges = () => {
-    if (!currentSettings) return false;
-    
-    const currentData = {
-      external_db_url: formData.external_db_url,
-      external_db_host: formData.external_db_host,
-      external_db_port: formData.external_db_port,
-      external_db_name: formData.external_db_name,
-      external_db_user: formData.external_db_user,
-      external_db_password: formData.external_db_password,
-      external_db_ssl: formData.external_db_ssl,
-    };
-
-    const savedData = {
-      external_db_url: currentSettings.external_db_url || '',
-      external_db_host: currentSettings.external_db_host || '',
-      external_db_port: currentSettings.external_db_port || 5432,
-      external_db_name: currentSettings.external_db_name || '',
-      external_db_user: currentSettings.external_db_user || '',
-      external_db_password: currentSettings.external_db_password || '',
-      external_db_ssl: currentSettings.external_db_ssl ?? true,
-    };
-
-    return JSON.stringify(currentData) !== JSON.stringify(savedData);
-  };
-
-  // Update change detection when form data changes
-  useEffect(() => {
-    setHasUnsavedChanges(checkForChanges());
-  }, [formData, currentSettings]);
 
   // Parse URL to individual parameters
   const parseUrl = (url: string) => {
@@ -202,7 +170,6 @@ const Settings = () => {
         toast.error('Failed to save settings');
       } else {
         toast.success('Settings saved successfully');
-        setHasUnsavedChanges(false);
         // Refresh settings to update currentSettings
         await fetchSettings();
       }
@@ -470,12 +437,6 @@ const Settings = () => {
                           ? 'Enter a complete PostgreSQL connection URL' 
                           : 'Fill in the individual connection parameters'}
                       </div>
-                      {hasUnsavedChanges && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                          <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div>
-                          You have unsaved changes
-                        </div>
-                      )}
                     </div>
                     <div className="flex gap-2">
                       <Button

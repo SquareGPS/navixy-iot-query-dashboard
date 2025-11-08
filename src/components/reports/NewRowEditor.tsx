@@ -22,7 +22,6 @@ const DEFAULT_SQL = 'SELECT 1 as value, \'Sample Data\' as label';
 
 export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorProps) {
   const [title, setTitle] = useState('');
-  const [subtitle, setSubtitle] = useState('');
   const [label, setLabel] = useState('');
   const [sql, setSql] = useState(DEFAULT_SQL);
   const [saving, setSaving] = useState(false);
@@ -76,7 +75,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
           newRow = {
             type: 'tiles',
             title: title.trim() || undefined,
-            subtitle: subtitle.trim() || undefined,
             visuals: [tileVisual]
           } as TilesRow;
           break;
@@ -98,7 +96,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
           newRow = {
             type: 'table',
             title: title.trim() || undefined,
-            subtitle: subtitle.trim() || undefined,
             visuals: [tableVisual]
           } as TableRow;
           break;
@@ -157,7 +154,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
           newRow = {
             type: 'charts',
             title: title.trim() || undefined,
-            subtitle: subtitle.trim() || undefined,
             visuals: [chartVisual]
           } as ChartsRow;
           break;
@@ -176,7 +172,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
           newRow = {
             type: 'annotation',
             title: title.trim() || undefined,
-            subtitle: subtitle.trim() || undefined,
             visuals: [annotationVisual]
           } as AnnotationRow;
           break;
@@ -250,15 +245,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Enter row title"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="subtitle">Row Subtitle (Optional)</Label>
-              <Input
-                id="subtitle"
-                value={subtitle}
-                onChange={(e) => setSubtitle(e.target.value)}
-                placeholder="Enter row subtitle"
               />
             </div>
           </div>

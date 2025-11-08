@@ -1,5 +1,5 @@
 // API service for backend communication
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:3001');
 
 export interface ApiResponse<T = any> {
   data?: T;
@@ -50,13 +50,6 @@ class ApiService {
       ...this.getAuthHeaders(),
       ...options.headers,
     };
-    
-    console.log('API: Making request', {
-      url,
-      method: options.method || 'GET',
-      headers,
-      body: options.body
-    });
 
     try {
       const response = await fetch(url, {
@@ -64,23 +57,9 @@ class ApiService {
         ...options,
       });
 
-      console.log('API: Response received', {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
       const data = await response.json();
-      console.log('API: Response data', { url, data });
 
       if (!response.ok) {
-        console.error('API: Request failed', {
-          url,
-          status: response.status,
-          statusText: response.statusText,
-          data
-        });
         return {
           error: {
             code: data.error?.code || 'HTTP_ERROR',
@@ -95,7 +74,6 @@ class ApiService {
       console.error('API: Network error', {
         url,
         error: error.message,
-        stack: error.stack
       });
       return {
         error: {
@@ -117,6 +95,37 @@ class ApiService {
     return this.request<TileQueryResult>('/api/sql/tile', {
       method: 'POST',
       body: JSON.stringify(params),
+    });
+  }
+
+  // New parameterized SQL execution method using the validated endpoint
+  async executeSQL(params: {
+    sql: string;
+    params?: Record<string, unknown>;
+    timeout_ms?: number;
+    row_limit?: number;
+  }): Promise<ApiResponse<{
+    columns: Array<{ name: string; type: string }>;
+    rows: unknown[][];
+    stats?: {
+      rowCount: number;
+      elapsedMs: number;
+    };
+  }>> {
+    const requestBody = {
+      dialect: 'postgresql',
+      statement: params.sql,
+      params: params.params || {},
+      limits: {
+        timeout_ms: params.timeout_ms || 30000,
+        max_rows: params.row_limit || 10000
+      },
+      read_only: true
+    };
+
+    return this.request('/api/sql-new/execute', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
     });
   }
 
@@ -260,15 +269,12 @@ class ApiService {
   }
 
   async reorderMenu(payload: any): Promise<ApiResponse<any>> {
-    console.log('API: reorderMenu called with payload:', payload);
-    
     try {
       const result = await this.request('/api/v1/menu/reorder', {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
       
-      console.log('API: reorderMenu success:', result);
       return result;
     } catch (error) {
       console.error('API: reorderMenu error:', error);

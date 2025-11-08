@@ -5,8 +5,6 @@ export type Align = "left" | "center" | "right";
 export type SqlDriver = "postgres" | "mysql" | "mssql" | "clickhouse" | "sqlite" | "snowflake";
 
 export interface ReportSchema {
-  title: string;
-  subtitle?: string;
   meta: Meta;
   datasources?: Datasource[];
   parameters?: Parameter[];
@@ -213,7 +211,7 @@ export interface ChartsRow {
   visuals: ChartVisual[];
 }
 
-export type ChartVisual = BarVisual | PieVisual;
+export type ChartVisual = BarVisual | PieVisual | LineVisual;
 
 export interface ChartCommonOptions {
   category_field: string;
@@ -259,4 +257,25 @@ export interface PieOptions extends ChartCommonOptions {
   inner_radius?: number;
   label_type?: "percent" | "value" | "category" | "none";
   precision?: number;
+}
+
+export interface LineVisual {
+  kind: "line";
+  label: string;
+  hint?: string;
+  color?: HexColor;
+  query: Query;
+  verify?: Verify;
+  options: LineOptions;
+}
+
+export interface LineOptions extends ChartCommonOptions {
+  line_style?: "solid" | "dashed" | "dotted";
+  line_width?: number;
+  show_points?: "always" | "auto" | "never";
+  point_size?: number;
+  interpolation?: "linear" | "step" | "smooth";
+  fill_area?: "none" | "below" | "above";
+  show_grid?: boolean;
+  color_palette?: "classic" | "modern" | "pastel" | "vibrant";
 }

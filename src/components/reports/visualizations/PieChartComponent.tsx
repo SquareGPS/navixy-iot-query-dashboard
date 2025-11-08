@@ -4,8 +4,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
 import { Pencil } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } from 'recharts';
 import type { PieVisual } from '@/types/report-schema';
+import { chartColors } from '@/lib/chartColors';
 
 interface PieChartComponentProps {
   visual: PieVisual;
@@ -14,26 +15,51 @@ interface PieChartComponentProps {
   onEdit: () => void;
 }
 
-const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8'];
+// Active shape for hover effect - enlarges slice
+const renderActiveShape = (props: any) => {
+  const {
+    cx,
+    cy,
+    innerRadius,
+    outerRadius,
+    startAngle,
+    endAngle,
+    fill,
+  } = props;
+  
+  // Enlarge the slice slightly on hover (5% larger)
+  const enlargedOuterRadius = outerRadius * 1.05;
+
+  return (
+    <Sector
+      cx={cx}
+      cy={cy}
+      innerRadius={innerRadius}
+      outerRadius={enlargedOuterRadius}
+      startAngle={startAngle}
+      endAngle={endAngle}
+      fill={fill}
+    />
+  );
+};
 
 export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartComponentProps) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
-
-  console.log('PieChartComponent mounted/updated, SQL:', visual.query.sql?.substring(0, 50));
+  const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
 
   useEffect(() => {
-    console.log('PieChartComponent useEffect triggered, SQL:', visual.query.sql?.substring(0, 50));
     const fetchData = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiService.executeTableQuery({
+        const response = await apiService.executeSQL({
           sql: visual.query.sql,
-          page: 1,
-          pageSize: 1000,
+          params: {},
+          timeout_ms: 30000,
+          row_limit: 1000
         });
 
         if (response.error) {
@@ -57,9 +83,13 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
               (aVal < bVal ? 1 : -1);
           });
 
-          // Apply top_n filter
-          if (visual.options.top_n && visual.options.top_n > 0) {
-            processedData = processedData.slice(0, visual.options.top_n);
+          // Limit to top 10 items, group the rest into "Other"
+          const MAX_ITEMS = 10;
+          if (processedData.length > MAX_ITEMS) {
+            const topItems = processedData.slice(0, MAX_ITEMS);
+            const remainingItems = processedData.slice(MAX_ITEMS);
+            const otherValue = remainingItems.reduce((sum, item) => sum + item.value, 0);
+            processedData = [...topItems, { name: 'Other', value: otherValue }];
           }
 
           setData(processedData);
@@ -77,9 +107,9 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
     fetchData();
   }, [visual.query.sql, visual.options]);
 
-  const colors = visual.options.palette || DEFAULT_COLORS;
-  const isDonut = visual.options.donut || false;
-  const innerRadius = isDonut ? (visual.options.inner_radius || 0.55) * 100 : 0;
+  const colors = visual.options.palette || chartColors.primary;
+  const isDonut = visual.options.donut !== false; // Default to donut style
+  const innerRadiusPercent = isDonut ? (visual.options.inner_radius || 0.55) * 100 : 0;
   const showLegend = visual.options.show_legend !== false;
   const legendPosition = visual.options.legend_position || 'right';
   const labelType = visual.options.label_type || 'percent';
@@ -88,71 +118,244 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
   // Calculate total for percentage
   const total = data.reduce((sum, entry) => sum + entry.value, 0);
 
-  const renderLabel = (entry: any) => {
-    if (labelType === 'none') return '';
-    if (labelType === 'category') return entry.name;
-    if (labelType === 'value') return entry.value.toFixed(precision);
-    if (labelType === 'percent') {
-      const percent = ((entry.value / total) * 100).toFixed(precision);
-      return `${percent}%`;
+  // Calculate angles for positioning largest slice
+  // Anchor angle: 240° positions largest slice in top-left quadrant
+  // Increase to rotate clockwise further, decrease to rotate counter-clockwise
+  const anchorDeg = 240; // Top-left quadrant
+  const firstSliceAngle = data.length > 0 && total > 0 
+    ? (data[0].value / total) * 360 
+    : 0;
+  
+  // Center the largest slice at anchorDeg
+  // Center = startAngle + firstSliceAngle/2, so: startAngle = anchorDeg - firstSliceAngle/2
+  // To rotate clockwise: endAngle = startAngle - 360
+  const startAngle = anchorDeg - (firstSliceAngle / 2);
+  const endAngle = startAngle - 360;
+
+  // Custom tooltip content with position adjustment to avoid center
+  const renderTooltipContent = (props: any) => {
+    if (!props.active || !props.payload || props.payload.length === 0) {
+      return null;
     }
-    return '';
+    
+    const data = props.payload[0];
+    const value = data.value;
+    const name = data.name;
+    const percent = ((value / total) * 100).toFixed(precision);
+    
+    // Get tooltip coordinates from Recharts
+    // The coordinate object contains x, y (tooltip position) and cx, cy (chart center)
+    const coordinate = props.coordinate || {};
+    const chartCenterX = coordinate.cx ?? 0;
+    const chartCenterY = coordinate.cy ?? 0;
+    const tooltipX = coordinate.x ?? 0;
+    const tooltipY = coordinate.y ?? 0;
+    
+    // Calculate distance from center
+    const dx = tooltipX - chartCenterX;
+    const dy = tooltipY - chartCenterY;
+    const distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
+    
+    // If tooltip is too close to center (within ~80px radius), offset it outward
+    const centerRadius = 80; // Increased radius to better avoid center area
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    if (distanceFromCenter < centerRadius && distanceFromCenter > 0) {
+      // Calculate direction vector and normalize
+      const directionX = dx / distanceFromCenter;
+      const directionY = dy / distanceFromCenter;
+      // Push tooltip outward by the difference plus padding (increased padding)
+      offsetX = directionX * (centerRadius - distanceFromCenter + 50);
+      offsetY = directionY * (centerRadius - distanceFromCenter + 50);
+    }
+    
+    return (
+      <div
+        className="bg-surface-1 border border-border rounded-md shadow-lg px-3 py-2"
+        style={{
+          backgroundColor: 'var(--surface-1)',
+          borderColor: 'var(--border)',
+          color: 'var(--text-primary)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+          transform: `translate(${offsetX}px, ${offsetY}px)`,
+          zIndex: 1000, // Ensure tooltip appears above center label
+          position: 'relative',
+        }}
+      >
+        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{name}</div>
+        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {value.toFixed(1)} ({percent}%)
+        </div>
+      </div>
+    );
+  };
+
+  // Custom legend renderer for right-side vertical alignment with bold labels
+  const renderCustomLegend = (props: any) => {
+    const { payload } = props;
+    if (!payload || payload.length === 0) return null;
+
+    return (
+      <div className="flex flex-col gap-3 ml-6 pr-2">
+        {payload.map((entry: any, index: number) => {
+          const percent = ((entry.value / total) * 100).toFixed(1);
+          return (
+            <div key={`legend-${index}`} className="flex items-start gap-2">
+              <div
+                className="w-4 h-4 rounded-sm mt-0.5 flex-shrink-0"
+                style={{ backgroundColor: entry.color }}
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-text-primary">
+                  {entry.name}
+                </span>
+                <span className="text-xs text-text-muted">
+                  {entry.value.toFixed(1)} ({percent}%)
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
     <div 
-      className="relative"
+      className="relative h-full"
       onMouseEnter={() => editMode && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Card>
-        <div className="space-y-4">
-          <div className="text-lg font-semibold text-text-primary">{title || visual.label}</div>
+      <Card className="h-full flex flex-col">
+        <div className="text-lg font-semibold text-text-primary pb-4 flex-shrink-0">{title || visual.label}</div>
+        <div className="flex-1 min-h-0">
           {loading ? (
-            <Skeleton className="h-96 w-full" />
+            <Skeleton className="h-full w-full" />
           ) : error ? (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : data.length === 0 ? (
-            <div className="h-96 flex items-center justify-center text-text-muted">
+            <div className="h-full flex items-center justify-center text-text-muted">
               No data available
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={400}>
-              <PieChart>
-                <Pie
-                  data={data}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={labelType !== 'none'}
-                  label={labelType !== 'none' ? renderLabel : false}
-                  outerRadius={120}
-                  innerRadius={innerRadius}
-                  fill="#8884d8"
-                  dataKey="value"
+            <div className="flex items-center gap-4 md:gap-6 h-full w-full overflow-hidden">
+              <div className="relative flex-shrink-0" style={{ 
+                width: 'clamp(200px, 50%, 400px)', 
+                aspectRatio: '1',
+                height: '100%',
+                maxHeight: '100%'
+              }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={data}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={false}
+                      outerRadius="80%"
+                      innerRadius={isDonut ? `${innerRadiusPercent}%` : 0}
+                      fill="#8884d8"
+                      dataKey="value"
+                      paddingAngle={2}
+                      startAngle={startAngle}
+                      endAngle={endAngle}
+                      activeIndex={activeIndex}
+                      activeShape={renderActiveShape}
+                      onMouseEnter={(_, index) => setActiveIndex(index)}
+                      onMouseLeave={() => setActiveIndex(undefined)}
+                      isAnimationActive={true}
+                      animationBegin={0}
+                      animationDuration={250}
+                      animationEasing="ease-out"
+                    >
+                      {data.map((entry, index) => {
+                        // Use neutral color for "Other" category, otherwise use palette colors
+                        const fillColor = entry.name === 'Other' 
+                          ? chartColors.neutral 
+                          : colors[index % colors.length];
+                        return (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={fillColor}
+                            style={{
+                              filter: activeIndex === index ? 'brightness(1.1)' : 'none',
+                              transition: 'filter 0.2s ease-out',
+                            }}
+                          />
+                        );
+                      })}
+                    </Pie>
+                    {visual.options.show_tooltips !== false && (
+                      <Tooltip 
+                        content={renderTooltipContent}
+                        wrapperStyle={{ zIndex: 1000 }}
+                      />
+                    )}
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Center label showing Total - positioned absolutely over the donut */}
+                {isDonut && (
+                  <div 
+                    className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+                    style={{ 
+                      left: '50%', 
+                      top: '50%', 
+                      transform: 'translate(-50%, -50%)',
+                      zIndex: 1 // Lower z-index than tooltip
+                    }}
+                  >
+                    <div className="text-sm font-semibold text-text-primary">Total</div>
+                    <div className="text-lg font-bold text-text-muted mt-1">
+                      {total.toLocaleString(undefined, { 
+                        maximumFractionDigits: precision === 0 ? 0 : precision 
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {showLegend && legendPosition === 'right' && (
+                <div 
+                  className="flex-1 min-w-0 self-center relative" 
+                  style={{ 
+                    minWidth: '200px', 
+                    maxWidth: 'calc(50% - 1rem)',
+                    width: 'fit-content',
+                    height: 'clamp(200px, 55%, 400px)',
+                    maxHeight: 'clamp(200px, 55%, 400px)',
+                    paddingTop: '2rem',
+                    paddingBottom: '2rem',
+                    boxSizing: 'border-box'
+                  }}
                 >
-                  {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                  ))}
-                </Pie>
-                {visual.options.show_tooltips !== false && (
-                  <Tooltip 
-                    formatter={(value: number) => [
-                      `${value.toFixed(precision)} (${((value / total) * 100).toFixed(precision)}%)`,
-                      'Value'
-                    ]}
-                  />
-                )}
-                {showLegend && legendPosition !== 'none' && (
-                  <Legend 
-                    verticalAlign={legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle'}
-                    align={legendPosition === 'left' ? 'left' : legendPosition === 'right' ? 'right' : 'center'}
-                    layout={legendPosition === 'top' || legendPosition === 'bottom' ? 'horizontal' : 'vertical'}
-                  />
-                )}
-              </PieChart>
-            </ResponsiveContainer>
+                  <div 
+                    className="h-full overflow-y-auto overflow-x-hidden"
+                    style={{
+                      scrollPaddingTop: '2rem',
+                      scrollPaddingBottom: '2rem'
+                    }}
+                  >
+                    {renderCustomLegend({ payload: data.map((entry, index) => ({
+                      value: entry.value,
+                      name: entry.name,
+                      color: entry.name === 'Other' 
+                        ? chartColors.neutral 
+                        : colors[index % colors.length],
+                    })) })}
+                  </div>
+                </div>
+              )}
+              {showLegend && legendPosition !== 'right' && legendPosition !== 'none' && (
+                <Legend 
+                  verticalAlign={legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle'}
+                  align={legendPosition === 'left' ? 'left' : 'center'}
+                  layout={legendPosition === 'top' || legendPosition === 'bottom' ? 'horizontal' : 'vertical'}
+                />
+              )}
+            </div>
           )}
         </div>
       </Card>
