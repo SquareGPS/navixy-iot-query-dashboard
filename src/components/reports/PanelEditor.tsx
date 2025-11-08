@@ -89,6 +89,25 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   }, [panel, open]); // Update when panel changes or dialog opens
 
   const handleSave = () => {
+    // Validate required fields
+    if (!title.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Panel Title is required',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!panelType) {
+      toast({
+        title: 'Validation Error',
+        description: 'Panel Type is required',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const parsedParams = params.trim() ? JSON.parse(params) : {};
@@ -114,8 +133,8 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       // Create updated panel
       const updatedPanel: GrafanaPanel = {
         ...panel,
-        title,
-        description,
+        title: title.trim(),
+        description: description.trim() || undefined,
         type: panelType as any,
         'x-navixy': updatedNavixyConfig
       };
@@ -259,17 +278,22 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="title" className="text-sm font-medium">Panel Title</Label>
+                  <Label htmlFor="title" className="text-sm font-medium">
+                    Panel Title <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     className="mt-1"
                     placeholder="Enter panel title"
+                    required
                   />
                 </div>
                 <div>
-                  <Label htmlFor="type" className="text-sm font-medium">Panel Type</Label>
+                  <Label htmlFor="type" className="text-sm font-medium">
+                    Panel Type <span className="text-destructive">*</span>
+                  </Label>
                   <Select value={panelType} onValueChange={setPanelType}>
                     <SelectTrigger className="mt-1">
                       <SelectValue />
@@ -293,21 +317,8 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-1"
-                  placeholder="Enter panel description"
+                  placeholder="Enter panel description (optional)"
                   rows={3}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="maxRows" className="text-sm font-medium">Max Rows</Label>
-                <Input
-                  id="maxRows"
-                  type="number"
-                  value={maxRows}
-                  onChange={(e) => setMaxRows(parseInt(e.target.value) || 1000)}
-                  className="mt-1"
-                  min="1"
-                  max="10000"
                 />
               </div>
             </div>
