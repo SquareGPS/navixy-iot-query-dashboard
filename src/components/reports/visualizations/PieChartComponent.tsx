@@ -200,7 +200,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
     if (!payload || payload.length === 0) return null;
 
     return (
-      <div className="flex flex-col gap-3 ml-6">
+      <div className="flex flex-col gap-3 ml-6 pr-2">
         {payload.map((entry: any, index: number) => {
           const percent = ((entry.value / total) * 100).toFixed(1);
           return (
@@ -246,7 +246,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
           ) : (
             <div className="flex items-center gap-4 md:gap-6 h-full w-full overflow-hidden">
               <div className="relative flex-shrink-0" style={{ 
-                width: 'clamp(200px, 55%, 400px)', 
+                width: 'clamp(200px, 50%, 400px)', 
                 aspectRatio: '1',
                 height: '100%',
                 maxHeight: '100%'
@@ -322,25 +322,33 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
               </div>
               {showLegend && legendPosition === 'right' && (
                 <div 
-                  className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 self-center" 
+                  className="flex-1 min-w-0 self-center relative" 
                   style={{ 
                     minWidth: '200px', 
-                    maxWidth: '45%',
+                    maxWidth: 'calc(50% - 1rem)',
+                    width: 'fit-content',
                     height: 'clamp(200px, 55%, 400px)',
                     maxHeight: 'clamp(200px, 55%, 400px)',
-                    scrollPaddingTop: '2rem',
-                    scrollPaddingBottom: '2rem',
                     paddingTop: '2rem',
-                    paddingBottom: '2rem'
+                    paddingBottom: '2rem',
+                    boxSizing: 'border-box'
                   }}
                 >
-                  {renderCustomLegend({ payload: data.map((entry, index) => ({
-                    value: entry.value,
-                    name: entry.name,
-                    color: entry.name === 'Other' 
-                      ? chartColors.neutral 
-                      : colors[index % colors.length],
-                  })) })}
+                  <div 
+                    className="h-full overflow-y-auto overflow-x-hidden"
+                    style={{
+                      scrollPaddingTop: '2rem',
+                      scrollPaddingBottom: '2rem'
+                    }}
+                  >
+                    {renderCustomLegend({ payload: data.map((entry, index) => ({
+                      value: entry.value,
+                      name: entry.name,
+                      color: entry.name === 'Other' 
+                        ? chartColors.neutral 
+                        : colors[index % colors.length],
+                    })) })}
+                  </div>
                 </div>
               )}
               {showLegend && legendPosition !== 'right' && legendPosition !== 'none' && (
