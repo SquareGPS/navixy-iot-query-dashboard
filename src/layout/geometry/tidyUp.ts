@@ -1,15 +1,13 @@
 /**
  * Tidy up dashboard layout:
- * - Remove empty vertical spaces
- * - Distribute horizontal space evenly between panels on the same row
- * - Fix overlapping elements by automatically repositioning them
+ * - Remove empty vertical spaces by moving rows up when there are gaps above them
+ * 
+ * This function identifies horizontal levels (rows) and removes empty vertical spaces
+ * by moving elements below empty spaces upward.
  */
 
-import type { Dashboard, Panel } from '@/types/dashboard-types';
+import type { Dashboard } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
-import { GRID_COLUMNS } from './grid';
-import { rectOverlap } from './collisions';
-import { autoPack } from './autopack';
 import { isRowPanel } from './rows';
 
 /**
@@ -50,7 +48,7 @@ function groupPanelsByRow(
     rows.push(rowPanels);
   }
 
-  // Sort rows by Y position
+  // Sort rows by minimum Y position
   rows.sort((a, b) => {
     const aMinY = Math.min(...a.map((p) => p.gridPos.y));
     const bMinY = Math.min(...b.map((p) => p.gridPos.y));
@@ -61,79 +59,95 @@ function groupPanelsByRow(
 }
 
 /**
- * Distribute panels evenly across the horizontal space
- * Preserves panel widths and heights, only adjusts X positions
+ * Calculate the bottom Y position of a row (maximum y + h of all panels in the row)
  */
-function distributePanelsEvenly(
-  rowPanels: Array<{ id: number; gridPos: GridPos }>
-): Array<{ id: number; gridPos: GridPos }> {
+function getRowBottom(rowPanels: Array<{ id: number; gridPos: GridPos }>): number {
   if (rowPanels.length === 0) {
-    return rowPanels;
+    return 0;
   }
-
-  // Sort panels by current X position
-  const sorted = [...rowPanels].sort((a, b) => a.gridPos.x - b.gridPos.x);
-
-  // Calculate total width of all panels
-  const totalWidth = sorted.reduce((sum, p) => sum + p.gridPos.w, 0);
-
-  // If panels exceed grid width, pack them tightly from left
-  if (totalWidth > GRID_COLUMNS) {
-    let x = 0;
-    return sorted.map((panel) => {
-      const newPos = { ...panel.gridPos, x };
-      x += panel.gridPos.w;
-      return { ...panel, gridPos: newPos };
-    });
-  }
-
-  // Calculate spacing between panels
-  const totalSpacing = GRID_COLUMNS - totalWidth;
-  const spacing = rowPanels.length > 1 ? totalSpacing / (rowPanels.length - 1) : 0;
-
-  // Distribute panels evenly
-  let x = 0;
-  return sorted.map((panel) => {
-    const newPos = { ...panel.gridPos, x: Math.round(x) };
-    x += panel.gridPos.w + spacing;
-    return { ...panel, gridPos: newPos };
-  });
+  return Math.max(...rowPanels.map((p) => p.gridPos.y + p.gridPos.h));
 }
 
 /**
- * Resolve overlapping panels by repositioning them
- * Uses a simple approach: push overlapping panels down
+ * Calculate the top Y position of a row (minimum y of all panels in the row)
  */
-function resolveOverlaps(
+function getRowTop(rowPanels: Array<{ id: number; gridPos: GridPos }>): number {
+  if (rowPanels.length === 0) {
+    return 0;
+  }
+  return Math.min(...rowPanels.map((p) => p.gridPos.y));
+}
+
+/**
+ * Remove empty vertical spaces by moving rows up
+ * 
+ * Process:
+ * 1. Group panels into rows (by overlapping Y positions)
+ * 2. Sort rows by their top Y position
+ * 3. Calculate cumulative offsets for each row based on gaps
+ * 4. Apply offsets to move rows up and remove empty vertical spaces
+ */
+function removeEmptyVerticalSpaces(
   panels: Array<{ id: number; gridPos: GridPos }>
 ): Array<{ id: number; gridPos: GridPos }> {
-  const result = panels.map((p) => ({
-    id: p.id,
-    gridPos: { ...p.gridPos },
-  }));
+  if (panels.length === 0) {
+    return panels;
+  }
 
-  // Sort by Y, then X, then ID for deterministic processing
-  const sorted = [...result].sort((a, b) => {
-    if (a.gridPos.y !== b.gridPos.y) {
-      return a.gridPos.y - b.gridPos.y;
+  // Create a map for quick lookup with copies of panels
+  const panelMap = new Map(panels.map((p) => [p.id, { ...p, gridPos: { ...p.gridPos } }]));
+  const result = Array.from(panelMap.values());
+
+  // Group panels into rows based on original positions
+  const rows = groupPanelsByRow(panels);
+
+  if (rows.length === 0) {
+    return result;
+  }
+
+  // Calculate offsets for each row
+  const rowOffsets: number[] = [];
+  let cumulativeOffset = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const currentRow = rows[i];
+    const currentRowTop = getRowTop(currentRow);
+
+    if (i === 0) {
+      // First row: move it to Y=0 if it's not already there
+      const gap = currentRowTop;
+      if (gap > 0) {
+        cumulativeOffset = -gap;
+      }
+    } else {
+      // Subsequent rows: check for gap from previous row
+      const previousRow = rows[i - 1];
+      const previousRowBottom = getRowBottom(previousRow);
+      const gap = currentRowTop - previousRowBottom;
+
+      if (gap > 0) {
+        // There's empty vertical space - accumulate the offset
+        cumulativeOffset -= gap;
+      }
     }
-    if (a.gridPos.x !== b.gridPos.x) {
-      return a.gridPos.x - b.gridPos.x;
-    }
-    return a.id - b.id;
-  });
 
-  // Check each panel against all others and resolve overlaps
-  for (let i = 0; i < sorted.length; i++) {
-    const panel = sorted[i];
+    rowOffsets.push(cumulativeOffset);
+  }
 
-    for (let j = i + 1; j < sorted.length; j++) {
-      const other = sorted[j];
+  // Apply offsets to all panels
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const offset = rowOffsets[i];
 
-      if (rectOverlap(panel.gridPos, other.gridPos)) {
-        // Push the second panel down
-        const newY = panel.gridPos.y + panel.gridPos.h;
-        other.gridPos.y = newY;
+    if (offset !== 0) {
+      for (const panel of row) {
+        const updatedPanel = panelMap.get(panel.id);
+        if (updatedPanel) {
+          updatedPanel.gridPos = {
+            ...updatedPanel.gridPos,
+            y: updatedPanel.gridPos.y + offset,
+          };
+        }
       }
     }
   }
@@ -146,10 +160,7 @@ function resolveOverlaps(
  * 
  * Process:
  * 1. Get all non-row panels (we don't reposition row headers)
- * 2. Resolve overlaps first
- * 3. Group panels by row (Y position)
- * 4. Distribute panels evenly within each row
- * 5. Auto-pack to remove empty vertical spaces
+ * 2. Remove empty vertical spaces by moving rows up when there are gaps
  */
 export function tidyUp(dashboard: Dashboard): Dashboard {
   // Get all non-row panels
@@ -164,23 +175,10 @@ export function tidyUp(dashboard: Dashboard): Dashboard {
     return dashboard;
   }
 
-  // Step 1: Resolve overlaps
-  let tidiedPanels = resolveOverlaps(nonRowPanels);
+  // Remove empty vertical spaces
+  const tidiedPanels = removeEmptyVerticalSpaces(nonRowPanels);
 
-  // Step 2: Group panels by row
-  const rows = groupPanelsByRow(tidiedPanels);
-
-  // Step 3: Distribute panels evenly within each row
-  tidiedPanels = [];
-  for (const rowPanels of rows) {
-    const distributed = distributePanelsEvenly(rowPanels);
-    tidiedPanels.push(...distributed);
-  }
-
-  // Step 4: Auto-pack to remove empty vertical spaces
-  tidiedPanels = autoPack(tidiedPanels);
-
-  // Step 5: Create updated dashboard with new positions
+  // Create updated dashboard with new positions
   const panelMap = new Map(tidiedPanels.map((p) => [p.id, p.gridPos]));
 
   const updatedPanels = dashboard.panels.map((panel) => {
