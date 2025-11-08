@@ -12,8 +12,33 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType } from '@/types/grafana-dashboard';
+import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType, GrafanaPanelType } from '@/types/grafana-dashboard';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
+
+/**
+ * Maps panel type to default dataset shape
+ */
+function getDefaultDatasetShape(panelType: GrafanaPanelType): 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie' {
+  switch (panelType) {
+    case 'kpi':
+    case 'stat':
+      return 'kpi';
+    case 'table':
+      return 'table';
+    case 'barchart':
+    case 'bargauge':
+      return 'category_value';
+    case 'piechart':
+      return 'pie';
+    case 'linechart':
+    case 'timeseries':
+      return 'time_value';
+    case 'text':
+    case 'row':
+    default:
+      return 'table';
+  }
+}
 
 interface PanelEditorProps {
   open: boolean;
@@ -34,10 +59,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     const navixyConfig = panel['x-navixy'];
     return JSON.stringify(navixyConfig?.sql?.params || {}, null, 2);
   });
-  const [datasetShape, setDatasetShape] = useState(() => {
-    const navixyConfig = panel['x-navixy'];
-    return navixyConfig?.dataset?.shape || 'table';
-  });
+  
   const [columns, setColumns] = useState(() => {
     const navixyConfig = panel['x-navixy'];
     return navixyConfig?.dataset?.columns || {};
@@ -61,7 +83,6 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       setPanelType(panel.type);
       setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
       setParams(JSON.stringify(navixyConfig?.sql?.params || {}, null, 2));
-      setDatasetShape(navixyConfig?.dataset?.shape || 'table');
       setColumns(navixyConfig?.dataset?.columns || {});
       setMaxRows(navixyConfig?.verify?.max_rows || 1000);
     }
@@ -72,6 +93,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     try {
       const parsedParams = params.trim() ? JSON.parse(params) : {};
       
+      // Auto-determine dataset shape from panel type
+      const autoDatasetShape = getDefaultDatasetShape(panelType);
+      
       // Build updated Navixy configuration
       const updatedNavixyConfig: NavixyPanelConfig = {
         sql: {
@@ -79,7 +103,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
           params: parsedParams
         },
         dataset: {
-          shape: datasetShape as any,
+          shape: autoDatasetShape,
           columns: columns
         },
         verify: {
@@ -274,34 +298,17 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="maxRows" className="text-sm font-medium">Max Rows</Label>
-                  <Input
-                    id="maxRows"
-                    type="number"
-                    value={maxRows}
-                    onChange={(e) => setMaxRows(parseInt(e.target.value) || 1000)}
-                    className="mt-1"
-                    min="1"
-                    max="10000"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="datasetShape" className="text-sm font-medium">Dataset Shape</Label>
-                  <Select value={datasetShape} onValueChange={setDatasetShape}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="table">Table</SelectItem>
-                      <SelectItem value="kpi">KPI</SelectItem>
-                      <SelectItem value="category_value">Category-Value</SelectItem>
-                      <SelectItem value="time_value">Time-Value</SelectItem>
-                      <SelectItem value="pie">Pie Chart</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div>
+                <Label htmlFor="maxRows" className="text-sm font-medium">Max Rows</Label>
+                <Input
+                  id="maxRows"
+                  type="number"
+                  value={maxRows}
+                  onChange={(e) => setMaxRows(parseInt(e.target.value) || 1000)}
+                  className="mt-1"
+                  min="1"
+                  max="10000"
+                />
               </div>
             </div>
           </TabsContent>
