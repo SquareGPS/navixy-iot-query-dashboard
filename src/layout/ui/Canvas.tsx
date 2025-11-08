@@ -930,12 +930,19 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Always show bottom drop zone if there are rows (regardless of panels below)
   const showBottomDropZone = bottomRow !== null;
   
-  // Recalculate canvas height to include space for bottom drop zone
+  // Add extra padding at bottom for easier vertical resizing when in edit mode
+  // This allows users to drag panel borders down without hitting canvas edge
+  const RESIZE_PADDING_GRID_UNITS = 20; // Extra space in grid units for resizing (600px)
+  const resizePadding = isEditingLayout 
+    ? RESIZE_PADDING_GRID_UNITS * GRID_UNIT_HEIGHT 
+    : 0;
+  
+  // Recalculate canvas height to include space for bottom drop zone and resize padding
   const canvasHeight = Math.max(
-    (maxY + 2) * GRID_UNIT_HEIGHT,
+    (maxY + 2) * GRID_UNIT_HEIGHT + resizePadding,
     showBottomDropZone && bottomRow 
-      ? (bottomRowBandBottom * GRID_UNIT_HEIGHT) + 80 // Extra space for drop zone
-      : (maxY + 2) * GRID_UNIT_HEIGHT
+      ? (bottomRowBandBottom * GRID_UNIT_HEIGHT) + 80 + resizePadding // Extra space for drop zone + resize padding
+      : (maxY + 2) * GRID_UNIT_HEIGHT + resizePadding
   );
 
   const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
