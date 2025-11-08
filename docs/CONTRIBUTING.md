@@ -49,13 +49,13 @@ Before contributing, ensure you have:
 1. **Fork the repository**
    ```bash
    # Fork on GitHub, then clone your fork
-   git clone https://github.com/your-username/sql-report-dash.git
-   cd sql-report-dash
+   git clone https://github.com/your-username/navixy-datahub-dashboard.git
+   cd navixy-datahub-dashboard
    ```
 
 2. **Add upstream remote**
    ```bash
-   git remote add upstream https://github.com/original-owner/sql-report-dash.git
+   git remote add upstream https://github.com/DanilNezhdanov/navixy-datahub-dashboard.git
    ```
 
 3. **Create development branch**

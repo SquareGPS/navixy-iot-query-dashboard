@@ -240,3 +240,7 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for contribution guidelines.
 
 For issues, questions, or feature requests, please open an issue on GitHub.
 
+## 📦 Repository
+
+**GitHub**: [https://github.com/DanilNezhdanov/navixy-datahub-dashboard](https://github.com/DanilNezhdanov/navixy-datahub-dashboard)
+

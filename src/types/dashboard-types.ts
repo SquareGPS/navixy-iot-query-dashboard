@@ -1,6 +1,6 @@
 /**
  * Dashboard Types - Dashboard JSON Schema
- * Documentation: https://github.com/DanilNezhdanov/grafana-based-dashboard
+ * Documentation: https://github.com/DanilNezhdanov/navixy-datahub-dashboard
  */
 
 export interface Dashboard {
