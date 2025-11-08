@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DataTable } from '@/components/reports/DataTable';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiService } from '@/services/api';
 import { Pencil, AlertCircle } from 'lucide-react';

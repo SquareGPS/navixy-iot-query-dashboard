@@ -5,9 +5,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, GripVertical, MoreVertical, Trash2, Package, Pencil } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/Input';
+import { Input } from '@/components/ui/input';
 import { useDraggable } from '@dnd-kit/core';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import { isRowPanel } from '../geometry/rows';

@@ -29,7 +29,7 @@ import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
 import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } from '../geometry/rows';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { PanelGallery } from './PanelGallery';
 import { AddPanelGhost } from './AddPanelGhost';

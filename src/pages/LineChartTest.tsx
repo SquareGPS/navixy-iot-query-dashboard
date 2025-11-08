@@ -143,7 +143,7 @@ const LineChartTestWrapper = ({ visual, staticData, title }: LineChartTestWrappe
 
 // Modified version of LineChartComponent that accepts data directly
 import { useMemo } from 'react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { 
   LineChart, 
   ComposedChart,

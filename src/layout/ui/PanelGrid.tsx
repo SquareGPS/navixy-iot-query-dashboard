@@ -6,7 +6,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import { gridToPixels, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { isRowPanel, getRowHeaders } from '@/layout/geometry/rows';
 import { RowHeader } from './RowHeader';
 import { DndContext } from '@dnd-kit/core';

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import { SqlEditor } from './SqlEditor';
 import { DataTable } from './DataTable';
 import { VisualizationSettings } from './VisualizationSettings';
