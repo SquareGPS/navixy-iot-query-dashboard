@@ -25,7 +25,7 @@ import type { GrafanaDashboard, DashboardConfig } from '@/types/grafana-dashboar
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { toggleLayoutEditing, cmdAddRow, cmdAddPanel } from '@/layout/state/commands';
+import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp } from '@/layout/state/commands';
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -896,6 +896,14 @@ const ReportView = () => {
     });
     
     setShowPanelGallery(false);
+  };
+
+  const handleTidyUp = () => {
+    cmdTidyUp();
+    toast({
+      title: 'Layout tidied up',
+      description: 'Empty spaces removed and panels repositioned.',
+    });
   };
 
   const handleAddRow = (rowType: 'tiles' | 'table' | 'charts' | 'annotation', insertAfterIndex?: number) => {
@@ -1888,6 +1896,7 @@ const ReportView = () => {
         onDeleteReport={() => setShowDeleteDialog(true)}
         onNewRow={handleNewRow}
         onNewPanel={handleNewPanel}
+        onTidyUp={handleTidyUp}
       />
 
       {/* Panel Gallery Dialog */}

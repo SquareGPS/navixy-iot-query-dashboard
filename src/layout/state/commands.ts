@@ -19,6 +19,7 @@ import {
   isRowPanel,
 } from '../geometry/rows';
 import { placeNewPanel } from '../geometry/add';
+import { tidyUp } from '../geometry/tidyUp';
 import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
 
 /**
@@ -517,6 +518,24 @@ export function cmdDuplicatePanel(panelId: number): void {
     }
   }
 
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to tidy up the dashboard layout
+ * Removes empty vertical spaces, distributes horizontal space evenly, and fixes overlaps
+ */
+export function cmdTidyUp(): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const newDashboard = tidyUp(store.dashboard);
+  
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
 }
