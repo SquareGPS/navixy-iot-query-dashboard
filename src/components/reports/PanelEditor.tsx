@@ -14,6 +14,7 @@ import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
 import type { GrafanaPanel, NavixyPanelConfig, NavixyColumnType, GrafanaPanelType } from '@/types/grafana-dashboard';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
+import { extractParameterNames } from '@/utils/sqlParameterExtractor';
 
 /**
  * Maps panel type to default dataset shape
@@ -55,15 +56,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     const navixyConfig = panel['x-navixy'];
     return navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '';
   });
-  const [params, setParams] = useState(() => {
-    const navixyConfig = panel['x-navixy'];
-    return JSON.stringify(navixyConfig?.sql?.params || {}, null, 2);
-  });
   
-  const [columns, setColumns] = useState(() => {
-    const navixyConfig = panel['x-navixy'];
-    return navixyConfig?.dataset?.columns || {};
-  });
   const [maxRows, setMaxRows] = useState(() => {
     const navixyConfig = panel['x-navixy'];
     return navixyConfig?.verify?.max_rows || 1000;
@@ -82,8 +75,6 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       setDescription(panel.description || '');
       setPanelType(panel.type);
       setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
-      setParams(JSON.stringify(navixyConfig?.sql?.params || {}, null, 2));
-      setColumns(navixyConfig?.dataset?.columns || {});
       setMaxRows(navixyConfig?.verify?.max_rows || 1000);
     }
   }, [panel, open]); // Update when panel changes or dialog opens
@@ -110,20 +101,51 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
 
     setSaving(true);
     try {
-      const parsedParams = params.trim() ? JSON.parse(params) : {};
+      // Auto-extract parameters from SQL
+      const paramNames = extractParameterNames(sql.trim());
+      const parsedParams: Record<string, unknown> = {};
+      paramNames.forEach(name => {
+        // Use existing params from panel if available, otherwise null
+        const existingParams = panel['x-navixy']?.sql?.params || {};
+        parsedParams[name] = existingParams[name] ?? null; // Default to null, will be filled by dashboard variables
+      });
       
       // Auto-determine dataset shape from panel type
       const autoDatasetShape = getDefaultDatasetShape(panelType);
       
+      // Auto-infer columns from test results if available, otherwise empty
+      let inferredColumns: Record<string, { type: NavixyColumnType }> = {};
+      if (testResults && testResults.columns.length > 0 && testResults.columnTypes) {
+        testResults.columns.forEach((colName: string) => {
+          const colType = testResults.columnTypes[colName] || 'string';
+          // Map database types to NavixyColumnType
+          let navixyType: NavixyColumnType = 'string';
+          if (colType.includes('int') || colType === 'integer') {
+            navixyType = 'integer';
+          } else if (colType.includes('numeric') || colType.includes('decimal') || colType.includes('float') || colType.includes('double') || colType === 'number') {
+            navixyType = 'number';
+          } else if (colType.includes('bool')) {
+            navixyType = 'boolean';
+          } else if (colType.includes('timestamp')) {
+            navixyType = colType.includes('tz') ? 'timestamptz' : 'timestamp';
+          } else if (colType.includes('date') && !colType.includes('time')) {
+            navixyType = 'date';
+          } else if (colType.includes('uuid')) {
+            navixyType = 'uuid';
+          }
+          inferredColumns[colName] = { type: navixyType };
+        });
+      }
+      
       // Build updated Navixy configuration
       const updatedNavixyConfig: NavixyPanelConfig = {
         sql: {
-          statement: sql.trim(), // Ensure no leading/trailing whitespace but preserve content
+          statement: sql.trim(),
           params: parsedParams
         },
         dataset: {
           shape: autoDatasetShape,
-          columns: columns
+          columns: inferredColumns
         },
         verify: {
           max_rows: maxRows
@@ -142,10 +164,10 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       onSave(updatedPanel);
       onClose();
     } catch (err) {
-      console.error('Invalid JSON in parameters:', err);
+      console.error('Error saving panel:', err);
       toast({
         title: 'Error',
-        description: 'Invalid JSON in parameters',
+        description: err instanceof Error ? err.message : 'Failed to save panel',
         variant: 'destructive',
       });
     } finally {
@@ -154,28 +176,8 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   };
 
   const handleTestQuery = async () => {
-    // Parse parameters with better error handling
-    let parsedParams: Record<string, unknown> = {};
-    const paramsTrimmed = params.trim();
-    
-    if (paramsTrimmed) {
-      try {
-        parsedParams = JSON.parse(paramsTrimmed);
-        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
-          throw new Error('Parameters must be a JSON object');
-        }
-      } catch (err: any) {
-        const errorMsg = err.message || 'Invalid JSON in parameters';
-        console.error('Failed to parse parameters:', err);
-        toast({
-          title: 'Invalid Parameters',
-          description: errorMsg + '. Proceeding with empty parameters.',
-          variant: 'destructive',
-        });
-        // Continue with empty params instead of failing completely
-        parsedParams = {};
-      }
-    }
+    // Use empty parameters for testing - parameters will be filled from dashboard variables at runtime
+    const parsedParams: Record<string, unknown> = {};
     
     try {
       // Use the returned value from executeQuery for consistency with standalone editor
@@ -223,35 +225,6 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     }
   };
 
-  const addColumn = () => {
-    const columnName = `column_${Object.keys(columns).length + 1}`;
-    setColumns({
-      ...columns,
-      [columnName]: { type: 'string' as NavixyColumnType }
-    });
-  };
-
-  const updateColumn = (columnName: string, field: 'name' | 'type', value: string) => {
-    if (field === 'name') {
-      // Rename column
-      const newColumns = { ...columns };
-      delete newColumns[columnName];
-      newColumns[value] = columns[columnName];
-      setColumns(newColumns);
-    } else {
-      // Update column type
-      setColumns({
-        ...columns,
-        [columnName]: { ...columns[columnName], type: value as NavixyColumnType }
-      });
-    }
-  };
-
-  const removeColumn = (columnName: string) => {
-    const newColumns = { ...columns };
-    delete newColumns[columnName];
-    setColumns(newColumns);
-  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -267,10 +240,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         </DialogHeader>
 
         <Tabs defaultValue="properties" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-3 flex-shrink-0">
+          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-2 flex-shrink-0">
             <TabsTrigger value="properties">Panel Properties</TabsTrigger>
             <TabsTrigger value="sql">SQL Query</TabsTrigger>
-            <TabsTrigger value="dataset">Dataset Schema</TabsTrigger>
           </TabsList>
           
           {/* Panel Properties Tab */}
@@ -380,68 +352,6 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                     </div>
                   )}
                 </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Dataset Schema Tab */}
-          <TabsContent value="dataset" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden bg-[var(--surface-1)]">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <Label className="text-sm font-medium">Dataset Columns</Label>
-                <Button onClick={addColumn} size="sm" variant="outline">
-                  Add Column
-                </Button>
-              </div>
-              
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {Object.entries(columns).map(([columnName, columnConfig]) => (
-                  <div key={columnName} className="flex items-center gap-2 p-3 border rounded-md">
-                    <Input
-                      value={columnName}
-                      onChange={(e) => updateColumn(columnName, 'name', e.target.value)}
-                      className="flex-1"
-                      placeholder="Column name"
-                    />
-                    <Select 
-                      value={columnConfig.type} 
-                      onValueChange={(value) => updateColumn(columnName, 'type', value)}
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="string">String</SelectItem>
-                        <SelectItem value="number">Number</SelectItem>
-                        <SelectItem value="integer">Integer</SelectItem>
-                        <SelectItem value="boolean">Boolean</SelectItem>
-                        <SelectItem value="timestamp">Timestamp</SelectItem>
-                        <SelectItem value="timestamptz">TimestampTZ</SelectItem>
-                        <SelectItem value="date">Date</SelectItem>
-                        <SelectItem value="uuid">UUID</SelectItem>
-                        <SelectItem value="numeric">Numeric</SelectItem>
-                        <SelectItem value="decimal">Decimal</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button 
-                      onClick={() => removeColumn(columnName)} 
-                      size="sm" 
-                      variant="destructive"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-
-              <div>
-                <Label className="mb-2 flex-shrink-0 text-sm font-medium text-[var(--text-primary)]">Query Parameters (JSON)</Label>
-                <Textarea
-                  value={params}
-                  onChange={(e) => setParams(e.target.value)}
-                  className="flex-1 font-mono text-sm resize-none min-h-32 bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-primary)]"
-                  placeholder='{"param1": "value1"}'
-                />
               </div>
             </div>
           </TabsContent>
