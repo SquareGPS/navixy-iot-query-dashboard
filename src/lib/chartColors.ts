@@ -75,6 +75,68 @@ export const chartColors = {
     }
     return colors;
   },
+
+  /**
+   * Get color palette by name
+   * Returns colors based on the palette type
+   * 
+   * @param palette - Palette name: 'classic', 'modern', 'pastel', or 'vibrant'
+   * @returns Array of color hex codes
+   */
+  getPalette: (palette: 'classic' | 'modern' | 'pastel' | 'vibrant'): string[] => {
+    switch (palette) {
+      case 'classic':
+        // Classic blue-based palette
+        return [
+          '#3B82F6', // Blue
+          '#14B8A6', // Teal
+          '#8B5CF6', // Purple
+          '#10B981', // Green
+          '#F59E0B', // Amber
+          '#EC4899', // Pink
+          '#6366F1', // Indigo
+          '#06B6D4', // Cyan
+        ];
+      case 'modern':
+        // Modern vibrant palette
+        return [
+          '#3B82F6', // Blue
+          '#10B981', // Green
+          '#F59E0B', // Amber
+          '#EC4899', // Pink
+          '#8B5CF6', // Purple
+          '#06B6D4', // Cyan
+          '#F97316', // Orange
+          '#6366F1', // Indigo
+        ];
+      case 'pastel':
+        // Pastel soft colors
+        return [
+          '#93C5FD', // Light Blue
+          '#6EE7B7', // Light Green
+          '#FCD34D', // Light Yellow
+          '#F9A8D4', // Light Pink
+          '#C4B5FD', // Light Purple
+          '#7DD3FC', // Light Cyan
+          '#FBBF24', // Light Amber
+          '#A78BFA', // Light Indigo
+        ];
+      case 'vibrant':
+        // High contrast vibrant colors
+        return [
+          '#EF4444', // Red
+          '#F59E0B', // Amber
+          '#EAB308', // Yellow
+          '#84CC16', // Lime
+          '#22C55E', // Emerald
+          '#06B6D4', // Cyan
+          '#3B82F6', // Blue
+          '#8B5CF6', // Purple
+        ];
+      default:
+        return chartColors.primary;
+    }
+  },
 } as const;
 
 /**

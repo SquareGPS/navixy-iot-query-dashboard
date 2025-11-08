@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { SqlEditor } from './SqlEditor';
 import { DataTable } from './DataTable';
 import { VisualizationSettings } from './VisualizationSettings';
+import { DatasetRequirements } from './DatasetRequirements';
 import { Save, X, Play, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -308,6 +309,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
           {/* SQL Query Tab */}
           <TabsContent value="sql" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden bg-[var(--surface-1)]">
             <div className="flex-1 flex flex-col min-h-0 gap-3">
+              {/* Dataset Requirements Info */}
+              <DatasetRequirements panelType={panelType} />
+
               {/* SQL Editor - 50% */}
               <div className="flex-1 flex flex-col min-h-0 basis-0">
                 <div className="flex justify-between items-center mb-2 flex-shrink-0">

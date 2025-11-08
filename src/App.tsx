@@ -33,9 +33,9 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/app" element={<AppPage />} />
               <Route path="/app/report/:reportId" element={<ReportView />} />
-          <Route path="/app/settings" element={<Settings />} />
-          <Route path="/app/sql-editor" element={<SqlEditor />} />
-          <Route path="*" element={<NotFound />} />
+              <Route path="/app/settings" element={<Settings />} />
+              <Route path="/app/sql-editor" element={<SqlEditor />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>
         </BrowserRouter>

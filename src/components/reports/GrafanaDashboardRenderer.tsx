@@ -13,9 +13,10 @@ import { canonicalizeRows } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseGrafanaTime, formatDateToISO } from '@/utils/grafanaTimeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
+import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
+import type { NavixyVisualizationConfig } from '@/types/grafana-dashboard';
 
 interface GrafanaDashboardRendererProps {
   dashboard: GrafanaDashboard;
@@ -790,35 +791,387 @@ export const GrafanaDashboardRenderer = forwardRef<GrafanaDashboardRendererRef, 
   };
 
   const renderBarChartPanel = (panel: GrafanaPanel, data: GrafanaQueryResult) => {
+    console.log('[BarChart] renderBarChartPanel called', {
+      panelTitle: panel.title,
+      rowCount: data.rows?.length,
+      columnCount: data.columns?.length,
+      columns: data.columns,
+      firstFewRows: data.rows?.slice(0, 3),
+    });
+
     if (!data.rows || data.rows.length === 0) {
+      console.log('[BarChart] No data rows available');
       return <div className="text-gray-500">No data</div>;
     }
 
-    const maxValue = Math.max(...data.rows.map(row => row[1] as number));
+    const visualization: NavixyVisualizationConfig | undefined = panel['x-navixy']?.visualization;
     
-    return (
-      <div className="space-y-2">
-        {data.rows.map((row, index) => {
-          const category = row[0];
-          const value = row[1] as number;
-          const percentage = (value / maxValue) * 100;
+    // Get visualization settings with defaults
+    // Force vertical for now - horizontal bars need more work
+    const orientation = 'vertical'; // visualization?.orientation || 'vertical';
+    const stacking = visualization?.stacking || 'none';
+    const showValues = visualization?.showValues || false;
+    const sortOrder = visualization?.sortOrder || 'none';
+    const barSpacing = visualization?.barSpacing !== undefined ? visualization.barSpacing : 0.2;
+    const colorPalette = visualization?.colorPalette || 'classic';
+    const showLegend = visualization?.showLegend !== false;
+    const legendPosition = visualization?.legendPosition || 'bottom';
+
+    console.log('[BarChart] Visualization settings', {
+      orientation,
+      stacking,
+      showValues,
+      sortOrder,
+      barSpacing,
+      colorPalette,
+      showLegend,
+      legendPosition,
+    });
+
+    // Determine if we have multiple series (more than 2 columns)
+    // Only treat as multiple series if column 2 has repeated values (actual grouping)
+    const hasMultipleSeries = data.columns.length > 2;
+    let seriesColumnIndex: number | null = null;
+    
+    if (hasMultipleSeries) {
+      // Check if column 2 has repeated values (indicating it's a series grouping)
+      const seriesValues = data.rows.map(row => String(row[2]));
+      const uniqueSeriesCount = new Set(seriesValues).size;
+      const totalRows = data.rows.length;
+      
+      // If unique series count is close to total rows, it's probably not a series grouping
+      // (e.g., IDs or unique identifiers). Use a threshold: if >80% unique, treat as simple 2-column
+      const isLikelySeriesGrouping = uniqueSeriesCount < totalRows * 0.8;
+      
+      console.log('[BarChart] Series detection logic', {
+        totalRows,
+        uniqueSeriesCount,
+        isLikelySeriesGrouping,
+        threshold: totalRows * 0.8,
+      });
+      
+      if (isLikelySeriesGrouping) {
+        seriesColumnIndex = 2;
+      } else {
+        // Treat as simple 2-column chart, ignore third column
+        console.log('[BarChart] Third column appears to be IDs/unique values, treating as 2-column chart');
+      }
+    }
+    
+    const categoryColumnIndex = 0;
+    const valueColumnIndex = 1;
+
+    console.log('[BarChart] Data structure analysis', {
+      hasMultipleSeries: seriesColumnIndex !== null,
+      categoryColumnIndex,
+      valueColumnIndex,
+      seriesColumnIndex,
+      columnNames: data.columns.map(c => c.name),
+      columnTypes: data.columns.map(c => c.type),
+      firstRowSample: data.rows[0],
+      firstRowValues: {
+        col0: data.rows[0]?.[0],
+        col1: data.rows[0]?.[1],
+        col2: data.rows[0]?.[2],
+      },
+    });
+
+    // Process data
+    let chartData: any[] = [];
+    let seriesNames: string[] = [];
+    
+    if (seriesColumnIndex !== null) {
+      console.log('[BarChart] Processing multiple series format');
+      // Group data by category and series
+      const groupedData: Record<string, Record<string, number>> = {};
+      
+      data.rows.forEach((row) => {
+        const category = String(row[categoryColumnIndex]);
+        const series = String(row[seriesColumnIndex]);
+        const value = Number(row[valueColumnIndex]) || 0;
+        
+        if (!groupedData[category]) {
+          groupedData[category] = {};
+        }
+        groupedData[category][series] = value;
+      });
+
+      // Get all unique series names
+      seriesNames = Array.from(new Set(
+        data.rows.map(row => String(row[seriesColumnIndex]))
+      ));
+
+      console.log('[BarChart] Multiple series detected', {
+        seriesNames,
+        seriesNamesCount: seriesNames.length,
+        uniqueSeriesCount: new Set(seriesNames).size,
+        groupedDataSample: Object.keys(groupedData).slice(0, 2).map(cat => ({
+          category: cat,
+          series: groupedData[cat],
+        })),
+        firstFewRows: data.rows.slice(0, 3).map(row => ({
+          category: row[categoryColumnIndex],
+          value: row[valueColumnIndex],
+          series: row[seriesColumnIndex],
+        })),
+      });
+
+      // Convert to chart data format
+      chartData = Object.keys(groupedData).map(category => {
+        const item: any = { category };
+        seriesNames.forEach(series => {
+          item[series] = groupedData[category][series] || 0;
+        });
+        return item;
+      });
+
+      // Normalize to percentages if percent stacking
+      if (stacking === 'percent') {
+        chartData = chartData.map(item => {
+          const total = seriesNames.reduce((sum, series) => sum + (item[series] || 0), 0);
+          const normalized: any = { category: item.category };
+          seriesNames.forEach(series => {
+            normalized[series] = total > 0 ? ((item[series] || 0) / total) * 100 : 0;
+          });
+          return normalized;
+        });
+        console.log('[BarChart] Normalized to percentages');
+      }
+    } else {
+      // Simple category-value format
+      console.log('[BarChart] Processing simple category-value format');
+      console.log('[BarChart] Sample raw row values:', data.rows.slice(0, 3).map(row => ({
+        categoryRaw: row[categoryColumnIndex],
+        valueRaw: row[valueColumnIndex],
+        categoryType: typeof row[categoryColumnIndex],
+        valueType: typeof row[valueColumnIndex],
+      })));
+
+      chartData = data.rows.map((row) => {
+        const category = String(row[categoryColumnIndex]);
+        const value = Number(row[valueColumnIndex]) || 0;
+        return { category, value };
+      });
+      seriesNames = ['value'];
+
+      console.log('[BarChart] Processed chartData sample:', chartData.slice(0, 3));
+      console.log('[BarChart] Value statistics:', {
+        min: Math.min(...chartData.map(d => d.value)),
+        max: Math.max(...chartData.map(d => d.value)),
+        sum: chartData.reduce((sum, d) => sum + d.value, 0),
+        allValues: chartData.map(d => d.value),
+      });
+    }
+
+    // Apply sorting
+    if (sortOrder !== 'none') {
+      const hasMultipleSeries = seriesColumnIndex !== null;
+      chartData.sort((a, b) => {
+        const aVal = hasMultipleSeries 
+          ? Object.values(a).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
+          : a.value;
+        const bVal = hasMultipleSeries
+          ? Object.values(b).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
+          : b.value;
+        
+        if (sortOrder === 'asc') {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+    }
+
+    // Get color palette
+    const colors = chartColors.getPalette(colorPalette);
+
+    console.log('[BarChart] Final chartData before render:', {
+      dataLength: chartData.length,
+      sampleData: chartData.slice(0, 3),
+      allCategories: chartData.map(d => d.category),
+      allValues: chartData.map(d => d.value),
+      colors: colors.slice(0, 3),
+      hasMultipleSeries: seriesColumnIndex !== null,
+      seriesNames,
+    });
+
+    // Force vertical layout for now
+    const isHorizontal = false; // orientation === 'horizontal';
+
+    // Calculate Y-axis domain for logging
+    if (seriesColumnIndex === null && chartData.length > 0) {
+      const values = chartData.map(d => d.value);
+      const minVal = Math.min(...values);
+      const maxVal = Math.max(...values);
+      const yAxisDomain = stacking === 'percent' ? [0, 100] : [0, 'auto'];
+      console.log('[BarChart] Y-axis domain calculation:', {
+        stacking,
+        yAxisDomain,
+        dataMin: minVal,
+        dataMax: maxVal,
+        dataRange: maxVal - minVal,
+      });
+    }
+
+    // Calculate explicit domain for Y-axis (vertical bars)
+    let valueAxisDomain: [number, number] = [0, 100];
+    if (chartData.length > 0) {
+      if (stacking === 'percent') {
+        valueAxisDomain = [0, 100];
+      } else {
+        const values = seriesColumnIndex === null
+          ? chartData.map(d => d.value)
+          : chartData.flatMap(d => 
+              seriesNames.map(series => Number(d[series]) || 0)
+            );
+        const maxVal = Math.max(...values);
+        // Add 5% padding above max value - matching working test configuration
+        const paddedMax = Math.ceil(maxVal * 1.05);
+        valueAxisDomain = [0, paddedMax];
+        
+        console.log('[BarChart] Calculated value axis domain:', {
+          maxVal,
+          paddedMax,
+          valueAxisDomain,
+        });
+      }
+    }
+
+    // Legend wrapper style based on position
+    const getLegendWrapperStyle = () => {
+      switch (legendPosition) {
+        case 'top':
+          return { paddingBottom: '20px' };
+        case 'bottom':
+          return { paddingTop: '20px' };
+        case 'left':
+          return { paddingRight: '20px', display: 'flex', flexDirection: 'column' as const };
+        case 'right':
+          return { paddingLeft: '20px', display: 'flex', flexDirection: 'column' as const };
+        default:
+          return { paddingTop: '20px' };
+      }
+    };
+
+    console.log('[BarChart] Rendering chart with:', {
+      chartDataLength: chartData.length,
+      isHorizontal,
+      barSpacing,
+      colors: colors.slice(0, 3),
+      showLegend,
+      legendPosition,
+    });
           
           return (
-            <div key={index} className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span>{category}</span>
-                <span className="font-medium">{value}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <ResponsiveContainer width="100%" height={400}>
+        <RechartsBarChart
+          data={chartData}
+          margin={{ top: 20, right: 30, left: 60, bottom: 80 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
+          <XAxis
+            dataKey="category"
+            angle={-45}
+            textAnchor="end"
+            height={80}
+            tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+            axisLine={{ stroke: '#ffffff22' }}
+            tickFormatter={(value) => {
+              const date = new Date(value);
+              if (!isNaN(date.getTime())) {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }
+              return value;
+            }}
+          />
+          <YAxis
+            domain={valueAxisDomain}
+            tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
+            axisLine={{ stroke: '#ffffff22' }}
+            tickFormatter={(value) => {
+              if (stacking === 'percent') {
+                return `${value}%`;
+              }
+              return value.toLocaleString();
+            }}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: 'var(--surface-1)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              color: 'var(--text-primary)',
+            }}
+            formatter={(value: any, name: string) => {
+              if (stacking === 'percent') {
+                return [`${Number(value).toFixed(1)}%`, name];
+              }
+              return [value.toLocaleString(), name];
+            }}
+          />
+          {showLegend && seriesColumnIndex !== null && (
+            <Legend
+              wrapperStyle={getLegendWrapperStyle()}
+              verticalAlign={legendPosition === 'top' || legendPosition === 'bottom' ? legendPosition : 'middle'}
+              align={legendPosition === 'left' || legendPosition === 'right' ? legendPosition : 'center'}
+            />
+          )}
+          {seriesColumnIndex !== null ? (
+            // Multiple series - render multiple Bar components
+            seriesNames.map((seriesName, index) => (
+              <Bar
+                key={seriesName}
+                dataKey={seriesName}
+                name={seriesName}
+                stackId={stacking !== 'none' ? 'stack' : undefined}
+                fill={colors[index % colors.length]}
+              >
+                {showValues && (
+                  <LabelList
+                    position="top"
+                    formatter={(value: any) => {
+                      if (stacking === 'percent') {
+                        return `${Number(value).toFixed(1)}%`;
+                      }
+                      return value.toLocaleString();
+                    }}
+                    style={{ fill: 'var(--text-primary)', fontSize: 12 }}
+                  />
+                )}
+              </Bar>
+            ))
+          ) : (
+            // Single series
+            (() => {
+              console.log('[BarChart] Rendering single Bar component', {
+                dataKey: 'value',
+                name: panel.title,
+                fill: colors[0],
+                showValues,
+                chartDataSample: chartData.slice(0, 2),
+              });
+              return (
+                <Bar
+                  dataKey="value"
+                  name={panel.title}
+                  fill={colors[0]}
+                >
+                  {showValues && (
+                    <LabelList
+                      position="top"
+                      formatter={(value: any) => {
+                        console.log('[BarChart] LabelList formatter called with value:', value, typeof value);
+                        return value.toLocaleString();
+                      }}
+                      style={{ fill: 'var(--text-primary)', fontSize: 12 }}
+                    />
+                  )}
+                </Bar>
+              );
+            })()
+          )}
+        </RechartsBarChart>
+      </ResponsiveContainer>
     );
   };
 

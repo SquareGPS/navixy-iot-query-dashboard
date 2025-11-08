@@ -188,6 +188,182 @@ export function VisualizationSettings({ panelType, visualization, onChange }: Vi
     );
   }
 
+  // Bar chart-specific settings
+  if (panelType === 'barchart' || panelType === 'bargauge') {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Bar Chart Display Options</h3>
+          
+          <div>
+            <Label htmlFor="orientation" className="text-sm font-medium">
+              Orientation
+            </Label>
+            {/* 
+              NOTE: Orientation is hardcoded to 'vertical' for now.
+              Horizontal bar charts have rendering issues with Recharts that need to be resolved.
+              The renderer ignores the orientation setting and always renders vertical bars.
+              See GrafanaDashboardRenderer.tsx renderBarChartPanel for details.
+            */}
+            <div className="mt-1 px-3 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-md text-sm text-[var(--text-secondary)]">
+              Vertical
+            </div>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Bar direction (currently fixed to vertical)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="stacking" className="text-sm font-medium">
+              Stacking Mode
+            </Label>
+            <Select
+              value={settings.stacking || 'none'}
+              onValueChange={(value: 'none' | 'stacked' | 'percent') => updateSetting('stacking', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="stacked">Stacked</SelectItem>
+                <SelectItem value="percent">Percent</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Stacking mode for grouped bars (default: none)
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="showValues" className="text-sm font-medium">
+                Show Values
+              </Label>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Display value labels on bars
+              </p>
+            </div>
+            <Switch
+              id="showValues"
+              checked={settings.showValues === true}
+              onCheckedChange={(checked) => updateSetting('showValues', checked)}
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="sortOrder" className="text-sm font-medium">
+              Sort Order
+            </Label>
+            <Select
+              value={settings.sortOrder || 'none'}
+              onValueChange={(value: 'asc' | 'desc' | 'none') => updateSetting('sortOrder', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="asc">Ascending</SelectItem>
+                <SelectItem value="desc">Descending</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Sort bars by value (default: none)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="barSpacing" className="text-sm font-medium">
+              Bar Spacing
+            </Label>
+            <Input
+              id="barSpacing"
+              type="number"
+              min={0}
+              max={1}
+              step={0.1}
+              value={settings.barSpacing !== undefined ? settings.barSpacing : 0.2}
+              onChange={(e) => updateSetting('barSpacing', parseFloat(e.target.value) || 0.2)}
+              className="mt-1"
+            />
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Spacing between bars (0-1, default: 0.2)
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-[var(--border)] pt-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Color & Legend</h3>
+          
+          <div>
+            <Label htmlFor="colorPalette" className="text-sm font-medium">
+              Color Palette
+            </Label>
+            <Select
+              value={settings.colorPalette || 'classic'}
+              onValueChange={(value: 'classic' | 'modern' | 'pastel' | 'vibrant') => updateSetting('colorPalette', value)}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="classic">Classic</SelectItem>
+                <SelectItem value="modern">Modern</SelectItem>
+                <SelectItem value="pastel">Pastel</SelectItem>
+                <SelectItem value="vibrant">Vibrant</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Color scheme (default: classic)
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="showLegend" className="text-sm font-medium">
+                Show Legend
+              </Label>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Show legend when series column present
+              </p>
+            </div>
+            <Switch
+              id="showLegend"
+              checked={settings.showLegend !== false}
+              onCheckedChange={(checked) => updateSetting('showLegend', checked)}
+            />
+          </div>
+
+          {settings.showLegend !== false && (
+            <div>
+              <Label htmlFor="legendPosition" className="text-sm font-medium">
+                Legend Position
+              </Label>
+              <Select
+                value={settings.legendPosition || 'bottom'}
+                onValueChange={(value: 'top' | 'bottom' | 'left' | 'right') => updateSetting('legendPosition', value)}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="top">Top</SelectItem>
+                  <SelectItem value="bottom">Bottom</SelectItem>
+                  <SelectItem value="left">Left</SelectItem>
+                  <SelectItem value="right">Right</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                Legend placement (default: bottom)
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Placeholder for other panel types
   return (
     <div className="space-y-4">

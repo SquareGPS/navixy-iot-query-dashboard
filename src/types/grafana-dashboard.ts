@@ -252,6 +252,7 @@ export interface NavixyPanelConfig {
 }
 
 export interface NavixyVisualizationConfig {
+  // Table settings
   showHeader?: boolean;
   sortable?: boolean;
   pageSize?: number;
@@ -260,6 +261,15 @@ export interface NavixyVisualizationConfig {
   rowHighlighting?: 'none' | 'alternating' | 'hover' | 'both';
   showTotals?: boolean;
   totalsRow?: 'top' | 'bottom';
+  // Bar chart settings
+  orientation?: 'horizontal' | 'vertical';
+  stacking?: 'none' | 'stacked' | 'percent';
+  showValues?: boolean;
+  sortOrder?: 'asc' | 'desc' | 'none';
+  barSpacing?: number;
+  colorPalette?: 'classic' | 'modern' | 'pastel' | 'vibrant';
+  showLegend?: boolean;
+  legendPosition?: 'top' | 'bottom' | 'left' | 'right';
 }
 
 export interface NavixyParam {
