@@ -321,12 +321,19 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
                 )}
               </div>
               {showLegend && legendPosition === 'right' && (
-                <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 self-center" style={{ 
-                  minWidth: '200px', 
-                  maxWidth: '45%',
-                  height: 'clamp(200px, 55%, 400px)',
-                  maxHeight: 'clamp(200px, 55%, 400px)'
-                }}>
+                <div 
+                  className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 self-center" 
+                  style={{ 
+                    minWidth: '200px', 
+                    maxWidth: '45%',
+                    height: 'clamp(200px, 55%, 400px)',
+                    maxHeight: 'clamp(200px, 55%, 400px)',
+                    scrollPaddingTop: '2rem',
+                    scrollPaddingBottom: '2rem',
+                    paddingTop: '2rem',
+                    paddingBottom: '2rem'
+                  }}
+                >
                   {renderCustomLegend({ payload: data.map((entry, index) => ({
                     value: entry.value,
                     name: entry.name,
