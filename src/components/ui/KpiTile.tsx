@@ -1,4 +1,4 @@
-import { Card } from "./Card";
+import { Card } from "./card";
 
 export function KpiTile({ 
   label, 
