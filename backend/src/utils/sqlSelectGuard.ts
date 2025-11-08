@@ -315,27 +315,55 @@ export class SQLSelectGuard {
 
   /**
    * Validate AST for additional security checks
+   * Properly traverses the AST structure to detect dangerous operations
    */
   private static validateAST(ast: any): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
-    const astString = JSON.stringify(ast).toUpperCase();
-
-    // Check for dangerous operations in AST
-    const dangerousKeywords = [
+    const dangerousTypes = [
       'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE',
-      'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL'
+      'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL',
+      'MERGE', 'UPSERT', 'REPLACE'
     ];
-
-    for (const keyword of dangerousKeywords) {
-      if (astString.includes(keyword)) {
-        issues.push({
-          code: 'DANGEROUS_OPERATION',
-          message: `Prohibited operation detected: ${keyword}`
-        });
-        break;
+    
+    // Recursively traverse the AST to find statement types
+    const traverse = (node: any): void => {
+      if (!node || typeof node !== 'object') {
+        return;
       }
-    }
 
+      // Check if this node represents a statement type
+      if (node.type && typeof node.type === 'string') {
+        const nodeType = node.type.toUpperCase();
+        if (dangerousTypes.includes(nodeType)) {
+          issues.push({
+            code: 'DANGEROUS_OPERATION',
+            message: `Prohibited operation detected: ${nodeType}`
+          });
+          return; // Don't traverse further once we found a dangerous operation
+        }
+      }
+
+      // Recursively traverse all properties
+      for (const key in node) {
+        // Skip certain properties that might contain keywords as string values (like column names)
+        // but still traverse objects and arrays
+        if ((key === 'name' || key === 'alias' || key === 'value') && typeof node[key] === 'string') {
+          // These might contain keywords as identifiers (e.g., column named "order"), skip
+          continue;
+        }
+
+        // Traverse arrays and objects
+        if (Array.isArray(node[key])) {
+          for (const item of node[key]) {
+            traverse(item);
+          }
+        } else if (typeof node[key] === 'object' && node[key] !== null) {
+          traverse(node[key]);
+        }
+      }
+    };
+
+    traverse(ast);
     return issues;
   }
 
@@ -389,6 +417,8 @@ export class SQLSelectGuard {
       /XML/i,
       /RANGE/i,
       /MULTIRANGE/i,
+      // Schema-qualified table names (schema.table)
+      /\w+\.\w+/i,
     ];
 
     return postgresqlPatterns.some(pattern => pattern.test(sql));
