@@ -187,6 +187,28 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
 
   const isActive = location.pathname === `/app/report/${report.id}`;
 
+  const handleReportClick = () => {
+    // Don't do anything if clicking the currently active report
+    if (isActive) {
+      return;
+    }
+    
+    // Check if we're currently in editing mode
+    const isEditing = (window as any).__reportEditingState === true;
+    
+    if (isEditing) {
+      // Exit editing mode first, then navigate
+      window.dispatchEvent(new CustomEvent('exit-report-editing'));
+      // Small delay to ensure editing mode exits before navigation
+      setTimeout(() => {
+        navigate(`/app/report/${report.id}`);
+      }, 0);
+    } else {
+      // Navigate immediately if not in editing mode
+      navigate(`/app/report/${report.id}`);
+    }
+  };
+
   return (
     <div ref={setNodeRef} style={style} className="flex items-center group relative">
       {isEditMode && (
@@ -205,7 +227,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
             <TooltipTrigger asChild>
               <SidebarMenuButton 
                 className={`w-full justify-start ${isActive ? 'bg-accent-soft' : ''}`}
-                onClick={() => navigate(`/app/report/${report.id}`)}
+                onClick={handleReportClick}
               >
                 <FileText className="h-4 w-4 flex-shrink-0" />
                 <span className="truncate min-w-0">{report.name}</span>

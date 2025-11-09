@@ -94,6 +94,33 @@ const ReportView = () => {
     }
   }, [isEditing, dashboard]);
 
+  // Track editing state globally for menu navigation interception
+  useEffect(() => {
+    // Store editing state on window for menu component to access
+    (window as any).__reportEditingState = isEditing;
+    
+    // Dispatch custom events for editing state changes
+    if (isEditing) {
+      window.dispatchEvent(new CustomEvent('report-editing-started'));
+    } else {
+      window.dispatchEvent(new CustomEvent('report-editing-ended'));
+    }
+  }, [isEditing]);
+
+  // Listen for exit editing requests from menu navigation
+  useEffect(() => {
+    const handleExitEditing = () => {
+      if (isEditing) {
+        setIsEditing(false);
+      }
+    };
+
+    window.addEventListener('exit-report-editing', handleExitEditing);
+    return () => {
+      window.removeEventListener('exit-report-editing', handleExitEditing);
+    };
+  }, [isEditing]);
+
   // Sync local state with store when exiting layout editing mode
   useEffect(() => {
     const store = useEditorStore.getState();
@@ -156,6 +183,10 @@ const ReportView = () => {
 
       setLoading(true);
       setError(null);
+      // Exit editing mode when switching reports
+      if (isEditing) {
+        setIsEditing(false);
+      }
       // Clear previous dashboard state when switching reports
       setDashboard(null);
       setDashboardConfig(null);
