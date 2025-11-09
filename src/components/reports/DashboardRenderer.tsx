@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info, RefreshCw } from 'lucide-react';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
@@ -39,8 +39,10 @@ export interface DashboardRendererRef {
 interface PanelData {
   [panelId: string]: {
     data: QueryResult | null;
-    loading: boolean;
+    loading: boolean; // True only for initial load or if refresh takes >500ms
+    refreshing: boolean; // True when background refresh is in progress
     error: string | null;
+    lastUpdated?: number; // Timestamp of last successful data update
   };
 }
 
@@ -307,6 +309,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const [error, setError] = useState<string | null>(null);
   const [parameterValues, setParameterValues] = useState<ParameterValues>({});
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
+  const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
+  const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    panelDataRef.current = panelData;
+  }, [panelData]);
   
   // Initialize editor store with dashboard
   const setDashboard = useEditorStore((state) => state.setDashboard);
@@ -694,66 +704,191 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     prevDashboardRef.current = cacheKey;
     
     const executeQueries = async () => {
-      setLoading(true);
+      const isAutoRefresh = isAutoRefreshRef.current;
+      isAutoRefreshRef.current = false; // Reset flag
+      
+      // Only set global loading for initial load, not auto-refresh
+      if (!isAutoRefresh) {
+        setLoading(true);
+      }
       setError(null);
       
       const newPanelData: PanelData = {};
+      const LOADING_THRESHOLD_MS = 500; // Show loading spinner if refresh takes longer than this
       
-      // Initialize panel data
+      // Initialize panel data - preserve old data during auto-refresh
       displayDashboard.panels.forEach(panel => {
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+        const existingData = panelDataRef.current[panel.title];
         
         // For text panels or panels without SQL, don't set loading state
         if (panel.type === 'text' || !hasSql) {
           newPanelData[panel.title] = {
-            data: null,
+            data: existingData?.data || null,
             loading: false,
-            error: null
+            refreshing: false, // Always clear refreshing for non-SQL panels
+            error: null,
+            lastUpdated: existingData?.lastUpdated
           };
+          // Make sure to clear any refresh tracking for these panels
+          delete refreshStartTimesRef.current[panel.title];
         } else {
-          newPanelData[panel.title] = {
-            data: null,
-            loading: true,
-            error: null
-          };
+          // During auto-refresh, preserve old data and set refreshing flag
+          // During initial load, clear data and set loading flag
+          if (isAutoRefresh && existingData?.data) {
+            newPanelData[panel.title] = {
+              data: existingData.data, // Preserve old data
+              loading: false, // Don't show full loading spinner
+              refreshing: true, // Show subtle refresh indicator
+              error: null,
+              lastUpdated: existingData.lastUpdated
+            };
+            // Track when refresh started for timeout mechanism
+            refreshStartTimesRef.current[panel.title] = Date.now();
+          } else {
+            newPanelData[panel.title] = {
+              data: existingData?.data || null, // Preserve existing data during non-auto refresh too
+              loading: true, // Show full loading spinner for initial load
+              refreshing: false,
+              error: null,
+              lastUpdated: existingData?.lastUpdated
+            };
+            // Clear refresh tracking for initial loads
+            delete refreshStartTimesRef.current[panel.title];
+          }
         }
       });
       setPanelData(newPanelData);
 
       // Execute queries for each panel
       for (const panel of displayDashboard.panels) {
-        try {
-          const data = await executePanelQuery(panel, displayDashboard);
-          
-          if (data === null) {
-            // Text panel or no SQL - mark as not loading
-            const navixyConfig = panel['x-navixy'];
-            const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
-            newPanelData[panel.title] = {
-              data: null,
-              loading: false,
-              error: null
-            };
-          } else {
-            newPanelData[panel.title] = {
-              data,
-              loading: false,
-              error: null
+        const panelTitle = panel.title;
+        const navixyConfig = panel['x-navixy'];
+        const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+        
+        // Skip text panels and panels without SQL - they don't need queries
+        if (panel.type === 'text' || !hasSql) {
+          // Ensure refreshing is cleared for these panels
+          if (newPanelData[panelTitle]?.refreshing) {
+            newPanelData[panelTitle] = {
+              ...newPanelData[panelTitle],
+              refreshing: false
             };
           }
-        } catch (err: any) {
-          console.error(`Error executing query for panel ${panel.title}:`, err);
-          newPanelData[panel.title] = {
-            data: null,
+          continue;
+        }
+        
+        const startTime = Date.now();
+        
+        try {
+          const data = await executePanelQuery(panel, displayDashboard);
+          const duration = Date.now() - startTime;
+          
+          // Update data and clear refresh/loading states
+          newPanelData[panelTitle] = {
+            data: data || null,
             loading: false,
-            error: err.message || 'Query execution failed'
+            refreshing: false, // Always clear refreshing when data arrives
+            error: null,
+            lastUpdated: Date.now()
           };
+          
+          // Clear refresh start time
+          delete refreshStartTimesRef.current[panelTitle];
+        } catch (err: any) {
+          console.error(`Error executing query for panel ${panelTitle}:`, err);
+          const existingData = panelDataRef.current[panelTitle];
+          newPanelData[panelTitle] = {
+            data: existingData?.data || null, // Preserve old data on error during refresh
+            loading: false,
+            refreshing: false, // Always clear refreshing even on error
+            error: err.message || 'Query execution failed',
+            lastUpdated: existingData?.lastUpdated
+          };
+          
+          // Clear refresh start time
+          delete refreshStartTimesRef.current[panelTitle];
         }
       }
 
       setPanelData(newPanelData);
       setLoading(false);
+      
+      // Safety timeout: Clear any stuck refreshing states after a reasonable time
+      // This prevents refreshing indicators from getting stuck forever
+      const SAFETY_TIMEOUT_MS = 10000; // 10 seconds max
+      setTimeout(() => {
+        setPanelData(prev => {
+          let updated = false;
+          const updatedData: PanelData = {};
+          
+          Object.entries(prev).forEach(([title, state]) => {
+            // If refreshing has been true for too long, clear it
+            if (state.refreshing && refreshStartTimesRef.current[title]) {
+              const elapsed = Date.now() - refreshStartTimesRef.current[title];
+              if (elapsed > SAFETY_TIMEOUT_MS) {
+                updatedData[title] = {
+                  ...state,
+                  refreshing: false,
+                  loading: false
+                };
+                delete refreshStartTimesRef.current[title];
+                updated = true;
+              }
+            }
+          });
+          
+          return updated ? { ...prev, ...updatedData } : prev;
+        });
+      }, SAFETY_TIMEOUT_MS);
+      
+      // Set up timeout to show loading if refresh takes too long
+      // This handles the case where refresh is slow but we want to show feedback
+      // Only check panels that are still in the ref (haven't completed yet)
+      const stillRefreshing = Object.keys(refreshStartTimesRef.current);
+      stillRefreshing.forEach((title) => {
+        const startTime = refreshStartTimesRef.current[title];
+        if (!startTime) return; // Already cleared
+        
+        const elapsed = Date.now() - startTime;
+        const remaining = LOADING_THRESHOLD_MS - elapsed;
+        
+        if (remaining > 0) {
+          setTimeout(() => {
+            setPanelData(prev => {
+              const panelState = prev[title];
+              // Only show loading if still refreshing and not already loading
+              // Also check if it's still in the ref (hasn't completed)
+              if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[title]) {
+                return {
+                  ...prev,
+                  [title]: {
+                    ...panelState,
+                    loading: true // Show loading spinner if refresh takes too long
+                  }
+                };
+              }
+              return prev;
+            });
+          }, remaining);
+        } else {
+          // Already exceeded threshold, show loading immediately
+          setPanelData(prev => {
+            const panelState = prev[title];
+            if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[title]) {
+              return {
+                ...prev,
+                [title]: {
+                  ...panelState,
+                  loading: true
+                }
+              };
+            }
+            return prev;
+          });
+        }
+      });
     };
 
     executeQueries();
@@ -776,6 +911,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Set up interval to trigger refresh
     const intervalId = setInterval(() => {
+      // Mark as auto-refresh before triggering
+      isAutoRefreshRef.current = true;
       // Increment refreshTrigger to force query re-execution
       setRefreshTrigger(prev => prev + 1);
     }, refreshIntervalMs);
@@ -1441,6 +1578,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return <TextPanel panel={panel} />;
   };
 
+  // Subtle refresh indicator component - just icon, positioned next to title
+  const RefreshIndicator = ({ isRefreshing }: { isRefreshing: boolean }) => {
+    if (!isRefreshing) return null;
+    
+    return (
+      <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+    );
+  };
+
   const renderPanel = (panel: Panel) => {
     const panelState = panelData[panel.title];
     const navixyConfig = panel['x-navixy'];
@@ -1503,25 +1649,35 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     // Map panel types to renderers
+    let panelContent;
     switch (panel.type) {
       case 'stat':
       case 'kpi':
-        return renderKpiPanel(panel, panelState.data);
+        panelContent = renderKpiPanel(panel, panelState.data);
+        break;
       case 'bargauge':
       case 'barchart':
-        return renderBarChartPanel(panel, panelState.data);
+        panelContent = renderBarChartPanel(panel, panelState.data);
+        break;
       case 'piechart':
-        return renderPieChartPanel(panel, panelState.data);
+        panelContent = renderPieChartPanel(panel, panelState.data);
+        break;
       case 'table':
-        return renderTablePanel(panel, panelState.data);
+        panelContent = renderTablePanel(panel, panelState.data);
+        break;
       case 'timeseries':
       case 'linechart':
-        return renderLineChartPanel(panel, panelState.data);
+        panelContent = renderLineChartPanel(panel, panelState.data);
+        break;
       case 'text':
-        return renderTextPanel(panel);
+        panelContent = renderTextPanel(panel);
+        break;
       default:
-        return <div className="text-gray-500">Unsupported panel type: {panel.type}</div>;
+        panelContent = <div className="text-gray-500">Unsupported panel type: {panel.type}</div>;
     }
+
+    // Return panel content directly (refresh indicator is shown in title)
+    return panelContent;
   };
 
   if (loading && Object.keys(panelData).length === 0) {
@@ -1548,11 +1704,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         <Canvas
           renderPanelContent={(panel) => (
             <div>
-              <div className="pb-3">
+              <div className="pb-3 relative">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
                   {getPanelIcon(panel.type)}
                   <span>{panel.title}</span>
                 </h3>
+                <div className="absolute top-0 right-0 flex items-center">
+                  <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
+                </div>
               </div>
               <div>
                 {renderPanel(panel)}
@@ -1600,11 +1759,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           // Add panel title and icon
           return (
             <>
-              <div className="pb-3 flex-shrink-0">
+              <div className="pb-3 flex-shrink-0 relative">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
                   {getPanelIcon(panel.type)}
                   <span>{panel.title}</span>
                 </h3>
+                <div className="absolute top-0 right-0 flex items-center">
+                  <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
+                </div>
               </div>
               <div className="flex-1 overflow-auto relative">
                 {renderPanel(panel)}
