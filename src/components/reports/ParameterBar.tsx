@@ -42,6 +42,7 @@ interface ParameterBarProps {
   values: ParameterValues;
   onChange: (values: ParameterValues) => void;
   className?: string;
+  globalVariables?: Array<{ label: string; value: string; description?: string }>;
 }
 
 interface TimeRangePreset {
@@ -54,7 +55,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   dashboard,
   values,
   onChange,
-  className
+  className,
+  globalVariables = []
 }) => {
   // Get declared parameters from x-navixy.params
   const declaredParams = dashboard['x-navixy']?.params || [];
@@ -158,8 +160,43 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       }
     });
 
+    // Merge Global variables into defaults (Global variables override parameter defaults)
+    // Match Global variable label to parameter name
+    globalVariables.forEach(globalVar => {
+      const paramName = globalVar.label;
+      // Only set if parameter exists and has a value
+      if (allParams.some(p => p.name === paramName) && globalVar.value !== null && globalVar.value !== undefined && globalVar.value !== '') {
+        // Try to parse the value based on parameter type
+        const param = allParams.find(p => p.name === paramName);
+        if (param) {
+          let parsedValue: unknown = globalVar.value;
+          
+          // Parse based on parameter type
+          if (param.type === 'number' || param.type === 'integer') {
+            const numValue = param.type === 'integer' 
+              ? parseInt(globalVar.value, 10)
+              : parseFloat(globalVar.value);
+            if (!isNaN(numValue)) {
+              parsedValue = numValue;
+            }
+          } else if (param.type === 'boolean') {
+            parsedValue = globalVar.value === 'true' || globalVar.value === '1';
+          } else if (param.type === 'time' || param.type === 'datetime') {
+            // Try to parse as date
+            const dateValue = parseTimeExpression(globalVar.value);
+            if (dateValue) {
+              parsedValue = dateValue;
+            }
+          }
+          
+          // Global variables override parameter defaults (set after defaults are set)
+          defaults[paramName] = parsedValue;
+        }
+      }
+    });
+
     return defaults;
-  }, [allParams, defaultTimeRange]);
+  }, [allParams, defaultTimeRange, globalVariables]);
 
   // Sync with URL parameters
   useParameterUrlSync(values, onChange, defaultValues);

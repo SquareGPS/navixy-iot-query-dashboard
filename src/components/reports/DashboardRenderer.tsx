@@ -27,6 +27,7 @@ interface DashboardRendererProps {
   editMode?: boolean;
   onEditPanel?: (panel: Panel) => void;
   onSave?: (dashboard: Dashboard) => Promise<void>;
+  globalVariables?: Array<{ label: string; value: string; description?: string }>;
 }
 
 export interface DashboardRendererRef {
@@ -296,7 +297,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   timeRange = { from: 'now-24h', to: 'now' },
   editMode = false,
   onEditPanel,
-  onSave
+  onSave,
+  globalVariables = []
 }, ref) => {
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
@@ -1562,6 +1564,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             // Increment refresh trigger to force query re-execution
             setRefreshTrigger(prev => prev + 1);
           }}
+          globalVariables={globalVariables}
         />
       ) : null}
 

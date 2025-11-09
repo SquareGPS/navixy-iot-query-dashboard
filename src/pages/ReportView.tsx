@@ -78,6 +78,7 @@ const ReportView = () => {
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
   const [showPanelGallery, setShowPanelGallery] = useState(false);
   const dashboardRendererRef = useRef<DashboardRendererRef>(null);
+  const [globalVariables, setGlobalVariables] = useState<Array<{ label: string; value: string; description?: string }>>([]);
 
   const canEdit = (user?.role === 'admin' || user?.role === 'editor') && !authLoading;
 
@@ -193,7 +194,18 @@ const ReportView = () => {
       setSchema(null);
 
       try {
-        const response = await apiService.getReportById(reportId);
+        // Fetch Global variables in parallel with report
+        const [reportResponse, globalVarsResponse] = await Promise.all([
+          apiService.getReportById(reportId),
+          apiService.getGlobalVariables().catch(() => ({ data: [] })) // Fail silently if Global variables can't be loaded
+        ]);
+
+        // Set Global variables
+        if (globalVarsResponse.data && Array.isArray(globalVarsResponse.data)) {
+          setGlobalVariables(globalVarsResponse.data);
+        }
+
+        const response = reportResponse;
         
         if (response.error) {
           throw new Error(response.error.message || 'Failed to fetch report');
@@ -1730,6 +1742,7 @@ const ReportView = () => {
               setEditingPanel(latestPanel);
             }}
             onSave={handleSaveDashboard}
+            globalVariables={globalVariables}
           />
         ) : (
           /* Empty State - Show example schema download option */
