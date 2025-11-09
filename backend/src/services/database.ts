@@ -282,6 +282,206 @@ export class DatabaseService {
   }
 
   // ==========================================
+  // Global Variables Methods
+  // ==========================================
+
+  async getGlobalVariables(): Promise<any[]> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        // Check if table exists first
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'global_variables'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('global_variables table does not exist yet');
+          return [];
+        }
+
+        const result = await client.query(
+          'SELECT * FROM public.global_variables ORDER BY label ASC'
+        );
+
+        return result.rows;
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      // If table doesn't exist, return empty array instead of error
+      if (error.code === '42P01') { // undefined_table
+        logger.warn('global_variables table does not exist:', error.message);
+        return [];
+      }
+      logger.error('Error getting global variables:', error);
+      throw new CustomError('Failed to get global variables', 500);
+    }
+  }
+
+  async getGlobalVariableById(id: string): Promise<any | null> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT * FROM public.global_variables WHERE id = $1',
+          [id]
+        );
+
+        return result.rows.length > 0 ? result.rows[0] : null;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error getting global variable:', error);
+      throw new CustomError('Failed to get global variable', 500);
+    }
+  }
+
+  async createGlobalVariable(data: {
+    label: string;
+    description?: string;
+    value?: string;
+  }): Promise<any> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        const result = await client.query(
+          `INSERT INTO public.global_variables (label, description, value)
+           VALUES ($1, $2, $3)
+           RETURNING *`,
+          [data.label, data.description || null, data.value || null]
+        );
+
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A variable with this label already exists', 409);
+      }
+      logger.error('Error creating global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to create global variable', 500);
+    }
+  }
+
+  async updateGlobalVariable(id: string, data: {
+    label?: string;
+    description?: string;
+    value?: string;
+  }): Promise<any> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        // Get existing variable
+        const existing = await this.getGlobalVariableById(id);
+        if (!existing) {
+          throw new CustomError('Global variable not found', 404);
+        }
+
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+        let paramIndex = 1;
+
+        // Allow updating all fields
+        if (data.label !== undefined) {
+          updateFields.push(`label = $${paramIndex}`);
+          updateValues.push(data.label);
+          paramIndex++;
+        }
+        if (data.description !== undefined) {
+          updateFields.push(`description = $${paramIndex}`);
+          updateValues.push(data.description);
+          paramIndex++;
+        }
+        if (data.value !== undefined) {
+          updateFields.push(`value = $${paramIndex}`);
+          updateValues.push(data.value);
+          paramIndex++;
+        }
+
+        if (updateFields.length === 0) {
+          return existing;
+        }
+
+        updateFields.push(`updated_at = NOW()`);
+        updateValues.push(id);
+
+        const result = await client.query(
+          `UPDATE public.global_variables 
+           SET ${updateFields.join(', ')}
+           WHERE id = $${paramIndex}
+           RETURNING *`,
+          updateValues
+        );
+
+        if (result.rows.length === 0) {
+          throw new CustomError('Global variable not found', 404);
+        }
+
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A variable with this label already exists', 409);
+      }
+      logger.error('Error updating global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to update global variable', 500);
+    }
+  }
+
+  async deleteGlobalVariable(id: string): Promise<void> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        const result = await client.query(
+          'DELETE FROM public.global_variables WHERE id = $1',
+          [id]
+        );
+
+        if (result.rowCount === 0) {
+          throw new CustomError('Global variable not found', 404);
+        }
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error deleting global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to delete global variable', 500);
+    }
+  }
+
+  async getGlobalVariablesAsMap(): Promise<Record<string, string>> {
+    try {
+      const variables = await this.getGlobalVariables();
+      const map: Record<string, string> = {};
+      
+      variables.forEach(variable => {
+        if (variable.value !== null && variable.value !== undefined) {
+          map[variable.label] = variable.value;
+        }
+      });
+
+      return map;
+    } catch (error) {
+      logger.error('Error getting global variables as map:', error);
+      // Return empty map instead of throwing error
+      return {};
+    }
+  }
+
+  // ==========================================
   // External Database Methods
   // ==========================================
 

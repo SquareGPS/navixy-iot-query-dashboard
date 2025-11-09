@@ -221,6 +221,115 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
 });
 
 // ==========================================
+// Global Variables Routes
+// ==========================================
+
+// Get all global variables
+router.get('/global-variables', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const dbService = DatabaseService.getInstance();
+    const variables = await dbService.getGlobalVariables();
+
+    res.json({
+      success: true,
+      variables
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get global variable by ID
+router.get('/global-variables/:id', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const dbService = DatabaseService.getInstance();
+    const variable = await dbService.getGlobalVariableById(id);
+
+    if (!variable) {
+      throw new CustomError('Global variable not found', 404);
+    }
+
+    res.json({
+      success: true,
+      variable
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Create global variable (admin only)
+router.post('/global-variables', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { label, description, value } = req.body;
+
+    if (!label) {
+      throw new CustomError('Label is required', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const variable = await dbService.createGlobalVariable({
+      label,
+      description,
+      value
+    });
+
+    logger.info(`Global variable created by ${req.user?.email}: ${label}`);
+
+    res.status(201).json({
+      success: true,
+      variable
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update global variable (admin only)
+router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { id } = req.params;
+    const { label, description, value } = req.body;
+
+    const dbService = DatabaseService.getInstance();
+    const variable = await dbService.updateGlobalVariable(id, {
+      label,
+      description,
+      value
+    });
+
+    logger.info(`Global variable updated by ${req.user?.email}: ${variable.label}`);
+
+    res.json({
+      success: true,
+      variable
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete global variable (admin only)
+router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const dbService = DatabaseService.getInstance();
+    await dbService.deleteGlobalVariable(id);
+
+    logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
+
+    res.json({
+      success: true,
+      message: 'Global variable deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
 // Reports and Sections Routes
 // ==========================================
 

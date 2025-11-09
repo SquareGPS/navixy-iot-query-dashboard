@@ -101,8 +101,23 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     });
   }
 
-  // Generate cache key
-  const cacheKey = generateParameterizedCacheKey(statement, params);
+  // Merge global variables into params (global variables have lower priority than explicit params)
+  let mergedParams = { ...params };
+  try {
+    const globalVars = await getDbService().getGlobalVariablesAsMap();
+    // Only add global variables that aren't already in params (explicit params take precedence)
+    Object.entries(globalVars).forEach(([key, value]) => {
+      if (!(key in mergedParams)) {
+        mergedParams[key] = value;
+      }
+    });
+  } catch (error) {
+    logger.warn('Failed to load global variables, continuing without them:', error);
+    // Continue execution without global variables if there's an error
+  }
+
+  // Generate cache key (use merged params for caching)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams);
   
   try {
     // Try to get from cache first
@@ -112,10 +127,10 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       return res.json(JSON.parse(cachedResult));
     }
 
-    // Execute parameterized query
+    // Execute parameterized query with merged params
     const result = await getDbService().executeParameterizedQuery(
       statement, 
-      params, 
+      mergedParams, 
       limits?.timeout_ms || 30000,
       limits?.max_rows || 10000
     );

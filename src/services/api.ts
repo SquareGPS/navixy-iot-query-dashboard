@@ -1,5 +1,6 @@
 // API service for backend communication
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:3001');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.DEV ? '' : 'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:3001');
 
 export interface ApiResponse<T = any> {
   data?: T;
@@ -318,6 +319,51 @@ class ApiService {
   async restoreReport(id: string): Promise<ApiResponse<any>> {
     return this.request(`/api/v1/reports/${id}/restore`, {
       method: 'PATCH',
+    });
+  }
+
+  // Global Variables
+  async getGlobalVariables(): Promise<ApiResponse<any[]>> {
+    const response = await this.request('/api/global-variables');
+    if (response.data && (response.data as any).variables) {
+      return { data: (response.data as any).variables };
+    }
+    return response as ApiResponse<any[]>;
+  }
+
+  async createGlobalVariable(data: {
+    label: string;
+    description?: string;
+    value?: string;
+  }): Promise<ApiResponse<any>> {
+    const response = await this.request('/api/global-variables', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    if (response.data && (response.data as any).variable) {
+      return { data: (response.data as any).variable };
+    }
+    return response;
+  }
+
+  async updateGlobalVariable(id: string, data: {
+    label?: string;
+    description?: string;
+    value?: string;
+  }): Promise<ApiResponse<any>> {
+    const response = await this.request(`/api/global-variables/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    if (response.data && (response.data as any).variable) {
+      return { data: (response.data as any).variable };
+    }
+    return response;
+  }
+
+  async deleteGlobalVariable(id: string): Promise<ApiResponse<any>> {
+    return this.request(`/api/global-variables/${id}`, {
+      method: 'DELETE',
     });
   }
 

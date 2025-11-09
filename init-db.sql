@@ -80,6 +80,16 @@ CREATE TABLE public.reports (
     version INTEGER NOT NULL DEFAULT 1
 );
 
+-- Global variables table
+CREATE TABLE public.global_variables (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    label TEXT NOT NULL UNIQUE,
+    description TEXT,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
 -- ==========================================
 -- Foreign Key Constraints
 -- ==========================================
@@ -252,6 +262,7 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.global_variables ENABLE ROW LEVEL SECURITY;
 
 -- App settings policies
 CREATE POLICY "Only admins can view settings" ON public.app_settings
@@ -280,6 +291,13 @@ CREATE POLICY "Users can view reports" ON public.reports
 
 CREATE POLICY "Admins and editors can manage reports" ON public.reports
   FOR ALL USING (is_admin_or_editor(auth_uid()));
+
+-- Global variables policies
+CREATE POLICY "Users can view global variables" ON public.global_variables
+  FOR SELECT USING (true);
+
+CREATE POLICY "Admins can manage global variables" ON public.global_variables
+  FOR ALL USING (has_role(auth_uid(), 'admin'));
 
 -- ==========================================
 -- Menu Editor Functions
@@ -435,6 +453,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_sort_order ON public.reports(sort_order);
 CREATE INDEX IF NOT EXISTS idx_reports_is_deleted_parent_section_sort_order ON public.reports(is_deleted, section_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_reports_updated_at ON public.reports(updated_at);
 CREATE INDEX IF NOT EXISTS idx_reports_created_by ON public.reports(created_by);
+CREATE INDEX IF NOT EXISTS idx_global_variables_label ON public.global_variables(label);
 
 -- ==========================================
 -- Initial Data
@@ -476,6 +495,11 @@ VALUES (
   '00000000-0000-0000-0000-000000000001'::UUID
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Example global variable (optional - can be removed if not needed)
+INSERT INTO public.global_variables (label, description)
+VALUES ('__client_id', 'Client identifier for multi-tenant scenarios')
+ON CONFLICT (label) DO NOTHING;
 
 -- ==========================================
 -- Database Setup Complete

@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
-import { Loader2, Database, CheckCircle2, XCircle, Settings as SettingsIcon, User } from 'lucide-react';
+import { Loader2, Database, CheckCircle2, XCircle, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const Settings = () => {
   const { user, loading } = useAuth();
@@ -30,6 +31,14 @@ const Settings = () => {
     external_db_ssl: true,
   });
   const [currentSettings, setCurrentSettings] = useState<any>(null);
+  
+  // Global Variables state
+  const [globalVariables, setGlobalVariables] = useState<any[]>([]);
+  const [loadingVariables, setLoadingVariables] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValues, setEditingValues] = useState<Record<string, { label: string; description: string; value: string }>>({});
+  const [newVariable, setNewVariable] = useState({ label: '', description: '', value: '' });
+  const [showNewVariable, setShowNewVariable] = useState(false);
 
 
   // Parse URL to individual parameters
@@ -99,6 +108,7 @@ const Settings = () => {
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchSettings();
+      fetchGlobalVariables();
     }
   }, [user?.role]);
 
@@ -222,6 +232,117 @@ const Settings = () => {
     }
 
     setTesting(false);
+  };
+
+  // Global Variables functions
+  const fetchGlobalVariables = async () => {
+    setLoadingVariables(true);
+    try {
+      const response = await apiService.getGlobalVariables();
+      if (response.error) {
+        console.error('Error fetching global variables:', response.error);
+        toast.error('Failed to load global variables');
+      } else {
+        setGlobalVariables(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching global variables:', error);
+      toast.error('Failed to load global variables');
+    } finally {
+      setLoadingVariables(false);
+    }
+  };
+
+  const handleStartEdit = (variable: any) => {
+    setEditingId(variable.id);
+    setEditingValues({
+      [variable.id]: {
+        label: variable.label,
+        description: variable.description || '',
+        value: variable.value || '',
+      },
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditingValues({});
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    const editData = editingValues[id];
+    if (!editData) return;
+
+    try {
+      const variable = globalVariables.find(v => v.id === id);
+      if (!variable) return;
+
+      const updateData: any = {};
+      if (editData.label !== variable.label) updateData.label = editData.label;
+      if (editData.description !== (variable.description || '')) updateData.description = editData.description;
+      if (editData.value !== (variable.value || '')) updateData.value = editData.value;
+
+      if (Object.keys(updateData).length === 0) {
+        handleCancelEdit();
+        return;
+      }
+
+      const response = await apiService.updateGlobalVariable(id, updateData);
+      if (response.error) {
+        toast.error(response.error.message || 'Failed to update variable');
+      } else {
+        toast.success('Variable updated successfully');
+        await fetchGlobalVariables();
+        handleCancelEdit();
+      }
+    } catch (error: any) {
+      console.error('Error updating variable:', error);
+      toast.error(error.message || 'Failed to update variable');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this variable?')) return;
+
+    try {
+      const response = await apiService.deleteGlobalVariable(id);
+      if (response.error) {
+        toast.error(response.error.message || 'Failed to delete variable');
+      } else {
+        toast.success('Variable deleted successfully');
+        await fetchGlobalVariables();
+      }
+    } catch (error: any) {
+      console.error('Error deleting variable:', error);
+      toast.error(error.message || 'Failed to delete variable');
+    }
+  };
+
+  const handleCreateVariable = async () => {
+    if (!newVariable.label.trim()) {
+      toast.error('Label is required');
+      return;
+    }
+
+    try {
+      const response = await apiService.createGlobalVariable({
+        label: newVariable.label.trim(),
+        description: newVariable.description.trim() || undefined,
+        value: newVariable.value.trim() || undefined,
+      });
+
+      if (response.error) {
+        toast.error(response.error.message || 'Failed to create variable');
+      } else {
+        toast.success('Variable created successfully');
+        setNewVariable({ label: '', description: '', value: '' });
+        setShowNewVariable(false);
+        await fetchGlobalVariables();
+      }
+    } catch (error: any) {
+      console.error('Error creating variable:', error);
+      toast.error(error.message || 'Failed to create variable');
+    }
   };
 
   if (loading || user?.role !== 'admin') {
@@ -470,6 +591,228 @@ const Settings = () => {
                       </Button>
                     </div>
                   </div>
+                </div>
+              </Card>
+
+              {/* Global Variables Panel */}
+              <Card className="mt-6">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                      <Variable className="h-5 w-5" />
+                      Global Variables
+                    </h2>
+                    <p className="text-sm text-text-muted">
+                      Define global variables that can be used in SQL queries using <code className="text-xs bg-muted px-1 py-0.5 rounded">${'{variable_name}'}</code> syntax.
+                    </p>
+                  </div>
+
+                  {loadingVariables ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="border rounded-lg overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="w-[200px]">Label</TableHead>
+                              <TableHead className="w-[250px]">Description</TableHead>
+                              <TableHead>Value</TableHead>
+                              <TableHead className="w-[100px]">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {globalVariables.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                                  No global variables defined
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              globalVariables.map((variable) => {
+                                const isEditing = editingId === variable.id;
+                                const editData = editingValues[variable.id] || {
+                                  label: variable.label,
+                                  description: variable.description || '',
+                                  value: variable.value || '',
+                                };
+
+                                return (
+                                  <TableRow key={variable.id}>
+                                    <TableCell>
+                                      {isEditing ? (
+                                        <Input
+                                          value={editData.label}
+                                          onChange={(e) =>
+                                            setEditingValues({
+                                              ...editingValues,
+                                              [variable.id]: { ...editData, label: e.target.value },
+                                            })
+                                          }
+                                          className="h-8 text-sm"
+                                          placeholder="Variable name"
+                                        />
+                                      ) : (
+                                        <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                          ${'{'}{variable.label}{'}'}
+                                        </code>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {isEditing ? (
+                                        <Input
+                                          value={editData.description}
+                                          onChange={(e) =>
+                                            setEditingValues({
+                                              ...editingValues,
+                                              [variable.id]: { ...editData, description: e.target.value },
+                                            })
+                                          }
+                                          className="h-8 text-sm"
+                                          placeholder="Description (optional)"
+                                        />
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">
+                                          {variable.description || '—'}
+                                        </span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {isEditing ? (
+                                        <Input
+                                          value={editData.value}
+                                          onChange={(e) =>
+                                            setEditingValues({
+                                              ...editingValues,
+                                              [variable.id]: { ...editData, value: e.target.value },
+                                            })
+                                          }
+                                          className="h-8 text-sm"
+                                          placeholder="Value (optional)"
+                                        />
+                                      ) : (
+                                        <span className="text-sm font-mono">
+                                          {variable.value || <span className="text-muted-foreground">—</span>}
+                                        </span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {isEditing ? (
+                                        <div className="flex items-center gap-1">
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => handleSaveEdit(variable.id)}
+                                            className="h-7 w-7 p-0"
+                                          >
+                                            <Save className="h-3 w-3" />
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={handleCancelEdit}
+                                            className="h-7 w-7 p-0"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1">
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => handleStartEdit(variable)}
+                                            className="h-7 w-7 p-0"
+                                          >
+                                            <Edit2 className="h-3 w-3" />
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => handleDelete(variable.id)}
+                                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {showNewVariable ? (
+                        <div className="border rounded-lg p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-medium">Add New Variable</h3>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setShowNewVariable(false);
+                                setNewVariable({ label: '', description: '', value: '' });
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Label *</Label>
+                              <Input
+                                value={newVariable.label}
+                                onChange={(e) => setNewVariable({ ...newVariable, label: e.target.value })}
+                                placeholder="variable_name"
+                                className="h-8 text-sm"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Description</Label>
+                              <Input
+                                value={newVariable.description}
+                                onChange={(e) => setNewVariable({ ...newVariable, description: e.target.value })}
+                                placeholder="Optional description"
+                                className="h-8 text-sm"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Value</Label>
+                              <Input
+                                value={newVariable.value}
+                                onChange={(e) => setNewVariable({ ...newVariable, value: e.target.value })}
+                                placeholder="Optional value"
+                                className="h-8 text-sm"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end">
+                            <Button size="sm" onClick={handleCreateVariable}>
+                              Create Variable
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setShowNewVariable(true)}
+                            className="flex items-center gap-2"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add Variable
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </Card>
             </TabsContent>
