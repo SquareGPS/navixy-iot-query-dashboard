@@ -13,6 +13,7 @@ import { canonicalizeRows } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
+import { parseRefreshInterval } from '@/utils/refreshParser';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
@@ -757,6 +758,33 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     executeQueries();
   }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, isEditingLayout]);
+
+  // Auto-refresh functionality based on dashboard.refresh field
+  useEffect(() => {
+    // Don't auto-refresh when in edit mode or layout editing mode
+    if (editMode || isEditingLayout) {
+      return;
+    }
+
+    // Parse refresh interval from dashboard
+    const refreshIntervalMs = parseRefreshInterval(dashboard.refresh);
+    
+    // If no valid refresh interval, don't set up auto-refresh
+    if (!refreshIntervalMs) {
+      return;
+    }
+
+    // Set up interval to trigger refresh
+    const intervalId = setInterval(() => {
+      // Increment refreshTrigger to force query re-execution
+      setRefreshTrigger(prev => prev + 1);
+    }, refreshIntervalMs);
+
+    // Clean up interval on unmount or when dependencies change
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [dashboard.refresh, editMode, isEditingLayout]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
