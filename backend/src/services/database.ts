@@ -632,9 +632,10 @@ export class DatabaseService {
   // Global Variables Methods
   // ==========================================
 
-  async getGlobalVariables(): Promise<any[]> {
+  async getGlobalVariables(pool?: Pool): Promise<any[]> {
+    const dbPool = pool || this.appPool;
     try {
-      const client = await this.appPool.connect();
+      const client = await dbPool.connect();
       
       try {
         // Check if table exists first
@@ -670,9 +671,10 @@ export class DatabaseService {
     }
   }
 
-  async getGlobalVariableById(id: string): Promise<any | null> {
+  async getGlobalVariableById(id: string, pool?: Pool): Promise<any | null> {
+    const dbPool = pool || this.appPool;
     try {
-      const client = await this.appPool.connect();
+      const client = await dbPool.connect();
       
       try {
         const result = await client.query(
@@ -694,9 +696,10 @@ export class DatabaseService {
     label: string;
     description?: string;
     value?: string;
-  }): Promise<any> {
+  }, pool?: Pool): Promise<any> {
+    const dbPool = pool || this.appPool;
     try {
-      const client = await this.appPool.connect();
+      const client = await dbPool.connect();
       
       try {
         const result = await client.query(
@@ -723,13 +726,14 @@ export class DatabaseService {
     label?: string;
     description?: string;
     value?: string;
-  }): Promise<any> {
+  }, pool?: Pool): Promise<any> {
+    const dbPool = pool || this.appPool;
     try {
-      const client = await this.appPool.connect();
+      const client = await dbPool.connect();
       
       try {
         // Get existing variable
-        const existing = await this.getGlobalVariableById(id);
+        const existing = await this.getGlobalVariableById(id, dbPool);
         if (!existing) {
           throw new CustomError('Global variable not found', 404);
         }
@@ -787,9 +791,10 @@ export class DatabaseService {
     }
   }
 
-  async deleteGlobalVariable(id: string): Promise<void> {
+  async deleteGlobalVariable(id: string, pool?: Pool): Promise<void> {
+    const dbPool = pool || this.appPool;
     try {
-      const client = await this.appPool.connect();
+      const client = await dbPool.connect();
       
       try {
         const result = await client.query(
@@ -809,9 +814,9 @@ export class DatabaseService {
     }
   }
 
-  async getGlobalVariablesAsMap(): Promise<Record<string, string>> {
+  async getGlobalVariablesAsMap(pool?: Pool): Promise<Record<string, string>> {
     try {
-      const variables = await this.getGlobalVariables();
+      const variables = await this.getGlobalVariables(pool);
       const map: Record<string, string> = {};
       
       variables.forEach(variable => {

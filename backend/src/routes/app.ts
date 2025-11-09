@@ -298,7 +298,8 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
 router.get('/global-variables', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const variables = await dbService.getGlobalVariables();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const variables = await dbService.getGlobalVariables(pool);
 
     res.json({
       success: true,
@@ -313,8 +314,12 @@ router.get('/global-variables', authenticateToken, async (req: AuthenticatedRequ
 router.get('/global-variables/:id', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
+    if (!id) {
+      throw new CustomError('Variable ID is required', 400);
+    }
     const dbService = DatabaseService.getInstance();
-    const variable = await dbService.getGlobalVariableById(id);
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const variable = await dbService.getGlobalVariableById(id as string, pool);
 
     if (!variable) {
       throw new CustomError('Global variable not found', 404);
@@ -339,11 +344,12 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
     }
 
     const dbService = DatabaseService.getInstance();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
     const variable = await dbService.createGlobalVariable({
       label,
       description,
       value
-    });
+    }, pool);
 
     logger.info(`Global variable created by ${req.user?.email}: ${label}`);
 
@@ -360,14 +366,18 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
 router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
+    if (!id) {
+      throw new CustomError('Variable ID is required', 400);
+    }
     const { label, description, value } = req.body;
 
     const dbService = DatabaseService.getInstance();
-    const variable = await dbService.updateGlobalVariable(id, {
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const variable = await dbService.updateGlobalVariable(id as string, {
       label,
       description,
       value
-    });
+    }, pool);
 
     logger.info(`Global variable updated by ${req.user?.email}: ${variable.label}`);
 
@@ -384,9 +394,13 @@ router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req:
 router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
+    if (!id) {
+      throw new CustomError('Variable ID is required', 400);
+    }
 
     const dbService = DatabaseService.getInstance();
-    await dbService.deleteGlobalVariable(id);
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    await dbService.deleteGlobalVariable(id as string, pool);
 
     logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
 

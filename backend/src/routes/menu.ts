@@ -18,7 +18,8 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
     const includeDeleted = include_deleted === 'true';
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Use the database function to get the menu tree
@@ -68,7 +69,8 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       logger.info('Starting database transaction');
@@ -262,7 +264,8 @@ router.patch('/v1/sections/:id', authenticateToken, requireAdminOrEditor, async 
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Check version for optimistic concurrency
@@ -317,7 +320,8 @@ router.patch('/v1/reports/:id', authenticateToken, requireAdminOrEditor, async (
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Check version for optimistic concurrency
@@ -368,7 +372,8 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
@@ -450,7 +455,8 @@ router.patch('/v1/reports/:id/delete', authenticateToken, requireAdminOrEditor, 
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Check if report exists
@@ -490,7 +496,8 @@ router.patch('/v1/sections/:id/restore', authenticateToken, requireAdminOrEditor
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Check if section exists and is deleted
@@ -530,7 +537,8 @@ router.patch('/v1/reports/:id/restore', authenticateToken, requireAdminOrEditor,
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // Check if report exists and is deleted
