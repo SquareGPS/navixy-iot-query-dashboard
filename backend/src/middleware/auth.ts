@@ -9,7 +9,6 @@ export interface AuthenticatedRequest extends Request {
     userId: string;
     email: string;
     role: string;
-    connectionHash?: string;
   };
 }
 
@@ -30,14 +29,12 @@ export const authenticateToken = async (
     
     // Verify user still exists and get current role
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(decoded.connectionHash);
-    const userRole = await dbService.getUserRole(decoded.userId, pool);
+    const userRole = await dbService.getUserRole(decoded.userId, dbService.appPool);
 
     req.user = {
       userId: decoded.userId,
       email: decoded.email,
-      role: userRole,
-      connectionHash: decoded.connectionHash
+      role: userRole
     };
 
     next();

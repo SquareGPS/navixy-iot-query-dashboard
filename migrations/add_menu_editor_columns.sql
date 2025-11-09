@@ -138,11 +138,14 @@ BEGIN
           'name', name,
           'sortOrder', sort_order,
           'version', version
-        )
+        ) ORDER BY sort_order
       )
-      FROM public.sections
-      WHERE (_include_deleted = TRUE OR is_deleted = FALSE)
-      ORDER BY sort_order
+      FROM (
+        SELECT id, name, sort_order, version
+        FROM public.sections
+        WHERE (_include_deleted = TRUE OR is_deleted = FALSE)
+        ORDER BY sort_order
+      ) s
     ),
     'rootReports', (
       SELECT jsonb_agg(
@@ -151,12 +154,15 @@ BEGIN
           'name', title,
           'sortOrder', sort_order,
           'version', version
-        )
+        ) ORDER BY sort_order
       )
-      FROM public.reports
-      WHERE section_id IS NULL 
-        AND (_include_deleted = TRUE OR is_deleted = FALSE)
-      ORDER BY sort_order
+      FROM (
+        SELECT id, title, sort_order, version
+        FROM public.reports
+        WHERE section_id IS NULL 
+          AND (_include_deleted = TRUE OR is_deleted = FALSE)
+        ORDER BY sort_order
+      ) r
     ),
     'sectionReports', (
       SELECT jsonb_object_agg(
@@ -172,7 +178,7 @@ BEGIN
               'name', title,
               'sortOrder', sort_order,
               'version', version
-            )
+            ) ORDER BY sort_order
           ) as reports
         FROM public.reports
         WHERE section_id IS NOT NULL 

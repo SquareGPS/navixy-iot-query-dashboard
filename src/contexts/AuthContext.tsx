@@ -7,22 +7,11 @@ interface User {
   role: 'admin' | 'editor' | 'viewer';
 }
 
-interface DatabaseConnection {
-  connectionType: 'url' | 'direct';
-  url?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  user?: string;
-  password?: string;
-  ssl?: boolean;
-}
-
 interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  signIn: (email: string, password: string, dbConnection?: DatabaseConnection) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -86,14 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password: string, dbConnection?: DatabaseConnection) => {
+  const signIn = async (email: string, password: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password, dbConnection }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
@@ -102,10 +91,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setToken(data.token);
         localStorage.setItem('auth_token', data.token);
-        // Store database connection info in localStorage for subsequent requests
-        if (dbConnection) {
-          localStorage.setItem('db_connection', JSON.stringify(dbConnection));
-        }
         navigate('/app');
         return { error: null };
       } else {
@@ -118,7 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     localStorage.removeItem('auth_token');
-    localStorage.removeItem('db_connection');
     setToken(null);
     setUser(null);
     navigate('/login');

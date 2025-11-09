@@ -15,26 +15,22 @@ const router = Router();
 // Login
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password, dbConnection } = req.body;
+    const { email, password } = req.body;
 
     if (!email || !password) {
       throw new CustomError('Email and password are required', 400);
     }
 
-    logger.info('Login attempt', { 
-      email, 
-      hasDbConnection: !!dbConnection,
-      connectionType: dbConnection?.connectionType 
-    });
+    logger.info('Login attempt', { email });
 
     const dbService = DatabaseService.getInstance();
-    const result = await dbService.authenticateUser(email, password, dbConnection);
+    const result = await dbService.authenticateUser(email, password);
 
     if (!result) {
       throw new CustomError('Invalid credentials', 401);
     }
 
-    logger.info(`User logged in: ${email}`, { connectionHash: result.connectionHash });
+    logger.info(`User logged in: ${email}`);
 
     // Extract role from token
     const decoded = jwt.verify(result.token, process.env.JWT_SECRET || 'fallback-secret') as any;
@@ -61,8 +57,7 @@ router.post('/auth/login', async (req, res, next) => {
 router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
-    const role = await dbService.getUserRole(req.user?.userId || '', pool);
+    const role = await dbService.getUserRole(req.user?.userId || '', dbService.appPool);
 
     res.json({
       success: true,
@@ -80,39 +75,29 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res,
 // Test metadata database connection (public endpoint, no auth required)
 router.post('/auth/test-metadata-connection', async (req, res, next) => {
   try {
-    const { dbConnection } = req.body;
-
-    logger.info('Received test-metadata-connection request', {
-      hasDbConnection: !!dbConnection,
-      connectionType: dbConnection?.connectionType,
-      hasUrl: !!dbConnection?.url,
-      hasHost: !!dbConnection?.host
-    });
-
-    if (!dbConnection) {
-      throw new CustomError('Database connection configuration is required', 400);
-    }
+    const { external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl } = req.body;
 
     const dbService = DatabaseService.getInstance();
     
-    // Test the connection by trying to create/get a pool
+    const testSettings = {
+      external_db_url,
+      external_db_host,
+      external_db_port,
+      external_db_name,
+      external_db_user,
+      external_db_password,
+      external_db_ssl
+    };
+
+    // Test the connection
     try {
-      logger.info('Calling testMetadataConnection...');
-      await dbService.testMetadataConnection(dbConnection);
-      logger.info('testMetadataConnection completed successfully');
+      await dbService.testDatabaseConnection(testSettings);
       
       res.json({
         success: true,
         message: 'Database connection successful'
       });
     } catch (error) {
-      logger.error('Error in test-metadata-connection endpoint:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorType: error?.constructor?.name,
-        isCustomError: error instanceof CustomError,
-        stack: error instanceof Error ? error.stack : undefined
-      });
-
       if (error instanceof CustomError) {
         throw error;
       }
@@ -122,10 +107,6 @@ router.post('/auth/test-metadata-connection', async (req, res, next) => {
       );
     }
   } catch (error) {
-    logger.error('Final error handler in test-metadata-connection:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      statusCode: error instanceof CustomError ? error.statusCode : 500
-    });
     next(error);
   }
 });
@@ -133,7 +114,7 @@ router.post('/auth/test-metadata-connection', async (req, res, next) => {
 // Public registration (for first admin user)
 router.post('/auth/register', async (req, res, next) => {
   try {
-    const { email, password, role = 'viewer', dbConnection } = req.body;
+    const { email, password, role = 'viewer' } = req.body;
 
     if (!email || !password) {
       throw new CustomError('Email and password are required', 400);
@@ -146,7 +127,7 @@ router.post('/auth/register', async (req, res, next) => {
     const dbService = DatabaseService.getInstance();
     
     // Check if this is the first user (no users exist)
-    const existingUsers = await dbService.getUsers(dbConnection);
+    const existingUsers = await dbService.getUsers();
     
     // If users exist, require admin authentication
     if (existingUsers.length > 0) {
@@ -155,7 +136,7 @@ router.post('/auth/register', async (req, res, next) => {
     }
 
     // Create first admin user
-    const user = await dbService.createUser(email, password, 'admin', dbConnection);
+    const user = await dbService.createUser(email, password, 'admin');
 
     logger.info(`First admin user created: ${email}`);
 
@@ -231,7 +212,7 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res,
 router.get('/settings', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const settings = await dbService.getAppSettings(pool);
 
     res.json({
@@ -247,7 +228,7 @@ router.get('/settings', authenticateToken, async (req: AuthenticatedRequest, res
 router.put('/settings', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     await dbService.updateAppSettings(req.body, pool);
 
     logger.info(`App settings updated by ${req.user?.email}`);
@@ -298,7 +279,7 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
 router.get('/global-variables', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const variables = await dbService.getGlobalVariables(pool);
 
     res.json({
@@ -318,7 +299,7 @@ router.get('/global-variables/:id', authenticateToken, async (req: Authenticated
       throw new CustomError('Variable ID is required', 400);
     }
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const variable = await dbService.getGlobalVariableById(id as string, pool);
 
     if (!variable) {
@@ -344,7 +325,7 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const variable = await dbService.createGlobalVariable({
       label,
       description,
@@ -372,7 +353,7 @@ router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req:
     const { label, description, value } = req.body;
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const variable = await dbService.updateGlobalVariable(id as string, {
       label,
       description,
@@ -399,7 +380,7 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     await dbService.deleteGlobalVariable(id as string, pool);
 
     logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
@@ -421,7 +402,7 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const sections = await dbService.getSections(pool);
 
     res.json({
@@ -437,7 +418,7 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
 router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const reports = await dbService.getReports(pool);
 
     res.json({
@@ -457,7 +438,7 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
       throw new CustomError('Report ID is required', 400);
     }
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const report = await dbService.getReportById(id, pool);
 
     if (!report) {
@@ -483,7 +464,7 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -517,7 +498,7 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -561,7 +542,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
     const { moveReportsToSection } = req.query; // Optional: move reports to another section
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -656,7 +637,7 @@ router.put('/sections/reorder', authenticateToken, requireAdminOrEditor, async (
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -702,7 +683,7 @@ router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (r
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -758,7 +739,7 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -801,7 +782,7 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -850,7 +831,7 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {

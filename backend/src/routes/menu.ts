@@ -18,7 +18,7 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
     const includeDeleted = include_deleted === 'true';
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -69,7 +69,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -264,7 +264,7 @@ router.patch('/v1/sections/:id', authenticateToken, requireAdminOrEditor, async 
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -320,7 +320,7 @@ router.patch('/v1/reports/:id', authenticateToken, requireAdminOrEditor, async (
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -372,7 +372,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
     }
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -455,7 +455,7 @@ router.patch('/v1/reports/:id/delete', authenticateToken, requireAdminOrEditor, 
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -496,7 +496,7 @@ router.patch('/v1/sections/:id/restore', authenticateToken, requireAdminOrEditor
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
@@ -537,7 +537,7 @@ router.patch('/v1/reports/:id/restore', authenticateToken, requireAdminOrEditor,
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {

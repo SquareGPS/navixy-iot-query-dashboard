@@ -105,7 +105,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
   let mergedParams = { ...params };
   try {
     const dbService = getDbService();
-    const appPool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const appPool = dbService.appPool;
     const globalVars = await dbService.getGlobalVariablesAsMap(appPool);
     // Only add global variables that aren't already in params (explicit params take precedence)
     Object.entries(globalVars).forEach(([key, value]) => {

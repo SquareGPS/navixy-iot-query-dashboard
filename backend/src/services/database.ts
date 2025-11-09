@@ -16,16 +16,6 @@ export interface DatabaseConfig {
   ssl?: boolean;
 }
 
-export interface OrganizationDatabaseConnection {
-  connectionType: 'url' | 'direct';
-  url?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  user?: string;
-  password?: string;
-  ssl?: boolean;
-}
 
 export interface QueryResult {
   columns: string[];
@@ -73,11 +63,6 @@ export class DatabaseService {
   private static instance: DatabaseService;
   public appPool: Pool;
   private externalPools: Map<string, Pool> = new Map();
-  // Map to store organization-specific metadata database pools
-  // Key: connection hash (based on connection string without password)
-  private organizationPools: Map<string, Pool> = new Map();
-  // Map to store passwords for organization pools (keyed by connection hash)
-  private organizationPasswords: Map<string, string> = new Map();
 
   constructor() {
     // Initialize app database connection
@@ -120,27 +105,25 @@ export class DatabaseService {
     }
   }
 
-  // Test metadata database connection (for login screen)
-  async testMetadataConnection(connection: OrganizationDatabaseConnection): Promise<void> {
-    logger.info('Starting metadata connection test', {
-      connectionType: connection.connectionType,
-      hasUrl: !!connection.url,
-      hasHost: !!connection.host,
-      hasDatabase: !!connection.database,
-      hasUser: !!connection.user
-    });
-
+  // Test database connection (for settings page)
+  async testDatabaseConnection(settings: any): Promise<void> {
     try {
-      const config = this.parseConnectionToConfig(connection);
-      
-      logger.info('Parsed connection config', {
-        hostname: config.hostname,
-        port: config.port,
-        database: config.database,
-        user: config.user,
-        hasPassword: !!config.password,
-        ssl: config.ssl
-      });
+      let config: DatabaseConfig;
+
+      if (settings.external_db_url) {
+        config = this.parsePostgresUrl(settings.external_db_url);
+      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
+        config = {
+          user: settings.external_db_user,
+          password: settings.external_db_password || '',
+          database: settings.external_db_name,
+          hostname: settings.external_db_host,
+          port: settings.external_db_port || 5432,
+          ssl: settings.external_db_ssl || false,
+        };
+      } else {
+        throw new CustomError('Incomplete database configuration provided for testing', 400);
+      }
       
       // Create a temporary pool for testing
       const poolConfig = {
@@ -182,7 +165,7 @@ export class DatabaseService {
           result: result.rows[0]
         });
 
-        logger.info('Metadata database connection test successful', {
+        logger.info('Database connection test successful', {
           host: config.hostname,
           port: config.port,
           database: config.database,
@@ -196,7 +179,7 @@ export class DatabaseService {
         const errorAddress = (error as any)?.address;
         const errorPort = (error as any)?.port;
         
-        logger.error('Metadata database connection test failed - detailed error:', {
+        logger.error('Database connection test failed - detailed error:', {
           host: config.hostname,
           port: config.port,
           database: config.database,
@@ -241,7 +224,7 @@ export class DatabaseService {
         });
         throw error;
       }
-      logger.error('Unexpected error testing metadata connection:', {
+      logger.error('Unexpected error testing database connection:', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         errorType: error?.constructor?.name
@@ -254,178 +237,15 @@ export class DatabaseService {
   }
 
   // ==========================================
-  // Organization Database Connection Methods
-  // ==========================================
-
-  private getConnectionHash(connection: OrganizationDatabaseConnection): string {
-    // Create a hash based on connection details (without password for key)
-    const key = connection.connectionType === 'url' 
-      ? connection.url || ''
-      : `${connection.host}:${connection.port}/${connection.database}/${connection.user}`;
-    
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      const char = key.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash).toString(36);
-  }
-
-  private parseConnectionToConfig(connection: OrganizationDatabaseConnection): DatabaseConfig {
-    try {
-      if (connection.connectionType === 'url' && connection.url) {
-        if (!connection.url.trim()) {
-          throw new CustomError('Database URL cannot be empty', 400);
-        }
-        return this.parsePostgresUrl(connection.url);
-      } else if (connection.host && connection.database && connection.user) {
-        // Normalize localhost to IPv4, and handle Docker networking
-        let hostname = connection.host;
-        if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || hostname === '127.0.0.1') {
-          // If running in Docker, use host.docker.internal to reach host machine
-          // Check if we're in Docker by looking for /.dockerenv file or DOCKER_ENV env var
-          const isDocker = process.env.DOCKER_ENV === 'true' || existsSync('/.dockerenv');
-          hostname = isDocker ? 'host.docker.internal' : '127.0.0.1';
-          logger.info('Normalized localhost', { 
-            original: connection.host, 
-            normalized: hostname,
-            isDocker 
-          });
-        }
-        
-        return {
-          user: connection.user,
-          password: connection.password || '',
-          database: connection.database,
-          hostname: hostname,
-          port: connection.port || 5432,
-          ssl: connection.ssl || false,
-        };
-      } else {
-        throw new CustomError('Invalid database connection configuration. Please provide either a connection URL or host/database/user details.', 400);
-      }
-    } catch (error) {
-      if (error instanceof CustomError) {
-        throw error;
-      }
-      logger.error('Error parsing connection config:', error);
-      throw new CustomError(`Invalid database connection: ${error instanceof Error ? error.message : 'Unknown error'}`, 400);
-    }
-  }
-
-  private async getOrganizationPool(connection: OrganizationDatabaseConnection): Promise<Pool> {
-    const connectionHash = this.getConnectionHash(connection);
-    
-    if (!this.organizationPools.has(connectionHash)) {
-      let config: DatabaseConfig;
-      try {
-        config = this.parseConnectionToConfig(connection);
-      } catch (error) {
-        logger.error('Failed to parse connection config:', error);
-        throw error;
-      }
-      
-      const pool = new Pool({
-        user: config.user,
-        password: config.password,
-        database: config.database,
-        host: config.hostname,
-        port: config.port,
-        ssl: config.ssl ? { rejectUnauthorized: false } : false,
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000, // Increased timeout for initial connection
-      });
-
-      // Test connection
-      let client: PoolClient | null = null;
-      try {
-        client = await pool.connect();
-        await client.query('SELECT 1');
-        logger.info(`Successfully connected to organization database: ${config.hostname}:${config.port}/${config.database}`);
-      } catch (error) {
-        await pool.end();
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        logger.error('Failed to connect to organization database:', {
-          host: config.hostname,
-          port: config.port,
-          database: config.database,
-          user: config.user,
-          error: errorMessage
-        });
-        throw new CustomError(`Failed to connect to database: ${errorMessage}. Please check your connection settings.`, 400);
-      } finally {
-        if (client) {
-          client.release();
-        }
-      }
-
-      this.organizationPools.set(connectionHash, pool);
-      // Store password for this connection (in memory only)
-      if (connection.password) {
-        this.organizationPasswords.set(connectionHash, connection.password);
-      }
-      
-      logger.info(`Created organization database pool: ${connectionHash}`);
-    }
-
-    return this.organizationPools.get(connectionHash)!;
-  }
-
-  getConnectionHashForToken(connection: OrganizationDatabaseConnection): string {
-    return this.getConnectionHash(connection);
-  }
-
-  async getOrganizationPoolByHash(connectionHash: string): Promise<Pool | null> {
-    return this.organizationPools.get(connectionHash) || null;
-  }
-
-  // ==========================================
   // Authentication Methods
   // ==========================================
 
   async authenticateUser(
     email: string, 
-    password: string, 
-    dbConnection?: OrganizationDatabaseConnection
-  ): Promise<{ user: User; token: string; connectionHash: string } | null> {
+    password: string
+  ): Promise<{ user: User; token: string } | null> {
     try {
-      // Validate dbConnection if provided
-      let pool: Pool;
-      let connectionHash = 'default';
-      
-      if (dbConnection) {
-        // Check if dbConnection has required fields
-        const hasUrl = dbConnection.connectionType === 'url' && dbConnection.url && dbConnection.url.trim();
-        const hasDirect = dbConnection.connectionType === 'direct' && 
-          dbConnection.host && dbConnection.database && dbConnection.user;
-        
-        if (!hasUrl && !hasDirect) {
-          logger.warn('Invalid dbConnection provided, using default app pool', { dbConnection });
-          pool = this.appPool;
-        } else {
-          try {
-            pool = await this.getOrganizationPool(dbConnection);
-            connectionHash = this.getConnectionHash(dbConnection);
-          } catch (error) {
-            // If connection fails, preserve the error message
-            if (error instanceof CustomError) {
-              throw error;
-            }
-            logger.error('Failed to get organization pool:', error);
-            throw new CustomError(
-              `Database connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-              400
-            );
-          }
-        }
-      } else {
-        pool = this.appPool;
-      }
-      
-      const client = await pool.connect();
+      const client = await this.appPool.connect();
       
       try {
         const result = await client.query(
@@ -450,19 +270,18 @@ export class DatabaseService {
           [user.id]
         );
 
-        // Generate JWT token with connection hash
+        // Generate JWT token
         const token = jwt.sign(
           { 
             userId: user.id, 
             email: user.email,
-            role: await this.getUserRole(user.id, pool),
-            connectionHash: connectionHash
+            role: await this.getUserRole(user.id, this.appPool)
           },
           process.env.JWT_SECRET || 'fallback-secret',
           { expiresIn: '24h' }
         );
 
-        return { user, token, connectionHash };
+        return { user, token };
       } finally {
         client.release();
       }
@@ -507,16 +326,10 @@ export class DatabaseService {
   async createUser(
     email: string, 
     password: string, 
-    role: string = 'viewer',
-    dbConnection?: OrganizationDatabaseConnection
+    role: string = 'viewer'
   ): Promise<User> {
     try {
-      // Use organization database if provided, otherwise use default app pool
-      const pool = dbConnection 
-        ? await this.getOrganizationPool(dbConnection)
-        : this.appPool;
-      
-      const client = await pool.connect();
+      const client = await this.appPool.connect();
       
       try {
         const passwordHash = await bcrypt.hash(password, 10);
@@ -546,14 +359,9 @@ export class DatabaseService {
     }
   }
 
-  async getUsers(dbConnection?: OrganizationDatabaseConnection): Promise<User[]> {
+  async getUsers(): Promise<User[]> {
     try {
-      // Use organization database if provided, otherwise use default app pool
-      const pool = dbConnection 
-        ? await this.getOrganizationPool(dbConnection)
-        : this.appPool;
-      
-      const client = await pool.connect();
+      const client = await this.appPool.connect();
       
       try {
         const result = await client.query(
@@ -603,12 +411,11 @@ export class DatabaseService {
       try {
         await client.query(
           `UPDATE public.app_settings 
-           SET organization_name = $1, timezone = $2, external_db_url = $3,
-               external_db_host = $4, external_db_port = $5, external_db_name = $6,
-               external_db_user = $7, external_db_password = $8, external_db_ssl = $9
+           SET timezone = $1, external_db_url = $2,
+               external_db_host = $3, external_db_port = $4, external_db_name = $5,
+               external_db_user = $6, external_db_password = $7, external_db_ssl = $8
            WHERE id = 1`,
           [
-            settings.organization_name,
             settings.timezone,
             settings.external_db_url,
             settings.external_db_host,
@@ -1334,26 +1141,6 @@ export class DatabaseService {
       logger.info(`Closed external database pool: ${key}`);
     }
     this.externalPools.clear();
-
-    for (const [key, pool] of this.organizationPools) {
-      await pool.end();
-      logger.info(`Closed organization database pool: ${key}`);
-    }
-    this.organizationPools.clear();
-    this.organizationPasswords.clear();
-  }
-
-  // Get organization pool for authenticated requests
-  async getPoolForRequest(connectionHash?: string): Promise<Pool> {
-    if (connectionHash && connectionHash !== 'default') {
-      const pool = await this.getOrganizationPoolByHash(connectionHash);
-      if (pool) {
-        return pool;
-      }
-      // If pool not found, fall back to default
-      logger.warn(`Organization pool not found for hash: ${connectionHash}, using default`);
-    }
-    return this.appPool;
   }
 
   /**

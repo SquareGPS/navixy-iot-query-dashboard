@@ -15,7 +15,6 @@ CREATE TYPE public.app_role AS ENUM ('admin', 'editor', 'viewer');
 -- App settings table
 CREATE TABLE public.app_settings (
     id INTEGER PRIMARY KEY DEFAULT 1,
-    organization_name TEXT DEFAULT 'Reports MVP',
     timezone TEXT DEFAULT 'UTC',
     external_db_url TEXT,
     external_db_host TEXT,
@@ -395,8 +394,12 @@ BEGIN
           'version', version
         ) ORDER BY sort_order
       )
-      FROM public.sections
-      WHERE (_include_deleted = TRUE OR is_deleted = FALSE)
+      FROM (
+        SELECT id, name, sort_order, version
+        FROM public.sections
+        WHERE (_include_deleted = TRUE OR is_deleted = FALSE)
+        ORDER BY sort_order
+      ) s
     ),
     'rootReports', (
       SELECT jsonb_agg(
@@ -407,9 +410,13 @@ BEGIN
           'version', version
         ) ORDER BY sort_order
       )
-      FROM public.reports
-      WHERE section_id IS NULL 
-        AND (_include_deleted = TRUE OR is_deleted = FALSE)
+      FROM (
+        SELECT id, title, sort_order, version
+        FROM public.reports
+        WHERE section_id IS NULL 
+          AND (_include_deleted = TRUE OR is_deleted = FALSE)
+        ORDER BY sort_order
+      ) r
     ),
     'sectionReports', (
       SELECT jsonb_object_agg(
@@ -460,10 +467,9 @@ CREATE INDEX IF NOT EXISTS idx_global_variables_label ON public.global_variables
 -- ==========================================
 
 -- Default app settings
-INSERT INTO public.app_settings (id, organization_name, timezone)
-VALUES (1, 'Reports MVP', 'UTC')
+INSERT INTO public.app_settings (id, timezone)
+VALUES (1, 'UTC')
 ON CONFLICT (id) DO UPDATE SET
-  organization_name = EXCLUDED.organization_name,
   timezone = EXCLUDED.timezone,
   updated_at = now();
 
@@ -496,10 +502,6 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Example global variable (optional - can be removed if not needed)
-INSERT INTO public.global_variables (label, description)
-VALUES ('__client_id', 'Client identifier for multi-tenant scenarios')
-ON CONFLICT (label) DO NOTHING;
 
 -- ==========================================
 -- Database Setup Complete

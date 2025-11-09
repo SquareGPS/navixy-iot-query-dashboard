@@ -11,11 +11,6 @@ CREATE TABLE IF NOT EXISTS public.global_variables (
 -- Create index on label for faster lookups
 CREATE INDEX IF NOT EXISTS idx_global_variables_label ON public.global_variables(label);
 
--- Insert example variable __client_id (optional - can be removed if not needed)
-INSERT INTO public.global_variables (label, description)
-VALUES ('__client_id', 'Client identifier for multi-tenant scenarios')
-ON CONFLICT (label) DO NOTHING;
-
 -- Enable RLS
 ALTER TABLE public.global_variables ENABLE ROW LEVEL SECURITY;
 

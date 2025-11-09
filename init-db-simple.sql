@@ -121,7 +121,6 @@ CREATE TABLE public.reports (
 -- App-wide settings
 CREATE TABLE public.app_settings (
   id INT PRIMARY KEY DEFAULT 1,
-  organization_name TEXT DEFAULT 'Reports MVP',
   timezone TEXT DEFAULT 'UTC',
   external_db_url TEXT,
   external_db_host TEXT,
@@ -402,8 +401,8 @@ CREATE INDEX idx_user_roles_role ON public.user_roles (role);
 -- ==========================================
 
 -- Insert default settings
-INSERT INTO public.app_settings (id, organization_name, timezone)
-VALUES (1, 'Reports MVP', 'UTC');
+INSERT INTO public.app_settings (id, timezone)
+VALUES (1, 'UTC');
 
 -- Create default admin user (password: admin123)
 INSERT INTO public.users (id, email, password_hash, email_confirmed_at, is_super_admin)

@@ -126,7 +126,9 @@ const Settings = () => {
         const data = response.data.settings;
         setCurrentSettings(data);
         const hasUrl = !!data.external_db_url;
-        setConnectionMethod(hasUrl ? 'url' : 'host');
+        const hasHost = !!data.external_db_host;
+        // Default to 'url' if no data exists, otherwise use existing method
+        setConnectionMethod(hasUrl ? 'url' : (hasHost ? 'host' : 'url'));
         
         const loadedData = {
           external_db_url: data.external_db_url || '',
@@ -162,7 +164,6 @@ const Settings = () => {
 
     try {
       const settingsData = {
-        organization_name: currentSettings?.organization_name || 'Reports MVP',
         timezone: currentSettings?.timezone || 'UTC',
         external_db_url: connectionMethod === 'url' ? formData.external_db_url : null,
         external_db_host: connectionMethod === 'host' ? formData.external_db_host : null,
