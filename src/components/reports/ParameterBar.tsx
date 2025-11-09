@@ -4,7 +4,7 @@
  * Supports time range picker with presets, number inputs, text inputs, etc.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -164,8 +164,21 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     // Match Global variable label to parameter name
     globalVariables.forEach(globalVar => {
       const paramName = globalVar.label;
+      const paramExists = allParams.some(p => p.name === paramName);
+      
+      // Debug logging
+      if (paramName === '__client_id') {
+        console.log('[ParameterBar] Checking __client_id:', {
+          paramName,
+          paramExists,
+          globalVarValue: globalVar.value,
+          allParams: allParams.map(p => ({ name: p.name, type: p.type })),
+          globalVariables: globalVariables.map(gv => ({ label: gv.label, value: gv.value }))
+        });
+      }
+      
       // Only set if parameter exists and has a value
-      if (allParams.some(p => p.name === paramName) && globalVar.value !== null && globalVar.value !== undefined && globalVar.value !== '') {
+      if (paramExists && globalVar.value !== null && globalVar.value !== undefined && globalVar.value !== '') {
         // Try to parse the value based on parameter type
         const param = allParams.find(p => p.name === paramName);
         if (param) {
@@ -191,6 +204,11 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
           
           // Global variables override parameter defaults (set after defaults are set)
           defaults[paramName] = parsedValue;
+          
+          // Debug logging
+          if (paramName === '__client_id') {
+            console.log('[ParameterBar] Set default value for __client_id:', parsedValue);
+          }
         }
       }
     });
@@ -208,6 +226,41 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   useEffect(() => {
     setPendingValues(values);
   }, [values]);
+
+  // Update values when defaultValues change (e.g., when global variables load)
+  // Only update if the parameter doesn't already have a value (to avoid overriding user input)
+  const hasInitializedDefaults = useRef(false);
+  useEffect(() => {
+    // Skip if values haven't been initialized yet (empty object means no values set)
+    if (!hasInitializedDefaults.current && Object.keys(values).length === 0 && Object.keys(defaultValues).length > 0) {
+      console.log('[ParameterBar] Initializing values from defaultValues:', defaultValues);
+      onChange(defaultValues);
+      hasInitializedDefaults.current = true;
+      return;
+    }
+
+    // After initialization, only add missing parameters from defaultValues
+    const updatedValues: ParameterValues = { ...values };
+    let hasChanges = false;
+
+    Object.entries(defaultValues).forEach(([key, defaultValue]) => {
+      // Only set default if the parameter doesn't have a value yet
+      if (defaultValue !== undefined && defaultValue !== null && (values[key] === undefined || values[key] === null)) {
+        updatedValues[key] = defaultValue;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      console.log('[ParameterBar] Updating values from defaultValues:', updatedValues);
+      onChange(updatedValues);
+    }
+    
+    // Mark as initialized after first run
+    if (!hasInitializedDefaults.current) {
+      hasInitializedDefaults.current = true;
+    }
+  }, [defaultValues]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check if pending values have changed from current values
   const hasPendingChanges = useMemo(() => {
@@ -543,6 +596,17 @@ function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
       if (!sql) return;
 
       const paramNames = extractParameterNames(sql);
+      
+      // Debug logging for __client_id
+      if (paramNames.includes('__client_id')) {
+        console.log('[useInferredParameters] Found __client_id in panel:', {
+          panelId: panel.id,
+          panelTitle: panel.title,
+          paramNames,
+          sql: sql.substring(0, 200) + '...'
+        });
+      }
+      
       paramNames.forEach(name => {
         // Skip if already declared
         if (dashboard['x-navixy']?.params?.some(p => p.name === name)) {
@@ -558,11 +622,27 @@ function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
             type: isTimeParam ? 'time' : 'text', // Mark __from/__to as time type
             label: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
           });
+          
+          // Debug logging for __client_id
+          if (name === '__client_id') {
+            console.log('[useInferredParameters] Created parameter:', {
+              name,
+              type: isTimeParam ? 'time' : 'text',
+              label: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            });
+          }
         }
       });
     });
 
-    setInferred(Array.from(params.values()));
+    const inferredArray = Array.from(params.values());
+    
+    // Debug logging
+    if (inferredArray.some(p => p.name === '__client_id')) {
+      console.log('[useInferredParameters] Final inferred parameters:', inferredArray.map(p => ({ name: p.name, type: p.type, label: p.label })));
+    }
+    
+    setInferred(inferredArray);
   }, [dashboard]);
 
   return inferred;
