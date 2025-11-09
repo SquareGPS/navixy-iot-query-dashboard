@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info } from 'lucide-react';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
@@ -775,7 +775,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       case 'linechart':
         return <TrendingUp className="h-4 w-4" />;
       case 'text':
-        return null;
+        return <Info className="h-4 w-4" />;
       default:
         return <Activity className="h-4 w-4" />;
     }
@@ -1574,10 +1574,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             <>
               <div className="pb-3 flex-shrink-0">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                  {(() => {
-                    const icon = getPanelIcon(panel.type);
-                    return icon && <span className="flex-shrink-0">{icon}</span>;
-                  })()}
+                  {getPanelIcon(panel.type)}
                   <span>{panel.title}</span>
                 </h3>
               </div>
