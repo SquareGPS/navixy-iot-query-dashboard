@@ -16,6 +16,7 @@ import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
+import { TextPanel } from './visualizations/TextPanel';
 import type { VisualizationConfig } from '@/types/dashboard-types';
 
 interface DashboardRendererProps {
@@ -773,6 +774,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       case 'timeseries':
       case 'linechart':
         return <TrendingUp className="h-4 w-4" />;
+      case 'text':
+        return null;
       default:
         return <Activity className="h-4 w-4" />;
     }
@@ -1407,13 +1410,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   const renderTextPanel = (panel: Panel) => {
-    // Text panels typically have content in options or a separate content field
-    const content = panel.options?.content || panel.options?.text || panel.description || '';
-    return (
-      <div className="prose max-w-none">
-        <div dangerouslySetInnerHTML={{ __html: content }} />
-      </div>
-    );
+    return <TextPanel panel={panel} />;
   };
 
   const renderPanel = (panel: Panel) => {
@@ -1577,7 +1574,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             <>
               <div className="pb-3 flex-shrink-0">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                  {getPanelIcon(panel.type)}
+                  {(() => {
+                    const icon = getPanelIcon(panel.type);
+                    return icon && <span className="flex-shrink-0">{icon}</span>;
+                  })()}
                   <span>{panel.title}</span>
                 </h3>
               </div>

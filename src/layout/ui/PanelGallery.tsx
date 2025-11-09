@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, PieChart, Table, FileText, TrendingUp } from 'lucide-react';
+import { BarChart3, PieChart, Table, TrendingUp } from 'lucide-react';
 import { DEFAULT_SIZE_BY_TYPE } from '../geometry/add';
 import type { GrafanaPanelType } from '@/types/grafana-dashboard';
 
@@ -16,7 +16,7 @@ export interface PanelTypeOption {
   type: GrafanaPanelType;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon?: React.ComponentType<{ className?: string }>;
 }
 
 const PANEL_TYPES: PanelTypeOption[] = [
@@ -48,7 +48,6 @@ const PANEL_TYPES: PanelTypeOption[] = [
     type: 'text',
     label: 'Text',
     description: 'Display markdown or plain text',
-    icon: FileText,
   },
 ];
 
@@ -121,11 +120,13 @@ export const PanelGallery: React.FC<PanelGalleryProps> = ({
                     onClick={() => setSelectedType(panelType.type)}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={`p-2 rounded-lg ${
-                        isSelected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800'
-                      }`}>
-                        <IconComponent className="h-5 w-5" />
-                      </div>
+                      {IconComponent && (
+                        <div className={`p-2 rounded-lg ${
+                          isSelected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800'
+                        }`}>
+                          <IconComponent className="h-5 w-5" />
+                        </div>
+                      )}
                       <div className="flex-1">
                         <h3 className="font-semibold mb-1">{panelType.label}</h3>
                         <p className="text-sm text-muted-foreground">
