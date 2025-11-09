@@ -53,10 +53,37 @@ app.use(helmet({
 }));
 
 // CORS configuration
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+  ? [
+      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
+      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
+      'https://yourdomain.com', // Replace with your actual production domain
+    ]
+  : [
+      'http://localhost:8080', 
+      'http://localhost:8081', 
+      'http://localhost:3000',
+      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
+      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
+    ];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com'] 
-    : ['http://localhost:8080', 'http://localhost:8081', 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // In development, allow any origin for easier testing
+      if (process.env.NODE_ENV !== 'production') {
+        callback(null, true);
+      } else {
+        // In production, reject unknown origins
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

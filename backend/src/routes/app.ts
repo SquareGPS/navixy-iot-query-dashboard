@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { DatabaseService } from '../services/database.js';
 import { authenticateToken, requireAdmin, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -14,31 +15,44 @@ const router = Router();
 // Login
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, dbConnection } = req.body;
 
     if (!email || !password) {
       throw new CustomError('Email and password are required', 400);
     }
 
+    logger.info('Login attempt', { 
+      email, 
+      hasDbConnection: !!dbConnection,
+      connectionType: dbConnection?.connectionType 
+    });
+
     const dbService = DatabaseService.getInstance();
-    const result = await dbService.authenticateUser(email, password);
+    const result = await dbService.authenticateUser(email, password, dbConnection);
 
     if (!result) {
       throw new CustomError('Invalid credentials', 401);
     }
 
-    logger.info(`User logged in: ${email}`);
+    logger.info(`User logged in: ${email}`, { connectionHash: result.connectionHash });
+
+    // Extract role from token
+    const decoded = jwt.verify(result.token, process.env.JWT_SECRET || 'fallback-secret') as any;
 
     res.json({
       success: true,
       user: {
         id: result.user.id,
         email: result.user.email,
-        role: await dbService.getUserRole(result.user.id)
+        role: decoded.role
       },
       token: result.token
     });
   } catch (error) {
+    logger.error('Login error:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
     next(error);
   }
 });
@@ -47,7 +61,8 @@ router.post('/auth/login', async (req, res, next) => {
 router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const role = await dbService.getUserRole(req.user?.userId || '');
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const role = await dbService.getUserRole(req.user?.userId || '', pool);
 
     res.json({
       success: true,
@@ -62,10 +77,63 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res,
   }
 });
 
+// Test metadata database connection (public endpoint, no auth required)
+router.post('/auth/test-metadata-connection', async (req, res, next) => {
+  try {
+    const { dbConnection } = req.body;
+
+    logger.info('Received test-metadata-connection request', {
+      hasDbConnection: !!dbConnection,
+      connectionType: dbConnection?.connectionType,
+      hasUrl: !!dbConnection?.url,
+      hasHost: !!dbConnection?.host
+    });
+
+    if (!dbConnection) {
+      throw new CustomError('Database connection configuration is required', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    
+    // Test the connection by trying to create/get a pool
+    try {
+      logger.info('Calling testMetadataConnection...');
+      await dbService.testMetadataConnection(dbConnection);
+      logger.info('testMetadataConnection completed successfully');
+      
+      res.json({
+        success: true,
+        message: 'Database connection successful'
+      });
+    } catch (error) {
+      logger.error('Error in test-metadata-connection endpoint:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error?.constructor?.name,
+        isCustomError: error instanceof CustomError,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      if (error instanceof CustomError) {
+        throw error;
+      }
+      throw new CustomError(
+        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        400
+      );
+    }
+  } catch (error) {
+    logger.error('Final error handler in test-metadata-connection:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      statusCode: error instanceof CustomError ? error.statusCode : 500
+    });
+    next(error);
+  }
+});
+
 // Public registration (for first admin user)
 router.post('/auth/register', async (req, res, next) => {
   try {
-    const { email, password, role = 'viewer' } = req.body;
+    const { email, password, role = 'viewer', dbConnection } = req.body;
 
     if (!email || !password) {
       throw new CustomError('Email and password are required', 400);
@@ -78,7 +146,7 @@ router.post('/auth/register', async (req, res, next) => {
     const dbService = DatabaseService.getInstance();
     
     // Check if this is the first user (no users exist)
-    const existingUsers = await dbService.getUsers();
+    const existingUsers = await dbService.getUsers(dbConnection);
     
     // If users exist, require admin authentication
     if (existingUsers.length > 0) {
@@ -87,7 +155,7 @@ router.post('/auth/register', async (req, res, next) => {
     }
 
     // Create first admin user
-    const user = await dbService.createUser(email, password, 'admin');
+    const user = await dbService.createUser(email, password, 'admin', dbConnection);
 
     logger.info(`First admin user created: ${email}`);
 
@@ -163,7 +231,8 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res,
 router.get('/settings', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const settings = await dbService.getAppSettings();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const settings = await dbService.getAppSettings(pool);
 
     res.json({
       success: true,
@@ -178,7 +247,8 @@ router.get('/settings', authenticateToken, async (req: AuthenticatedRequest, res
 router.put('/settings', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    await dbService.updateAppSettings(req.body);
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    await dbService.updateAppSettings(req.body, pool);
 
     logger.info(`App settings updated by ${req.user?.email}`);
 
@@ -337,7 +407,8 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const sections = await dbService.getSections();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const sections = await dbService.getSections(pool);
 
     res.json({
       success: true,
@@ -352,7 +423,8 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
 router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
-    const reports = await dbService.getReports();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const reports = await dbService.getReports(pool);
 
     res.json({
       success: true,
@@ -371,7 +443,8 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
       throw new CustomError('Report ID is required', 400);
     }
     const dbService = DatabaseService.getInstance();
-    const report = await dbService.getReportById(id);
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const report = await dbService.getReportById(id, pool);
 
     if (!report) {
       throw new CustomError('Report not found', 404);
@@ -396,7 +469,8 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       const result = await client.query(
@@ -429,7 +503,8 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       const updateFields = ['name = $1'];
@@ -472,7 +547,8 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
     const { moveReportsToSection } = req.query; // Optional: move reports to another section
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
@@ -566,7 +642,8 @@ router.put('/sections/reorder', authenticateToken, requireAdminOrEditor, async (
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
@@ -611,7 +688,8 @@ router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (r
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
@@ -666,7 +744,8 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       const result = await client.query(
@@ -708,7 +787,8 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
     }
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       const updateFields = ['title = $1', 'updated_by = $2', 'updated_at = NOW()'];
@@ -756,7 +836,8 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
     const { id } = req.params;
 
     const dbService = DatabaseService.getInstance();
-    const client = await dbService.appPool.connect();
+    const pool = await dbService.getPoolForRequest(req.user?.connectionHash);
+    const client = await pool.connect();
     
     try {
       // First check if report exists

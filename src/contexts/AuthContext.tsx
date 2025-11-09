@@ -7,19 +7,30 @@ interface User {
   role: 'admin' | 'editor' | 'viewer';
 }
 
+interface DatabaseConnection {
+  connectionType: 'url' | 'direct';
+  url?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  ssl?: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, role?: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string, dbConnection?: DatabaseConnection) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:3001');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.DEV ? '' : 'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:3001');
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -75,14 +86,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, dbConnection?: DatabaseConnection) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, dbConnection }),
       });
 
       const data = await response.json();
@@ -91,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setToken(data.token);
         localStorage.setItem('auth_token', data.token);
+        // Store database connection info in localStorage for subsequent requests
+        if (dbConnection) {
+          localStorage.setItem('db_connection', JSON.stringify(dbConnection));
+        }
         navigate('/app');
         return { error: null };
       } else {
@@ -101,30 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, role: string = 'viewer') => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, role }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        return { error: null };
-      } else {
-        return { error: new Error(data.error?.message || 'Registration failed') };
-      }
-    } catch (error) {
-      return { error: error instanceof Error ? error : new Error('Network error') };
-    }
-  };
-
   const signOut = async () => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('db_connection');
     setToken(null);
     setUser(null);
     navigate('/login');
@@ -142,7 +136,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token, 
       loading, 
       signIn, 
-      signUp, 
       signOut, 
       refreshUser 
     }}>
