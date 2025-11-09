@@ -181,7 +181,15 @@ npm run dev:setup
 
 ## 📝 Environment Variables
 
-### Backend (.env)
+This project uses **two separate `.env` files** for different purposes:
+
+### 1. `backend/.env` - Backend Development Mode
+
+**Used when:** Running backend in development mode (`npm run dev`, `npm run dev:backend`, `npm run dev:full`)
+
+**Location:** `backend/.env` (copy from `backend/.env.example`)
+
+**Key Variables:**
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -189,7 +197,40 @@ npm run dev:setup
 | `PORT` | Backend server port | `3001` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://danilnezhdanov@localhost:5432/reports_app_db` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
-| `JWT_SECRET` | JWT signing secret | `dev_jwt_secret_key_change_in_production` |
+| `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
+| `JWT_EXPIRES_IN` | JWT expiration time | `24h` |
+| `RATE_LIMIT_WINDOW_MS` | Rate limit window | `300000` (5 minutes) |
+| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `5000` |
+| `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `backend/.env.example` |
+| `LOG_LEVEL` | Logging level | `info` |
+| `LOG_FILE` | Log file path | `logs/app.log` |
+
+### 2. `.env` (root) - Docker Compose Mode
+
+**Used when:** Running services via Docker Compose (`npm run docker:up`, `docker-compose up`)
+
+**Location:** `.env` in project root (copy from `.env.example`)
+
+**Key Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
+| `POSTGRES_DB` | PostgreSQL database name | `reports_app_db` |
+| `POSTGRES_USER` | PostgreSQL username | `danilnezhdanov` |
+| `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
+| `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `.env.example` |
+
+### Setup
+
+The `npm run dev:setup` command automatically creates `backend/.env` from `backend/.env.example` if it doesn't exist.
+
+For Docker Compose, manually copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
 
 ## 🚀 Production Deployment
 

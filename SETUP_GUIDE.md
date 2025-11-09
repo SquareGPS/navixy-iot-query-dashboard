@@ -221,24 +221,53 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## 📝 Environment Variables Reference
 
-### Development Mode (.env)
+This project uses **two separate `.env` files** for different purposes:
+
+### 1. `backend/.env` - Backend Development Mode
+
+**Used when:** Running backend in development mode (`npm run dev`, `npm run dev:backend`, `npm run dev:full`)
+
+**Location:** `backend/.env` (copy from `backend/.env.example`)
+
+**Example:**
 ```env
 NODE_ENV=development
 PORT=3001
 DATABASE_URL=postgresql://danilnezhdanov@localhost:5432/reports_app_db
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=dev_jwt_secret_key_change_in_production
+REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json
 ```
 
-### Docker Mode (docker-compose.yml)
-```yaml
-environment:
-  NODE_ENV: development
-  PORT: 3001
-  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-  REDIS_URL: redis://redis:6379
-  JWT_SECRET: ${JWT_SECRET}
+### 2. `.env` (root) - Docker Compose Mode
+
+**Used when:** Running services via Docker Compose (`npm run docker:up`, `docker-compose up`)
+
+**Location:** `.env` in project root (copy from `.env.example`)
+
+**Example:**
+```env
+JWT_SECRET=your_secret_here
+POSTGRES_DB=reports_app_db
+POSTGRES_USER=danilnezhdanov
+POSTGRES_PASSWORD=postgres
+REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json
 ```
+
+**Note:** Docker Compose also reads variables from `docker-compose.yml` which references these values.
+
+### Setup
+
+The `npm run dev:setup` command automatically creates `backend/.env` from `backend/.env.example` if it doesn't exist.
+
+For Docker Compose, manually copy `.env.example` to `.env` and fill in the values:
+
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
+
+See [backend/.env.example](./backend/.env.example) and [.env.example](./.env.example) for complete configuration options.
 
 ---
 

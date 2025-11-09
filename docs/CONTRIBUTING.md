@@ -72,7 +72,7 @@ Before contributing, ensure you have:
 
 5. **Set up environment**
    ```bash
-   cp backend/env.example backend/.env
+   cp backend/.env.example backend/.env
    # Edit backend/.env with your local configuration
    ```
 

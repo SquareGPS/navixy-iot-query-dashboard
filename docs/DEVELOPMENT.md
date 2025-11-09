@@ -56,7 +56,7 @@ If automated setup fails, follow these steps:
 
 2. **Set up environment variables**
    ```bash
-   cp backend/env.example backend/.env
+   cp backend/.env.example backend/.env
    # Edit backend/.env with your configuration
    ```
 
