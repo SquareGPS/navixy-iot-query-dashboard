@@ -874,35 +874,53 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
 // Get example report schema (public endpoint)
 router.get('/schema/example', async (req, res, next) => {
   try {
-    const schemaUrl = process.env.REPORT_SCHEMA_URL;
+    let schemaUrl = process.env.REPORT_SCHEMA_URL;
     
     if (!schemaUrl) {
       throw new CustomError('Schema URL not configured', 500);
     }
 
+    // Fix GitHub raw URL format: replace refs/heads/main with main
+    if (schemaUrl.includes('raw.githubusercontent.com') && schemaUrl.includes('refs/heads/')) {
+      schemaUrl = schemaUrl.replace('/refs/heads/', '/');
+      logger.info('Fixed GitHub raw URL format', { original: process.env.REPORT_SCHEMA_URL, fixed: schemaUrl });
+    }
+
     const response = await fetch(schemaUrl);
     
     if (!response.ok) {
-      throw new CustomError(`Failed to fetch schema: ${response.statusText}`, response.status);
+      const errorMessage = `Failed to fetch schema from ${schemaUrl}: ${response.status} ${response.statusText}`;
+      logger.error(errorMessage);
+      throw new CustomError(errorMessage, response.status);
     }
 
     const schema = await response.json();
     
-    logger.info('Example schema fetched successfully');
+    logger.info('Example schema fetched successfully', { url: schemaUrl });
     
     res.json({
       success: true,
       schema
     });
   } catch (error) {
-    next(error);
+    if (error instanceof CustomError) {
+      next(error);
+    } else {
+      logger.error('Error fetching example schema:', error);
+      next(new CustomError(`Failed to fetch schema: ${error instanceof Error ? error.message : 'Unknown error'}`, 500));
+    }
   }
 });
 
 // Get schema configuration (public endpoint)
 router.get('/schema/config', async (req, res, next) => {
   try {
-    const schemaUrl = process.env.REPORT_SCHEMA_URL;
+    let schemaUrl = process.env.REPORT_SCHEMA_URL;
+    
+    // Fix GitHub raw URL format: replace refs/heads/main with main
+    if (schemaUrl && schemaUrl.includes('raw.githubusercontent.com') && schemaUrl.includes('refs/heads/')) {
+      schemaUrl = schemaUrl.replace('/refs/heads/', '/');
+    }
     
     res.json({
       success: true,
