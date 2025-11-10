@@ -1746,6 +1746,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           onDashboardChange={async (updatedDashboard) => {
             // Dashboard updated through layout editor
             // The store is already updated
+            // Skip auto-save if we're in the middle of a panel save operation
+            if ((window as any).__skipDashboardAutoSave) {
+              console.log('Skipping auto-save - panel save in progress');
+              return;
+            }
+            
             if (updatedDashboard && onSave) {
               try {
                 await onSave(updatedDashboard);

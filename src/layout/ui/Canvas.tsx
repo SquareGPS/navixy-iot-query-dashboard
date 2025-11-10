@@ -216,6 +216,12 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     const unsubscribe = useEditorStore.subscribe((state) => {
+      // Skip auto-save if we're in the middle of a panel save operation
+      if ((window as any).__skipDashboardAutoSave) {
+        console.log('Canvas: Skipping onDashboardChange - panel save in progress');
+        return;
+      }
+      
       if (state.dashboard) {
         onDashboardChange(state.dashboard);
       }

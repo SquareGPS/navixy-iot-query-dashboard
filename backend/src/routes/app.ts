@@ -855,13 +855,16 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
       }
 
       if (report_schema) {
+        const schemaJson = JSON.stringify(report_schema);
         updateFields.push(`report_schema = $${paramIndex}`);
-        updateValues.push(JSON.stringify(report_schema));
+        updateValues.push(schemaJson);
         paramIndex++;
       }
 
+      const updateQuery = `UPDATE public.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+
       const result = await client.query(
-        `UPDATE public.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        updateQuery,
         [...updateValues, id]
       );
 
@@ -869,16 +872,21 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
         throw new CustomError('Report not found', 404);
       }
 
+      const savedReport = result.rows[0];
       logger.info(`Report updated by ${req.user?.email}: ${title}`);
 
       res.json({
         success: true,
-        report: result.rows[0]
+        report: savedReport
       });
     } finally {
       client.release();
     }
   } catch (error) {
+    logger.error('Error updating report:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      reportId: req.params.id,
+    });
     next(error);
   }
 });

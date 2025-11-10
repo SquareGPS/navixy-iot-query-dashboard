@@ -57,7 +57,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   const [panelType, setPanelType] = useState(panel.type);
   const [sql, setSql] = useState(() => {
     const navixyConfig = panel['x-navixy'];
-    return navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '';
+    // CRITICAL: Preserve original SQL exactly as saved - don't format it
+    // formatSql can modify/truncate SQL, so we preserve the original
+    return navixyConfig?.sql?.statement || '';
   });
   
   const [maxRows, setMaxRows] = useState(() => {
@@ -97,7 +99,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       setTitle(panel.title);
       setDescription(panel.description || '');
       setPanelType(panel.type);
-      setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
+      // CRITICAL: Preserve original SQL exactly as saved - don't format it
+      // formatSql can modify/truncate SQL, so we preserve the original
+      setSql(navixyConfig?.sql?.statement || '');
       setMaxRows(navixyConfig?.verify?.max_rows || 1000);
       setVisualization(navixyConfig?.visualization);
       // Update text panel state - support both formats

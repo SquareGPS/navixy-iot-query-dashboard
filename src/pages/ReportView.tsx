@@ -494,42 +494,24 @@ const ReportView = () => {
   };
 
   const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
-    console.log('=== handleSaveElement called ===');
-    console.log('Editing element:', editingElement);
-    console.log('New SQL:', sql);
-    console.log('New params:', params);
-    
     if (!editingElement || !schema) {
-      console.log('Early return - no editing element or schema');
       return;
     }
 
     const updatedSchema = { ...schema };
     const row = updatedSchema.rows[editingElement.rowIndex];
     
-    console.log('Row type:', row.type);
-    console.log('Row before update:', JSON.stringify(row, null, 2));
-    
     if (row.type === 'tiles' || row.type === 'table' || row.type === 'charts') {
       const visual = row.visuals[editingElement.visualIndex];
-      console.log('Visual before update:', JSON.stringify(visual, null, 2));
-      
       visual.query.sql = sql;
       if (params) {
         visual.query.params = params;
       }
-      
-      console.log('Visual after update:', JSON.stringify(visual, null, 2));
     } else if (row.type === 'annotation') {
       // For annotations, we don't update SQL but we need to handle the case
-      console.log('Annotation row detected - no SQL update needed');
     }
 
-    console.log('Updated schema to save:', JSON.stringify(updatedSchema, null, 2));
-
     try {
-      console.log('Saving to database with reportId:', reportId);
-      
       // Preserve database title (menu label) when updating schema
       const response = await apiService.updateReport(reportId!, { 
         title: report?.title || '', // Preserve database title (menu label)
@@ -537,13 +519,9 @@ const ReportView = () => {
         report_schema: updatedSchema 
       });
 
-      console.log('Database update response:', response);
-
       if (response.error) {
         throw new Error(response.error.message || 'Failed to update report');
       }
-
-      console.log('Setting local state with updated schema');
       
       // Add timestamp to force React to detect change
       updatedSchema.meta = {
@@ -559,10 +537,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Element updated successfully',
       });
-      
-      console.log('=== handleSaveElement completed successfully ===');
     } catch (err: any) {
-      console.error('=== Error saving element ===', err);
+      console.error('Error saving element:', err);
       toast({
         title: 'Error',
         description: err.message || 'Failed to save element',
@@ -1007,7 +983,6 @@ const ReportView = () => {
 
   const handleSavePanel = async (updatedPanel: any) => {
     if (!dashboard || !reportId || !schema) {
-      console.error('handleSavePanel: Missing required data', { dashboard: !!dashboard, reportId, schema: !!schema });
       return;
     }
     
@@ -1055,11 +1030,6 @@ const ReportView = () => {
           updatedDashboard.panels.push(updatedPanel);
           panelIndex = updatedDashboard.panels.length - 1;
         } else {
-          console.error('❌ Could not find panel to update', {
-            editingPanel: editingPanel,
-            updatedPanel: updatedPanel,
-            availablePanels: updatedDashboard.panels.map(p => ({ id: p.id, title: p.title, gridPos: p.gridPos }))
-          });
           throw new Error('Could not find panel to update');
         }
       } else {
@@ -1076,19 +1046,21 @@ const ReportView = () => {
           };
         } else {
           // For other panels, merge x-navixy with sql
+          const mergedNavixy = {
+            ...oldPanel['x-navixy'],
+            ...updatedPanel['x-navixy'],
+            sql: {
+              ...oldPanel['x-navixy']?.sql,
+              ...updatedPanel['x-navixy']?.sql,
+              // Ensure statement is not truncated - use updated panel's statement first
+              statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
+            }
+          };
+          
           updatedDashboard.panels[panelIndex] = {
             ...oldPanel,
             ...updatedPanel,
-            'x-navixy': {
-              ...oldPanel['x-navixy'],
-              ...updatedPanel['x-navixy'],
-              sql: {
-                ...oldPanel['x-navixy']?.sql,
-                ...updatedPanel['x-navixy']?.sql,
-                // Ensure statement is not truncated
-                statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
-              }
-            }
+            'x-navixy': mergedNavixy
           };
         }
       }
@@ -1112,7 +1084,6 @@ const ReportView = () => {
         };
       }
       
-      
       const response = await apiService.updateReport(reportId, {
         title: report?.title,
         subtitle: report?.subtitle,
@@ -1120,38 +1091,71 @@ const ReportView = () => {
       });
 
       if (response.error) {
-        console.error('❌ API error:', response.error);
         throw new Error(response.error.message || 'Failed to save panel');
       }
+      
+      // Use the saved data from API response to ensure we have the exact data that was saved
+      let finalDashboard = updatedDashboard;
+      let finalSchema = updatedSchema;
+      
+      if (response.data?.report?.report_schema) {
+        const savedSchema = response.data.report.report_schema;
+        const savedDashboard = savedSchema.dashboard || savedSchema;
+        
+        // Use the saved dashboard from the API response
+        finalDashboard = savedDashboard;
+        
+        // Reconstruct schema with saved dashboard
+        if (schema.dashboard) {
+          finalSchema = {
+            ...schema,
+            dashboard: savedDashboard
+          };
+        } else if (schema.panels) {
+          finalSchema = savedDashboard;
+        } else {
+          finalSchema = {
+            dashboard: savedDashboard
+          };
+        }
+      }
 
-      setDashboard(updatedDashboard);
-      setSchema(updatedSchema);
-      
-      // Also update editorStore to ensure it has the latest data
+      // Update editorStore and local state
+      // Prevent Canvas from triggering another save during this update
       const storeAfterSave = useEditorStore.getState();
-      storeAfterSave.setDashboard(updatedDashboard);
+      (window as any).__skipDashboardAutoSave = true;
       
-      // Update editingPanel if it's still open, to ensure it has the latest data
+      try {
+        storeAfterSave.setDashboard(finalDashboard);
+        setDashboard(finalDashboard);
+        setSchema(finalSchema);
+        (window as any).__skipDashboardAutoSave = false;
+      } catch (error) {
+        (window as any).__skipDashboardAutoSave = false;
+        throw error;
+      }
+      
+      // Update editingPanel if it's still open
       if (editingPanel && updatedPanel.id) {
-        const updatedPanelFromDashboard = updatedDashboard.panels.find(p => p.id === updatedPanel.id);
+        const updatedPanelFromDashboard = finalDashboard.panels.find(p => p.id === updatedPanel.id);
         if (updatedPanelFromDashboard) {
           setEditingPanel(updatedPanelFromDashboard);
         }
       }
       
       // Update editorValue so JSON source view shows the updated schema
-      // Determine which format to use for editorValue
-      let editorSchema = updatedSchema;
-      if (updatedSchema.dashboard) {
+      // Determine which format to use for editorValue - use finalSchema which has saved data
+      let editorSchema = finalSchema;
+      if (finalSchema.dashboard) {
         // If schema has nested dashboard, use the dashboard for editor
-        editorSchema = updatedSchema.dashboard;
+        editorSchema = finalSchema.dashboard;
       }
       setEditorValue(JSON.stringify(editorSchema, null, 2));
       
       if (dashboardConfig) {
         setDashboardConfig({
           ...dashboardConfig,
-          dashboard: updatedDashboard
+          dashboard: finalDashboard
         });
       }
       
@@ -1160,8 +1164,8 @@ const ReportView = () => {
       // Refresh only the updated panel's view instead of reloading entire dashboard
       if (updatedPanel.id && dashboardRendererRef.current) {
         try {
-          // Pass the updated dashboard to ensure refreshPanel uses the latest data
-          await dashboardRendererRef.current.refreshPanel(updatedPanel.id, updatedDashboard);
+          // Pass the final dashboard (from API response) to ensure refreshPanel uses the latest saved data
+          await dashboardRendererRef.current.refreshPanel(updatedPanel.id, finalDashboard);
         } catch (refreshError) {
           // If refresh fails, fall back to full reload
           console.error('Failed to refresh panel, falling back to full reload:', refreshError);
@@ -1752,11 +1756,16 @@ const ReportView = () => {
             timeRange={timeRange}
             editMode={isEditing}
             onEditPanel={(panel) => {
+              // Get the latest dashboard from store (may have unsaved changes) or use prop dashboard
+              const store = useEditorStore.getState();
+              const latestDashboard = store.dashboard || dashboard;
+              
               // Always get the latest panel from the current dashboard to ensure fresh data
-              const latestPanel = dashboard?.panels.find(p => 
+              const latestPanel = latestDashboard?.panels.find(p => 
                 p.id === panel.id || 
                 (p.gridPos?.x === panel.gridPos?.x && p.gridPos?.y === panel.gridPos?.y)
               ) || panel;
+              
               setEditingPanel(latestPanel);
             }}
             onSave={handleSaveDashboard}
