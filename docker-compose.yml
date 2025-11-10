@@ -31,10 +31,9 @@ services:
       - sql-report-network
 
   # Node.js Backend API
+  # Using pre-built image from Docker Hub
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: dnezhdanov/navixy-dashboard:latest
     container_name: sql-report-backend
     environment:
       NODE_ENV: production
@@ -56,18 +55,10 @@ services:
 
   # Frontend (Nginx serving static files) - Production only
   # For local development, use Vite dev server: npm run dev
-  # Frontend is built inside Docker using Dockerfile.frontend
-  # Environment variables (VITE_*) are passed as build arguments
+  # Using pre-built image from Docker Hub
   # Both frontend and backend are fully containerized - no Node.js required on host
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        # Default connection string matches PostgreSQL service defaults
-        # Override with VITE_DEFAULT_METABASE_DB_CONNECTION_URL in .env if needed
-        VITE_DEFAULT_METABASE_DB_CONNECTION_URL: ${VITE_DEFAULT_METABASE_DB_CONNECTION_URL:-postgresql://reports_user:postgres@postgres:5432/reports_app_db}
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    image: dnezhdanov/navixy-dashboard:frontend-latest
     container_name: sql-report-frontend
     ports:
       - "80:80"
