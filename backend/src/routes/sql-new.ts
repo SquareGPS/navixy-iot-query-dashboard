@@ -42,6 +42,10 @@ interface ParameterizedQueryRequest {
     max_rows: number;
   };
   read_only: boolean;
+  pagination?: {
+    page: number;
+    pageSize: number;
+  };
 }
 
 // Interface for the response
@@ -64,7 +68,8 @@ interface QueryResponse {
 function generateParameterizedCacheKey(
   statement: string, 
   params: Record<string, unknown>,
-  userTimezone?: string
+  userTimezone?: string,
+  pagination?: { page: number; pageSize: number }
 ): string {
   const hash = crypto.createHash('sha256');
   const keyData = {
@@ -73,7 +78,8 @@ function generateParameterizedCacheKey(
       acc[key] = params[key];
       return acc;
     }, {} as Record<string, unknown>),
-    timezone: userTimezone || 'UTC'
+    timezone: userTimezone || 'UTC',
+    pagination: pagination || null
   };
   
   hash.update(JSON.stringify(keyData));
@@ -82,7 +88,7 @@ function generateParameterizedCacheKey(
 
 // Execute parameterized SQL query
 router.post('/execute', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { dialect, statement, params, limits, read_only }: ParameterizedQueryRequest = req.body;
+  const { dialect, statement, params, limits, read_only, pagination }: ParameterizedQueryRequest = req.body;
 
   // Validate request structure
   if (!statement) {
@@ -101,6 +107,26 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
         message: 'Parameters must be an object'
       }
     });
+  }
+
+  // Validate pagination if provided
+  if (pagination) {
+    if (typeof pagination.page !== 'number' || typeof pagination.pageSize !== 'number') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAGINATION',
+          message: 'Pagination page and pageSize must be numbers'
+        }
+      });
+    }
+    if (pagination.page < 1 || pagination.pageSize < 1 || pagination.pageSize > 10000) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_PAGINATION',
+          message: 'Page must be >= 1 and pageSize must be between 1 and 10000'
+        }
+      });
+    }
   }
 
   // Merge global variables into params (global variables have lower priority than explicit params)
@@ -135,8 +161,8 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     }
   }
 
-  // Generate cache key (use merged params and timezone for caching)
-  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, userTimezone);
+  // Generate cache key (use merged params, timezone, and pagination for caching)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, userTimezone, pagination);
   
   try {
     // Try to get from cache first
@@ -146,13 +172,14 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       return res.json(JSON.parse(cachedResult));
     }
 
-    // Execute parameterized query with merged params
+    // Execute parameterized query with merged params and pagination
     const result = await getDbService().executeParameterizedQuery(
       statement, 
       mergedParams, 
       limits?.timeout_ms || 30000,
       limits?.max_rows || 10000,
-      req.user?.userId // Pass userId for timezone preferences
+      req.user?.userId, // Pass userId for timezone preferences
+      pagination // Pass pagination if provided
     );
     
     // Cache result for 5 minutes
@@ -164,6 +191,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       paramCount: result.stats?.usedParamCount || 0,
       totalParams: Object.keys(params).length,
       totalRows: result.stats?.rowCount || 0,
+      pagination: pagination ? `page ${pagination.page}, size ${pagination.pageSize}` : 'none',
     });
 
     return res.json(result);

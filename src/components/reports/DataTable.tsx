@@ -144,7 +144,7 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-surface-2 border-border">
-                {[10, 25, 50, 100].map((size) => (
+                {[10, 25, 50, 100, 250, 500].map((size) => (
                   <SelectItem key={size} value={size.toString()}>
                     {size}
                   </SelectItem>

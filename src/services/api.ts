@@ -105,6 +105,10 @@ class ApiService {
     params?: Record<string, unknown>;
     timeout_ms?: number;
     row_limit?: number;
+    pagination?: {
+      page: number;
+      pageSize: number;
+    };
   }): Promise<ApiResponse<{
     columns: Array<{ name: string; type: string }>;
     rows: unknown[][];
@@ -112,8 +116,13 @@ class ApiService {
       rowCount: number;
       elapsedMs: number;
     };
+    pagination?: {
+      page: number;
+      pageSize: number;
+      total: number;
+    };
   }>> {
-    const requestBody = {
+    const requestBody: any = {
       dialect: 'postgresql',
       statement: params.sql,
       params: params.params || {},
@@ -123,6 +132,11 @@ class ApiService {
       },
       read_only: true
     };
+
+    // Add pagination if provided
+    if (params.pagination) {
+      requestBody.pagination = params.pagination;
+    }
 
     return this.request('/api/sql-new/execute', {
       method: 'POST',

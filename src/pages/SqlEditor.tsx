@@ -25,6 +25,11 @@ interface QueryTab {
   fetchTime: number | null;
   rowCount: number;
   executedAt: Date | null;
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+  } | null;
 }
 
 const SqlEditor = () => {
@@ -48,6 +53,7 @@ LIMIT 10;`,
       fetchTime: null,
       rowCount: 0,
       executedAt: null,
+      pagination: null,
     },
   ]);
   const [activeTab, setActiveTab] = useState('1');
@@ -79,6 +85,7 @@ LIMIT 10;`,
       fetchTime: null,
       rowCount: 0,
       executedAt: null,
+      pagination: null,
     };
     setTabs([...tabs, newTab]);
     setActiveTab(newId);
@@ -125,6 +132,10 @@ LIMIT 10;`,
       return;
     }
 
+    // Get pagination state from tab (default to page 1, pageSize 50)
+    const currentPage = tab.pagination?.page || 1;
+    const currentPageSize = tab.pagination?.pageSize || 50;
+
     // Mark this tab as executing
     setExecutingTabId(tabId);
     setTabs(
@@ -135,12 +146,16 @@ LIMIT 10;`,
       )
     );
 
-    // Use the shared hook's executeQuery function - this ensures consistent behavior
+    // Use the shared hook's executeQuery function with pagination
     const executionResult = await executeQuery({
       sql: tab.sql.trim(),
       params: {},
       timeout_ms: 30000,
-      row_limit: 1000,
+      row_limit: 10000, // Max rows limit (pagination handles the rest)
+      pagination: {
+        page: currentPage,
+        pageSize: currentPageSize,
+      },
       showSuccessToast: false, // We'll handle the toast ourselves
       showErrorToast: false, // We'll handle the toast ourselves
     });
@@ -152,9 +167,9 @@ LIMIT 10;`,
         columns: executionResult.columns,
         rows: executionResult.rows,
         columnTypes: executionResult.columnTypes,
-        total: executionResult.rowCount,
-        page: 1,
-        pageSize: 1000
+        total: executionResult.pagination?.total || executionResult.rowCount,
+        page: executionResult.pagination?.page || 1,
+        pageSize: executionResult.pagination?.pageSize || currentPageSize,
       };
 
       setTabs(
@@ -165,10 +180,11 @@ LIMIT 10;`,
                 executing: false,
                 results: transformedData,
                 error: null,
-                rowCount: executionResult.rowCount,
+                rowCount: executionResult.pagination?.total || executionResult.rowCount,
                 executionTime: executionResult.executionTime,
                 fetchTime: executionResult.fetchTime,
                 executedAt: executionResult.executedAt,
+                pagination: executionResult.pagination || null,
               }
             : t
         )
@@ -196,6 +212,35 @@ LIMIT 10;`,
     }
     
     setExecutingTabId(null);
+  };
+
+  const handlePageChange = (tabId: string, page: number) => {
+    setTabs(
+      tabs.map((t) =>
+        t.id === tabId && t.pagination
+          ? { ...t, pagination: { ...t.pagination, page } }
+          : t
+      )
+    );
+    // Re-execute query with new page
+    handleExecuteQuery(tabId);
+  };
+
+  const handlePageSizeChange = (tabId: string, pageSize: number) => {
+    setTabs(
+      tabs.map((t) =>
+        t.id === tabId
+          ? {
+              ...t,
+              pagination: t.pagination
+                ? { ...t.pagination, pageSize, page: 1 } // Reset to page 1 when changing page size
+                : { page: 1, pageSize, total: t.rowCount || 0 },
+            }
+          : t
+      )
+    );
+    // Re-execute query with new page size
+    handleExecuteQuery(tabId);
   };
 
   const exportToCSV = (tabId: string) => {
@@ -342,7 +387,11 @@ LIMIT 10;`,
                           <span>Fetch time: {tab.fetchTime.toFixed(2)}ms</span>
                         )}
                         {tab.results && (
-                          <span>{tab.rowCount} row{tab.rowCount !== 1 ? 's' : ''} returned</span>
+                          <span>
+                            {tab.pagination
+                              ? `Showing ${((tab.pagination.page - 1) * tab.pagination.pageSize) + 1}-${Math.min(tab.pagination.page * tab.pagination.pageSize, tab.pagination.total)} of ${tab.pagination.total} row${tab.pagination.total !== 1 ? 's' : ''}`
+                              : `${tab.rowCount} row${tab.rowCount !== 1 ? 's' : ''} returned`}
+                          </span>
                         )}
                         {tab.executedAt && (
                           <span>Executed: {tab.executedAt.toLocaleTimeString()}</span>
@@ -401,6 +450,18 @@ LIMIT 10;`,
                               header: col,
                             }))}
                             columnTypes={tab.results.columnTypes}
+                            pagination={
+                              tab.pagination
+                                ? {
+                                    page: tab.pagination.page,
+                                    pageSize: tab.pagination.pageSize,
+                                    total: tab.pagination.total,
+                                    onPageChange: (page: number) => handlePageChange(tab.id, page),
+                                    onPageSizeChange: (pageSize: number) => handlePageSizeChange(tab.id, pageSize),
+                                  }
+                                : undefined
+                            }
+                            loading={executingTabId === tab.id || tab.executing}
                           />
                         ) : (
                           <div className="text-center py-6 text-muted-foreground">

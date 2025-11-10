@@ -38,6 +38,11 @@ export interface ParameterizedQueryResult {
     elapsedMs: number;
     usedParamCount?: number;
   };
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
 }
 
 export interface User {
@@ -1365,7 +1370,8 @@ export class DatabaseService {
     params: Record<string, unknown>,
     timeoutMs: number = 30000,
     maxRows: number = 10000,
-    userId?: string
+    userId?: string,
+    pagination?: { page: number; pageSize: number }
   ): Promise<ParameterizedQueryResult> {
     const startTime = Date.now();
 
@@ -1442,11 +1448,51 @@ export class DatabaseService {
         throw new CustomError('SQL validation failed after parameter binding', 400);
       }
 
+      let total = 0;
+      let finalStatement = processedStatement;
+      let finalParamValues = paramValues;
+
+      // Handle pagination if requested
+      if (pagination) {
+        const { page, pageSize } = pagination;
+        
+        // Validate pagination parameters
+        if (page < 1 || pageSize < 1 || pageSize > 10000) {
+          throw new CustomError('Invalid pagination parameters. Page must be >= 1 and pageSize must be between 1 and 10000', 400);
+        }
+
+        // Strip any existing LIMIT/OFFSET from the query
+        const cleanedStatement = processedStatement.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
+        
+        // Get total count (wrap query in COUNT)
+        // Note: This COUNT query will use the same parameterized values
+        const countStatement = `SELECT COUNT(*) as total FROM (${cleanedStatement}) as count_query`;
+        const countResult = usedParamCount > 0
+          ? await client.query(countStatement, paramValues)
+          : await client.query(countStatement);
+        
+        total = countResult.rows && countResult.rows.length > 0 
+          ? parseInt(countResult.rows[0].total as string, 10) 
+          : 0;
+
+        // Apply pagination with LIMIT/OFFSET
+        const offset = (page - 1) * pageSize;
+        finalStatement = `${cleanedStatement} LIMIT ${pageSize} OFFSET ${offset}`;
+        // Note: LIMIT and OFFSET are safe integers, not user input
+      } else {
+        // No pagination - check for existing LIMIT clause
+        const hasLimitClause = /\bLIMIT\s+\d+/i.test(processedStatement);
+        if (!hasLimitClause) {
+          // Apply maxRows limit if no LIMIT exists
+          finalStatement = `${processedStatement.trim().replace(/;$/, '')} LIMIT ${maxRows}`;
+        }
+      }
+
       // Execute query
       // Only pass paramValues if there are actual parameters used in the SQL
       const result = usedParamCount > 0
-        ? await client.query(processedStatement, paramValues)
-        : await client.query(processedStatement);
+        ? await client.query(finalStatement, finalParamValues)
+        : await client.query(finalStatement);
 
       // Convert result to standardized format
       const columns = result.fields.map(field => ({
@@ -1474,27 +1520,39 @@ export class DatabaseService {
         });
       });
 
-      // Enforce max rows limit - but only if the SQL doesn't already have a LIMIT clause
-      // If SQL has LIMIT, respect it; otherwise apply our maxRows limit
-      const hasLimitClause = /\bLIMIT\s+\d+/i.test(statement);
-      if (!hasLimitClause && rows.length > maxRows) {
-        throw new CustomError(
-          `Query returned too many rows: ${rows.length} > ${maxRows}`,
-          400
-        );
+      // Enforce max rows limit only if not using pagination
+      if (!pagination) {
+        const hasLimitClause = /\bLIMIT\s+\d+/i.test(statement);
+        if (!hasLimitClause && rows.length > maxRows) {
+          throw new CustomError(
+            `Query returned too many rows: ${rows.length} > ${maxRows}`,
+            400
+          );
+        }
       }
 
       const elapsedMs = Date.now() - startTime;
 
-      return {
+      const resultData: ParameterizedQueryResult = {
         columns,
         rows,
         stats: {
-          rowCount: rows.length,
+          rowCount: pagination ? rows.length : rows.length,
           elapsedMs,
           usedParamCount
         }
       };
+
+      // Add pagination metadata if pagination was requested
+      if (pagination) {
+        resultData.pagination = {
+          page: pagination.page,
+          pageSize: pagination.pageSize,
+          total
+        };
+      }
+
+      return resultData;
 
     } catch (error: any) {
       logger.error('Parameterized query error:', {

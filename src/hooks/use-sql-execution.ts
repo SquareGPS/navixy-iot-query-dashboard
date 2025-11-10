@@ -11,6 +11,11 @@ export interface SqlExecutionResult {
   executionTime: number;
   fetchTime: number;
   executedAt: Date;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
 }
 
 export interface SqlExecutionOptions {
@@ -18,6 +23,10 @@ export interface SqlExecutionOptions {
   params?: Record<string, unknown>;
   timeout_ms?: number;
   row_limit?: number;
+  pagination?: {
+    page: number;
+    pageSize: number;
+  };
   showSuccessToast?: boolean;
   showErrorToast?: boolean;
 }
@@ -33,6 +42,7 @@ export function useSqlExecution() {
       params = {},
       timeout_ms = 30000,
       row_limit = 1000,
+      pagination,
       showSuccessToast = true,
       showErrorToast = true,
     } = options;
@@ -60,6 +70,7 @@ export function useSqlExecution() {
         params: filteredParams,
         timeout_ms,
         row_limit,
+        pagination,
       });
       const fetchEndTime = performance.now();
 
@@ -94,11 +105,16 @@ export function useSqlExecution() {
           acc[col.name] = col.type;
           return acc;
         }, {}) || {},
-        rowCount: response.data?.rows?.length || 0,
+        rowCount: pagination ? (response.data?.pagination?.total || response.data?.rows?.length || 0) : (response.data?.rows?.length || 0),
         executionTime,
         fetchTime,
         executedAt,
       };
+
+      // Add pagination metadata if present
+      if (response.data?.pagination) {
+        transformedData.pagination = response.data.pagination;
+      }
 
       setResults(transformedData);
       if (showSuccessToast) {

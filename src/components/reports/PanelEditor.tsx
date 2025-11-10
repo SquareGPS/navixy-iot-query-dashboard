@@ -85,6 +85,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState<{ page: number; pageSize: number; total: number } | null>(null);
   const { executing, error, executeQuery } = useSqlExecution();
   
   const isTextPanel = panelType === 'text';
@@ -245,13 +246,20 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     const parsedParams: Record<string, unknown> = {};
     
     try {
+      const currentPage = pagination?.page || 1;
+      const currentPageSize = pagination?.pageSize || 25;
+      
       // Use the returned value from executeQuery for consistency with standalone editor
       // This ensures we use the exact same execution path and data transformation
       const executionResult = await executeQuery({
         sql: sql.trim(),
         params: parsedParams,
         timeout_ms: 10000,
-        row_limit: 100, // Increased from 5 to allow testing queries that return more rows
+        row_limit: 10000,
+        pagination: {
+          page: currentPage,
+          pageSize: currentPageSize,
+        },
         showSuccessToast: false,
         showErrorToast: false,
       });
@@ -261,6 +269,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       if (executionResult) {
         setTestResults(executionResult);
         setTestError(null);
+        if (executionResult.pagination) {
+          setPagination(executionResult.pagination);
+        }
         toast({
           title: 'Success',
           description: 'Query executed successfully',
@@ -287,6 +298,61 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       });
       setTestResults(null);
       setTestError(errorMsg);
+    }
+  };
+
+  const handlePageChange = async (page: number) => {
+    if (!pagination) return;
+    
+    setPagination({ ...pagination, page });
+    
+    const parsedParams: Record<string, unknown> = {};
+    
+    const result = await executeQuery({
+      sql: sql.trim(),
+      params: parsedParams,
+      timeout_ms: 10000,
+      row_limit: 10000,
+      pagination: {
+        page,
+        pageSize: pagination.pageSize,
+      },
+      showSuccessToast: false,
+      showErrorToast: false,
+    });
+    
+    if (result) {
+      setTestResults(result);
+      if (result.pagination) {
+        setPagination(result.pagination);
+      }
+    }
+  };
+
+  const handlePageSizeChange = async (pageSize: number) => {
+    const newPagination = pagination ? { ...pagination, pageSize, page: 1 } : { page: 1, pageSize, total: testResults?.rowCount || 0 };
+    setPagination(newPagination);
+    
+    const parsedParams: Record<string, unknown> = {};
+    
+    const result = await executeQuery({
+      sql: sql.trim(),
+      params: parsedParams,
+      timeout_ms: 10000,
+      row_limit: 10000,
+      pagination: {
+        page: 1,
+        pageSize,
+      },
+      showSuccessToast: false,
+      showErrorToast: false,
+    });
+    
+    if (result) {
+      setTestResults(result);
+      if (result.pagination) {
+        setPagination(result.pagination);
+      }
     }
   };
 
@@ -441,7 +507,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                   <Label className="text-sm font-medium">Test Results</Label>
                   {testResults && (
                     <span className="text-xs text-muted-foreground">
-                      {testResults.rowCount} row{testResults.rowCount !== 1 ? 's' : ''} returned
+                      {pagination
+                        ? `Showing ${((pagination.page - 1) * pagination.pageSize) + 1}-${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total} row${pagination.total !== 1 ? 's' : ''}`
+                        : `${testResults.rowCount} row${testResults.rowCount !== 1 ? 's' : ''} returned`}
                     </span>
                   )}
                 </div>
@@ -456,6 +524,18 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                         header: col,
                       }))}
                       columnTypes={testResults.columnTypes}
+                      pagination={
+                        pagination
+                          ? {
+                              page: pagination.page,
+                              pageSize: pagination.pageSize,
+                              total: pagination.total,
+                              onPageChange: handlePageChange,
+                              onPageSizeChange: handlePageSizeChange,
+                            }
+                          : undefined
+                      }
+                      loading={executing}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

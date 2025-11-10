@@ -30,6 +30,7 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [pagination, setPagination] = useState<{ page: number; pageSize: number; total: number } | null>(null);
   const { executing, results, error, executeQuery } = useSqlExecution();
 
   const handleSave = () => {
@@ -76,12 +77,23 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
     }
     
     try {
-      await executeQuery({
+      const currentPage = pagination?.page || 1;
+      const currentPageSize = pagination?.pageSize || 25;
+      
+      const result = await executeQuery({
         sql: sql.trim(),
         params: parsedParams,
         timeout_ms: 10000,
-        row_limit: 100, // Increased from 5 to allow testing queries that return more rows
+        row_limit: 10000,
+        pagination: {
+          page: currentPage,
+          pageSize: currentPageSize,
+        },
       });
+      
+      if (result?.pagination) {
+        setPagination(result.pagination);
+      }
     } catch (err: any) {
       console.error('Unexpected error executing query:', err);
       toast({
@@ -89,6 +101,77 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
         description: err.message || 'Failed to execute query',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handlePageChange = async (page: number) => {
+    if (!pagination) return;
+    
+    setPagination({ ...pagination, page });
+    
+    // Parse parameters
+    let parsedParams: Record<string, unknown> = {};
+    const paramsTrimmed = params.trim();
+    if (paramsTrimmed) {
+      try {
+        parsedParams = JSON.parse(paramsTrimmed);
+        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+          parsedParams = {};
+        }
+      } catch {
+        parsedParams = {};
+      }
+    }
+    
+    // Re-execute query with new page
+    const result = await executeQuery({
+      sql: sql.trim(),
+      params: parsedParams,
+      timeout_ms: 10000,
+      row_limit: 10000,
+      pagination: {
+        page,
+        pageSize: pagination.pageSize,
+      },
+    });
+    
+    if (result?.pagination) {
+      setPagination(result.pagination);
+    }
+  };
+
+  const handlePageSizeChange = async (pageSize: number) => {
+    const newPagination = pagination ? { ...pagination, pageSize, page: 1 } : { page: 1, pageSize, total: results?.rowCount || 0 };
+    setPagination(newPagination);
+    
+    // Parse parameters
+    let parsedParams: Record<string, unknown> = {};
+    const paramsTrimmed = params.trim();
+    if (paramsTrimmed) {
+      try {
+        parsedParams = JSON.parse(paramsTrimmed);
+        if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
+          parsedParams = {};
+        }
+      } catch {
+        parsedParams = {};
+      }
+    }
+    
+    // Re-execute query with new page size
+    const result = await executeQuery({
+      sql: sql.trim(),
+      params: parsedParams,
+      timeout_ms: 10000,
+      row_limit: 10000,
+      pagination: {
+        page: 1,
+        pageSize,
+      },
+    });
+    
+    if (result?.pagination) {
+      setPagination(result.pagination);
     }
   };
 
@@ -166,7 +249,9 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
                   <Label className="text-sm font-medium">Test Results</Label>
                   {results && (
                     <span className="text-xs text-muted-foreground">
-                      {results.rowCount} row{results.rowCount !== 1 ? 's' : ''} returned
+                      {pagination
+                        ? `Showing ${((pagination.page - 1) * pagination.pageSize) + 1}-${Math.min(pagination.page * pagination.pageSize, pagination.total)} of ${pagination.total} row${pagination.total !== 1 ? 's' : ''}`
+                        : `${results.rowCount} row${results.rowCount !== 1 ? 's' : ''} returned`}
                     </span>
                   )}
                 </div>
@@ -181,6 +266,18 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
                         header: col,
                       }))}
                       columnTypes={results.columnTypes}
+                      pagination={
+                        pagination
+                          ? {
+                              page: pagination.page,
+                              pageSize: pagination.pageSize,
+                              total: pagination.total,
+                              onPageChange: handlePageChange,
+                              onPageSizeChange: handlePageSizeChange,
+                            }
+                          : undefined
+                      }
+                      loading={executing}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
