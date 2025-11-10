@@ -58,6 +58,7 @@ services:
   # For local development, use Vite dev server: npm run dev
   # Frontend is built inside Docker using Dockerfile.frontend
   # Environment variables (VITE_*) are passed as build arguments
+  # Both frontend and backend are fully containerized - no Node.js required on host
   frontend:
     build:
       context: .
