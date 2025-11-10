@@ -19,10 +19,6 @@ export default defineConfig(({ mode }) => ({
   preview: {
     host: "0.0.0.0",
     port: 80,
-    allowedHosts: [
-      "ec2-44-247-98-167.us-west-2.compute.amazonaws.com",
-      "localhost",
-    ],
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

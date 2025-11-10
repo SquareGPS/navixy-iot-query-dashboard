@@ -20,7 +20,7 @@ interface DatabaseConnection {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.DEV ? '' : 'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:3001');
+  (import.meta.env.DEV ? '' : '/api');
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -32,7 +32,7 @@ const Login = () => {
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [dbConnection, setDbConnection] = useState<DatabaseConnection>({
     connectionType: 'url',
-    url: import.meta.env.DEV ? 'postgresql://reports_user@127.0.0.1:5432/reports_app_db' : '',
+    url: import.meta.env.VITE_DEFAULT_DB_CONNECTION_URL || '',
     host: '',
     port: 5432,
     database: '',
@@ -113,7 +113,7 @@ const Login = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/test-metadata-connection`, {
+      const response = await fetch(`${API_BASE_URL}/auth/test-metadata-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
