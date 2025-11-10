@@ -11,6 +11,7 @@ import { SqlEditor as SqlEditorComponent } from '@/components/reports/SqlEditor'
 import { DataTable } from '@/components/reports/DataTable';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Icon } from '@/components/ui/icon';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 
 interface QueryTab {
@@ -313,14 +314,13 @@ LIMIT 10;`,
                       )}
                     </TabsTrigger>
                   ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <button
                     onClick={addNewTab}
-                    className="h-8 w-8 p-0 ml-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    className="h-8 w-8 p-0 ml-1 flex items-center justify-center hover:bg-muted rounded"
+                    title="Add new tab"
                   >
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                    <Icon icon={Plus} size={4} />
+                  </button>
                 </TabsList>
               </div>
 
