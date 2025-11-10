@@ -598,6 +598,151 @@ export class DatabaseService {
     }
   }
 
+  // ==========================================
+  // User Preferences Methods
+  // ==========================================
+
+  async getUserPreferences(userId: string, pool?: Pool): Promise<{ timezone: string } | null> {
+    const dbPool = pool || this.appPool;
+    try {
+      const client = await dbPool.connect();
+      
+      try {
+        // Check if table exists first
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'user_preferences'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('user_preferences table does not exist yet');
+          return null;
+        }
+
+        const result = await client.query(
+          'SELECT timezone FROM public.user_preferences WHERE user_id = $1',
+          [userId]
+        );
+
+        if (result.rows.length === 0) {
+          return null; // No preferences set, will default to UTC
+        }
+
+        return {
+          timezone: result.rows[0].timezone || 'UTC'
+        };
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      // If table doesn't exist, return null instead of error
+      if (error.code === '42P01') { // undefined_table
+        logger.warn('user_preferences table does not exist:', error.message);
+        return null;
+      }
+      logger.error('Error getting user preferences:', error);
+      throw new CustomError('Failed to get user preferences', 500);
+    }
+  }
+
+  async updateUserPreferences(userId: string, preferences: { timezone: string }, pool?: Pool): Promise<{ timezone: string }> {
+    const dbPool = pool || this.appPool;
+    try {
+      const client = await dbPool.connect();
+      
+      try {
+        // Validate timezone
+        if (!this.isValidTimezone(preferences.timezone)) {
+          throw new CustomError(`Invalid timezone: ${preferences.timezone}`, 400);
+        }
+
+        // Check if table exists first
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'user_preferences'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          throw new CustomError('user_preferences table does not exist. Please run migration.', 500);
+        }
+
+        // Use INSERT ... ON CONFLICT to handle both insert and update
+        const result = await client.query(
+          `INSERT INTO public.user_preferences (user_id, timezone, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (user_id) 
+           DO UPDATE SET timezone = $2, updated_at = NOW()
+           RETURNING timezone`,
+          [userId, preferences.timezone]
+        );
+
+        return {
+          timezone: result.rows[0].timezone
+        };
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error instanceof CustomError) {
+        throw error;
+      }
+      logger.error('Error updating user preferences:', {
+        error: error.message,
+        stack: error.stack,
+        code: error.code,
+        userId
+      });
+      throw new CustomError(
+        `Failed to update user preferences: ${error.message || 'Unknown error'}`,
+        500
+      );
+    }
+  }
+
+  /**
+   * Validate timezone string against IANA timezone database
+   * Uses Intl.supportedValuesOf if available, otherwise validates format
+   */
+  private isValidTimezone(timezone: string): boolean {
+    if (!timezone || typeof timezone !== 'string' || timezone.length > 50) {
+      return false;
+    }
+
+    // Check if Intl.supportedValuesOf is available (Node.js 20+)
+    try {
+      if (typeof Intl.supportedValuesOf === 'function') {
+        const supportedTimezones = Intl.supportedValuesOf('timeZone');
+        return supportedTimezones.includes(timezone);
+      }
+    } catch (e) {
+      // Fallback if not available
+      logger.warn('Intl.supportedValuesOf not available, using fallback validation');
+    }
+
+    // Fallback validation: check format and try to use it
+    // Format: Continent/City or similar (e.g., America/New_York, Europe/London, UTC)
+    // Also allow common formats like UTC, GMT, etc.
+    if (timezone === 'UTC' || timezone === 'GMT') {
+      return true;
+    }
+
+    // Try to create a date formatter with this timezone to validate
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+      // If we can create a formatter, the timezone is valid
+      return true;
+    } catch (e) {
+      logger.warn(`Invalid timezone format: ${timezone}`, e);
+      return false;
+    }
+  }
+
   async deleteGlobalVariable(id: string, pool?: Pool): Promise<void> {
     const dbPool = pool || this.appPool;
     try {
@@ -1144,13 +1289,83 @@ export class DatabaseService {
   }
 
   /**
+   * Transform date/timestamp values to user's timezone
+   * This is applied AFTER SQL execution, so no SQL injection risk
+   */
+  private transformToUserTimezone(value: any, columnType: string, userTimezone: string): any {
+    // Only transform date/timestamp types
+    if (columnType !== 'timestamp' && columnType !== 'timestamptz' && columnType !== 'date') {
+      return value;
+    }
+
+    // Handle null/undefined
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    // PostgreSQL returns timestamps as Date objects or ISO strings
+    let date: Date;
+    if (value instanceof Date) {
+      date = value;
+    } else if (typeof value === 'string') {
+      date = new Date(value);
+    } else {
+      // If it's not a date-like value, return as-is
+      return value;
+    }
+
+    // Validate date
+    if (isNaN(date.getTime())) {
+      return value; // Return original if invalid date
+    }
+
+    // Convert to user's timezone
+    // Return ISO string with timezone information preserved
+    try {
+      // Format as ISO string but in user's timezone
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: userTimezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+
+      const parts = formatter.formatToParts(date);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      const second = parts.find(p => p.type === 'second')?.value;
+
+      // For date type, return date only
+      if (columnType === 'date') {
+        return `${year}-${month}-${day}`;
+      }
+
+      // For timestamp types, return datetime
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    } catch (error) {
+      // If timezone conversion fails, return original value
+      logger.warn('Failed to convert timezone, returning original value:', error);
+      return value;
+    }
+  }
+
+  /**
    * Execute parameterized SQL query with typed parameters
+   * @param userId - User ID for fetching timezone preferences (optional, defaults to UTC)
    */
   async executeParameterizedQuery(
     statement: string,
     params: Record<string, unknown>,
     timeoutMs: number = 30000,
-    maxRows: number = 10000
+    maxRows: number = 10000,
+    userId?: string
   ): Promise<ParameterizedQueryResult> {
     const startTime = Date.now();
 
@@ -1162,6 +1377,20 @@ export class DatabaseService {
         throw new CustomError(`SQL template validation failed: ${error.message}`, 400);
       }
       throw new CustomError('SQL template validation failed', 400);
+    }
+
+    // Fetch user timezone preferences (if userId provided)
+    let userTimezone = 'UTC';
+    if (userId) {
+      try {
+        const preferences = await this.getUserPreferences(userId);
+        if (preferences?.timezone) {
+          userTimezone = preferences.timezone;
+        }
+      } catch (error) {
+        // Log but don't fail - default to UTC
+        logger.warn('Failed to fetch user preferences, using UTC:', error);
+      }
     }
 
     const config = await this.getExternalDatabaseConfig();
@@ -1203,6 +1432,7 @@ export class DatabaseService {
       }
 
       // Validate SQL again after parameter binding to ensure final SQL is safe
+      // This happens BEFORE execution, as requested
       try {
         SQLSelectGuard.assertSafeSelect(processedStatement);
       } catch (error) {
@@ -1224,15 +1454,25 @@ export class DatabaseService {
         type: this.getPostgresTypeName(field.dataTypeID)
       }));
 
-      const rows = result.rows.map(row => 
-        Object.values(row).map(value => {
+      // Transform rows with timezone conversion
+      // This happens AFTER SQL execution, so no SQL injection risk
+      const rows = result.rows.map(row => {
+        const rowArray = Object.values(row);
+        return rowArray.map((value, index) => {
           // Convert BigInt to string for JSON serialization
           if (typeof value === 'bigint') {
             return value.toString();
           }
+          
+          // Apply timezone transformation for date/timestamp columns
+          const columnType = columns[index]?.type;
+          if (columnType && (columnType === 'timestamp' || columnType === 'timestamptz' || columnType === 'date')) {
+            return this.transformToUserTimezone(value, columnType, userTimezone);
+          }
+          
           return value;
-        })
-      );
+        });
+      });
 
       // Enforce max rows limit - but only if the SQL doesn't already have a LIMIT clause
       // If SQL has LIMIT, respect it; otherwise apply our maxRows limit

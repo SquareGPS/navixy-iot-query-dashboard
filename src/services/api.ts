@@ -367,6 +367,25 @@ class ApiService {
     });
   }
 
+  // User Preferences
+  async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
+    const response = await this.request('/api/user/preferences');
+    if (response.data && (response.data as any).preferences) {
+      return { data: (response.data as any).preferences };
+    }
+    return response as ApiResponse<{ timezone: string }>;
+  }
+
+  async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
+    const response = await this.request('/api/user/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+    if (response.data && (response.data as any).preferences) {
+      return { data: (response.data as any).preferences };
+    }
+    return response as ApiResponse<{ timezone: string }>;
+  }
 }
 
 export const apiService = new ApiService();

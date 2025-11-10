@@ -395,6 +395,64 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 });
 
 // ==========================================
+// User Preferences Routes
+// ==========================================
+
+// Get current user's preferences
+router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const preferences = await dbService.getUserPreferences(req.user.userId);
+
+    // Return default preferences if none exist
+    res.json({
+      success: true,
+      preferences: preferences || { timezone: 'UTC' }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update current user's preferences
+router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
+    const { timezone } = req.body;
+
+    if (!timezone || typeof timezone !== 'string') {
+      throw new CustomError('Timezone is required', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const updatedPreferences = await dbService.updateUserPreferences(req.user.userId, { timezone });
+
+    logger.info(`User preferences updated by ${req.user.email}`, { timezone });
+
+    res.json({
+      success: true,
+      preferences: updatedPreferences,
+      message: 'Preferences updated successfully'
+    });
+  } catch (error: any) {
+    logger.error('Error updating user preferences:', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.userId,
+      timezone: req.body?.timezone
+    });
+    next(error);
+  }
+});
+
+// ==========================================
 // Reports and Sections Routes
 // ==========================================
 

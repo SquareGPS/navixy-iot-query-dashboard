@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { Loader2, Database, CheckCircle2, XCircle, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable } from 'lucide-react';
@@ -39,6 +41,20 @@ const Settings = () => {
   const [editingValues, setEditingValues] = useState<Record<string, { label: string; description: string; value: string }>>({});
   const [newVariable, setNewVariable] = useState({ label: '', description: '', value: '' });
   const [showNewVariable, setShowNewVariable] = useState(false);
+
+  // User Preferences state
+  const [userTimezone, setUserTimezone] = useState<string>('UTC');
+  const [loadingPreferences, setLoadingPreferences] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [browserTimezone, setBrowserTimezone] = useState<string | null>(() => {
+    // Detect browser timezone immediately on component mount
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [showBrowserTimezonePrompt, setShowBrowserTimezonePrompt] = useState(false);
 
 
   // Parse URL to individual parameters
@@ -99,9 +115,9 @@ const Settings = () => {
     if (!loading && !user) {
       navigate('/login');
     }
-    if (!loading && user?.role !== 'admin') {
-      navigate('/app');
-      toast.error('You do not have permission to access settings');
+    // Only restrict database settings to admins, preferences are available to all users
+    if (!loading && user && user.role !== 'admin') {
+      // Allow access but only show preferences tab
     }
   }, [user, loading, navigate]);
 
@@ -110,7 +126,11 @@ const Settings = () => {
       fetchSettings();
       fetchGlobalVariables();
     }
-  }, [user?.role]);
+    // Fetch user preferences for all authenticated users
+    if (user) {
+      fetchUserPreferences();
+    }
+  }, [user?.role, user]);
 
   const fetchSettings = async () => {
     try {
@@ -346,13 +366,98 @@ const Settings = () => {
     }
   };
 
-  if (loading || user?.role !== 'admin') {
+  // User Preferences functions
+  const fetchUserPreferences = async () => {
+    setLoadingPreferences(true);
+    try {
+      const response = await apiService.getUserPreferences();
+      if (response.error) {
+        console.error('Error fetching user preferences:', response.error);
+        // Use browser timezone as default if available, otherwise UTC
+        if (browserTimezone) {
+          setUserTimezone(browserTimezone);
+        }
+      } else {
+        const savedTimezone = response.data?.timezone;
+        if (savedTimezone) {
+          setUserTimezone(savedTimezone);
+        } else {
+          // No saved preference - use browser timezone as default
+          setUserTimezone(browserTimezone || 'UTC');
+        }
+        
+        // Show prompt if user has no saved preference and browser timezone is detected
+        if (!savedTimezone && browserTimezone && browserTimezone !== 'UTC') {
+          setShowBrowserTimezonePrompt(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user preferences:', error);
+      // Use browser timezone as default if available, otherwise UTC
+      if (browserTimezone) {
+        setUserTimezone(browserTimezone);
+      }
+    } finally {
+      setLoadingPreferences(false);
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    setSavingPreferences(true);
+    try {
+      const response = await apiService.updateUserPreferences({ timezone: userTimezone });
+      if (response.error) {
+        toast.error(response.error.message || 'Failed to save preferences');
+      } else {
+        toast.success('Preferences saved successfully');
+        await fetchUserPreferences();
+        // Hide prompt after saving
+        setShowBrowserTimezonePrompt(false);
+      }
+    } catch (error: any) {
+      console.error('Error saving preferences:', error);
+      toast.error(error.message || 'Failed to save preferences');
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
+
+  const handleUseBrowserTimezone = async () => {
+    if (!browserTimezone) return;
+    
+    setUserTimezone(browserTimezone);
+    setSavingPreferences(true);
+    try {
+      const response = await apiService.updateUserPreferences({ timezone: browserTimezone });
+      if (response.error) {
+        toast.error(response.error.message || 'Failed to save preferences');
+      } else {
+        toast.success(`Timezone set to ${browserTimezone}`);
+        setShowBrowserTimezonePrompt(false);
+        await fetchUserPreferences();
+      }
+    } catch (error: any) {
+      console.error('Error saving browser timezone:', error);
+      toast.error(error.message || 'Failed to save preferences');
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
+
+  const handleDismissBrowserPrompt = () => {
+    setShowBrowserTimezonePrompt(false);
+  };
+
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
+
+  // Show only preferences tab for non-admin users
+  const showDatabaseTab = user.role === 'admin';
 
   return (
     <AppLayout>
@@ -365,12 +470,14 @@ const Settings = () => {
             </p>
           </div>
 
-          <Tabs defaultValue="database" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="database" className="flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                Database
-              </TabsTrigger>
+          <Tabs defaultValue={showDatabaseTab ? "database" : "preferences"} className="w-full">
+            <TabsList className={`grid w-full ${showDatabaseTab ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {showDatabaseTab && (
+                <TabsTrigger value="database" className="flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Database
+                </TabsTrigger>
+              )}
               <TabsTrigger value="preferences" className="flex items-center gap-2">
                 <User className="h-4 w-4" />
                 Preferences
@@ -378,6 +485,8 @@ const Settings = () => {
             </TabsList>
 
             <TabsContent value="database" className="mt-6">
+              {showDatabaseTab ? (
+                <>
               <Card>
                 <div className="space-y-6">
                   <div className="space-y-2">
@@ -816,6 +925,8 @@ const Settings = () => {
                   )}
                 </div>
               </Card>
+              </>
+              ) : null}
             </TabsContent>
 
             <TabsContent value="preferences" className="mt-6">
@@ -831,42 +942,76 @@ const Settings = () => {
                     </p>
                   </div>
 
+                  {/* Browser Timezone Prompt */}
+                  {showBrowserTimezonePrompt && browserTimezone && (
+                    <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800">
+                      <AlertDescription className="space-y-3">
+                        <div>
+                          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                            We detected your browser's timezone
+                          </p>
+                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                            Your browser reports the timezone as <strong>{browserTimezone}</strong>. 
+                            Would you like to use this timezone, or choose a different one?
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleUseBrowserTimezone}
+                            disabled={savingPreferences}
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                          >
+                            Use Browser Timezone
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleDismissBrowserPrompt}
+                            disabled={savingPreferences}
+                          >
+                            Choose Different
+                          </Button>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="timezone" className="text-sm font-medium">Timezone</Label>
-                      <Input
-                        id="timezone"
-                        placeholder="UTC"
-                        value="UTC"
-                        disabled
-                        className="text-sm"
+                      <TimezoneCombobox
+                        value={userTimezone}
+                        onValueChange={(value) => {
+                          setUserTimezone(value);
+                          // Hide prompt when user manually selects
+                          if (showBrowserTimezonePrompt) {
+                            setShowBrowserTimezonePrompt(false);
+                          }
+                        }}
+                        disabled={loadingPreferences || savingPreferences}
+                        browserTimezone={browserTimezone}
                       />
                       <p className="text-xs text-muted-foreground">
-                        Timezone configuration coming soon
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="dateFormat" className="text-sm font-medium">Date Format</Label>
-                      <Input
-                        id="dateFormat"
-                        placeholder="YYYY-MM-DD"
-                        value="YYYY-MM-DD"
-                        disabled
-                        className="text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Date format preferences coming soon
+                        All date and time values in reports will be displayed in your selected timezone
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-6 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      More preference options will be available soon
-                    </div>
-                    <Button disabled size="sm">
-                      Save Preferences
+                  <div className="flex items-center justify-end pt-6 border-t">
+                    <Button 
+                      onClick={handleSavePreferences}
+                      disabled={savingPreferences || loadingPreferences}
+                      size="sm"
+                    >
+                      {savingPreferences ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        'Save Preferences'
+                      )}
                     </Button>
                   </div>
                 </div>

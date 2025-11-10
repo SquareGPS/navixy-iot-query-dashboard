@@ -63,7 +63,8 @@ interface QueryResponse {
 // Generate cache key for parameterized queries
 function generateParameterizedCacheKey(
   statement: string, 
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  userTimezone?: string
 ): string {
   const hash = crypto.createHash('sha256');
   const keyData = {
@@ -71,7 +72,8 @@ function generateParameterizedCacheKey(
     params: Object.keys(params).sort().reduce((acc, key) => {
       acc[key] = params[key];
       return acc;
-    }, {} as Record<string, unknown>)
+    }, {} as Record<string, unknown>),
+    timezone: userTimezone || 'UTC'
   };
   
   hash.update(JSON.stringify(keyData));
@@ -118,8 +120,23 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     // Continue execution without global variables if there's an error
   }
 
-  // Generate cache key (use merged params for caching)
-  const cacheKey = generateParameterizedCacheKey(statement, mergedParams);
+  // Fetch user timezone for cache key
+  let userTimezone = 'UTC';
+  if (req.user?.userId) {
+    try {
+      const dbService = getDbService();
+      const preferences = await dbService.getUserPreferences(req.user.userId);
+      if (preferences?.timezone) {
+        userTimezone = preferences.timezone;
+      }
+    } catch (error) {
+      // Log but don't fail - default to UTC
+      logger.warn('Failed to fetch user preferences for cache key, using UTC:', error);
+    }
+  }
+
+  // Generate cache key (use merged params and timezone for caching)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, userTimezone);
   
   try {
     // Try to get from cache first
@@ -134,7 +151,8 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       statement, 
       mergedParams, 
       limits?.timeout_ms || 30000,
-      limits?.max_rows || 10000
+      limits?.max_rows || 10000,
+      req.user?.userId // Pass userId for timezone preferences
     );
     
     // Cache result for 5 minutes
