@@ -54,7 +54,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
     try {
       if (item.type === 'section') {
         // Find the current section to get its version
-        const currentSection = menuTree?.sections.find(s => s.id === item.id);
+        const currentSection = (menuTree?.sections || []).find(s => s.id === item.id);
         if (!currentSection) {
           toast.error('Section not found');
           return;
@@ -67,7 +67,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
         });
       } else {
         // Find the current report to get its version
-        let currentReport = menuTree?.rootReports.find(r => r.id === item.id);
+        let currentReport = (menuTree?.rootReports || []).find(r => r.id === item.id);
         if (!currentReport) {
           // Look in section reports
           for (const sectionReports of Object.values(menuTree?.sectionReports || {})) {
@@ -282,7 +282,7 @@ export function CreateSectionModal({ isOpen, onClose }: CreateSectionModalProps)
 
     try {
       // Calculate sort order - add to the end
-      const maxSortOrder = Math.max(...(menuTree?.sections.map(s => s.sortOrder) || [0]));
+      const maxSortOrder = Math.max(...((menuTree?.sections || []).map(s => s.sortOrder) || [0]));
       const sortOrder = maxSortOrder + 1000;
 
       await createSectionMutation.mutateAsync({
@@ -484,7 +484,7 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="root">Root (no section)</SelectItem>
-                  {menuTree?.sections.map((section) => (
+                  {(menuTree?.sections || []).map((section) => (
                     <SelectItem key={section.id} value={section.id}>
                       {section.name}
                     </SelectItem>

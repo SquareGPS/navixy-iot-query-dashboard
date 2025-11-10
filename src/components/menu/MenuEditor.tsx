@@ -435,11 +435,12 @@ export function MenuEditor() {
 
     // Handle section reordering
     if (activeType === 'section' && overType === 'section') {
-      const activeIndex = menuTree.sections.findIndex(s => s.id === activeId);
-      const overIndex = menuTree.sections.findIndex(s => s.id === overId);
+      const sectionsArray = menuTree.sections || [];
+      const activeIndex = sectionsArray.findIndex(s => s.id === activeId);
+      const overIndex = sectionsArray.findIndex(s => s.id === overId);
       
       if (activeIndex !== -1 && overIndex !== -1) {
-        const reorderedSections = arrayMove(menuTree.sections, activeIndex, overIndex);
+        const reorderedSections = arrayMove(sectionsArray, activeIndex, overIndex);
         reorderedSections.forEach((section: any, index) => {
           sections.push({
             id: section.id,
@@ -453,7 +454,8 @@ export function MenuEditor() {
     // Handle report reordering/moving
     if (activeType === 'report') {
       // Find the active report and determine its current parent
-      let activeReport = menuTree.rootReports.find(r => r.id === activeId);
+      const rootReportsArray = menuTree.rootReports || [];
+      let activeReport = rootReportsArray.find(r => r.id === activeId);
       let currentParentSectionId: string | null = null;
       
       if (!activeReport) {
@@ -474,7 +476,7 @@ export function MenuEditor() {
         if (overType === 'root') {
           newParentSectionId = null;
           // Add to end of root reports
-          newSortOrder = (menuTree.rootReports.length + 1) * 1000;
+          newSortOrder = (rootReportsArray.length + 1) * 1000;
         } else if (overType === 'section') {
           newParentSectionId = overParentSectionId || overId;
           // Add to end of section reports
@@ -488,7 +490,7 @@ export function MenuEditor() {
           newSortOrder = (sectionReports.length + 1) * 1000;
         } else if (overType === 'report') {
           // Find the target report's parent
-          let targetReport = menuTree.rootReports.find(r => r.id === overId);
+          let targetReport = rootReportsArray.find(r => r.id === overId);
           let targetParentSectionId: string | null = null;
           
           if (!targetReport) {
@@ -526,13 +528,13 @@ export function MenuEditor() {
 
   const handleRename = (id: string, name: string) => {
     // Determine if it's a section or report
-    const isSection = menuTree?.sections.some(s => s.id === id);
+    const isSection = (menuTree?.sections || []).some(s => s.id === id);
     setRenameItem({ id, type: isSection ? 'section' : 'report', name });
   };
 
   const handleDelete = (id: string, name: string) => {
     // Determine if it's a section or report
-    const isSection = menuTree?.sections.some(s => s.id === id);
+    const isSection = (menuTree?.sections || []).some(s => s.id === id);
     setDeleteItem({ id, type: isSection ? 'section' : 'report', name });
     if (isSection) {
       setDeleteStrategy('move_children_to_root'); // Default strategy

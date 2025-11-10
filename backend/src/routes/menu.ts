@@ -425,6 +425,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
       }
 
       // Soft delete the section
+      // The trigger function handles recursion prevention internally
       await client.query(
         'UPDATE public.sections SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
         [req.user?.userId, id]

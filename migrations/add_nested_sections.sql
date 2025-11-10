@@ -158,9 +158,17 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Temporarily disable this trigger to prevent infinite recursion
+    -- The update_section_paths() function will update all paths at once
+    ALTER TABLE public.sections DISABLE TRIGGER update_section_path_trigger;
+    
     -- Update the path and depth for the modified section and all its descendants
     PERFORM update_section_paths();
-    RETURN NEW;
+    
+    -- Re-enable the trigger
+    ALTER TABLE public.sections ENABLE TRIGGER update_section_path_trigger;
+    
+    RETURN COALESCE(NEW, OLD);
 END;
 $$;
 
