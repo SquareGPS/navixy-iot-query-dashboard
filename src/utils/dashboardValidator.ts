@@ -241,7 +241,7 @@ export class DashboardValidator {
         
         if (dashboard.panels) {
           dashboard.panels.forEach((panel: any, index: number) => {
-            if (panel['x-navixy'] && !panel['x-navixy'].sql) {
+            if (panel['x-navixy'] && !panel['x-navixy'].sql && panel.type !== 'text') {
               results.push({
                 rule: 'panel-has-navixy-sql',
                 severity: 'error',

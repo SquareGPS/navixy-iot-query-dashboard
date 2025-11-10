@@ -233,12 +233,12 @@ export type PanelType =
   | 'piechart';      // For pie charts (may use bargauge or custom)
 
 export interface NavixyPanelConfig {
-  sql: {
+  sql?: {
     statement: string;
     params?: Record<string, NavixyParam>;
     bindings?: Record<string, string>;
   };
-  dataset: {
+  dataset?: {
     shape: 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie';
     columns: Record<string, { type: NavixyColumnType }>;
   };
@@ -248,6 +248,10 @@ export interface NavixyPanelConfig {
     max_rows?: number;
   };
   visualization?: VisualizationConfig;
+  text?: {
+    format?: 'markdown' | 'html' | 'text';
+    content?: string;
+  };
 }
 
 export interface VisualizationConfig {

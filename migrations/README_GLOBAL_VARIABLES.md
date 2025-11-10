@@ -117,3 +117,9 @@ DROP TABLE IF EXISTS public.global_variables;
 - All users can view global variables, but only admins can create/update/delete them
 - Global variables are automatically available in SQL queries using `${variable_name}` syntax
 
+
+
+
+
+
+

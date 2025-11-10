@@ -452,7 +452,6 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
         <Button
           variant="primary"
           onClick={handleApply}
-          disabled={!hasPendingChanges}
         >
           {hasPendingChanges ? (
             <>

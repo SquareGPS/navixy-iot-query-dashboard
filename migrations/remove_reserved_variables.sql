@@ -12,3 +12,9 @@ ALTER TABLE public.global_variables DROP COLUMN IF EXISTS is_reserved;
 -- (This is a no-op now, but kept for clarity)
 -- All variables can now be edited and deleted normally
 
+
+
+
+
+
+

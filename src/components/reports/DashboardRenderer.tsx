@@ -734,9 +734,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           // Make sure to clear any refresh tracking for these panels
           delete refreshStartTimesRef.current[panel.title];
         } else {
-          // During auto-refresh, preserve old data and set refreshing flag
-          // During initial load, clear data and set loading flag
-          if (isAutoRefresh && existingData?.data) {
+          // During refresh (auto or manual), preserve old data and set refreshing flag if data exists
+          // During initial load (no existing data), clear data and set loading flag
+          if (existingData?.data) {
+            // There's existing data - preserve it and show refresh indicator
             newPanelData[panel.title] = {
               data: existingData.data, // Preserve old data
               loading: false, // Don't show full loading spinner
@@ -747,8 +748,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             // Track when refresh started for timeout mechanism
             refreshStartTimesRef.current[panel.title] = Date.now();
           } else {
+            // No existing data - initial load, show loading spinner
             newPanelData[panel.title] = {
-              data: existingData?.data || null, // Preserve existing data during non-auto refresh too
+              data: existingData?.data || null,
               loading: true, // Show full loading spinner for initial load
               refreshing: false,
               error: null,
@@ -769,12 +771,17 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         
         // Skip text panels and panels without SQL - they don't need queries
         if (panel.type === 'text' || !hasSql) {
-          // Ensure refreshing is cleared for these panels
+          // Ensure refreshing is cleared for these panels immediately
           if (newPanelData[panelTitle]?.refreshing) {
             newPanelData[panelTitle] = {
               ...newPanelData[panelTitle],
               refreshing: false
             };
+            // Update state immediately to clear refresh indicator
+            setPanelData(prev => ({
+              ...prev,
+              [panelTitle]: newPanelData[panelTitle]
+            }));
           }
           continue;
         }
@@ -796,6 +803,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           
           // Clear refresh start time
           delete refreshStartTimesRef.current[panelTitle];
+          
+          // Update state immediately after each query completes to clear refresh indicator promptly
+          setPanelData(prev => ({
+            ...prev,
+            [panelTitle]: newPanelData[panelTitle]
+          }));
         } catch (err: any) {
           console.error(`Error executing query for panel ${panelTitle}:`, err);
           const existingData = panelDataRef.current[panelTitle];
@@ -809,9 +822,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           
           // Clear refresh start time
           delete refreshStartTimesRef.current[panelTitle];
+          
+          // Update state immediately even on error to clear refresh indicator
+          setPanelData(prev => ({
+            ...prev,
+            [panelTitle]: newPanelData[panelTitle]
+          }));
         }
       }
 
+      // Final state update to ensure consistency (though individual updates above should handle it)
       setPanelData(newPanelData);
       setLoading(false);
       
@@ -1583,7 +1603,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (!isRefreshing) return null;
     
     return (
-      <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground/60" />
+      <RefreshCw 
+        className="h-3.5 w-3.5 text-muted-foreground/60" 
+        style={{
+          animation: 'spin 3s linear infinite'
+        }}
+      />
     );
   };
 

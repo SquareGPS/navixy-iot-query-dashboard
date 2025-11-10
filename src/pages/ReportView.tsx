@@ -1012,11 +1012,14 @@ const ReportView = () => {
     }
     
     try {
+      // Get the latest dashboard from editor store (may have newly created panels)
+      const store = useEditorStore.getState();
+      const latestDashboard = store.dashboard || dashboard;
 
       // Deep clone dashboard to avoid reference issues
       const updatedDashboard = {
-        ...dashboard,
-        panels: dashboard.panels.map(p => ({ ...p }))
+        ...latestDashboard,
+        panels: latestDashboard.panels.map(p => ({ ...p }))
       };
       
       // Find and update the panel using multiple strategies for reliability
@@ -1044,33 +1047,50 @@ const ReportView = () => {
         );
       }
       
-      if (panelIndex !== -1) {
+      // Strategy 4: If panel not found, it might be a new panel - add it
+      if (panelIndex === -1) {
+        // Check if this is a new panel (has ID but not in dashboard yet)
+        if (updatedPanel.id) {
+          // Add as new panel
+          updatedDashboard.panels.push(updatedPanel);
+          panelIndex = updatedDashboard.panels.length - 1;
+        } else {
+          console.error('❌ Could not find panel to update', {
+            editingPanel: editingPanel,
+            updatedPanel: updatedPanel,
+            availablePanels: updatedDashboard.panels.map(p => ({ id: p.id, title: p.title, gridPos: p.gridPos }))
+          });
+          throw new Error('Could not find panel to update');
+        }
+      } else {
         const oldPanel = updatedDashboard.panels[panelIndex];
         
         // Preserve all existing panel properties and merge with updates
-        // Ensure x-navixy is properly merged to preserve all nested properties
-        updatedDashboard.panels[panelIndex] = {
-          ...oldPanel,
-          ...updatedPanel,
-          'x-navixy': {
-            ...oldPanel['x-navixy'],
-            ...updatedPanel['x-navixy'],
-            sql: {
-              ...oldPanel['x-navixy']?.sql,
-              ...updatedPanel['x-navixy']?.sql,
-              // Ensure statement is not truncated
-              statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
+        // For text panels, handle x-navixy differently (may not have sql)
+        if (updatedPanel.type === 'text') {
+          updatedDashboard.panels[panelIndex] = {
+            ...oldPanel,
+            ...updatedPanel,
+            // For text panels, preserve x-navixy.text if it exists, otherwise merge normally
+            'x-navixy': updatedPanel['x-navixy'] || oldPanel['x-navixy']
+          };
+        } else {
+          // For other panels, merge x-navixy with sql
+          updatedDashboard.panels[panelIndex] = {
+            ...oldPanel,
+            ...updatedPanel,
+            'x-navixy': {
+              ...oldPanel['x-navixy'],
+              ...updatedPanel['x-navixy'],
+              sql: {
+                ...oldPanel['x-navixy']?.sql,
+                ...updatedPanel['x-navixy']?.sql,
+                // Ensure statement is not truncated
+                statement: updatedPanel['x-navixy']?.sql?.statement || oldPanel['x-navixy']?.sql?.statement
+              }
             }
-          }
-        };
-        
-      } else {
-        console.error('❌ Could not find panel to update', {
-          editingPanel: editingPanel,
-          updatedPanel: updatedPanel,
-          availablePanels: updatedDashboard.panels.map(p => ({ id: p.id, title: p.title, gridPos: p.gridPos }))
-        });
-        throw new Error('Could not find panel to update');
+          };
+        }
       }
       
       // Preserve the existing schema structure (same pattern as handleSaveDashboard)
@@ -1108,10 +1128,8 @@ const ReportView = () => {
       setSchema(updatedSchema);
       
       // Also update editorStore to ensure it has the latest data
-      const store = useEditorStore.getState();
-      if (store.isEditingLayout) {
-        store.setDashboard(updatedDashboard);
-      }
+      const storeAfterSave = useEditorStore.getState();
+      storeAfterSave.setDashboard(updatedDashboard);
       
       // Update editingPanel if it's still open, to ensure it has the latest data
       if (editingPanel && updatedPanel.id) {

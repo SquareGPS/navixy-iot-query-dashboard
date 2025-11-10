@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
 import type { Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig } from '@/types/dashboard-types';
@@ -69,10 +70,24 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     return navixyConfig?.visualization;
   });
   
+  // Text panel specific state
+  // Support both formats: options.* and x-navixy.text.*
+  const navixyText = panel['x-navixy']?.text;
+  const [textMode, setTextMode] = useState<'markdown' | 'html' | 'text'>(() => {
+    return (panel.options?.mode as 'markdown' | 'html' | 'text') || 
+           (navixyText?.format as 'markdown' | 'html' | 'text') || 
+           'markdown';
+  });
+  const [textContent, setTextContent] = useState(() => {
+    return panel.options?.content || navixyText?.content || '';
+  });
+  
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const { executing, error, executeQuery } = useSqlExecution();
+  
+  const isTextPanel = panelType === 'text';
 
   // Update state when panel prop changes (e.g., after save)
   useEffect(() => {
@@ -84,6 +99,14 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       setSql(navixyConfig?.sql?.statement ? formatSql(navixyConfig.sql.statement) : '');
       setMaxRows(navixyConfig?.verify?.max_rows || 1000);
       setVisualization(navixyConfig?.visualization);
+      // Update text panel state - support both formats
+      const navixyText = panel['x-navixy']?.text;
+      setTextMode(
+        (panel.options?.mode as 'markdown' | 'html' | 'text') || 
+        (navixyText?.format as 'markdown' | 'html' | 'text') || 
+        'markdown'
+      );
+      setTextContent(panel.options?.content || navixyText?.content || '');
     }
   }, [panel, open]); // Update when panel changes or dialog opens
 
@@ -104,6 +127,39 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         description: 'Panel Type is required',
         variant: 'destructive',
       });
+      return;
+    }
+
+    // Special handling for text panels
+    if (isTextPanel) {
+      setSaving(true);
+      try {
+        const updatedPanel: Panel = {
+          ...panel,
+          title: title.trim(),
+          description: description.trim() || undefined,
+          type: panelType as any,
+          options: {
+            ...panel.options,
+            mode: textMode,
+            content: textContent,
+          },
+          // Text panels don't need x-navixy config, but keep it if it exists
+          'x-navixy': panel['x-navixy'],
+        };
+
+        onSave(updatedPanel);
+        onClose();
+      } catch (err) {
+        console.error('Error saving text panel:', err);
+        toast({
+          title: 'Error',
+          description: err instanceof Error ? err.message : 'Failed to save panel',
+          variant: 'destructive',
+        });
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -249,10 +305,11 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         </DialogHeader>
 
         <Tabs defaultValue="properties" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <TabsList className="mx-6 grid w-[calc(100%-3rem)] grid-cols-3 flex-shrink-0">
+          <TabsList className={`mx-6 grid w-[calc(100%-3rem)] flex-shrink-0 ${isTextPanel ? 'grid-cols-2' : 'grid-cols-3'}`}>
             <TabsTrigger value="properties">Panel Properties</TabsTrigger>
-            <TabsTrigger value="sql">SQL Query</TabsTrigger>
-            <TabsTrigger value="visualization">Visualization Settings</TabsTrigger>
+            {!isTextPanel && <TabsTrigger value="sql">SQL Query</TabsTrigger>}
+            {isTextPanel && <TabsTrigger value="content">Content</TabsTrigger>}
+            {!isTextPanel && <TabsTrigger value="visualization">Visualization Settings</TabsTrigger>}
           </TabsList>
           
           {/* Panel Properties Tab */}
@@ -287,6 +344,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                       <SelectItem value="piechart">Pie Chart</SelectItem>
                       <SelectItem value="linechart">Line Chart</SelectItem>
                       <SelectItem value="timeseries">Time Series</SelectItem>
+                      <SelectItem value="text">Text</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -302,6 +360,46 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                   placeholder="Enter panel description (optional)"
                   rows={3}
                 />
+              </div>
+            </div>
+          </TabsContent>
+          
+          {/* Content Tab (for text panels) */}
+          <TabsContent value="content" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-hidden bg-[var(--surface-1)]">
+            <div className="flex-1 flex flex-col min-h-0 gap-4">
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Content Mode</Label>
+                <RadioGroup value={textMode} onValueChange={(value) => setTextMode(value as 'markdown' | 'html' | 'text')}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="markdown" id="mode-markdown" />
+                    <Label htmlFor="mode-markdown" className="cursor-pointer">Markdown</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="html" id="mode-html" />
+                    <Label htmlFor="mode-html" className="cursor-pointer">HTML</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="text" id="mode-text" />
+                    <Label htmlFor="mode-text" className="cursor-pointer">Plain Text</Label>
+                  </div>
+                </RadioGroup>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {textMode === 'markdown' && 'Use Markdown syntax for formatting (e.g., **bold**, *italic*, `code`)'}
+                  {textMode === 'html' && 'Use HTML tags for formatting'}
+                  {textMode === 'text' && 'Plain text with no formatting'}
+                </p>
+              </div>
+              
+              <div className="flex-1 flex flex-col min-h-0">
+                <Label className="text-sm font-medium mb-2">Content</Label>
+                <div className="flex-1 border rounded-md overflow-hidden min-h-0">
+                  <SqlEditor
+                    value={textContent}
+                    onChange={setTextContent}
+                    height="100%"
+                    language={textMode === 'markdown' ? 'markdown' : textMode === 'html' ? 'html' : 'plaintext'}
+                  />
+                </div>
               </div>
             </div>
           </TabsContent>
