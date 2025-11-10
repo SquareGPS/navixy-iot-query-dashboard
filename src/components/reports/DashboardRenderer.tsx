@@ -549,11 +549,18 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const filteredParams = filterUsedParameters(navixyConfig.sql.statement, preparedParams);
 
     // Execute SQL query using the validated endpoint
+    // For table panels, fetch more rows (up to 10000) to allow client-side pagination
+    // This ensures users can see all their data even if verify.max_rows is set low
+    const isTablePanel = panel.type === 'table';
+    const rowLimit = isTablePanel 
+      ? Math.max(navixyConfig.verify?.max_rows || 0, 10000) // At least 10000 for tables
+      : (navixyConfig.verify?.max_rows || 1000); // Default 1000 for other panels
+    
     const result = await apiService.executeSQL({
       sql: navixyConfig.sql.statement,
       params: filteredParams,
       timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
-      row_limit: navixyConfig.verify?.max_rows || 1000
+      row_limit: rowLimit
     });
 
     if (result.error) {
