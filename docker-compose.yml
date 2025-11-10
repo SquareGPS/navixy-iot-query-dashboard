@@ -55,7 +55,8 @@ services:
     command: sh -c "npm install --include=dev && npm run build && npm prune --production && npm start"
     restart: unless-stopped
 
-  # Frontend (Nginx serving static files)
+  # Frontend (Nginx serving static files) - Production only
+  # For local development, use Vite dev server: npm run dev
   # Note: Frontend must be built before starting this service.
   # Build with: npm run build
   # Environment variables (VITE_*) are build-time only and must be set before building.
@@ -73,6 +74,8 @@ services:
     networks:
       - sql-report-network
     restart: unless-stopped
+    profiles:
+      - production  # Only start with: docker compose --profile production up
 
   # Python Analytics Service (Phase 2)
   analytics:

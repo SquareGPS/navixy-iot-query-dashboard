@@ -21,13 +21,16 @@
     "lint:backend": "cd backend && npm run lint",
     "lint:all": "npm run lint && npm run lint:backend",
     "preview": "vite preview",
-    "docker:up": "./scripts/docker-start.sh up -d",
+    "docker:up": "docker compose up -d",
+    "docker:up:prod": "docker compose --profile production up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "docker:build": "docker compose build",
-    "docker:start": "./scripts/docker-start.sh up -d",
+    "docker:start": "docker compose up -d",
+    "docker:start:prod": "docker compose --profile production up -d",
     "docker:stop": "docker compose down",
-    "docker:restart": "docker compose restart"
+    "docker:restart": "docker compose restart",
+    "docker:restart:prod": "docker compose --profile production restart"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
