@@ -53,21 +53,40 @@ app.use(helmet({
 }));
 
 // CORS configuration
+// Supports both HTTP and HTTPS
 const allowedOrigins = process.env.NODE_ENV === 'production' 
   ? [
+      'http://localhost',
+      'http://localhost:80',
+      'https://localhost',
+      'https://localhost:443',
       'http://localhost:8080',
+      'https://localhost:8080',
       'http://localhost:8081',
+      'https://localhost:8081',
       'http://localhost:3000',
+      'https://localhost:3000',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
+      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
+      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
       'https://yourdomain.com', // Replace with your actual production domain
     ]
   : [
-      'http://localhost:8080', 
-      'http://localhost:8081', 
+      'http://localhost',
+      'http://localhost:80',
+      'https://localhost',
+      'https://localhost:443',
+      'http://localhost:8080',
+      'https://localhost:8080',
+      'http://localhost:8081',
+      'https://localhost:8081',
       'http://localhost:3000',
+      'https://localhost:3000',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
+      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
+      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
     ];
 
 app.use(cors({
@@ -76,7 +95,11 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     // Check if origin is localhost (for local development even in production mode)
-    const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+    // Allow both http://localhost and https://localhost (and with ports)
+    const isLocalhost = origin.startsWith('http://localhost') || 
+                       origin.startsWith('https://localhost') ||
+                       origin.startsWith('http://127.0.0.1') ||
+                       origin.startsWith('https://127.0.0.1');
     
     if (allowedOrigins.includes(origin) || isLocalhost) {
       callback(null, true);

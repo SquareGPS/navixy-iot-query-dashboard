@@ -8,6 +8,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-reports_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_HOST_AUTH_METHOD: trust
+    # Use consistent user for frontend connection string
+    # Frontend will use: postgresql://${POSTGRES_USER:-reports_user}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
     ports:
       - "5432:5432"
     volumes:
@@ -30,9 +32,10 @@ services:
 
   # Node.js Backend API
   backend:
-    image: node:18-alpine
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: sql-report-backend
-    working_dir: /app
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -47,28 +50,26 @@ services:
     depends_on:
       - postgres
       - redis
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
     networks:
       - sql-report-network
-    command: sh -c "npm install --include=dev && npm run build && npm prune --production && npm start"
     restart: unless-stopped
 
   # Frontend (Nginx serving static files) - Production only
   # For local development, use Vite dev server: npm run dev
-  # Note: Frontend must be built before starting this service.
-  # Build with: npm run build
-  # Environment variables (VITE_*) are build-time only and must be set before building.
-  # See .env.example for VITE_DEFAULT_METABASE_DB_CONNECTION_URL
+  # Frontend is built inside Docker using Dockerfile.frontend
+  # Environment variables (VITE_*) are passed as build arguments
   frontend:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Default connection string matches PostgreSQL service defaults
+        # Override with VITE_DEFAULT_METABASE_DB_CONNECTION_URL in .env if needed
+        VITE_DEFAULT_METABASE_DB_CONNECTION_URL: ${VITE_DEFAULT_METABASE_DB_CONNECTION_URL:-postgresql://reports_user:postgres@postgres:5432/reports_app_db}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     container_name: sql-report-frontend
     ports:
       - "80:80"
-    volumes:
-      - ./dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - backend
     networks:
