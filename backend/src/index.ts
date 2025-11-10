@@ -55,6 +55,9 @@ app.use(helmet({
 // CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production' 
   ? [
+      'http://localhost:8080',
+      'http://localhost:8081',
+      'http://localhost:3000',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
       'https://yourdomain.com', // Replace with your actual production domain
@@ -72,7 +75,10 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
+    // Check if origin is localhost (for local development even in production mode)
+    const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+    
+    if (allowedOrigins.includes(origin) || isLocalhost) {
       callback(null, true);
     } else {
       // In development, allow any origin for easier testing
