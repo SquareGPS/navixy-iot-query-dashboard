@@ -32,7 +32,7 @@ const Login = () => {
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [dbConnection, setDbConnection] = useState<DatabaseConnection>({
     connectionType: 'url',
-    url: import.meta.env.DEV ? 'postgresql://danilnezhdanov@127.0.0.1:5432/reports_app_db' : '',
+    url: import.meta.env.DEV ? 'postgresql://reports_user@127.0.0.1:5432/reports_app_db' : '',
     host: '',
     port: 5432,
     database: '',

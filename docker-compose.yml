@@ -5,7 +5,7 @@ services:
     container_name: sql-report-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-reports_app_db}
-      POSTGRES_USER: ${POSTGRES_USER:-danilnezhdanov}
+      POSTGRES_USER: ${POSTGRES_USER:-reports_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
@@ -37,7 +37,7 @@ services:
       NODE_ENV: production
       PORT: 3001
       REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgresql://${POSTGRES_USER:-danilnezhdanov}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-reports_user}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
       JWT_SECRET: ${JWT_SECRET}
       REPORT_SCHEMA_URL: ${REPORT_SCHEMA_URL:-https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json}
       RATE_LIMIT_MAX_REQUESTS: 1000

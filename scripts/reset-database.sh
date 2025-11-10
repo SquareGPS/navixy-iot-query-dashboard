@@ -40,13 +40,13 @@ print_status "Resetting database..."
 if docker ps --format "{{.Names}}" | grep -q "^sql-report-postgres$"; then
     print_status "Detected Docker PostgreSQL container"
     USE_DOCKER=true
-    DB_USER="${POSTGRES_USER:-danilnezhdanov}"
+    DB_USER="${POSTGRES_USER:-reports_user}"
     DB_NAME="${POSTGRES_DB:-reports_app_db}"
     CONTAINER_NAME="sql-report-postgres"
 else
     print_status "Using local PostgreSQL"
     USE_DOCKER=false
-    DB_USER="${POSTGRES_USER:-danilnezhdanov}"
+    DB_USER="${POSTGRES_USER:-reports_user}"
     DB_NAME="${POSTGRES_DB:-reports_app_db}"
 fi
 

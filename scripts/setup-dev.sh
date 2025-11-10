@@ -80,7 +80,7 @@ NODE_ENV=development
 PORT=3001
 
 # Database Configuration (Local PostgreSQL)
-DATABASE_URL=postgresql://danilnezhdanov@localhost:5432/reports_app_db
+DATABASE_URL=postgresql://reports_user@localhost:5432/reports_app_db
 
 # Redis Cache
 REDIS_URL=redis://localhost:6379
@@ -135,9 +135,9 @@ else
 fi
 
 # Check if database exists
-if ! psql -U danilnezhdanov -d reports_app_db -c "SELECT 1;" &> /dev/null; then
+if ! psql -U reports_user -d reports_app_db -c "SELECT 1;" &> /dev/null; then
     print_warning "Database 'reports_app_db' does not exist. Creating..."
-    createdb -U danilnezhdanov reports_app_db
+    createdb -U reports_user reports_app_db
     print_success "Database created successfully"
 else
     print_success "Database 'reports_app_db' exists"
@@ -194,7 +194,7 @@ pkill -f "vite" 2>/dev/null || true
 # Start backend
 print_status "Starting backend server..."
 cd backend
-DATABASE_URL="postgresql://danilnezhdanov@localhost:5432/reports_app_db" npm run dev &
+DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db" npm run dev &
 BACKEND_PID=$!
 cd ..
 

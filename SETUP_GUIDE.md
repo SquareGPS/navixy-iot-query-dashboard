@@ -233,7 +233,7 @@ This project uses **two separate `.env` files** for different purposes:
 ```env
 NODE_ENV=development
 PORT=3001
-DATABASE_URL=postgresql://danilnezhdanov@localhost:5432/reports_app_db
+DATABASE_URL=postgresql://reports_user@localhost:5432/reports_app_db
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=dev_jwt_secret_key_change_in_production
 REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json
@@ -249,7 +249,7 @@ REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashbo
 ```env
 JWT_SECRET=your_secret_here
 POSTGRES_DB=reports_app_db
-POSTGRES_USER=danilnezhdanov
+POSTGRES_USER=reports_user
 POSTGRES_PASSWORD=postgres
 REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json
 ```

@@ -184,7 +184,7 @@ See [DOCKER_SETUP.md](./docs/DOCKER_SETUP.md) for detailed Docker setup instruct
 
 1. **"DATABASE_URL environment variable is required"**
    - Run `npm run dev:setup` to ensure proper environment setup
-   - Or manually set: `DATABASE_URL="postgresql://danilnezhdanov@localhost:5432/reports_app_db"`
+   - Or manually set: `DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db"`
 
 2. **"Port already in use"**
    - Run `npm run dev:stop` to stop all services
@@ -192,7 +192,7 @@ See [DOCKER_SETUP.md](./docs/DOCKER_SETUP.md) for detailed Docker setup instruct
 
 3. **PostgreSQL connection issues**
    - Ensure PostgreSQL is running: `brew services start postgresql@14`
-   - Check if database exists: `psql -U danilnezhdanov -d reports_app_db -c "SELECT 1;"`
+   - Check if database exists: `psql -U reports_user -d reports_app_db -c "SELECT 1;"`
 
 4. **Redis connection issues**
    - Start Redis container: `docker run -d --name redis-dev -p 6379:6379 redis:7-alpine`
@@ -232,7 +232,7 @@ This project uses **two separate `.env` files** for different purposes:
 |----------|-------------|---------|
 | `NODE_ENV` | Environment mode | `development` |
 | `PORT` | Backend server port | `3001` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://danilnezhdanov@localhost:5432/reports_app_db` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://reports_user@localhost:5432/reports_app_db` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
 | `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `backend/.env.example` |
@@ -249,7 +249,7 @@ This project uses **two separate `.env` files** for different purposes:
 |----------|-------------|---------|
 | `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
 | `POSTGRES_DB` | PostgreSQL database name | `reports_app_db` |
-| `POSTGRES_USER` | PostgreSQL username | `danilnezhdanov` |
+| `POSTGRES_USER` | PostgreSQL username | `reports_user` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
 | `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `.env.example` |
 

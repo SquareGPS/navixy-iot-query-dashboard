@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 echo -e "${YELLOW}Running user preferences migration...${NC}"
 
 # Get database URL from environment or use default
-DATABASE_URL="${DATABASE_URL:-postgresql://danilnezhdanov@localhost:5432/reports_app_db}"
+DATABASE_URL="${DATABASE_URL:-postgresql://reports_user@localhost:5432/reports_app_db}"
 
 # Extract connection details from DATABASE_URL
 if [[ $DATABASE_URL =~ postgresql://([^:]+):([^@]+)@([^:]+):([^/]+)/(.+)$ ]]; then
@@ -61,4 +61,5 @@ else
     echo -e "${YELLOW}Or connect to your database and run the SQL from: $MIGRATION_FILE${NC}"
     exit 1
 fi
+
 

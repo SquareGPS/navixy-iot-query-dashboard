@@ -47,7 +47,7 @@ The setup script automatically creates `backend/.env` with the correct configura
 ```env
 NODE_ENV=development
 PORT=3001
-DATABASE_URL=postgresql://danilnezhdanov@localhost:5432/reports_app_db
+DATABASE_URL=postgresql://reports_user@localhost:5432/reports_app_db
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=dev_jwt_secret_key_change_in_production
 ```
@@ -59,7 +59,7 @@ JWT_SECRET=dev_jwt_secret_key_change_in_production
 brew services start postgresql@14
 
 # Create database
-createdb -U danilnezhdanov reports_app_db
+createdb -U reports_user reports_app_db
 ```
 
 ### 3. Redis Setup
@@ -84,7 +84,7 @@ cd backend && npm install && cd ..
 ```bash
 # Start backend
 cd backend
-DATABASE_URL="postgresql://danilnezhdanov@localhost:5432/reports_app_db" npm run dev
+DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db" npm run dev
 
 # Start frontend (in another terminal)
 npm run dev
@@ -147,7 +147,7 @@ npm run docker:down
 
 1. **"DATABASE_URL environment variable is required"**
    - Run `npm run dev:setup` to ensure proper environment setup
-   - Or manually set: `DATABASE_URL="postgresql://danilnezhdanov@localhost:5432/reports_app_db"`
+   - Or manually set: `DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db"`
 
 2. **"Port already in use"**
    - Run `npm run dev:stop` to stop all services
@@ -155,7 +155,7 @@ npm run docker:down
 
 3. **PostgreSQL connection issues**
    - Ensure PostgreSQL is running: `brew services start postgresql@14`
-   - Check if database exists: `psql -U danilnezhdanov -d reports_app_db -c "SELECT 1;"`
+   - Check if database exists: `psql -U reports_user -d reports_app_db -c "SELECT 1;"`
 
 4. **Redis connection issues**
    - Start Redis container: `docker run -d --name redis-dev -p 6379:6379 redis:7-alpine`
@@ -195,7 +195,7 @@ This project uses **two separate `.env` files** for different purposes:
 |----------|-------------|---------|
 | `NODE_ENV` | Environment mode | `development` |
 | `PORT` | Backend server port | `3001` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://danilnezhdanov@localhost:5432/reports_app_db` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://reports_user@localhost:5432/reports_app_db` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
 | `JWT_EXPIRES_IN` | JWT expiration time | `24h` |
@@ -217,7 +217,7 @@ This project uses **two separate `.env` files** for different purposes:
 |----------|-------------|---------|
 | `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
 | `POSTGRES_DB` | PostgreSQL database name | `reports_app_db` |
-| `POSTGRES_USER` | PostgreSQL username | `danilnezhdanov` |
+| `POSTGRES_USER` | PostgreSQL username | `reports_user` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
 | `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `.env.example` |
 

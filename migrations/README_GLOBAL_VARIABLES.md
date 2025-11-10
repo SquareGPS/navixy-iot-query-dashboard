@@ -41,7 +41,7 @@ If your database is running in Docker:
 docker cp migrations/add_global_variables.sql sql-report-postgres:/tmp/
 
 # Execute migration
-docker exec -i sql-report-postgres psql -U danilnezhdanov -d reports_app_db -f /tmp/add_global_variables.sql
+docker exec -i sql-report-postgres psql -U reports_user -d reports_app_db -f /tmp/add_global_variables.sql
 ```
 
 ### Option 3: Direct SQL Execution
@@ -116,6 +116,7 @@ DROP TABLE IF EXISTS public.global_variables;
 - The reserved variable `__client_id` will be created automatically
 - All users can view global variables, but only admins can create/update/delete them
 - Global variables are automatically available in SQL queries using `${variable_name}` syntax
+
 
 
 

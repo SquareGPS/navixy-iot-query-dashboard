@@ -508,6 +508,17 @@ ON CONFLICT (id) DO NOTHING;
 -- ==========================================
 
 -- Grant permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO danilnezhdanov;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO danilnezhdanov;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO danilnezhdanov;
+-- Note: The username will be set by POSTGRES_USER environment variable
+-- This uses CURRENT_USER to grant permissions to the user that created the database
+DO $$
+DECLARE
+    db_user TEXT;
+BEGIN
+    -- Get the current database user
+    db_user := current_user;
+    
+    -- Grant permissions to the current user
+    EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO %I', db_user);
+    EXECUTE format('GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO %I', db_user);
+    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', db_user);
+END $$;

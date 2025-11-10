@@ -16,3 +16,4 @@ CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON public.user_preferenc
 -- Add comment
 COMMENT ON TABLE public.user_preferences IS 'Stores user-specific preferences like timezone settings';
 
+

@@ -52,7 +52,7 @@ If you prefer to set up manually:
 
 ### Optional (with defaults)
 - `POSTGRES_DB` - Database name (default: `reports_app_db`)
-- `POSTGRES_USER` - Database user (default: `danilnezhdanov`)
+- `POSTGRES_USER` - Database user (default: `reports_user`)
 - `POSTGRES_PASSWORD` - Database password (default: `postgres`)
 - `REPORT_SCHEMA_URL` - URL to report schema repository
 

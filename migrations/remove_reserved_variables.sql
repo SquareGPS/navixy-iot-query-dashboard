@@ -18,3 +18,4 @@ ALTER TABLE public.global_variables DROP COLUMN IF EXISTS is_reserved;
 
 
 
+
