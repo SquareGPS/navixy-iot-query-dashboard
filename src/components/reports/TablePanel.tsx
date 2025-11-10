@@ -179,7 +179,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className={`flex-1 overflow-x-auto overflow-y-auto min-h-0 ${showPagination && sortedRows.length > 0 ? 'pb-20' : ''}`}>
+      <div className="flex-1 overflow-x-auto overflow-y-auto min-h-0">
         <table className="w-full text-sm" style={getTableStyle()}>
           {showHeader && (
             <thead className="sticky top-0 bg-[var(--surface-3)] z-10">
@@ -253,7 +253,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
       </div>
 
       {showPagination && sortedRows.length > 0 && (
-        <div className="flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2 pb-1 border-t border-[var(--border)] bg-[var(--surface-2)] sticky bottom-0 z-20">
+        <div className="flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2 pb-1 border-t border-[var(--border)] bg-[var(--surface-2)]">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-[var(--text-secondary)]">Rows per page:</span>
