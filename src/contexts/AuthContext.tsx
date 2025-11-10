@@ -18,8 +18,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.DEV ? '' : '/api');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -49,18 +48,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.user) {
-          setUser(data.user);
-          setToken(tokenToVerify);
-        } else {
-          // Invalid token
+        const text = await response.text();
+        if (!text) {
+          localStorage.removeItem('auth_token');
+          setToken(null);
+          setUser(null);
+          return;
+        }
+        try {
+          const data = JSON.parse(text);
+          if (data.success && data.user) {
+            setUser(data.user);
+            setToken(tokenToVerify);
+          } else {
+            localStorage.removeItem('auth_token');
+            setToken(null);
+            setUser(null);
+          }
+        } catch {
           localStorage.removeItem('auth_token');
           setToken(null);
           setUser(null);
         }
       } else {
-        // Token expired or invalid
         localStorage.removeItem('auth_token');
         setToken(null);
         setUser(null);
@@ -85,9 +95,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
+      if (!response.ok) {
+        const text = await response.text();
+        let errorMessage = 'Login failed';
+        try {
+          const data = JSON.parse(text);
+          errorMessage = data.error?.message || data.message || errorMessage;
+        } catch {
+          errorMessage = text || `HTTP ${response.status}`;
+        }
+        return { error: new Error(errorMessage) };
+      }
+
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         setUser(data.user);
         setToken(data.token);
         localStorage.setItem('auth_token', data.token);

@@ -55,6 +55,25 @@ services:
     command: sh -c "npm install --include=dev && npm run build && npm prune --production && npm start"
     restart: unless-stopped
 
+  # Frontend (Nginx serving static files)
+  # Note: Frontend must be built before starting this service.
+  # Build with: npm run build
+  # Environment variables (VITE_*) are build-time only and must be set before building.
+  # See .env.example for VITE_DEFAULT_METABASE_DB_CONNECTION_URL
+  frontend:
+    image: nginx:alpine
+    container_name: sql-report-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - sql-report-network
+    restart: unless-stopped
+
   # Python Analytics Service (Phase 2)
   analytics:
     build:

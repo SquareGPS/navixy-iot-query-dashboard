@@ -19,8 +19,7 @@ interface DatabaseConnection {
   ssl?: boolean;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.DEV ? '' : '/api');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -32,7 +31,7 @@ const Login = () => {
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [dbConnection, setDbConnection] = useState<DatabaseConnection>({
     connectionType: 'url',
-    url: import.meta.env.VITE_DEFAULT_DB_CONNECTION_URL || '',
+    url: import.meta.env.VITE_DEFAULT_METABASE_DB_CONNECTION_URL || '',
     host: '',
     port: 5432,
     database: '',
@@ -113,7 +112,7 @@ const Login = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/test-metadata-connection`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/test-metadata-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,9 +120,23 @@ const Login = () => {
         body: JSON.stringify(testSettings),
       });
 
+      if (!response.ok) {
+        const text = await response.text();
+        let errorMessage = 'Connection failed';
+        try {
+          const data = JSON.parse(text);
+          errorMessage = data.error?.message || data.message || errorMessage;
+        } catch {
+          errorMessage = text || `HTTP ${response.status}`;
+        }
+        setConnectionTestResult({ success: false, message: errorMessage });
+        toast.error(errorMessage);
+        return;
+      }
+
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         setConnectionTestResult({ success: true, message: data.message || 'Connection successful!' });
         toast.success('Database connection successful!');
       } else {
@@ -225,6 +238,9 @@ const Login = () => {
 
             {showMetabaseSettings && (
               <div className="mt-4 space-y-4 p-4 bg-surface-3 rounded-lg">
+                <div className="text-xs text-text-muted mb-2">
+                  Configure the external database connection for Metabase queries. This is separate from the application database.
+                </div>
                 <div className="space-y-2">
                   <Label className="text-text-secondary font-semibold flex items-center gap-2">
                     <Database className="h-4 w-4" />
