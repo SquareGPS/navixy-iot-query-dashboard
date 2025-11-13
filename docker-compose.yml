@@ -32,9 +32,9 @@ services:
 
   # Node.js Backend API
   # Using pre-built image from Docker Hub
-  # Temporarily using commit-specific tag until Docker Hub updates 'latest'
+  # Docker Hub uses 'backend-latest' tag for backend builds
   backend:
-    image: dnezhdanov/navixy-dashboard:backend-b3f7dd0
+    image: dnezhdanov/navixy-dashboard:backend-latest
     container_name: sql-report-backend
     environment:
       NODE_ENV: production
