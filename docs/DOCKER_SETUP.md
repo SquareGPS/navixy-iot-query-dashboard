@@ -112,8 +112,16 @@ docker compose up -d
 
 ## Default Credentials
 
+**Plugin Mode (Passwordless - Recommended):**
+- **Email**: admin@example.com (prepopulated on login screen)
+- **Role**: Select from dropdown (admin, editor, viewer)
+- **Database URLs**: Configure Metabase and IoT database URLs on login screen
+
+**Legacy Mode (Password-based):**
 - **Email**: admin@example.com
-- **Password**: admin123
+- **Password**: admin123 (if user was created with password)
+
+**Note:** The app now operates primarily in plugin mode where authentication is token-based. Database configuration is handled on the login screen, not in Settings.
 
 ## Notes
 

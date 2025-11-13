@@ -323,14 +323,36 @@ Singleton service for caching:
 
 ### Authentication Flow
 
+**Plugin Mode (Passwordless):**
 ```
-Login Request
+Login Request (with email, role, database URLs)
+    ↓
+POST /api/auth/login
+    ↓
+DatabaseService.authenticateUserPasswordless()
+    ↓
+Create/Update user (no password required)
+    ↓
+Store database URLs in user metadata
+    ↓
+JWT Token Generation (includes role)
+    ↓
+Response with token
+    ↓
+Frontend: Store token in localStorage
+    ↓
+Subsequent Requests: Authorization header
+```
+
+**Legacy Mode (Password-based):**
+```
+Login Request (with email and password)
     ↓
 POST /api/auth/login
     ↓
 DatabaseService.authenticateUser()
     ↓
-bcrypt.compare() password verification
+bcrypt.compare() password verification (if password_hash exists)
     ↓
 JWT Token Generation
     ↓
@@ -340,6 +362,8 @@ Frontend: Store token in localStorage
     ↓
 Subsequent Requests: Authorization header
 ```
+
+**Note:** The app now operates primarily in plugin mode where authentication is token-based. Database configuration (Metabase and IoT URLs) is provided during login and stored in user metadata, not in app settings.
 
 ### Report Creation Flow
 

@@ -19,13 +19,23 @@ All endpoints require authentication unless otherwise specified.
 
 ## Authentication
 
-### Login
+### Login (Passwordless - Plugin Mode)
 
-Authenticate a user and receive a JWT token.
+Authenticate a user without password. This endpoint supports both password-based (legacy) and passwordless (plugin mode) authentication.
 
 **Endpoint:** `POST /api/auth/login`
 
-**Request Body:**
+**Request Body (Passwordless Mode):**
+```json
+{
+  "email": "user@example.com",
+  "role": "admin",
+  "metabaseDbUrl": "postgresql://user:pass@host:5432/metabase_db",
+  "iotDbUrl": "postgresql://user:pass@host:5432/iot_db"
+}
+```
+
+**Request Body (Legacy Password Mode):**
 ```json
 {
   "email": "user@example.com",
@@ -48,8 +58,10 @@ Authenticate a user and receive a JWT token.
 
 **Status Codes:**
 - `200`: Success
-- `400`: Missing email or password
-- `401`: Invalid credentials
+- `400`: Missing required fields (email, role, metabaseDbUrl, iotDbUrl for passwordless mode OR email, password for legacy mode)
+- `401`: Invalid credentials (legacy mode only)
+
+**Note:** In plugin mode, database URLs are provided during login and stored in user metadata. The app acts as a plugin to an existing platform where authentication is handled via tokens containing user_id, role, and database URLs.
 
 ### Get Current User
 
@@ -617,7 +629,7 @@ Authorization: Bearer <token>
 
 ### Get App Settings
 
-Retrieve application settings.
+Retrieve application settings. Note: Database configuration has been removed from settings and is now handled on the login screen.
 
 **Endpoint:** `GET /api/settings`
 
@@ -631,21 +643,14 @@ Authorization: Bearer <token>
 {
   "success": true,
   "settings": {
-    "organization_name": "My Organization",
-    "timezone": "UTC",
-    "external_db_url": "postgresql://...",
-    "external_db_host": "localhost",
-    "external_db_port": 5432,
-    "external_db_name": "data_db",
-    "external_db_user": "readonly_user",
-    "external_db_ssl": true
+    "timezone": "UTC"
   }
 }
 ```
 
 ### Update App Settings
 
-Update application settings.
+Update application settings. Note: Database configuration is no longer managed through this endpoint.
 
 **Endpoint:** `PUT /api/settings`
 
@@ -660,10 +665,7 @@ Content-Type: application/json
 **Request Body:**
 ```json
 {
-  "organization_name": "Updated Organization",
-  "timezone": "America/New_York",
-  "external_db_host": "new-host.example.com",
-  "external_db_port": 5432
+  "timezone": "America/New_York"
 }
 ```
 
@@ -672,35 +674,41 @@ Content-Type: application/json
 {
   "success": true,
   "settings": {
-    "organization_name": "Updated Organization",
-    ...
+    "timezone": "America/New_York"
   }
 }
 ```
 
-### Test Database Connection
+**Note:** Database URLs (Metabase and IoT) are configured during login and stored in user metadata. They are not managed through the Settings API.
 
-Test connection to the external data database.
+### Test Metabase Database Connection
 
-**Endpoint:** `POST /api/settings/test-connection`
+Test connection to the Metabase database. This endpoint is public (no authentication required) and is used on the login screen.
+
+**Endpoint:** `POST /api/auth/test-metabase-connection`
 
 **Headers:**
 ```
-Authorization: Bearer <token>
 Content-Type: application/json
 ```
-
-**Required Role:** `admin`
 
 **Request Body:**
 ```json
 {
-  "external_db_host": "localhost",
-  "external_db_port": 5432,
-  "external_db_name": "data_db",
-  "external_db_user": "readonly_user",
-  "external_db_password": "password",
-  "external_db_ssl": true
+  "db_url": "postgresql://user:pass@host:5432/database"
+}
+```
+
+OR
+
+```json
+{
+  "db_host": "localhost",
+  "db_port": 5432,
+  "db_name": "database",
+  "db_user": "user",
+  "db_password": "password",
+  "db_ssl": true
 }
 ```
 
@@ -708,12 +716,50 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Connection successful",
-  "result": {
-    "version": "PostgreSQL 15.0"
-  }
+  "message": "Metabase database connection successful"
 }
 ```
+
+### Test IoT Database Connection
+
+Test connection to the IoT database. This endpoint is public (no authentication required) and is used on the login screen.
+
+**Endpoint:** `POST /api/auth/test-iot-connection`
+
+**Headers:**
+```
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "db_url": "postgresql://user:pass@host:5432/database"
+}
+```
+
+OR
+
+```json
+{
+  "db_host": "localhost",
+  "db_port": 5432,
+  "db_name": "database",
+  "db_user": "user",
+  "db_password": "password",
+  "db_ssl": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "IoT database connection successful"
+}
+```
+
+**Note:** Database configuration is now handled on the login screen, not in the Settings page. The Settings page only contains User Preferences and Global Variables (admin only).
 
 ## Health Checks
 
