@@ -66,12 +66,9 @@ server {
 
     # Basic Authentication - applies to all paths
     # Use a consistent realm name to help browser cache credentials across routes
+    # The realm name "Restricted Access" helps browsers cache credentials for the entire domain
     auth_basic "Restricted Access";
     auth_basic_user_file ${HTPASSWD_FILE};
-    
-    # Cache basic auth credentials in browser (helps with SPA routing)
-    # This ensures credentials are reused when navigating between routes
-    add_header Cache-Control "no-cache, no-store, must-revalidate" always;
 
     # Proxy to frontend container (on port 8080)
     # Note: Basic auth applies to this location and all sub-paths
