@@ -64,11 +64,12 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
 
-    # Basic Authentication
+    # Basic Authentication - applies to all paths
     auth_basic "Restricted Access";
     auth_basic_user_file ${HTPASSWD_FILE};
 
     # Proxy to frontend container (on port 8080)
+    # Note: Basic auth applies to this location and all sub-paths
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -87,6 +88,7 @@ server {
     }
 
     # API proxy to backend
+    # Note: Basic auth applies here too (inherited from server level)
     location /api {
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
@@ -100,6 +102,8 @@ server {
     }
 
     # Health check
+    # Note: Basic auth applies here too (inherited from server level)
+    # If you want to make /health public, add: auth_basic off;
     location /health {
         proxy_pass http://127.0.0.1:3001/health;
         proxy_http_version 1.1;
