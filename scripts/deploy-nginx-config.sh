@@ -9,8 +9,19 @@ DOMAIN="dashboard.tools.squaregps.com"
 NGINX_CONF_DIR="/etc/nginx/conf.d"
 NGINX_CONF_FILE="${NGINX_CONF_DIR}/${DOMAIN}.conf"
 SSL_CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+HTPASSWD_FILE="/etc/nginx/.htpasswd"
 
 echo "Setting up nginx configuration for ${DOMAIN}..."
+
+# Check if .htpasswd file exists, create if it doesn't
+if [ ! -f "$HTPASSWD_FILE" ]; then
+    echo "WARNING: Password file ${HTPASSWD_FILE} not found."
+    echo "Creating basic auth password file..."
+    echo "You can add users later with: sudo htpasswd ${HTPASSWD_FILE} username"
+    # Create an empty file - user will need to add credentials
+    touch "$HTPASSWD_FILE"
+    chmod 644 "$HTPASSWD_FILE"
+fi
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
@@ -52,6 +63,10 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
+
+    # Basic Authentication
+    auth_basic "Restricted Access";
+    auth_basic_user_file ${HTPASSWD_FILE};
 
     # Proxy to frontend container (on port 8080)
     location / {
@@ -108,4 +123,10 @@ echo "Nginx configuration deployed successfully!"
 echo "Domain: https://${DOMAIN}"
 echo "Frontend proxy: http://127.0.0.1:8080"
 echo "Backend proxy: http://127.0.0.1:3001"
+echo ""
+echo "Basic Authentication:"
+echo "  Password file: ${HTPASSWD_FILE}"
+echo "  To add a user: sudo htpasswd ${HTPASSWD_FILE} username"
+echo "  To change password: sudo htpasswd ${HTPASSWD_FILE} username"
+echo "  To remove a user: sudo htpasswd -D ${HTPASSWD_FILE} username"
 
