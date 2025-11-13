@@ -40,6 +40,10 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy - Required when behind nginx reverse proxy
+// This allows Express to correctly identify client IPs and handle X-Forwarded-* headers
+app.set('trust proxy', true);
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -70,7 +74,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
       'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
       'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
-      'https://yourdomain.com', // Replace with your actual production domain
+      'https://dashboard.tools.squaregps.com',
+      'https://dashboard.tools.squaregps.com:443',
     ]
   : [
       'http://localhost',
