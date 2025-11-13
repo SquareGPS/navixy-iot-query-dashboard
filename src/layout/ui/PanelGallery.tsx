@@ -158,7 +158,7 @@ export const PanelGallery: React.FC<PanelGalleryProps> = ({
 
           {/* Action Buttons */}
           <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={handleCancel}>
+            <Button variant="secondary" onClick={handleCancel}>
               Cancel
             </Button>
             <Button onClick={handleConfirm} disabled={!selectedType}>
