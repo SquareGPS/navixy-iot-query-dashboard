@@ -48,7 +48,7 @@ export interface ParameterizedQueryResult {
 export interface User {
   id: string;
   email: string;
-  password_hash: string;
+  password_hash?: string | null;
   email_confirmed_at?: string;
   created_at: string;
   updated_at: string;
@@ -263,10 +263,13 @@ export class DatabaseService {
         }
 
         const user = result.rows[0] as User;
-        const isValidPassword = await bcrypt.compare(password, user.password_hash);
-
-        if (!isValidPassword) {
-          return null;
+        
+        // If user has no password_hash, skip password check (token-based auth)
+        if (user.password_hash) {
+          const isValidPassword = await bcrypt.compare(password, user.password_hash);
+          if (!isValidPassword) {
+            return null;
+          }
         }
 
         // Update last sign in
@@ -300,6 +303,83 @@ export class DatabaseService {
         throw error;
       }
       logger.error('Authentication error:', error);
+      throw new CustomError(
+        `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        500
+      );
+    }
+  }
+
+  // Passwordless authentication for plugin mode
+  async authenticateUserPasswordless(
+    email: string,
+    role: 'admin' | 'editor' | 'viewer',
+    metabaseDbUrl: string,
+    iotDbUrl: string
+  ): Promise<{ user: User; token: string }> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        // Check if user exists, create if not
+        let result = await client.query(
+          'SELECT * FROM public.users WHERE email = $1',
+          [email]
+        );
+
+        let user: User;
+        
+        if (result.rows.length === 0) {
+          // Create new user without password
+          const insertResult = await client.query(
+            `INSERT INTO public.users (email, password_hash, email_confirmed_at, is_super_admin)
+             VALUES ($1, NULL, NOW(), $2)
+             RETURNING *`,
+            [email, role === 'admin']
+          );
+          user = insertResult.rows[0] as User;
+
+          // Create user role - delete existing roles first, then insert new one
+          // This handles both schema types: single PK on user_id or composite PK on (user_id, role)
+          await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
+          await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
+        } else {
+          user = result.rows[0] as User;
+          
+          // Update user role - delete existing roles first, then insert new one
+          await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
+          await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
+        }
+
+        // Update last sign in
+        await client.query(
+          'UPDATE public.users SET last_sign_in_at = NOW() WHERE id = $1',
+          [user.id]
+        );
+
+        // Store database URLs in user metadata (for now, until we have proper app-to-app auth)
+        await client.query(
+          'UPDATE public.users SET raw_user_meta_data = $1 WHERE id = $2',
+          [JSON.stringify({ metabaseDbUrl, iotDbUrl }), user.id]
+        );
+
+        // Generate JWT token
+        const token = jwt.sign(
+          { 
+            userId: user.id, 
+            email: user.email,
+            role: role
+          },
+          process.env.JWT_SECRET || 'fallback-secret',
+          { expiresIn: '24h' }
+        );
+
+        return { user, token };
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Passwordless authentication error:', error);
       throw new CustomError(
         `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         500
@@ -909,15 +989,22 @@ export class DatabaseService {
 
       // Normalize localhost to IPv4, and handle Docker networking
       let hostname = urlObj.hostname;
+      const isDocker = process.env.DOCKER_ENV === 'true' || existsSync('/.dockerenv');
+      
       if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || hostname === '127.0.0.1') {
         // If running in Docker, use host.docker.internal to reach host machine
-        // Check if we're in Docker by looking for /.dockerenv file or DOCKER_ENV env var
-        const isDocker = process.env.DOCKER_ENV === 'true' || existsSync('/.dockerenv');
         hostname = isDocker ? 'host.docker.internal' : '127.0.0.1';
         logger.info('Normalized localhost in URL', { 
           original: urlObj.hostname, 
           normalized: hostname,
           isDocker 
+        });
+      } else if (hostname === 'postgres' && !isDocker) {
+        // Convert Docker hostname "postgres" to localhost when running locally
+        hostname = '127.0.0.1';
+        logger.info('Normalized Docker hostname "postgres" to localhost', { 
+          original: urlObj.hostname, 
+          normalized: hostname 
         });
       }
     

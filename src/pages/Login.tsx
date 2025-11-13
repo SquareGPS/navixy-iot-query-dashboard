@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { BarChart3, Settings, ChevronDown, ChevronUp, Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { BarChart3, Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 interface DatabaseConnection {
   connectionType: 'url' | 'host';
@@ -22,16 +24,17 @@ interface DatabaseConnection {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(import.meta.env.VITE_DEFAULT_USER_EMAIL || 'admin@example.com');
+  const [role, setRole] = useState<'admin' | 'editor' | 'viewer'>('admin');
   const [isLoading, setIsLoading] = useState(false);
-  const [showMetabaseSettings, setShowMetabaseSettings] = useState(false);
-  const [connectionMethod, setConnectionMethod] = useState<'url' | 'host'>('url');
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [dbConnection, setDbConnection] = useState<DatabaseConnection>({
+  
+  // Metabase DB connection
+  const [metabaseConnectionMethod, setMetabaseConnectionMethod] = useState<'url' | 'host'>('url');
+  const [isTestingMetabase, setIsTestingMetabase] = useState(false);
+  const [metabaseTestResult, setMetabaseTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [metabaseConnection, setMetabaseConnection] = useState<DatabaseConnection>({
     connectionType: 'url',
-    url: import.meta.env.VITE_DEFAULT_METABASE_DB_CONNECTION_URL || '',
+    url: import.meta.env.VITE_DEFAULT_METABASE_DB_URL || 'postgresql://reports_user:postgres@postgres:5432/reports_app_db',
     host: '',
     port: 5432,
     database: '',
@@ -39,7 +42,23 @@ const Login = () => {
     password: '',
     ssl: false,
   });
-  const { signIn, user } = useAuth();
+
+  // IoT DB connection
+  const [iotConnectionMethod, setIotConnectionMethod] = useState<'url' | 'host'>('url');
+  const [isTestingIot, setIsTestingIot] = useState(false);
+  const [iotTestResult, setIotTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [iotConnection, setIotConnection] = useState<DatabaseConnection>({
+    connectionType: 'url',
+    url: import.meta.env.VITE_DEFAULT_IOT_DB_URL || 'postgresql://client_398286_user:npg_6flcV8DXjnge@ep-spring-morning-agp9wdsq.c-2.eu-central-1.aws.neon.tech:5432/client_398286?sslmode=require',
+    host: '',
+    port: 5432,
+    database: '',
+    user: '',
+    password: '',
+    ssl: false,
+  });
+
+  const { signInPasswordless, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,13 +68,13 @@ const Login = () => {
   }, [user, navigate]);
 
   // Parse URL to individual parameters
-  const parseUrl = (url: string) => {
+  const parseUrl = (url: string, setter: (prev: DatabaseConnection) => DatabaseConnection) => {
     if (!url) return;
     try {
       const urlObj = new URL(url);
       const sslmode = urlObj.searchParams.get('sslmode');
       
-      setDbConnection(prev => ({
+      setter(prev => ({
         ...prev,
         host: urlObj.hostname,
         port: parseInt(urlObj.port) || 5432,
@@ -80,39 +99,39 @@ const Login = () => {
     return `postgresql://${user}:${password}@${data.host}:${data.port || 5432}/${data.database}${sslParam}`;
   };
 
-  const testConnection = async () => {
-    setIsTestingConnection(true);
-    setConnectionTestResult(null);
+  const testMetabaseConnection = async () => {
+    setIsTestingMetabase(true);
+    setMetabaseTestResult(null);
 
     let testSettings: any;
     
-    if (connectionMethod === 'url') {
-      if (!dbConnection.url || !dbConnection.url.trim()) {
-        toast.error('Please provide a database connection URL');
-        setIsTestingConnection(false);
+    if (metabaseConnectionMethod === 'url') {
+      if (!metabaseConnection.url || !metabaseConnection.url.trim()) {
+        toast.error('Please provide a Metabase database connection URL');
+        setIsTestingMetabase(false);
         return;
       }
       testSettings = {
-        external_db_url: dbConnection.url.trim(),
+        db_url: metabaseConnection.url.trim(),
       };
     } else {
-      if (!dbConnection.host || !dbConnection.database || !dbConnection.user) {
-        toast.error('Please provide host, database, and user for database connection');
-        setIsTestingConnection(false);
+      if (!metabaseConnection.host || !metabaseConnection.database || !metabaseConnection.user) {
+        toast.error('Please provide host, database, and user for Metabase database connection');
+        setIsTestingMetabase(false);
         return;
       }
       testSettings = {
-        external_db_host: dbConnection.host.trim(),
-        external_db_port: dbConnection.port || 5432,
-        external_db_name: dbConnection.database.trim(),
-        external_db_user: dbConnection.user.trim(),
-        external_db_password: dbConnection.password || '',
-        external_db_ssl: dbConnection.ssl || false,
+        db_host: metabaseConnection.host.trim(),
+        db_port: metabaseConnection.port || 5432,
+        db_name: metabaseConnection.database.trim(),
+        db_user: metabaseConnection.user.trim(),
+        db_password: metabaseConnection.password || '',
+        db_ssl: metabaseConnection.ssl || false,
       };
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/test-metadata-connection`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/test-metabase-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,7 +148,7 @@ const Login = () => {
         } catch {
           errorMessage = text || `HTTP ${response.status}`;
         }
-        setConnectionTestResult({ success: false, message: errorMessage });
+        setMetabaseTestResult({ success: false, message: errorMessage });
         toast.error(errorMessage);
         return;
       }
@@ -137,19 +156,92 @@ const Login = () => {
       const data = await response.json();
 
       if (data.success) {
-        setConnectionTestResult({ success: true, message: data.message || 'Connection successful!' });
-        toast.success('Database connection successful!');
+        setMetabaseTestResult({ success: true, message: data.message || 'Metabase database connection successful!' });
+        toast.success('Metabase database connection successful!');
       } else {
         const errorMessage = data.error?.message || data.message || data.error || 'Connection failed';
-        setConnectionTestResult({ success: false, message: errorMessage });
+        setMetabaseTestResult({ success: false, message: errorMessage });
         toast.error(errorMessage);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Network error';
-      setConnectionTestResult({ success: false, message: `Network error: ${errorMessage}` });
+      setMetabaseTestResult({ success: false, message: `Network error: ${errorMessage}` });
       toast.error(`Connection test failed: ${errorMessage}`);
     } finally {
-      setIsTestingConnection(false);
+      setIsTestingMetabase(false);
+    }
+  };
+
+  const testIotConnection = async () => {
+    setIsTestingIot(true);
+    setIotTestResult(null);
+
+    let testSettings: any;
+    
+    if (iotConnectionMethod === 'url') {
+      if (!iotConnection.url || !iotConnection.url.trim()) {
+        toast.error('Please provide an IoT database connection URL');
+        setIsTestingIot(false);
+        return;
+      }
+      testSettings = {
+        db_url: iotConnection.url.trim(),
+      };
+    } else {
+      if (!iotConnection.host || !iotConnection.database || !iotConnection.user) {
+        toast.error('Please provide host, database, and user for IoT database connection');
+        setIsTestingIot(false);
+        return;
+      }
+      testSettings = {
+        db_host: iotConnection.host.trim(),
+        db_port: iotConnection.port || 5432,
+        db_name: iotConnection.database.trim(),
+        db_user: iotConnection.user.trim(),
+        db_password: iotConnection.password || '',
+        db_ssl: iotConnection.ssl || false,
+      };
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/test-iot-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testSettings),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let errorMessage = 'Connection failed';
+        try {
+          const data = JSON.parse(text);
+          errorMessage = data.error?.message || data.message || errorMessage;
+        } catch {
+          errorMessage = text || `HTTP ${response.status}`;
+        }
+        setIotTestResult({ success: false, message: errorMessage });
+        toast.error(errorMessage);
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        setIotTestResult({ success: true, message: data.message || 'IoT database connection successful!' });
+        toast.success('IoT database connection successful!');
+      } else {
+        const errorMessage = data.error?.message || data.message || data.error || 'Connection failed';
+        setIotTestResult({ success: false, message: errorMessage });
+        toast.error(errorMessage);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Network error';
+      setIotTestResult({ success: false, message: `Network error: ${errorMessage}` });
+      toast.error(`Connection test failed: ${errorMessage}`);
+    } finally {
+      setIsTestingIot(false);
     }
   };
 
@@ -157,7 +249,22 @@ const Login = () => {
     e.preventDefault();
     setIsLoading(true);
     
-    const { error } = await signIn(email, password);
+    // Get URLs from connections
+    const metabaseUrl = metabaseConnectionMethod === 'url' 
+      ? metabaseConnection.url || ''
+      : constructUrl(metabaseConnection);
+    
+    const iotUrl = iotConnectionMethod === 'url'
+      ? iotConnection.url || ''
+      : constructUrl(iotConnection);
+
+    if (!metabaseUrl || !iotUrl) {
+      toast.error('Please provide both Metabase and IoT database connection URLs');
+      setIsLoading(false);
+      return;
+    }
+    
+    const { error } = await signInPasswordless(email, role, metabaseUrl, iotUrl);
     
     if (error) {
       toast.error(error.message || 'Failed to sign in');
@@ -168,7 +275,7 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg p-4">
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-2xl">
         <div className="space-y-6 p-6">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
@@ -196,51 +303,29 @@ const Login = () => {
                 className="bg-surface-3 border-border"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-text-secondary">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="bg-surface-3 border-border"
-              />
+              <Label htmlFor="role" className="text-text-secondary">Role</Label>
+              <Select value={role} onValueChange={(value: 'admin' | 'editor' | 'viewer') => setRole(value)}>
+                <SelectTrigger className="bg-surface-3 border-border">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-          <div className="p-3 bg-surface-3 rounded-lg text-sm text-text-muted">
-            <p className="font-semibold mb-1 text-text-secondary">Demo Account:</p>
-            <p>Email: admin@example.com</p>
-            <p>Password: admin123</p>
-          </div>
 
-          {/* Metabase Database Configuration */}
-          <div className="border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={() => setShowMetabaseSettings(!showMetabaseSettings)}
-              className="w-full flex items-center justify-between p-2 hover:bg-surface-3 rounded-lg transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Settings className="h-4 w-4 text-text-muted" />
-                <span className="text-sm font-medium text-text-secondary">Metabase Database</span>
-              </div>
-              {showMetabaseSettings ? (
-                <ChevronUp className="h-4 w-4 text-text-muted" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-text-muted" />
-              )}
-            </button>
+            {/* Database Connections Tabs */}
+            <Tabs defaultValue="metabase" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="metabase">Metabase Database</TabsTrigger>
+                <TabsTrigger value="iot">IoT Database</TabsTrigger>
+              </TabsList>
 
-            {showMetabaseSettings && (
-              <div className="mt-4 space-y-4 p-4 bg-surface-3 rounded-lg">
-                <div className="text-xs text-text-muted mb-2">
-                  Configure the external database connection for Metabase queries. This is separate from the application database.
-                </div>
+              <TabsContent value="metabase" className="space-y-4 mt-4">
                 <div className="space-y-2">
                   <Label className="text-text-secondary font-semibold flex items-center gap-2">
                     <Database className="h-4 w-4" />
@@ -250,12 +335,12 @@ const Login = () => {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
-                        name="connectionMethod"
+                        name="metabaseConnectionMethod"
                         value="url"
-                        checked={connectionMethod === 'url'}
+                        checked={metabaseConnectionMethod === 'url'}
                         onChange={(e) => {
-                          setConnectionMethod('url');
-                          setConnectionTestResult(null);
+                          setMetabaseConnectionMethod('url');
+                          setMetabaseTestResult(null);
                         }}
                         className="h-4 w-4"
                       />
@@ -264,12 +349,12 @@ const Login = () => {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
-                        name="connectionMethod"
+                        name="metabaseConnectionMethod"
                         value="host"
-                        checked={connectionMethod === 'host'}
+                        checked={metabaseConnectionMethod === 'host'}
                         onChange={(e) => {
-                          setConnectionMethod('host');
-                          setConnectionTestResult(null);
+                          setMetabaseConnectionMethod('host');
+                          setMetabaseTestResult(null);
                         }}
                         className="h-4 w-4"
                       />
@@ -278,18 +363,18 @@ const Login = () => {
                   </div>
                 </div>
 
-                {connectionMethod === 'url' ? (
+                {metabaseConnectionMethod === 'url' ? (
                   <div className="space-y-2">
-                    <Label htmlFor="db-url" className="text-text-secondary">Connection URL</Label>
+                    <Label htmlFor="metabase-url" className="text-text-secondary">Connection URL</Label>
                     <Input
-                      id="db-url"
+                      id="metabase-url"
                       type="text"
                       placeholder="postgresql://user:password@host:port/database"
-                      value={dbConnection.url || ''}
+                      value={metabaseConnection.url || ''}
                       onChange={(e) => {
-                        setDbConnection({ ...dbConnection, url: e.target.value });
-                        setConnectionTestResult(null);
-                        parseUrl(e.target.value);
+                        setMetabaseConnection({ ...metabaseConnection, url: e.target.value });
+                        setMetabaseTestResult(null);
+                        parseUrl(e.target.value, (prev) => ({ ...metabaseConnection, ...prev }));
                       }}
                       className="bg-surface-2 border-border text-sm font-mono"
                     />
@@ -298,73 +383,73 @@ const Login = () => {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
-                        <Label htmlFor="db-host" className="text-text-secondary text-sm">Host</Label>
+                        <Label htmlFor="metabase-host" className="text-text-secondary text-sm">Host</Label>
                         <Input
-                          id="db-host"
+                          id="metabase-host"
                           type="text"
                           placeholder="localhost"
-                          value={dbConnection.host || ''}
+                          value={metabaseConnection.host || ''}
                           onChange={(e) => {
-                            setDbConnection({ ...dbConnection, host: e.target.value });
-                            setConnectionTestResult(null);
+                            setMetabaseConnection({ ...metabaseConnection, host: e.target.value });
+                            setMetabaseTestResult(null);
                           }}
                           className="bg-surface-2 border-border text-sm"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="db-port" className="text-text-secondary text-sm">Port</Label>
+                        <Label htmlFor="metabase-port" className="text-text-secondary text-sm">Port</Label>
                         <Input
-                          id="db-port"
+                          id="metabase-port"
                           type="number"
                           placeholder="5432"
-                          value={dbConnection.port || ''}
+                          value={metabaseConnection.port || ''}
                           onChange={(e) => {
-                            setDbConnection({ ...dbConnection, port: parseInt(e.target.value) || 5432 });
-                            setConnectionTestResult(null);
+                            setMetabaseConnection({ ...metabaseConnection, port: parseInt(e.target.value) || 5432 });
+                            setMetabaseTestResult(null);
                           }}
                           className="bg-surface-2 border-border text-sm"
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="db-database" className="text-text-secondary text-sm">Database</Label>
+                      <Label htmlFor="metabase-database" className="text-text-secondary text-sm">Database</Label>
                       <Input
-                        id="db-database"
+                        id="metabase-database"
                         type="text"
                         placeholder="reports_app_db"
-                        value={dbConnection.database || ''}
+                        value={metabaseConnection.database || ''}
                         onChange={(e) => {
-                          setDbConnection({ ...dbConnection, database: e.target.value });
-                          setConnectionTestResult(null);
+                          setMetabaseConnection({ ...metabaseConnection, database: e.target.value });
+                          setMetabaseTestResult(null);
                         }}
                         className="bg-surface-2 border-border text-sm"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
-                        <Label htmlFor="db-user" className="text-text-secondary text-sm">User</Label>
+                        <Label htmlFor="metabase-user" className="text-text-secondary text-sm">User</Label>
                         <Input
-                          id="db-user"
+                          id="metabase-user"
                           type="text"
                           placeholder="postgres"
-                          value={dbConnection.user || ''}
+                          value={metabaseConnection.user || ''}
                           onChange={(e) => {
-                            setDbConnection({ ...dbConnection, user: e.target.value });
-                            setConnectionTestResult(null);
+                            setMetabaseConnection({ ...metabaseConnection, user: e.target.value });
+                            setMetabaseTestResult(null);
                           }}
                           className="bg-surface-2 border-border text-sm"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="db-password" className="text-text-secondary text-sm">Password</Label>
+                        <Label htmlFor="metabase-password" className="text-text-secondary text-sm">Password</Label>
                         <Input
-                          id="db-password"
+                          id="metabase-password"
                           type="password"
                           placeholder="password"
-                          value={dbConnection.password || ''}
+                          value={metabaseConnection.password || ''}
                           onChange={(e) => {
-                            setDbConnection({ ...dbConnection, password: e.target.value });
-                            setConnectionTestResult(null);
+                            setMetabaseConnection({ ...metabaseConnection, password: e.target.value });
+                            setMetabaseTestResult(null);
                           }}
                           className="bg-surface-2 border-border text-sm"
                         />
@@ -373,46 +458,46 @@ const Login = () => {
                     <div className="flex items-center space-x-2">
                       <input
                         type="checkbox"
-                        id="db-ssl"
-                        checked={dbConnection.ssl || false}
+                        id="metabase-ssl"
+                        checked={metabaseConnection.ssl || false}
                         onChange={(e) => {
-                          setDbConnection({ ...dbConnection, ssl: e.target.checked });
-                          setConnectionTestResult(null);
+                          setMetabaseConnection({ ...metabaseConnection, ssl: e.target.checked });
+                          setMetabaseTestResult(null);
                         }}
                         className="rounded border-border"
                       />
-                      <Label htmlFor="db-ssl" className="text-text-secondary text-sm cursor-pointer">Use SSL</Label>
+                      <Label htmlFor="metabase-ssl" className="text-text-secondary text-sm cursor-pointer">Use SSL</Label>
                     </div>
                   </div>
                 )}
 
-                {connectionTestResult && (
+                {metabaseTestResult && (
                   <div className={`p-3 rounded-lg flex items-center space-x-2 ${
-                    connectionTestResult.success 
+                    metabaseTestResult.success 
                       ? 'bg-green-500/10 border border-green-500/20' 
                       : 'bg-red-500/10 border border-red-500/20'
                   }`}>
-                    {connectionTestResult.success ? (
+                    {metabaseTestResult.success ? (
                       <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
                     ) : (
                       <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
                     )}
                     <p className={`text-sm ${
-                      connectionTestResult.success ? 'text-green-600' : 'text-red-600'
+                      metabaseTestResult.success ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {connectionTestResult.message}
+                      {metabaseTestResult.message}
                     </p>
                   </div>
                 )}
 
                 <Button 
                   type="button" 
-                  onClick={testConnection} 
+                  onClick={testMetabaseConnection} 
                   className="w-full" 
-                  disabled={isTestingConnection}
+                  disabled={isTestingMetabase}
                   variant="outline"
                 >
-                  {isTestingConnection ? (
+                  {isTestingMetabase ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Testing...
@@ -420,13 +505,203 @@ const Login = () => {
                   ) : (
                     <>
                       <Database className="mr-2 h-4 w-4" />
-                      Test Connection
+                      Test Metabase Connection
                     </>
                   )}
                 </Button>
-              </div>
-            )}
-          </div>
+              </TabsContent>
+
+              <TabsContent value="iot" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label className="text-text-secondary font-semibold flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    Connection Method
+                  </Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="iotConnectionMethod"
+                        value="url"
+                        checked={iotConnectionMethod === 'url'}
+                        onChange={(e) => {
+                          setIotConnectionMethod('url');
+                          setIotTestResult(null);
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-sm text-text-secondary">URL</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="iotConnectionMethod"
+                        value="host"
+                        checked={iotConnectionMethod === 'host'}
+                        onChange={(e) => {
+                          setIotConnectionMethod('host');
+                          setIotTestResult(null);
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-sm text-text-secondary">Connection Parameters</span>
+                    </label>
+                  </div>
+                </div>
+
+                {iotConnectionMethod === 'url' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="iot-url" className="text-text-secondary">Connection URL</Label>
+                    <Input
+                      id="iot-url"
+                      type="text"
+                      placeholder="postgresql://user:password@host:port/database"
+                      value={iotConnection.url || ''}
+                      onChange={(e) => {
+                        setIotConnection({ ...iotConnection, url: e.target.value });
+                        setIotTestResult(null);
+                        parseUrl(e.target.value, (prev) => ({ ...iotConnection, ...prev }));
+                      }}
+                      className="bg-surface-2 border-border text-sm font-mono"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="iot-host" className="text-text-secondary text-sm">Host</Label>
+                        <Input
+                          id="iot-host"
+                          type="text"
+                          placeholder="localhost"
+                          value={iotConnection.host || ''}
+                          onChange={(e) => {
+                            setIotConnection({ ...iotConnection, host: e.target.value });
+                            setIotTestResult(null);
+                          }}
+                          className="bg-surface-2 border-border text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="iot-port" className="text-text-secondary text-sm">Port</Label>
+                        <Input
+                          id="iot-port"
+                          type="number"
+                          placeholder="5432"
+                          value={iotConnection.port || ''}
+                          onChange={(e) => {
+                            setIotConnection({ ...iotConnection, port: parseInt(e.target.value) || 5432 });
+                            setIotTestResult(null);
+                          }}
+                          className="bg-surface-2 border-border text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="iot-database" className="text-text-secondary text-sm">Database</Label>
+                      <Input
+                        id="iot-database"
+                        type="text"
+                        placeholder="client_398286"
+                        value={iotConnection.database || ''}
+                        onChange={(e) => {
+                          setIotConnection({ ...iotConnection, database: e.target.value });
+                          setIotTestResult(null);
+                        }}
+                        className="bg-surface-2 border-border text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="iot-user" className="text-text-secondary text-sm">User</Label>
+                        <Input
+                          id="iot-user"
+                          type="text"
+                          placeholder="client_398286_user"
+                          value={iotConnection.user || ''}
+                          onChange={(e) => {
+                            setIotConnection({ ...iotConnection, user: e.target.value });
+                            setIotTestResult(null);
+                          }}
+                          className="bg-surface-2 border-border text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="iot-password" className="text-text-secondary text-sm">Password</Label>
+                        <Input
+                          id="iot-password"
+                          type="password"
+                          placeholder="password"
+                          value={iotConnection.password || ''}
+                          onChange={(e) => {
+                            setIotConnection({ ...iotConnection, password: e.target.value });
+                            setIotTestResult(null);
+                          }}
+                          className="bg-surface-2 border-border text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="iot-ssl"
+                        checked={iotConnection.ssl || false}
+                        onChange={(e) => {
+                          setIotConnection({ ...iotConnection, ssl: e.target.checked });
+                          setIotTestResult(null);
+                        }}
+                        className="rounded border-border"
+                      />
+                      <Label htmlFor="iot-ssl" className="text-text-secondary text-sm cursor-pointer">Use SSL</Label>
+                    </div>
+                  </div>
+                )}
+
+                {iotTestResult && (
+                  <div className={`p-3 rounded-lg flex items-center space-x-2 ${
+                    iotTestResult.success 
+                      ? 'bg-green-500/10 border border-green-500/20' 
+                      : 'bg-red-500/10 border border-red-500/20'
+                  }`}>
+                    {iotTestResult.success ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                    )}
+                    <p className={`text-sm ${
+                      iotTestResult.success ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {iotTestResult.message}
+                    </p>
+                  </div>
+                )}
+
+                <Button 
+                  type="button" 
+                  onClick={testIotConnection} 
+                  className="w-full" 
+                  disabled={isTestingIot}
+                  variant="outline"
+                >
+                  {isTestingIot ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    <>
+                      <Database className="mr-2 h-4 w-4" />
+                      Test IoT Connection
+                    </>
+                  )}
+                </Button>
+              </TabsContent>
+            </Tabs>
+
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? 'Signing in...' : 'Sign In'}
+            </Button>
+          </form>
         </div>
       </Card>
     </div>

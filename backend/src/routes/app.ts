@@ -12,38 +12,73 @@ const router = Router();
 // Authentication Routes
 // ==========================================
 
-// Login
+// Login (passwordless for plugin mode)
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role, metabaseDbUrl, iotDbUrl } = req.body;
 
-    if (!email || !password) {
-      throw new CustomError('Email and password are required', 400);
+    // Support both password-based (legacy) and passwordless (plugin mode) authentication
+    if (password) {
+      // Legacy password-based authentication
+      if (!email || !password) {
+        throw new CustomError('Email and password are required', 400);
+      }
+
+      logger.info('Login attempt (password)', { email });
+
+      const dbService = DatabaseService.getInstance();
+      const result = await dbService.authenticateUser(email, password);
+
+      if (!result) {
+        throw new CustomError('Invalid credentials', 401);
+      }
+
+      logger.info(`User logged in: ${email}`);
+
+      // Extract role from token
+      const decoded = jwt.verify(result.token, process.env.JWT_SECRET || 'fallback-secret') as any;
+
+      res.json({
+        success: true,
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          role: decoded.role
+        },
+        token: result.token
+      });
+    } else {
+      // Passwordless authentication (plugin mode)
+      if (!email || !role || !metabaseDbUrl || !iotDbUrl) {
+        throw new CustomError('Email, role, metabaseDbUrl, and iotDbUrl are required', 400);
+      }
+
+      if (!['admin', 'editor', 'viewer'].includes(role)) {
+        throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
+      }
+
+      logger.info('Login attempt (passwordless)', { email, role });
+
+      const dbService = DatabaseService.getInstance();
+      const result = await dbService.authenticateUserPasswordless(
+        email,
+        role as 'admin' | 'editor' | 'viewer',
+        metabaseDbUrl,
+        iotDbUrl
+      );
+
+      logger.info(`User logged in (passwordless): ${email}`);
+
+      res.json({
+        success: true,
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          role: role
+        },
+        token: result.token
+      });
     }
-
-    logger.info('Login attempt', { email });
-
-    const dbService = DatabaseService.getInstance();
-    const result = await dbService.authenticateUser(email, password);
-
-    if (!result) {
-      throw new CustomError('Invalid credentials', 401);
-    }
-
-    logger.info(`User logged in: ${email}`);
-
-    // Extract role from token
-    const decoded = jwt.verify(result.token, process.env.JWT_SECRET || 'fallback-secret') as any;
-
-    res.json({
-      success: true,
-      user: {
-        id: result.user.id,
-        email: result.user.email,
-        role: decoded.role
-      },
-      token: result.token
-    });
   } catch (error) {
     logger.error('Login error:', {
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -96,6 +131,84 @@ router.post('/auth/test-metadata-connection', async (req, res, next) => {
       res.json({
         success: true,
         message: 'Database connection successful'
+      });
+    } catch (error) {
+      if (error instanceof CustomError) {
+        throw error;
+      }
+      throw new CustomError(
+        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        400
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Test Metabase database connection (public endpoint, no auth required)
+router.post('/auth/test-metabase-connection', async (req, res, next) => {
+  try {
+    const { db_url, db_host, db_port, db_name, db_user, db_password, db_ssl } = req.body;
+
+    const dbService = DatabaseService.getInstance();
+    
+    const testSettings = {
+      external_db_url: db_url,
+      external_db_host: db_host,
+      external_db_port: db_port,
+      external_db_name: db_name,
+      external_db_user: db_user,
+      external_db_password: db_password,
+      external_db_ssl: db_ssl
+    };
+
+    // Test the connection
+    try {
+      await dbService.testDatabaseConnection(testSettings);
+      
+      res.json({
+        success: true,
+        message: 'Metabase database connection successful'
+      });
+    } catch (error) {
+      if (error instanceof CustomError) {
+        throw error;
+      }
+      throw new CustomError(
+        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        400
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Test IoT database connection (public endpoint, no auth required)
+router.post('/auth/test-iot-connection', async (req, res, next) => {
+  try {
+    const { db_url, db_host, db_port, db_name, db_user, db_password, db_ssl } = req.body;
+
+    const dbService = DatabaseService.getInstance();
+    
+    const testSettings = {
+      external_db_url: db_url,
+      external_db_host: db_host,
+      external_db_port: db_port,
+      external_db_name: db_name,
+      external_db_user: db_user,
+      external_db_password: db_password,
+      external_db_ssl: db_ssl
+    };
+
+    // Test the connection
+    try {
+      await dbService.testDatabaseConnection(testSettings);
+      
+      res.json({
+        success: true,
+        message: 'IoT database connection successful'
       });
     } catch (error) {
       if (error instanceof CustomError) {
