@@ -41,8 +41,10 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // Trust proxy - Required when behind nginx reverse proxy
+// Trust only the first proxy (nginx on the same host)
 // This allows Express to correctly identify client IPs and handle X-Forwarded-* headers
-app.set('trust proxy', true);
+// while preventing IP spoofing attacks
+app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet({
