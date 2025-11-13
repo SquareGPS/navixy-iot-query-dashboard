@@ -90,8 +90,10 @@ server {
     }
 
     # API proxy to backend
-    # Note: Basic auth applies here too (inherited from server level)
+    # Exclude API paths from basic auth - they use JWT Bearer tokens for authentication
+    # This fixes Safari issue where fetch() requests don't include basic auth credentials
     location /api {
+        auth_basic off;  # Disable basic auth for API endpoints (they use JWT)
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -104,12 +106,23 @@ server {
     }
 
     # Health check
-    # Note: Basic auth applies here too (inherited from server level)
-    # If you want to make /health public, add: auth_basic off;
+    # Exclude health check from basic auth for monitoring purposes
     location /health {
+        auth_basic off;  # Public health check endpoint
         proxy_pass http://127.0.0.1:3001/health;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
+    }
+    
+    # Static assets (fonts, images, etc.) - exclude from basic auth
+    # Safari doesn't send basic auth with asset requests, causing 401 errors
+    location ~* \.(woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico|css|js)$ {
+        auth_basic off;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
     }
 }
 EOF
