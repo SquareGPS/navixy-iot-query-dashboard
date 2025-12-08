@@ -34,17 +34,15 @@ services:
   # Using pre-built image from Docker Hub
   # Docker Hub uses 'backend-latest' tag for backend builds
   backend:
-    image: dnezhdanov/navixy-dashboard:backend-latest
+    image: 761522172628.dkr.ecr.eu-central-1.amazonaws.com/navixy-dashboard/backend:latest
     container_name: sql-report-backend
+    # Environment variables are loaded from ./backend/.env.docker mounted as /app/.env
+    # Only override values that need Docker-specific service names here
     environment:
       NODE_ENV: production
       PORT: 3001
-      REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgresql://${POSTGRES_USER:-reports_user}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
-      JWT_SECRET: ${JWT_SECRET}
-      REPORT_SCHEMA_URL: ${REPORT_SCHEMA_URL:-https://raw.githubusercontent.com/DanilNezhdanov/navixy-dashboard-schema/refs/heads/main/examples/hello-world-dashboard.json}
-      RATE_LIMIT_MAX_REQUESTS: 1000
-      RATE_LIMIT_WINDOW_MS: 900000
+    volumes:
+      - ./backend/.env.docker:/app/.env:ro
     ports:
       - "3001:3001"
     depends_on:
@@ -59,7 +57,7 @@ services:
   # Using pre-built image from Docker Hub
   # Both frontend and backend are fully containerized - no Node.js required on host
   frontend:
-    image: dnezhdanov/navixy-dashboard:frontend-latest
+    image: 761522172628.dkr.ecr.eu-central-1.amazonaws.com/navixy-dashboard/frontend:latest
     container_name: sql-report-frontend
     ports:
       - "8080:80"  # Map container port 80 to host port 8080 (nginx will proxy from 80/443)
