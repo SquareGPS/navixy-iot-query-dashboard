@@ -13,9 +13,9 @@ const dbService = DatabaseService.getInstance();
 const redisService = RedisService.getInstance();
 
 // Generate cache key for SQL queries
-function generateCacheKey(sql: string, params: any): string {
+function generateCacheKey(sql: string, params: any, userId?: string): string {
   const hash = crypto.createHash('sha256');
-  hash.update(sql + JSON.stringify(params));
+  hash.update(sql + JSON.stringify(params) + (userId || 'anonymous'));
   return `sql:${hash.digest('hex')}`;
 }
 
@@ -24,7 +24,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
   const { sql, page = 1, pageSize = 25, sort } = req.body;
 
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { page, pageSize, sort });
+  const cacheKey = generateCacheKey(sql, { page, pageSize, sort }, req.user?.userId);
   
   try {
     // Try to get from cache first
@@ -73,7 +73,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
   const { sql } = req.body;
 
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { type: 'tile' });
+  const cacheKey = generateCacheKey(sql, { type: 'tile' }, req.user?.userId);
   
   try {
     // Try to get from cache first

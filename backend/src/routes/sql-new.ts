@@ -68,6 +68,7 @@ interface QueryResponse {
 function generateParameterizedCacheKey(
   statement: string, 
   params: Record<string, unknown>,
+  userId?: string,
   userTimezone?: string,
   pagination?: { page: number; pageSize: number }
 ): string {
@@ -78,6 +79,7 @@ function generateParameterizedCacheKey(
       acc[key] = params[key];
       return acc;
     }, {} as Record<string, unknown>),
+    userId: userId || 'anonymous',
     timezone: userTimezone || 'UTC',
     pagination: pagination || null
   };
@@ -161,8 +163,8 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     }
   }
 
-  // Generate cache key (use merged params, timezone, and pagination for caching)
-  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, userTimezone, pagination);
+  // Generate cache key (use merged params, userId, timezone, and pagination for caching)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, userTimezone, pagination);
   
   try {
     // Try to get from cache first
@@ -233,7 +235,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
   };
 
   // Generate cache key
-  const cacheKey = generateParameterizedCacheKey(sql, { page, pageSize, sort });
+  const cacheKey = generateParameterizedCacheKey(sql, { page, pageSize, sort }, req.user?.userId);
   
   try {
     // Try to get from cache first
@@ -281,7 +283,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
   const { sql } = req.body;
 
   // Generate cache key
-  const cacheKey = generateParameterizedCacheKey(sql, { type: 'tile' });
+  const cacheKey = generateParameterizedCacheKey(sql, { type: 'tile' }, req.user?.userId);
   
   try {
     // Try to get from cache first
