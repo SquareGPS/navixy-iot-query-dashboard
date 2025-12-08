@@ -321,16 +321,18 @@ export class DatabaseService {
       const client = await this.appPool.connect();
       
       try {
-        // Check if user exists, create if not
+        // Check if user exists in local database (match by email)
         let result = await client.query(
           'SELECT * FROM public.users WHERE email = $1',
           [email]
         );
 
         let user: User;
+        let isNewUser = false;
         
         if (result.rows.length === 0) {
           // Create new user without password
+          logger.info('Creating new user for passwordless auth', { email, role });
           const insertResult = await client.query(
             `INSERT INTO public.users (email, password_hash, email_confirmed_at, is_super_admin)
              VALUES ($1, NULL, NOW(), $2)
@@ -338,6 +340,7 @@ export class DatabaseService {
             [email, role === 'admin']
           );
           user = insertResult.rows[0] as User;
+          isNewUser = true;
 
           // Create user role - delete existing roles first, then insert new one
           // This handles both schema types: single PK on user_id or composite PK on (user_id, role)
@@ -345,6 +348,7 @@ export class DatabaseService {
           await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
         } else {
           user = result.rows[0] as User;
+          logger.info('Found existing user for passwordless auth', { email, userId: user.id, role });
           
           // Update user role - delete existing roles first, then insert new one
           await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
@@ -357,11 +361,20 @@ export class DatabaseService {
           [user.id]
         );
 
-        // Store database URLs in user metadata (for now, until we have proper app-to-app auth)
+        // Update raw_user_meta_data with connection URLs
+        const metaData = { metabaseDbUrl, iotDbUrl };
         await client.query(
           'UPDATE public.users SET raw_user_meta_data = $1 WHERE id = $2',
-          [JSON.stringify({ metabaseDbUrl, iotDbUrl }), user.id]
+          [JSON.stringify(metaData), user.id]
         );
+        
+        logger.info('Updated user raw_user_meta_data with connection URLs', { 
+          userId: user.id, 
+          email,
+          isNewUser,
+          hasIotDbUrl: !!iotDbUrl,
+          hasMetabaseDbUrl: !!metabaseDbUrl
+        });
 
         // Generate JWT token
         const token = jwt.sign(
