@@ -135,9 +135,9 @@ else
 fi
 
 # Check if database exists
-if ! psql -U reports_user -d reports_app_db -c "SELECT 1;" &> /dev/null; then
+if ! PGPASSWORD=postgres psql -h localhost -U reports_user -d reports_app_db -c "SELECT 1;" &> /dev/null; then
     print_warning "Database 'reports_app_db' does not exist. Creating..."
-    createdb -U reports_user reports_app_db
+    PGPASSWORD=postgres createdb -h localhost -U reports_user reports_app_db
     print_success "Database created successfully"
 else
     print_success "Database 'reports_app_db' exists"
