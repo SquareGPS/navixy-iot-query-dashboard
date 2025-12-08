@@ -569,12 +569,12 @@ router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequ
 // Reports and Sections Routes
 // ==========================================
 
-// Get all sections
+// Get all sections (filtered by user_id)
 router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
-    const sections = await dbService.getSections(pool);
+    const sections = await dbService.getSections(pool, req.user?.userId);
 
     res.json({
       success: true,
@@ -585,12 +585,12 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
   }
 });
 
-// Get all reports
+// Get all reports (filtered by user_id)
 router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
-    const reports = await dbService.getReports(pool);
+    const reports = await dbService.getReports(pool, req.user?.userId);
 
     res.json({
       success: true,
@@ -601,7 +601,7 @@ router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res,
   }
 });
 
-// Get report by ID
+// Get report by ID (filtered by user_id)
 router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const { id } = req.params;
@@ -610,7 +610,7 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
     }
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
-    const report = await dbService.getReportById(id, pool);
+    const report = await dbService.getReportById(id, pool, req.user?.userId);
 
     if (!report) {
       throw new CustomError('Report not found', 404);
@@ -634,14 +634,18 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
       throw new CustomError('Section name is required', 400);
     }
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
       const result = await client.query(
-        'INSERT INTO public.sections (name, sort_order, created_by) VALUES ($1, $2, $3) RETURNING *',
-        [name, sort_order || 0, req.user?.userId]
+        'INSERT INTO public.sections (name, sort_order, user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+        [name, sort_order || 0, req.user.userId, req.user.userId]
       );
 
       logger.info(`Section created by ${req.user?.email}: ${name}`);
@@ -668,11 +672,24 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
       throw new CustomError('Section name is required', 400);
     }
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
+      // Verify user owns this section
+      const ownerCheck = await client.query(
+        'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+        [id, req.user.userId]
+      );
+      if (ownerCheck.rows.length === 0) {
+        throw new CustomError('Section not found or access denied', 404);
+      }
+
       const updateFields = ['name = $1'];
       const updateValues = [name];
       let paramIndex = 2;
@@ -712,6 +729,10 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
     const { id } = req.params;
     const { moveReportsToSection } = req.query; // Optional: move reports to another section
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
@@ -719,10 +740,10 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
     try {
       await client.query('BEGIN');
 
-      // First check if section exists
+      // First check if section exists and user owns it
       const checkResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1',
-        [id]
+        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2',
+        [id, req.user.userId]
       );
 
       if (checkResult.rows.length === 0) {
@@ -741,10 +762,10 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
 
       if (reportsInSection.length > 0) {
         if (moveReportsToSection) {
-          // Move reports to another section
+          // Move reports to another section (verify user owns target section)
           const targetSectionResult = await client.query(
-            'SELECT id FROM public.sections WHERE id = $1',
-            [moveReportsToSection]
+            'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+            [moveReportsToSection, req.user.userId]
           );
 
           if (targetSectionResult.rows.length === 0) {
@@ -909,22 +930,38 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
       throw new CustomError('Report title and schema are required', 400);
     }
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
+      // If section_id is provided, verify it belongs to the user
+      if (section_id) {
+        const sectionCheck = await client.query(
+          'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+          [section_id, req.user.userId]
+        );
+        if (sectionCheck.rows.length === 0) {
+          throw new CustomError('Section not found or access denied', 404);
+        }
+      }
+
       const result = await client.query(
-        `INSERT INTO public.reports (title, section_id, slug, sort_order, report_schema, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        `INSERT INTO public.reports (title, section_id, slug, sort_order, report_schema, user_id, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [
           title,
           section_id,
           slug || title.toLowerCase().replace(/\s+/g, '-'),
           sort_order || 0,
           JSON.stringify(report_schema),
-          req.user?.userId,
-          req.user?.userId
+          req.user.userId,
+          req.user.userId,
+          req.user.userId
         ]
       );
 
@@ -952,11 +989,24 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
       throw new CustomError('Report title is required', 400);
     }
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
+      // Verify user owns this report
+      const ownerCheck = await client.query(
+        'SELECT id FROM public.reports WHERE id = $1 AND user_id = $2',
+        [id, req.user.userId]
+      );
+      if (ownerCheck.rows.length === 0) {
+        throw new CustomError('Report not found or access denied', 404);
+      }
+
       const updateFields = ['title = $1', 'updated_by = $2', 'updated_at = NOW()'];
       const updateValues = [title, req.user?.userId];
       let paramIndex = 3;
@@ -1009,15 +1059,19 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
   try {
     const { id } = req.params;
 
+    if (!req.user?.userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
+
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
-      // First check if report exists
+      // First check if report exists and user owns it
       const checkResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1',
-        [id]
+        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2',
+        [id, req.user.userId]
       );
 
       if (checkResult.rows.length === 0) {

@@ -1331,30 +1331,39 @@ export class DatabaseService {
   // App Data Methods (Reports, Sections, etc.)
   // ==========================================
 
-  async getSections(pool?: Pool): Promise<any[]> {
+  async getSections(pool?: Pool, userId?: string): Promise<any[]> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        // First check if the function exists, if not use simple query
-        const functionCheck = await client.query(
-          `SELECT EXISTS (
-            SELECT 1 FROM pg_proc p 
-            JOIN pg_namespace n ON p.pronamespace = n.oid 
-            WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
-          )`
-        );
-        
-        if (functionCheck.rows[0].exists) {
-          const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
-          return result.rows;
-        } else {
-          // Fallback to simple query
+        if (userId) {
+          // Filter by user_id
           const result = await client.query(
-            'SELECT * FROM public.sections ORDER BY sort_order'
+            'SELECT * FROM public.sections WHERE user_id = $1 AND is_deleted = FALSE ORDER BY sort_order',
+            [userId]
           );
           return result.rows;
+        } else {
+          // First check if the function exists, if not use simple query
+          const functionCheck = await client.query(
+            `SELECT EXISTS (
+              SELECT 1 FROM pg_proc p 
+              JOIN pg_namespace n ON p.pronamespace = n.oid 
+              WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
+            )`
+          );
+          
+          if (functionCheck.rows[0].exists) {
+            const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
+            return result.rows;
+          } else {
+            // Fallback to simple query
+            const result = await client.query(
+              'SELECT * FROM public.sections WHERE is_deleted = FALSE ORDER BY sort_order'
+            );
+            return result.rows;
+          }
         }
       } finally {
         client.release();
@@ -1365,18 +1374,31 @@ export class DatabaseService {
     }
   }
 
-  async getReports(pool?: Pool): Promise<any[]> {
+  async getReports(pool?: Pool, userId?: string): Promise<any[]> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        const result = await client.query(`
-          SELECT r.*, s.name as section_name 
-          FROM public.reports r 
-          LEFT JOIN public.sections s ON r.section_id = s.id 
-          ORDER BY s.sort_order, r.sort_order
-        `);
+        let result;
+        if (userId) {
+          // Filter by user_id
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM public.reports r 
+            LEFT JOIN public.sections s ON r.section_id = s.id 
+            WHERE r.user_id = $1 AND r.is_deleted = FALSE
+            ORDER BY s.sort_order, r.sort_order
+          `, [userId]);
+        } else {
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM public.reports r 
+            LEFT JOIN public.sections s ON r.section_id = s.id 
+            WHERE r.is_deleted = FALSE
+            ORDER BY s.sort_order, r.sort_order
+          `);
+        }
 
         // Parse report_schema JSONB fields for all reports
         const reports = result.rows.map(report => {
@@ -1401,19 +1423,31 @@ export class DatabaseService {
     }
   }
 
-  async getReportById(id: string, pool?: Pool): Promise<any> {
+  async getReportById(id: string, pool?: Pool, userId?: string): Promise<any> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        const result = await client.query(
-          `SELECT r.*, s.name as section_name 
-           FROM public.reports r 
-           LEFT JOIN public.sections s ON r.section_id = s.id 
-           WHERE r.id = $1`,
-          [id]
-        );
+        let result;
+        if (userId) {
+          // Filter by user_id for security
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM public.reports r 
+             LEFT JOIN public.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE`,
+            [id, userId]
+          );
+        } else {
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM public.reports r 
+             LEFT JOIN public.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.is_deleted = FALSE`,
+            [id]
+          );
+        }
 
         if (result.rows.length === 0) {
           return null;
