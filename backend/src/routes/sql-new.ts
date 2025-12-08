@@ -178,7 +178,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       mergedParams, 
       limits?.timeout_ms || 30000,
       limits?.max_rows || 10000,
-      req.user?.userId, // Pass userId for timezone preferences
+      req.user?.userId, // Pass userId for timezone preferences and database connection
       pagination // Pass pagination if provided
     );
     
@@ -244,7 +244,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     }
 
     // Execute query using legacy method for now
-    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort);
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, req.user?.userId);
     
     // Cache result for 5 minutes
     await getRedisService().set(cacheKey, JSON.stringify(result), 300);
@@ -292,7 +292,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     }
 
     // Execute query using legacy method for now
-    const result = await getDbService().executeTileQuery(sql);
+    const result = await getDbService().executeTileQuery(sql, req.user?.userId);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await getRedisService().set(cacheKey, JSON.stringify(result), 120);

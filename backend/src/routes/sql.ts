@@ -35,7 +35,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     }
 
     // Execute query
-    const result = await dbService.executeTableQuery(sql, page, pageSize, sort);
+    const result = await dbService.executeTableQuery(sql, page, pageSize, sort, req.user?.userId);
     
     // Cache result for 5 minutes
     await redisService.set(cacheKey, JSON.stringify(result), 300);
@@ -84,7 +84,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     }
 
     // Execute query
-    const result = await dbService.executeTileQuery(sql);
+    const result = await dbService.executeTileQuery(sql, req.user?.userId);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await redisService.set(cacheKey, JSON.stringify(result), 120);
@@ -120,7 +120,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
 router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
     // Simple test query
-    const result = await dbService.executeTableQuery('SELECT 1 as test', 1, 1);
+    const result = await dbService.executeTableQuery('SELECT 1 as test', 1, 1, undefined, req.user?.userId);
     
     logger.info('Database connection test successful', {
       userId: req.user?.userId,

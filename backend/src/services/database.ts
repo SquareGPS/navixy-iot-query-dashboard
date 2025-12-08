@@ -874,6 +874,53 @@ export class DatabaseService {
   // External Database Methods
   // ==========================================
 
+  /**
+   * Get user's IoT database URL from raw_user_meta_data
+   * @param userId - User's ID to look up
+   * @returns The iotDbUrl from user's metadata, or null if not found
+   */
+  async getUserIotDbUrl(userId: string): Promise<string | null> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT raw_user_meta_data FROM public.users WHERE id = $1',
+          [userId]
+        );
+
+        if (result.rows.length === 0) {
+          logger.warn('User not found when fetching iotDbUrl', { userId });
+          return null;
+        }
+
+        const rawMetaData = result.rows[0].raw_user_meta_data;
+        
+        if (!rawMetaData) {
+          logger.warn('User has no raw_user_meta_data', { userId });
+          return null;
+        }
+
+        // Parse if it's a string, otherwise use as-is (PostgreSQL JSONB)
+        const metaData = typeof rawMetaData === 'string' 
+          ? JSON.parse(rawMetaData) 
+          : rawMetaData;
+
+        if (!metaData.iotDbUrl) {
+          logger.warn('User raw_user_meta_data has no iotDbUrl', { userId });
+          return null;
+        }
+
+        return metaData.iotDbUrl;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error fetching user iotDbUrl:', { error, userId });
+      throw new CustomError('Failed to get user database configuration', 500);
+    }
+  }
+
   async testConnectionWithSettings(settings: any): Promise<void> {
     try {
       let config: DatabaseConfig;
@@ -937,8 +984,19 @@ export class DatabaseService {
     }
   }
 
-  private async getExternalDatabaseConfig(): Promise<DatabaseConfig> {
+  private async getExternalDatabaseConfig(userId?: string): Promise<DatabaseConfig> {
     try {
+      // First, try to get iotDbUrl from user's metadata if userId is provided
+      if (userId) {
+        const iotDbUrl = await this.getUserIotDbUrl(userId);
+        if (iotDbUrl) {
+          logger.info('Using iotDbUrl from user metadata', { userId, iotDbUrl });
+          return this.parsePostgresUrl(iotDbUrl);
+        }
+        logger.warn('User iotDbUrl not found, falling back to app settings', { userId });
+      }
+
+      // Fallback to app settings if no user email or no iotDbUrl in user metadata
       const settings = await this.getAppSettings();
       
       if (!settings) {
@@ -1021,7 +1079,7 @@ export class DatabaseService {
         throw error;
       }
       logger.error('Error parsing PostgreSQL URL:', { url, error });
-      throw new CustomError(`Invalid PostgreSQL URL format: ${error instanceof Error ? error.message : 'Unknown error'}`, 400);
+      throw new CustomError(`Invalid PostgreSQL URL format ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`, 400);
     }
   }
 
@@ -1075,6 +1133,7 @@ export class DatabaseService {
     page: number = 1,
     pageSize: number = 25,
     sort?: string,
+    userId?: string,
   ): Promise<QueryResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
@@ -1086,7 +1145,7 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1181,7 +1240,7 @@ export class DatabaseService {
     }
   }
 
-  async executeTileQuery(sql: string): Promise<TileResult> {
+  async executeTileQuery(sql: string, userId?: string): Promise<TileResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
       SQLSelectGuard.assertSafeSelect(sql);
@@ -1192,7 +1251,7 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1450,7 +1509,7 @@ export class DatabaseService {
 
   /**
    * Execute parameterized SQL query with typed parameters
-   * @param userId - User ID for fetching timezone preferences (optional, defaults to UTC)
+   * @param userId - User ID for fetching timezone preferences and database connection from user metadata (optional, defaults to UTC)
    */
   async executeParameterizedQuery(
     statement: string,
@@ -1486,7 +1545,7 @@ export class DatabaseService {
       }
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
