@@ -1233,6 +1233,149 @@ const ReportView = () => {
     input.click();
   };
 
+  const handleUploadLocalSchema = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      setDownloadingSchema(true);
+      try {
+        const content = await file.text();
+        let schemaData;
+        
+        try {
+          schemaData = JSON.parse(content);
+        } catch {
+          throw new Error('Invalid JSON file. Please upload a valid JSON schema.');
+        }
+        
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
+        if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+          console.log('🔄 Detected report schema format, migrating to dashboard format...');
+          const reportSchema = schemaData as ReportSchema;
+          const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
+          schemaData = dashboardData;
+          console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
+        }
+        
+        // Validate that this is a valid dashboard format
+        const hasPanels = schemaData.panels && Array.isArray(schemaData.panels);
+        const hasNestedPanels = schemaData.dashboard?.panels && Array.isArray(schemaData.dashboard.panels);
+        
+        if (!hasPanels && !hasNestedPanels) {
+          throw new Error('Invalid schema format. Expected a dashboard with panels array.');
+        }
+        
+        console.log('✅ Valid schema loaded from file');
+        
+        // Update the report with the uploaded schema
+        const updateResponse = await apiService.updateReport(reportId!, {
+          title: report?.title || 'New Report',
+          report_schema: schemaData
+        });
+
+        if (updateResponse.error) {
+          throw new Error(updateResponse.error.message || 'Failed to update report');
+        }
+
+        // Clear current state
+        setSchema(null);
+        setDashboard(null);
+        setDashboardConfig(null);
+        setEditorValue('');
+        setError(null);
+        
+        // Force a refresh of the report data
+        const fetchReport = async () => {
+          if (!reportId) return;
+          setLoading(true);
+          setError(null);
+          try {
+            const response = await apiService.getReportById(reportId);
+            
+            if (response.error) {
+              throw new Error(response.error.message || 'Failed to fetch report');
+            }
+            const reportData = response.data.report;
+            
+            if (!reportData.report_schema || 
+                (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
+              throw new Error('Report schema is missing');
+            }
+            
+            let loadedSchema = reportData.report_schema;
+            
+            // Check if this is a report schema format (with rows) and migrate to dashboard format
+            if (loadedSchema.rows && Array.isArray(loadedSchema.rows) && loadedSchema.rows.length > 0) {
+              const reportSchema = loadedSchema as ReportSchema;
+              const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+              loadedSchema = migratedDashboard;
+            }
+            
+            // Extract dashboard from schema data
+            let dashboardData: Dashboard;
+            if (loadedSchema.panels && Array.isArray(loadedSchema.panels) && loadedSchema.panels.length > 0) {
+              dashboardData = loadedSchema as Dashboard;
+            } else if (loadedSchema.dashboard && loadedSchema.dashboard.panels && Array.isArray(loadedSchema.dashboard.panels) && loadedSchema.dashboard.panels.length > 0) {
+              dashboardData = loadedSchema.dashboard as Dashboard;
+            } else {
+              throw new Error('Dashboard schema is missing panels');
+            }
+            
+            setReport(reportData);
+            setSchema(loadedSchema);
+            setDashboard(dashboardData);
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: dashboardData
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
+          } catch (err: any) {
+            console.error('Error fetching report:', err);
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        // Add a small delay to ensure database transaction is committed
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await fetchReport();
+        
+        toast({
+          title: 'Success',
+          description: 'Schema uploaded and saved successfully',
+        });
+      } catch (err: any) {
+        console.error('Error uploading schema:', err);
+        toast({
+          title: 'Error',
+          description: err.message || 'Failed to upload schema',
+          variant: 'destructive',
+        });
+      } finally {
+        setDownloadingSchema(false);
+      }
+    };
+    input.click();
+  };
+
   const handleDownloadExampleSchema = async () => {
     console.log('🚀 Starting schema download...', { reportId });
     setDownloadingSchema(true);
@@ -1557,14 +1700,25 @@ const ReportView = () => {
                 </p>
                 {isSchemaMissing && canEdit && (
                   <div className="space-y-3">
-                    <Button
-                      onClick={() => handleDownloadExampleSchema()}
-                      disabled={downloadingSchema}
-                      className="bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
-                    </Button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        onClick={() => handleUploadLocalSchema()}
+                        disabled={downloadingSchema}
+                        className="bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        {downloadingSchema ? 'Processing...' : 'Upload Local JSON File'}
+                      </Button>
+                      <Button
+                        onClick={() => handleDownloadExampleSchema()}
+                        disabled={downloadingSchema}
+                        variant="outline"
+                        className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/20"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        {downloadingSchema ? 'Downloading...' : 'Download Example from GitHub'}
+                      </Button>
+                    </div>
                     
                     <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
                       <CollapsibleTrigger asChild>
@@ -1608,7 +1762,7 @@ const ReportView = () => {
                     Need Help Getting Started?
                   </h4>
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This report needs a dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
+                    This report needs a dashboard schema to display data. You can upload a local JSON file from your computer, or download a pre-configured example dashboard from GitHub. Use the Custom URL option to specify a different dashboard URL if needed.
                   </p>
                 </div>
               </div>
@@ -1792,12 +1946,21 @@ const ReportView = () => {
               <div className="space-y-3">
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <Button 
-                    onClick={() => handleDownloadExampleSchema()}
+                    onClick={() => handleUploadLocalSchema()}
                     disabled={downloadingSchema}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
+                    <Upload className="h-4 w-4 mr-2" />
+                    {downloadingSchema ? 'Processing...' : 'Upload Local JSON File'}
+                  </Button>
+                  <Button 
+                    onClick={() => handleDownloadExampleSchema()}
+                    disabled={downloadingSchema}
+                    variant="outline"
+                    className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                  >
                     <Download className="h-4 w-4 mr-2" />
-                    {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
+                    {downloadingSchema ? 'Downloading...' : 'Download Example from GitHub'}
                   </Button>
                 </div>
                 
