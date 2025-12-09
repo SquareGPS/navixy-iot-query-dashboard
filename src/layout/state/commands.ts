@@ -406,22 +406,54 @@ export function cmdAddPanel(spec: {
 /**
  * Command to duplicate a panel
  * Creates a new panel with the same type/options/fieldConfig, positioned near the original
+ * Handles both top-level panels and panels inside rows
  */
 export function cmdDuplicatePanel(panelId: number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
+    console.warn('cmdDuplicatePanel: No dashboard in store');
     return;
   }
 
-  const panel = store.dashboard.panels.find((p) => p.id === panelId);
+  // Find the panel - check both top-level and inside rows
+  let panel: Panel | undefined = store.dashboard.panels.find((p) => p.id === panelId);
+  let panelInRowId: number | null = null;
+  
+  // If not found at top level, check inside rows
   if (!panel) {
+    for (const p of store.dashboard.panels) {
+      if (isRowPanel(p) && p.panels) {
+        const rowPanel = p.panels.find((rp) => rp.id === panelId);
+        if (rowPanel && p.id) {
+          panel = rowPanel;
+          panelInRowId = p.id;
+          break;
+        }
+      }
+    }
+  }
+  
+  if (!panel) {
+    console.warn('cmdDuplicatePanel: Panel not found');
     return;
   }
 
   // Determine target scope
   const scope = scopeOf(panelId, store.dashboard);
   const target = scope === 'top-level' ? 'top' : scope;
+
+  // Calculate position for the duplicate panel
+  // Try to place to the right of the original, or below if no space
+  const GRID_COLUMNS = 24;
+  let duplicateX = panel.gridPos.x + panel.gridPos.w;
+  let duplicateY = panel.gridPos.y;
+  
+  // If placing to the right would overflow, place below instead
+  if (duplicateX + panel.gridPos.w > GRID_COLUMNS) {
+    duplicateX = panel.gridPos.x;
+    duplicateY = panel.gridPos.y + panel.gridPos.h;
+  }
 
   // Get next ID before placement
   const { nextId } = require('../geometry/add');
@@ -434,7 +466,7 @@ export function cmdDuplicatePanel(panelId: number): void {
     title: `${panel.title} (Copy)`,
     size: { w: panel.gridPos.w, h: panel.gridPos.h },
     target,
-    hint: { nearPanelId: panelId },
+    hint: { position: { x: duplicateX, y: duplicateY } },
   });
 
   // Find and update the newly created panel
@@ -475,6 +507,76 @@ export function cmdTidyUp(): void {
 
   const currentDashboard = store.dashboard;
   const newDashboard = tidyUp(store.dashboard);
+  
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to delete a panel from the dashboard
+ * Handles both top-level panels and panels inside rows
+ */
+export function cmdDeletePanel(panelId: number): void {
+  const store = useEditorStore.getState();
+  
+  if (!store.dashboard) {
+    console.warn('cmdDeletePanel: No dashboard in store');
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  
+  // Check if panel exists
+  const panelIndex = currentDashboard.panels.findIndex((p) => p.id === panelId);
+  
+  // Also check if panel is inside a row
+  let panelInRowId: number | null = null;
+  if (panelIndex === -1) {
+    // Panel not at top level - check inside rows
+    for (const panel of currentDashboard.panels) {
+      if (isRowPanel(panel) && panel.panels) {
+        const rowPanelIndex = panel.panels.findIndex((p) => p.id === panelId);
+        if (rowPanelIndex !== -1 && panel.id) {
+          panelInRowId = panel.id;
+          break;
+        }
+      }
+    }
+  }
+  
+  if (panelIndex === -1 && panelInRowId === null) {
+    console.warn('cmdDeletePanel: Panel not found');
+    return;
+  }
+
+  let newDashboard: Dashboard;
+  
+  if (panelIndex !== -1) {
+    // Panel is at top level - remove directly
+    newDashboard = {
+      ...currentDashboard,
+      panels: currentDashboard.panels.filter((p) => p.id !== panelId),
+    };
+  } else {
+    // Panel is inside a row - remove from row's panels array
+    newDashboard = {
+      ...currentDashboard,
+      panels: currentDashboard.panels.map((p) => {
+        if (isRowPanel(p) && p.id === panelInRowId && p.panels) {
+          return {
+            ...p,
+            panels: p.panels.filter((rp) => rp.id !== panelId),
+          };
+        }
+        return p;
+      }),
+    };
+  }
+  
+  // Clear selection if the deleted panel was selected
+  if (store.selectedPanelId === panelId) {
+    store.setSelectedPanel(null);
+  }
   
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
