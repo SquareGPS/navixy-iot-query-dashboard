@@ -49,7 +49,7 @@ const Login = () => {
   const [iotTestResult, setIotTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [iotConnection, setIotConnection] = useState<DatabaseConnection>({
     connectionType: 'url',
-    url: import.meta.env.VITE_DEFAULT_IOT_DB_URL || 'postgresql://client_398286_user:npg_6flcV8DXjnge@ep-spring-morning-agp9wdsq.c-2.eu-central-1.aws.neon.tech:5432/client_398286?sslmode=require',
+    url: import.meta.env.VITE_DEFAULT_IOT_DB_URL || '',
     host: '',
     port: 5432,
     database: '',

@@ -321,16 +321,18 @@ export class DatabaseService {
       const client = await this.appPool.connect();
       
       try {
-        // Check if user exists, create if not
+        // Check if user exists in local database (match by email)
         let result = await client.query(
           'SELECT * FROM public.users WHERE email = $1',
           [email]
         );
 
         let user: User;
+        let isNewUser = false;
         
         if (result.rows.length === 0) {
           // Create new user without password
+          logger.info('Creating new user for passwordless auth', { email, role });
           const insertResult = await client.query(
             `INSERT INTO public.users (email, password_hash, email_confirmed_at, is_super_admin)
              VALUES ($1, NULL, NOW(), $2)
@@ -338,6 +340,7 @@ export class DatabaseService {
             [email, role === 'admin']
           );
           user = insertResult.rows[0] as User;
+          isNewUser = true;
 
           // Create user role - delete existing roles first, then insert new one
           // This handles both schema types: single PK on user_id or composite PK on (user_id, role)
@@ -345,6 +348,7 @@ export class DatabaseService {
           await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
         } else {
           user = result.rows[0] as User;
+          logger.info('Found existing user for passwordless auth', { email, userId: user.id, role });
           
           // Update user role - delete existing roles first, then insert new one
           await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
@@ -357,11 +361,20 @@ export class DatabaseService {
           [user.id]
         );
 
-        // Store database URLs in user metadata (for now, until we have proper app-to-app auth)
+        // Update raw_user_meta_data with connection URLs
+        const metaData = { metabaseDbUrl, iotDbUrl };
         await client.query(
           'UPDATE public.users SET raw_user_meta_data = $1 WHERE id = $2',
-          [JSON.stringify({ metabaseDbUrl, iotDbUrl }), user.id]
+          [JSON.stringify(metaData), user.id]
         );
+        
+        logger.info('Updated user raw_user_meta_data with connection URLs', { 
+          userId: user.id, 
+          email,
+          isNewUser,
+          hasIotDbUrl: !!iotDbUrl,
+          hasMetabaseDbUrl: !!metabaseDbUrl
+        });
 
         // Generate JWT token
         const token = jwt.sign(
@@ -874,6 +887,53 @@ export class DatabaseService {
   // External Database Methods
   // ==========================================
 
+  /**
+   * Get user's IoT database URL from raw_user_meta_data
+   * @param userId - User's ID to look up
+   * @returns The iotDbUrl from user's metadata, or null if not found
+   */
+  async getUserIotDbUrl(userId: string): Promise<string | null> {
+    try {
+      const client = await this.appPool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT raw_user_meta_data FROM public.users WHERE id = $1',
+          [userId]
+        );
+
+        if (result.rows.length === 0) {
+          logger.warn('User not found when fetching iotDbUrl', { userId });
+          return null;
+        }
+
+        const rawMetaData = result.rows[0].raw_user_meta_data;
+        
+        if (!rawMetaData) {
+          logger.warn('User has no raw_user_meta_data', { userId });
+          return null;
+        }
+
+        // Parse if it's a string, otherwise use as-is (PostgreSQL JSONB)
+        const metaData = typeof rawMetaData === 'string' 
+          ? JSON.parse(rawMetaData) 
+          : rawMetaData;
+
+        if (!metaData.iotDbUrl) {
+          logger.warn('User raw_user_meta_data has no iotDbUrl', { userId });
+          return null;
+        }
+
+        return metaData.iotDbUrl;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error fetching user iotDbUrl:', { error, userId });
+      throw new CustomError('Failed to get user database configuration', 500);
+    }
+  }
+
   async testConnectionWithSettings(settings: any): Promise<void> {
     try {
       let config: DatabaseConfig;
@@ -937,8 +997,19 @@ export class DatabaseService {
     }
   }
 
-  private async getExternalDatabaseConfig(): Promise<DatabaseConfig> {
+  private async getExternalDatabaseConfig(userId?: string): Promise<DatabaseConfig> {
     try {
+      // First, try to get iotDbUrl from user's metadata if userId is provided
+      if (userId) {
+        const iotDbUrl = await this.getUserIotDbUrl(userId);
+        if (iotDbUrl) {
+          logger.info('Using iotDbUrl from user metadata', { userId, iotDbUrl });
+          return this.parsePostgresUrl(iotDbUrl);
+        }
+        logger.warn('User iotDbUrl not found, falling back to app settings', { userId });
+      }
+
+      // Fallback to app settings if no user email or no iotDbUrl in user metadata
       const settings = await this.getAppSettings();
       
       if (!settings) {
@@ -1021,7 +1092,7 @@ export class DatabaseService {
         throw error;
       }
       logger.error('Error parsing PostgreSQL URL:', { url, error });
-      throw new CustomError(`Invalid PostgreSQL URL format: ${error instanceof Error ? error.message : 'Unknown error'}`, 400);
+      throw new CustomError(`Invalid PostgreSQL URL format ${url}: ${error instanceof Error ? error.message : 'Unknown error'}`, 400);
     }
   }
 
@@ -1075,6 +1146,7 @@ export class DatabaseService {
     page: number = 1,
     pageSize: number = 25,
     sort?: string,
+    userId?: string,
   ): Promise<QueryResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
@@ -1086,7 +1158,7 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1181,7 +1253,7 @@ export class DatabaseService {
     }
   }
 
-  async executeTileQuery(sql: string): Promise<TileResult> {
+  async executeTileQuery(sql: string, userId?: string): Promise<TileResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
       SQLSelectGuard.assertSafeSelect(sql);
@@ -1192,7 +1264,7 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1259,30 +1331,39 @@ export class DatabaseService {
   // App Data Methods (Reports, Sections, etc.)
   // ==========================================
 
-  async getSections(pool?: Pool): Promise<any[]> {
+  async getSections(pool?: Pool, userId?: string): Promise<any[]> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        // First check if the function exists, if not use simple query
-        const functionCheck = await client.query(
-          `SELECT EXISTS (
-            SELECT 1 FROM pg_proc p 
-            JOIN pg_namespace n ON p.pronamespace = n.oid 
-            WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
-          )`
-        );
-        
-        if (functionCheck.rows[0].exists) {
-          const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
-          return result.rows;
-        } else {
-          // Fallback to simple query
+        if (userId) {
+          // Filter by user_id
           const result = await client.query(
-            'SELECT * FROM public.sections ORDER BY sort_order'
+            'SELECT * FROM public.sections WHERE user_id = $1 AND is_deleted = FALSE ORDER BY sort_order',
+            [userId]
           );
           return result.rows;
+        } else {
+          // First check if the function exists, if not use simple query
+          const functionCheck = await client.query(
+            `SELECT EXISTS (
+              SELECT 1 FROM pg_proc p 
+              JOIN pg_namespace n ON p.pronamespace = n.oid 
+              WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
+            )`
+          );
+          
+          if (functionCheck.rows[0].exists) {
+            const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
+            return result.rows;
+          } else {
+            // Fallback to simple query
+            const result = await client.query(
+              'SELECT * FROM public.sections WHERE is_deleted = FALSE ORDER BY sort_order'
+            );
+            return result.rows;
+          }
         }
       } finally {
         client.release();
@@ -1293,18 +1374,31 @@ export class DatabaseService {
     }
   }
 
-  async getReports(pool?: Pool): Promise<any[]> {
+  async getReports(pool?: Pool, userId?: string): Promise<any[]> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        const result = await client.query(`
-          SELECT r.*, s.name as section_name 
-          FROM public.reports r 
-          LEFT JOIN public.sections s ON r.section_id = s.id 
-          ORDER BY s.sort_order, r.sort_order
-        `);
+        let result;
+        if (userId) {
+          // Filter by user_id
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM public.reports r 
+            LEFT JOIN public.sections s ON r.section_id = s.id 
+            WHERE r.user_id = $1 AND r.is_deleted = FALSE
+            ORDER BY s.sort_order, r.sort_order
+          `, [userId]);
+        } else {
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM public.reports r 
+            LEFT JOIN public.sections s ON r.section_id = s.id 
+            WHERE r.is_deleted = FALSE
+            ORDER BY s.sort_order, r.sort_order
+          `);
+        }
 
         // Parse report_schema JSONB fields for all reports
         const reports = result.rows.map(report => {
@@ -1329,19 +1423,31 @@ export class DatabaseService {
     }
   }
 
-  async getReportById(id: string, pool?: Pool): Promise<any> {
+  async getReportById(id: string, pool?: Pool, userId?: string): Promise<any> {
     const dbPool = pool || this.appPool;
     try {
       const client = await dbPool.connect();
       
       try {
-        const result = await client.query(
-          `SELECT r.*, s.name as section_name 
-           FROM public.reports r 
-           LEFT JOIN public.sections s ON r.section_id = s.id 
-           WHERE r.id = $1`,
-          [id]
-        );
+        let result;
+        if (userId) {
+          // Filter by user_id for security
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM public.reports r 
+             LEFT JOIN public.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE`,
+            [id, userId]
+          );
+        } else {
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM public.reports r 
+             LEFT JOIN public.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.is_deleted = FALSE`,
+            [id]
+          );
+        }
 
         if (result.rows.length === 0) {
           return null;
@@ -1450,7 +1556,7 @@ export class DatabaseService {
 
   /**
    * Execute parameterized SQL query with typed parameters
-   * @param userId - User ID for fetching timezone preferences (optional, defaults to UTC)
+   * @param userId - User ID for fetching timezone preferences and database connection from user metadata (optional, defaults to UTC)
    */
   async executeParameterizedQuery(
     statement: string,
@@ -1486,7 +1592,7 @@ export class DatabaseService {
       }
     }
 
-    const config = await this.getExternalDatabaseConfig();
+    const config = await this.getExternalDatabaseConfig(userId);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 

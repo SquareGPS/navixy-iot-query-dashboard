@@ -1233,6 +1233,149 @@ const ReportView = () => {
     input.click();
   };
 
+  const handleUploadLocalSchema = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      setDownloadingSchema(true);
+      try {
+        const content = await file.text();
+        let schemaData;
+        
+        try {
+          schemaData = JSON.parse(content);
+        } catch {
+          throw new Error('Invalid JSON file. Please upload a valid JSON schema.');
+        }
+        
+        // Check if this is a report schema format (with rows) and migrate to dashboard format
+        if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
+          console.log('🔄 Detected report schema format, migrating to dashboard format...');
+          const reportSchema = schemaData as ReportSchema;
+          const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
+          schemaData = dashboardData;
+          console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
+        }
+        
+        // Validate that this is a valid dashboard format
+        const hasPanels = schemaData.panels && Array.isArray(schemaData.panels);
+        const hasNestedPanels = schemaData.dashboard?.panels && Array.isArray(schemaData.dashboard.panels);
+        
+        if (!hasPanels && !hasNestedPanels) {
+          throw new Error('Invalid schema format. Expected a dashboard with panels array.');
+        }
+        
+        console.log('✅ Valid schema loaded from file');
+        
+        // Update the report with the uploaded schema
+        const updateResponse = await apiService.updateReport(reportId!, {
+          title: report?.title || 'New Report',
+          report_schema: schemaData
+        });
+
+        if (updateResponse.error) {
+          throw new Error(updateResponse.error.message || 'Failed to update report');
+        }
+
+        // Clear current state
+        setSchema(null);
+        setDashboard(null);
+        setDashboardConfig(null);
+        setEditorValue('');
+        setError(null);
+        
+        // Force a refresh of the report data
+        const fetchReport = async () => {
+          if (!reportId) return;
+          setLoading(true);
+          setError(null);
+          try {
+            const response = await apiService.getReportById(reportId);
+            
+            if (response.error) {
+              throw new Error(response.error.message || 'Failed to fetch report');
+            }
+            const reportData = response.data.report;
+            
+            if (!reportData.report_schema || 
+                (typeof reportData.report_schema === 'object' && Object.keys(reportData.report_schema).length === 0)) {
+              throw new Error('Report schema is missing');
+            }
+            
+            let loadedSchema = reportData.report_schema;
+            
+            // Check if this is a report schema format (with rows) and migrate to dashboard format
+            if (loadedSchema.rows && Array.isArray(loadedSchema.rows) && loadedSchema.rows.length > 0) {
+              const reportSchema = loadedSchema as ReportSchema;
+              const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
+              loadedSchema = migratedDashboard;
+            }
+            
+            // Extract dashboard from schema data
+            let dashboardData: Dashboard;
+            if (loadedSchema.panels && Array.isArray(loadedSchema.panels) && loadedSchema.panels.length > 0) {
+              dashboardData = loadedSchema as Dashboard;
+            } else if (loadedSchema.dashboard && loadedSchema.dashboard.panels && Array.isArray(loadedSchema.dashboard.panels) && loadedSchema.dashboard.panels.length > 0) {
+              dashboardData = loadedSchema.dashboard as Dashboard;
+            } else {
+              throw new Error('Dashboard schema is missing panels');
+            }
+            
+            setReport(reportData);
+            setSchema(loadedSchema);
+            setDashboard(dashboardData);
+            
+            const config: DashboardConfig = {
+              title: reportData.title,
+              meta: {
+                schema_version: '1.0.0',
+                dashboard_id: reportData.id,
+                slug: reportData.slug,
+                last_updated: new Date().toISOString(),
+                updated_by: {
+                  id: user?.userId || 'unknown',
+                  name: user?.name || 'Unknown User',
+                  email: user?.email
+                }
+              },
+              dashboard: dashboardData
+            };
+            setDashboardConfig(config);
+            setEditorValue(JSON.stringify(dashboardData, null, 2));
+          } catch (err: any) {
+            console.error('Error fetching report:', err);
+            setError(err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        // Add a small delay to ensure database transaction is committed
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await fetchReport();
+        
+        toast({
+          title: 'Success',
+          description: 'Schema uploaded and saved successfully',
+        });
+      } catch (err: any) {
+        console.error('Error uploading schema:', err);
+        toast({
+          title: 'Error',
+          description: err.message || 'Failed to upload schema',
+          variant: 'destructive',
+        });
+      } finally {
+        setDownloadingSchema(false);
+      }
+    };
+    input.click();
+  };
+
   const handleDownloadExampleSchema = async () => {
     console.log('🚀 Starting schema download...', { reportId });
     setDownloadingSchema(true);
@@ -1532,88 +1675,139 @@ const ReportView = () => {
   const isCriticalError = error && error !== 'Dashboard schema is missing' && error !== 'Dashboard is empty. You can download a dashboard template to get started.';
   const shouldShowError = isCriticalError || (!dashboard && !loading && !downloadingSchema);
   
+  // Handler to create a blank dashboard
+  const handleCreateBlankDashboard = async () => {
+    if (!reportId || !report) return;
+    
+    setDownloadingSchema(true);
+    try {
+      // Create a minimal empty dashboard schema
+      const blankDashboard = {
+        title: report.title || 'New Dashboard',
+        time: {
+          from: 'now-24h',
+          to: 'now'
+        },
+        panels: [],
+        schemaVersion: 39,
+        version: 1,
+        editable: true
+      };
+      
+      // Save the blank dashboard
+      const response = await apiService.updateReport(reportId, {
+        title: report.title,
+        subtitle: report.subtitle,
+        report_schema: blankDashboard
+      });
+      
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to create blank dashboard');
+      }
+      
+      // Update local state
+      setDashboard(blankDashboard as any);
+      setSchema(blankDashboard);
+      setEditorValue(JSON.stringify(blankDashboard, null, 2));
+      setError(null);
+      
+      // Enter edit mode automatically
+      setIsEditing(true);
+      
+      toast({
+        title: 'Success',
+        description: 'Blank dashboard created. You can now add panels.',
+      });
+    } catch (err: any) {
+      console.error('Error creating blank dashboard:', err);
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to create blank dashboard',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingSchema(false);
+    }
+  };
+
   if (shouldShowError) {
     const isSchemaMissing = error === 'Dashboard schema is missing' || error === 'Dashboard is empty. You can download a dashboard template to get started.';
     console.log('🚨 Error state triggered:', { error, dashboard: dashboard ? 'exists' : 'null', isSchemaMissing, isCriticalError });
     
+    // For critical errors (not schema missing), show error state
+    if (isCriticalError) {
+      return (
+        <AppLayout>
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/20 dark:to-orange-950/20 border border-red-200 dark:border-red-800/50 rounded-xl p-6 shadow-sm">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0">
+                  <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                    <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-semibold text-red-900 dark:text-red-100 mb-2">
+                    Report Error
+                  </h3>
+                  <p className="text-red-700 dark:text-red-300 mb-4">
+                    {error || 'Report not found'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </AppLayout>
+      );
+    }
     
+    // For schema missing, show info-style message
     return (
       <AppLayout>
         <div className="space-y-6">
-          {/* Modern Error State */}
-          <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/20 dark:to-orange-950/20 border border-red-200 dark:border-red-800/50 rounded-xl p-6 shadow-sm">
+          {/* Info State - Schema Required */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-6 shadow-sm">
             <div className="flex items-start gap-4">
               <div className="flex-shrink-0">
-                <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 </div>
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-red-900 dark:text-red-100 mb-2">
-                  {isSchemaMissing ? 'Schema Required' : 'Report Error'}
+                <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  Get Started
                 </h3>
-                <p className="text-red-700 dark:text-red-300 mb-4">
-                  {error || 'Report not found'}
+                <p className="text-blue-700 dark:text-blue-300 mb-4">
+                  This dashboard is empty. Start by creating a blank dashboard or upload an existing schema file.
                 </p>
-                {isSchemaMissing && canEdit && (
-                  <div className="space-y-3">
+                {canEdit && (
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <Button
-                      onClick={() => handleDownloadExampleSchema()}
+                      onClick={handleCreateBlankDashboard}
                       disabled={downloadingSchema}
-                      className="bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
+                      className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all duration-200 hover:shadow-md"
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
+                      <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      {downloadingSchema ? 'Creating...' : 'Start with Blank Dashboard'}
                     </Button>
-                    
-                    <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs">
-                          Custom URL
-                          {showAdvanced ? (
-                            <ChevronDown className="h-3 w-3 ml-1" />
-                          ) : (
-                            <ChevronRight className="h-3 w-3 ml-1" />
-                          )}
-                        </Button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="pt-2">
-                        <Input
-                          placeholder="Custom schema URL (optional)"
-                          value={customSchemaUrl || defaultSchemaUrl || ""}
-                          onChange={(e) => setCustomSchemaUrl(e.target.value)}
-                          className="text-xs h-8 bg-[var(--surface-2)] border-red-200 dark:border-red-800 focus:border-red-400 dark:focus:border-red-600"
-                        />
-                      </CollapsibleContent>
-                    </Collapsible>
+                    <Button
+                      onClick={() => handleUploadLocalSchema()}
+                      disabled={downloadingSchema}
+                      variant="outline"
+                      className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      {downloadingSchema ? 'Processing...' : 'Upload Schema File'}
+                    </Button>
                   </div>
                 )}
               </div>
             </div>
           </div>
-
-          {/* Help Section */}
-          {isSchemaMissing && (
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-6">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0">
-                  <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                    Need Help Getting Started?
-                  </h4>
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This report needs a dashboard schema to display data. Click the button above to download a pre-configured example dashboard that you can customize for your needs. Use the Advanced Options to specify a custom dashboard URL from GitHub or other sources.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </AppLayout>
     );
@@ -1776,55 +1970,38 @@ const ReportView = () => {
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800/50 rounded-xl p-8 shadow-sm">
             <div className="text-center space-y-4">
               <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                <Download className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                <svg className="h-8 w-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-                  {dashboard ? 'Dashboard Schema is Empty' : 'No Dashboard Schema Found'}
+                  Get Started
                 </h3>
                 <p className="text-[var(--text-muted)] mb-6">
-                  {dashboard 
-                    ? 'This dashboard doesn\'t have any panels yet. Download an example dashboard to get started.'
-                    : 'This report needs a dashboard schema to display content. Download an example dashboard to get started.'
-                  }
+                  This dashboard is empty. Start by creating a blank dashboard or upload an existing schema file.
                 </p>
               </div>
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Button 
-                    onClick={() => handleDownloadExampleSchema()}
-                    disabled={downloadingSchema}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    {downloadingSchema ? 'Downloading...' : 'Download Example Schema'}
-                  </Button>
-                </div>
-                
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                  <CollapsibleTrigger asChild>
-                    <Button 
-                      variant="outline"
-                      size="sm"
-                      className="border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20 text-xs"
-                    >
-                      Custom URL
-                      {showAdvanced ? (
-                        <ChevronDown className="h-3 w-3 ml-1" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 ml-1" />
-                      )}
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-2">
-                    <Input
-                      placeholder="Custom schema URL (optional)"
-                      value={customSchemaUrl || defaultSchemaUrl || ""}
-                      onChange={(e) => setCustomSchemaUrl(e.target.value)}
-                      className="text-xs h-8 bg-[var(--surface-2)] border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600"
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button 
+                  onClick={handleCreateBlankDashboard}
+                  disabled={downloadingSchema}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  {downloadingSchema ? 'Creating...' : 'Start with Blank Dashboard'}
+                </Button>
+                <Button 
+                  onClick={() => handleUploadLocalSchema()}
+                  disabled={downloadingSchema}
+                  variant="outline"
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {downloadingSchema ? 'Processing...' : 'Upload Schema File'}
+                </Button>
               </div>
             </div>
           </div>

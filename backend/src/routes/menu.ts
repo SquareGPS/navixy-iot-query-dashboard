@@ -16,16 +16,21 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
   try {
     const { include_deleted = 'false' } = req.query;
     const includeDeleted = include_deleted === 'true';
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      throw new CustomError('User not authenticated', 401);
+    }
 
     const dbService = DatabaseService.getInstance();
     const pool = dbService.appPool;
     const client = await pool.connect();
     
     try {
-      // Use the database function to get the menu tree
+      // Use the database function to get the menu tree filtered by user_id
       const result = await client.query(
-        'SELECT get_menu_tree($1) as menu_tree',
-        [includeDeleted]
+        'SELECT get_menu_tree($1, $2) as menu_tree',
+        [userId, includeDeleted]
       );
 
       const menuTree = result.rows[0].menu_tree;
@@ -88,11 +93,11 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
           throw new CustomError('Each section must have id, sortOrder, and version', 400);
         }
 
-        // Check version for optimistic concurrency
+        // Check version for optimistic concurrency (also verify user ownership)
         logger.info('Checking section version', { sectionId: section.id, expectedVersion: section.version });
         const currentResult = await client.query(
-          'SELECT version FROM public.sections WHERE id = $1 AND is_deleted = FALSE',
-          [section.id]
+          'SELECT version FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+          [section.id, req.user?.userId]
         );
 
         logger.info('Section version check result', { 
@@ -143,11 +148,11 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
           throw new CustomError('Each report must have id, sortOrder, and version', 400);
         }
 
-        // Check version for optimistic concurrency
+        // Check version for optimistic concurrency (also verify user ownership)
         logger.info('Checking report version', { reportId: report.id, expectedVersion: report.version });
         const currentResult = await client.query(
-          'SELECT version FROM public.reports WHERE id = $1 AND is_deleted = FALSE',
-          [report.id]
+          'SELECT version FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+          [report.id, req.user?.userId]
         );
 
         logger.info('Report version check result', { 
@@ -171,12 +176,12 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
           throw new CustomError(`Version conflict for report ${report.id}`, 409);
         }
 
-        // Validate parent section if provided
+        // Validate parent section if provided (also verify user ownership)
         if (report.parentSectionId !== null) {
           logger.info('Validating parent section', { reportId: report.id, parentSectionId: report.parentSectionId });
           const sectionCheck = await client.query(
-            'SELECT id FROM public.sections WHERE id = $1 AND is_deleted = FALSE',
-            [report.parentSectionId]
+            'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+            [report.parentSectionId, req.user?.userId]
           );
 
           logger.info('Parent section validation result', { 
@@ -268,10 +273,10 @@ router.patch('/v1/sections/:id', authenticateToken, requireAdminOrEditor, async 
     const client = await pool.connect();
     
     try {
-      // Check version for optimistic concurrency
+      // Check version for optimistic concurrency (also verify user ownership)
       const currentResult = await client.query(
-        'SELECT version FROM public.sections WHERE id = $1 AND is_deleted = FALSE',
-        [id]
+        'SELECT version FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        [id, req.user?.userId]
       );
 
       if (currentResult.rows.length === 0) {
@@ -324,10 +329,10 @@ router.patch('/v1/reports/:id', authenticateToken, requireAdminOrEditor, async (
     const client = await pool.connect();
     
     try {
-      // Check version for optimistic concurrency
+      // Check version for optimistic concurrency (also verify user ownership)
       const currentResult = await client.query(
-        'SELECT version FROM public.reports WHERE id = $1 AND is_deleted = FALSE',
-        [id]
+        'SELECT version FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        [id, req.user?.userId]
       );
 
       if (currentResult.rows.length === 0) {
@@ -378,10 +383,10 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
     try {
       await client.query('BEGIN');
 
-      // Check if section exists
+      // Check if section exists (also verify user ownership)
       const sectionResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1 AND is_deleted = FALSE',
-        [id]
+        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        [id, req.user?.userId]
       );
 
       if (sectionResult.rows.length === 0) {
@@ -390,10 +395,10 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
 
       const sectionName = sectionResult.rows[0].name;
 
-      // Get child reports
+      // Get child reports (verify user ownership)
       const reportsResult = await client.query(
-        'SELECT id FROM public.reports WHERE section_id = $1 AND is_deleted = FALSE',
-        [id]
+        'SELECT id FROM public.reports WHERE section_id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        [id, req.user?.userId]
       );
 
       const childReports = reportsResult.rows;
@@ -460,10 +465,10 @@ router.patch('/v1/reports/:id/delete', authenticateToken, requireAdminOrEditor, 
     const client = await pool.connect();
     
     try {
-      // Check if report exists
+      // Check if report exists (also verify user ownership)
       const reportResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1 AND is_deleted = FALSE',
-        [id]
+        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        [id, req.user?.userId]
       );
 
       if (reportResult.rows.length === 0) {
@@ -501,10 +506,10 @@ router.patch('/v1/sections/:id/restore', authenticateToken, requireAdminOrEditor
     const client = await pool.connect();
     
     try {
-      // Check if section exists and is deleted
+      // Check if section exists and is deleted (also verify user ownership)
       const sectionResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1 AND is_deleted = TRUE',
-        [id]
+        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
+        [id, req.user?.userId]
       );
 
       if (sectionResult.rows.length === 0) {
@@ -542,10 +547,10 @@ router.patch('/v1/reports/:id/restore', authenticateToken, requireAdminOrEditor,
     const client = await pool.connect();
     
     try {
-      // Check if report exists and is deleted
+      // Check if report exists and is deleted (also verify user ownership)
       const reportResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1 AND is_deleted = TRUE',
-        [id]
+        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
+        [id, req.user?.userId]
       );
 
       if (reportResult.rows.length === 0) {

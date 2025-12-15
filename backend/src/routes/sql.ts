@@ -13,9 +13,9 @@ const dbService = DatabaseService.getInstance();
 const redisService = RedisService.getInstance();
 
 // Generate cache key for SQL queries
-function generateCacheKey(sql: string, params: any): string {
+function generateCacheKey(sql: string, params: any, userId?: string): string {
   const hash = crypto.createHash('sha256');
-  hash.update(sql + JSON.stringify(params));
+  hash.update(sql + JSON.stringify(params) + (userId || 'anonymous'));
   return `sql:${hash.digest('hex')}`;
 }
 
@@ -24,7 +24,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
   const { sql, page = 1, pageSize = 25, sort } = req.body;
 
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { page, pageSize, sort });
+  const cacheKey = generateCacheKey(sql, { page, pageSize, sort }, req.user?.userId);
   
   try {
     // Try to get from cache first
@@ -35,7 +35,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     }
 
     // Execute query
-    const result = await dbService.executeTableQuery(sql, page, pageSize, sort);
+    const result = await dbService.executeTableQuery(sql, page, pageSize, sort, req.user?.userId);
     
     // Cache result for 5 minutes
     await redisService.set(cacheKey, JSON.stringify(result), 300);
@@ -73,7 +73,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
   const { sql } = req.body;
 
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { type: 'tile' });
+  const cacheKey = generateCacheKey(sql, { type: 'tile' }, req.user?.userId);
   
   try {
     // Try to get from cache first
@@ -84,7 +84,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     }
 
     // Execute query
-    const result = await dbService.executeTileQuery(sql);
+    const result = await dbService.executeTileQuery(sql, req.user?.userId);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await redisService.set(cacheKey, JSON.stringify(result), 120);
@@ -120,7 +120,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
 router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
     // Simple test query
-    const result = await dbService.executeTableQuery('SELECT 1 as test', 1, 1);
+    const result = await dbService.executeTableQuery('SELECT 1 as test', 1, 1, undefined, req.user?.userId);
     
     logger.info('Database connection test successful', {
       userId: req.user?.userId,

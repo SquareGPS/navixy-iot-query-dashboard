@@ -8,9 +8,8 @@ import { ResizeHandles } from './ResizeHandles';
 import type { GrafanaPanel } from '@/types/grafana-dashboard';
 import type { ResizeHandle } from '../geometry/resize';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from '../../layout/geometry/grid';
-import { Button } from '@/components/ui/button';
-import { Copy, Pencil } from 'lucide-react';
-import { cmdDuplicatePanel } from '../state/commands';
+import { Copy, Pencil, Trash2 } from 'lucide-react';
+import { cmdDuplicatePanel, cmdDeletePanel } from '../state/commands';
 
 interface PanelCardProps {
   panel: GrafanaPanel;
@@ -126,14 +125,12 @@ export const PanelCard: React.FC<PanelCardProps> = ({
             </div>
           )}
           
-          {/* Selected panel controls - duplicate button */}
+          {/* Selected panel controls - duplicate and delete buttons */}
           {isEditingLayout && isSelected && (
             <>
               <div className="absolute top-2 right-10 flex gap-1 z-10">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 w-7 p-0"
+                <button
+                  className="h-7 w-7 p-0 bg-[var(--surface-1)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text-primary)] shadow-lg rounded-sm flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (panel.id) {
@@ -143,7 +140,19 @@ export const PanelCard: React.FC<PanelCardProps> = ({
                   title="Duplicate panel"
                 >
                   <Copy className="h-4 w-4" />
-                </Button>
+                </button>
+                <button
+                  className="h-7 w-7 p-0 bg-red-600 hover:bg-red-700 text-white shadow-lg rounded-sm flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (panel.id) {
+                      cmdDeletePanel(panel.id);
+                    }
+                  }}
+                  title="Delete panel"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
               {onResizeStart && <ResizeHandles onResizeStart={onResizeStart} />}
             </>
