@@ -28,3 +28,5 @@ dist-ssr
 *.sln
 *.sw?
 /DEPLOY.md
+
+backend/.env.docker
