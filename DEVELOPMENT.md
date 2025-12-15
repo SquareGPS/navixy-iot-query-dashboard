@@ -1,11 +1,19 @@
 # Development Setup
 
+## Architecture Overview
+
+The dashboard application connects to **client databases** for both:
+1. **User Settings Storage** - Uses `CLIENT_SETTINGS_DB_USER` and `CLIENT_SETTINGS_DB_PASSWORD` from environment
+2. **SQL Query Execution** - Uses credentials from the user's login URL (iotDbUrl)
+
+Both connections use the same host/port/database extracted from the user's login URL, but with different credentials for different purposes.
+
 ## Local Development (Recommended)
 
 For local development, run the frontend separately using Vite dev server for hot reload:
 
 ```bash
-# Terminal 1: Start backend services (PostgreSQL, Redis, Backend API)
+# Terminal 1: Start backend services (Redis + Backend API)
 npm run docker:up
 
 # Terminal 2: Start frontend dev server
@@ -42,10 +50,21 @@ docker compose --profile production up -d
 
 ## Environment Variables
 
+### Required Backend Variables
+
+The following environment variables are **required** for the backend:
+
+| Variable | Description |
+|----------|-------------|
+| `CLIENT_SETTINGS_DB_USER` | Username for connecting to client database for settings storage |
+| `CLIENT_SETTINGS_DB_PASSWORD` | Password for the settings database user |
+| `JWT_SECRET` | Secret key for JWT token signing |
+
 ### Local Development
-- Create `.env.local` (see `.env.local.example`)
+- Create `backend/.env` (see `backend/.env.example`)
+- Set `CLIENT_SETTINGS_DB_USER` and `CLIENT_SETTINGS_DB_PASSWORD`
+- Create `.env.local` (see `.env.local.example`) for frontend variables
 - Set `VITE_DEFAULT_METABASE_DB_CONNECTION_URL` for prepopulated connection string
-- Vite automatically loads `.env.local` in dev mode
 
 ### Production / EC2
 - Set environment variables in `.env` file (see `.env.example`)
@@ -55,8 +74,7 @@ docker compose --profile production up -d
 ## Docker Services
 
 **Default (dev mode):**
-- `postgres` - PostgreSQL database
-- `redis` - Redis cache
+- `redis` - Redis cache for query results
 - `backend` - Node.js backend API
 
 **Production profile:**
@@ -71,7 +89,7 @@ docker compose --profile production up -d
 ```bash
 # Local development
 npm run dev                    # Start Vite dev server
-npm run docker:up              # Start backend services (no frontend)
+npm run docker:up              # Start backend services (Redis + Backend)
 
 # Production
 npm run build                  # Build frontend
@@ -80,4 +98,19 @@ npm run docker:up:prod         # Start all services including frontend
 # Management
 npm run docker:logs            # View logs
 npm run docker:down            # Stop all services
+```
+
+## Database Tables
+
+The following tables are expected in the client database (created by the client or via migrations):
+
+- `users` - User accounts
+- `user_roles` - User role assignments
+- `global_variables` - Dashboard-wide variables
+- `sections` - Report sections/folders
+- `reports` - Dashboard reports with schemas
+
+Migrations can be run using:
+```bash
+./scripts/run-migration.sh <database_url> <migration_file>
 ```

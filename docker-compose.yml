@@ -1,24 +1,4 @@
 services:
-  # PostgreSQL Database (App Database)
-  postgres:
-    image: postgres:15-alpine
-    container_name: sql-report-postgres
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-reports_app_db}
-      POSTGRES_USER: ${POSTGRES_USER:-reports_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_HOST_AUTH_METHOD: trust
-    # Use consistent user for frontend connection string
-    # Frontend will use: postgresql://${POSTGRES_USER:-reports_user}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-reports_app_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
-    networks:
-      - sql-report-network
-    restart: unless-stopped
-
   # Redis Cache (optional - for query result caching)
   redis:
     image: redis:7-alpine
@@ -31,13 +11,11 @@ services:
       - sql-report-network
 
   # Node.js Backend API
-  # Using pre-built image from Docker Hub
-  # Docker Hub uses 'backend-latest' tag for backend builds
   backend:
-    image: 761522172628.dkr.ecr.eu-central-1.amazonaws.com/navixy-dashboard/backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: sql-report-backend
-    # Environment variables are loaded from ./backend/.env.docker mounted as /app/.env
-    # Only override values that need Docker-specific service names here
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -46,7 +24,6 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      - postgres
       - redis
     networks:
       - sql-report-network
@@ -54,13 +31,13 @@ services:
 
   # Frontend (Nginx serving static files) - Production only
   # For local development, use Vite dev server: npm run dev
-  # Using pre-built image from Docker Hub
-  # Both frontend and backend are fully containerized - no Node.js required on host
   frontend:
-    image: 761522172628.dkr.ecr.eu-central-1.amazonaws.com/navixy-dashboard/frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
     container_name: sql-report-frontend
     ports:
-      - "8080:80"  # Map container port 80 to host port 8080 (nginx will proxy from 80/443)
+      - "8080:80"
     depends_on:
       - backend
     networks:
@@ -89,7 +66,6 @@ services:
       - analytics  # Only start when explicitly requested
 
 volumes:
-  postgres_data:
   redis_data:
 
 networks:

@@ -11,8 +11,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  signIn: (email: string, password?: string) => Promise<{ error: Error | null }>;
-  signInPasswordless: (email: string, role: 'admin' | 'editor' | 'viewer', metabaseDbUrl: string, iotDbUrl: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, role: 'admin' | 'editor' | 'viewer', iotDbUrl: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -86,48 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password?: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        let errorMessage = 'Login failed';
-        try {
-          const data = JSON.parse(text);
-          errorMessage = data.error?.message || data.message || errorMessage;
-        } catch {
-          errorMessage = text || `HTTP ${response.status}`;
-        }
-        return { error: new Error(errorMessage) };
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        setUser(data.user);
-        setToken(data.token);
-        localStorage.setItem('auth_token', data.token);
-        navigate('/app');
-        return { error: null };
-      } else {
-        return { error: new Error(data.error?.message || 'Login failed') };
-      }
-    } catch (error) {
-      return { error: error instanceof Error ? error : new Error('Network error') };
-    }
-  };
-
-  const signInPasswordless = async (
+  const signIn = async (
     email: string,
     role: 'admin' | 'editor' | 'viewer',
-    metabaseDbUrl: string,
     iotDbUrl: string
   ) => {
     try {
@@ -136,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, role, metabaseDbUrl, iotDbUrl }),
+        body: JSON.stringify({ email, role, iotDbUrl }),
       });
 
       if (!response.ok) {
@@ -185,8 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user, 
       token, 
       loading, 
-      signIn, 
-      signInPasswordless,
+      signIn,
       signOut, 
       refreshUser 
     }}>

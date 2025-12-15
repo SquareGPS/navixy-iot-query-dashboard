@@ -79,8 +79,11 @@ if [ ! -f "backend/.env" ]; then
 NODE_ENV=development
 PORT=3001
 
-# Database Configuration (Local PostgreSQL)
-DATABASE_URL=postgresql://reports_user@localhost:5432/reports_app_db
+# Client Settings Database Credentials (REQUIRED)
+# These credentials are used to connect to the client's database for storing
+# user settings (users, user_roles, global_variables, reports, sections).
+CLIENT_SETTINGS_DB_USER=dashboard_settings
+CLIENT_SETTINGS_DB_PASSWORD=your_settings_password
 
 # Redis Cache
 REDIS_URL=redis://localhost:6379
@@ -104,46 +107,12 @@ LOG_LEVEL=info
 LOG_FILE=logs/app.log
 EOF
     print_success "Created backend/.env file"
+    print_warning "Please update CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD with actual credentials"
 else
     print_status "backend/.env file already exists"
 fi
 
-# 3. Check PostgreSQL
-print_status "Checking PostgreSQL..."
-
-# Check if PostgreSQL is running
-if ! pg_isready -h localhost -p 5432 &> /dev/null; then
-    print_warning "PostgreSQL is not running. Attempting to start..."
-    
-    # Try to start PostgreSQL using brew services
-    if command -v brew &> /dev/null; then
-        brew services start postgresql@14 || brew services start postgresql
-        sleep 3
-        
-        if pg_isready -h localhost -p 5432 &> /dev/null; then
-            print_success "PostgreSQL started successfully"
-        else
-            print_error "Failed to start PostgreSQL. Please start it manually."
-            exit 1
-        fi
-    else
-        print_error "PostgreSQL is not running and brew is not available. Please start PostgreSQL manually."
-        exit 1
-    fi
-else
-    print_success "PostgreSQL is running"
-fi
-
-# Check if database exists
-if ! PGPASSWORD=postgres psql -h localhost -U reports_user -d reports_app_db -c "SELECT 1;" &> /dev/null; then
-    print_warning "Database 'reports_app_db' does not exist. Creating..."
-    PGPASSWORD=postgres createdb -h localhost -U reports_user reports_app_db
-    print_success "Database created successfully"
-else
-    print_success "Database 'reports_app_db' exists"
-fi
-
-# 4. Setup Redis
+# 3. Setup Redis
 print_status "Setting up Redis..."
 
 # Stop any existing Redis container
@@ -163,7 +132,7 @@ else
     exit 1
 fi
 
-# 5. Install dependencies
+# 4. Install dependencies
 print_status "Installing dependencies..."
 
 # Install frontend dependencies
@@ -184,7 +153,7 @@ else
     print_status "Backend dependencies already installed"
 fi
 
-# 6. Start services
+# 5. Start services
 print_status "Starting services..."
 
 # Kill any existing processes
@@ -194,7 +163,7 @@ pkill -f "vite" 2>/dev/null || true
 # Start backend
 print_status "Starting backend server..."
 cd backend
-DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db" npm run dev &
+npm run dev &
 BACKEND_PID=$!
 cd ..
 
@@ -205,9 +174,7 @@ sleep 5
 if curl -s http://localhost:3001/health > /dev/null; then
     print_success "Backend server started successfully"
 else
-    print_error "Backend server failed to start"
-    kill $BACKEND_PID 2>/dev/null || true
-    exit 1
+    print_warning "Backend server may still be starting... (database connection happens on first request)"
 fi
 
 # Start frontend
@@ -225,7 +192,7 @@ else
     print_warning "Frontend server may still be starting..."
 fi
 
-# 7. Display status
+# 6. Display status
 echo ""
 echo "🎉 Setup Complete!"
 echo "=================="
@@ -235,10 +202,12 @@ print_success "Frontend: http://localhost:8080 (or http://localhost:8081)"
 print_success "Health Check: http://localhost:3001/health"
 echo ""
 print_status "Services running:"
-print_status "  - PostgreSQL: localhost:5432"
 print_status "  - Redis: localhost:6379 (Docker container)"
 print_status "  - Backend: PID $BACKEND_PID"
 print_status "  - Frontend: PID $FRONTEND_PID"
+echo ""
+print_warning "Note: Database connection happens on first login request."
+print_warning "Make sure CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD are configured in backend/.env"
 echo ""
 print_status "To stop all services, run: ./scripts/stop-dev.sh"
 echo ""

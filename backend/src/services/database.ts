@@ -3,7 +3,6 @@ import type { PoolClient } from 'pg';
 import { logger } from '../utils/logger.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { SQLSelectGuard } from '../utils/sqlSelectGuard.js';
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
 
@@ -48,7 +47,6 @@ export interface ParameterizedQueryResult {
 export interface User {
   id: string;
   email: string;
-  password_hash?: string | null;
   email_confirmed_at?: string;
   created_at: string;
   updated_at: string;
@@ -66,24 +64,19 @@ export interface UserRole {
 
 export class DatabaseService {
   private static instance: DatabaseService;
-  public appPool: Pool;
+  private clientSettingsPools: Map<string, Pool> = new Map();
   private externalPools: Map<string, Pool> = new Map();
 
   constructor() {
-    // Initialize app database connection
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      throw new Error('DATABASE_URL environment variable is required');
+    // Validate required environment variables
+    if (!process.env.CLIENT_SETTINGS_DB_USER) {
+      throw new Error('CLIENT_SETTINGS_DB_USER environment variable is required');
+    }
+    if (!process.env.CLIENT_SETTINGS_DB_PASSWORD) {
+      throw new Error('CLIENT_SETTINGS_DB_PASSWORD environment variable is required');
     }
 
-    this.appPool = new Pool({
-      connectionString: databaseUrl,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
-
-    logger.info('Database service initialized with local PostgreSQL');
+    logger.info('Database service initialized (client settings mode)');
   }
 
   static getInstance(): DatabaseService {
@@ -94,953 +87,19 @@ export class DatabaseService {
   }
 
   static async initialize(): Promise<void> {
-    const instance = DatabaseService.getInstance();
-    await instance.testConnection();
-  }
-
-  private async testConnection(): Promise<void> {
-    try {
-      const client = await this.appPool.connect();
-      await client.query('SELECT 1');
-      client.release();
-      logger.info('App database connection successful');
-    } catch (error) {
-      logger.error('Failed to connect to app database:', error);
-      throw error;
-    }
-  }
-
-  // Test database connection (for settings page)
-  async testDatabaseConnection(settings: any): Promise<void> {
-    try {
-      let config: DatabaseConfig;
-
-      if (settings.external_db_url) {
-        config = this.parsePostgresUrl(settings.external_db_url);
-      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
-        config = {
-          user: settings.external_db_user,
-          password: settings.external_db_password || '',
-          database: settings.external_db_name,
-          hostname: settings.external_db_host,
-          port: settings.external_db_port || 5432,
-          ssl: settings.external_db_ssl || false,
-        };
-      } else {
-        throw new CustomError('Incomplete database configuration provided for testing', 400);
-      }
-      
-      // Create a temporary pool for testing
-      const poolConfig = {
-        user: config.user,
-        password: config.password,
-        database: config.database,
-        host: config.hostname,
-        port: config.port,
-        ssl: config.ssl ? { rejectUnauthorized: false } : false,
-        max: 1,
-        idleTimeoutMillis: 5000,
-        connectionTimeoutMillis: 10000, // Increased timeout
-      };
-
-      logger.info('Creating test pool with config', {
-        host: poolConfig.host,
-        port: poolConfig.port,
-        database: poolConfig.database,
-        user: poolConfig.user,
-        connectionTimeout: poolConfig.connectionTimeoutMillis
-      });
-
-      const testPool = new Pool(poolConfig);
-
-      let client: PoolClient | null = null;
-      try {
-        logger.info('Attempting to connect to database...');
-        const connectStartTime = Date.now();
-        client = await testPool.connect();
-        const connectTime = Date.now() - connectStartTime;
-        logger.info('Successfully obtained client from pool', { connectTimeMs: connectTime });
-
-        logger.info('Executing test query...');
-        const queryStartTime = Date.now();
-        const result = await client.query('SELECT 1 as test');
-        const queryTime = Date.now() - queryStartTime;
-        logger.info('Test query executed successfully', { 
-          queryTimeMs: queryTime,
-          result: result.rows[0]
-        });
-
-        logger.info('Database connection test successful', {
-          host: config.hostname,
-          port: config.port,
-          database: config.database,
-          user: config.user,
-          totalTimeMs: Date.now() - connectStartTime
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorCode = (error as any)?.code;
-        const errorSyscall = (error as any)?.syscall;
-        const errorAddress = (error as any)?.address;
-        const errorPort = (error as any)?.port;
-        
-        logger.error('Database connection test failed - detailed error:', {
-          host: config.hostname,
-          port: config.port,
-          database: config.database,
-          user: config.user,
-          errorMessage,
-          errorCode,
-          errorSyscall,
-          errorAddress,
-          errorPort,
-          errorStack: error instanceof Error ? error.stack : undefined,
-          errorName: error instanceof Error ? error.name : undefined
-        });
-        
-        // Provide more helpful error messages
-        let userFriendlyMessage = errorMessage;
-        if (errorMessage.includes('ECONNREFUSED') || errorCode === 'ECONNREFUSED') {
-          userFriendlyMessage = `Cannot connect to database at ${config.hostname}:${config.port}. Please ensure PostgreSQL is running and accessible from the backend server. Error code: ${errorCode || 'ECONNREFUSED'}`;
-        } else if (errorMessage.includes('authentication failed') || errorMessage.includes('password') || errorCode === '28P01') {
-          userFriendlyMessage = `Authentication failed. Please check your username and password. Error code: ${errorCode || 'AUTH_ERROR'}`;
-        } else if (errorMessage.includes('does not exist') || errorCode === '3D000') {
-          userFriendlyMessage = `Database "${config.database}" does not exist. Please check the database name. Error code: ${errorCode || 'DB_NOT_FOUND'}`;
-        } else if (errorCode) {
-          userFriendlyMessage = `${errorMessage} (Error code: ${errorCode})`;
-        }
-        
-        throw new CustomError(`Failed to connect to database: ${userFriendlyMessage}`, 400);
-      } finally {
-        if (client) {
-          logger.info('Releasing client...');
-          client.release();
-        }
-        logger.info('Ending test pool...');
-        await testPool.end();
-        logger.info('Test pool ended');
-      }
-    } catch (error) {
-      // Re-throw CustomError as-is, wrap others
-      if (error instanceof CustomError) {
-        logger.error('CustomError thrown during connection test', {
-          message: error.message,
-          statusCode: error.statusCode
-        });
-        throw error;
-      }
-      logger.error('Unexpected error testing database connection:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        errorType: error?.constructor?.name
-      });
-      throw new CustomError(
-        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        400
-      );
-    }
+    // Just create the instance - no connection to test without iotDbUrl
+    DatabaseService.getInstance();
+    logger.info('Database service ready (will connect on first request)');
   }
 
   // ==========================================
-  // Authentication Methods
-  // ==========================================
-
-  async authenticateUser(
-    email: string, 
-    password: string
-  ): Promise<{ user: User; token: string } | null> {
-    try {
-      const client = await this.appPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT * FROM public.users WHERE email = $1',
-          [email]
-        );
-
-        if (result.rows.length === 0) {
-          return null;
-        }
-
-        const user = result.rows[0] as User;
-        
-        // If user has no password_hash, skip password check (token-based auth)
-        if (user.password_hash) {
-          const isValidPassword = await bcrypt.compare(password, user.password_hash);
-          if (!isValidPassword) {
-            return null;
-          }
-        }
-
-        // Update last sign in
-        await client.query(
-          'UPDATE public.users SET last_sign_in_at = NOW() WHERE id = $1',
-          [user.id]
-        );
-
-        // Generate JWT token
-        const token = jwt.sign(
-          { 
-            userId: user.id, 
-            email: user.email,
-            role: await this.getUserRole(user.id, this.appPool)
-          },
-          process.env.JWT_SECRET || 'fallback-secret',
-          { expiresIn: '24h' }
-        );
-
-        return { user, token };
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      // Preserve CustomError messages, but wrap other errors
-      if (error instanceof CustomError) {
-        logger.error('Authentication error:', {
-          message: error.message,
-          statusCode: error.statusCode
-        });
-        throw error;
-      }
-      logger.error('Authentication error:', error);
-      throw new CustomError(
-        `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        500
-      );
-    }
-  }
-
-  // Passwordless authentication for plugin mode
-  async authenticateUserPasswordless(
-    email: string,
-    role: 'admin' | 'editor' | 'viewer',
-    metabaseDbUrl: string,
-    iotDbUrl: string
-  ): Promise<{ user: User; token: string }> {
-    try {
-      const client = await this.appPool.connect();
-      
-      try {
-        // Check if user exists in local database (match by email)
-        let result = await client.query(
-          'SELECT * FROM public.users WHERE email = $1',
-          [email]
-        );
-
-        let user: User;
-        let isNewUser = false;
-        
-        if (result.rows.length === 0) {
-          // Create new user without password
-          logger.info('Creating new user for passwordless auth', { email, role });
-          const insertResult = await client.query(
-            `INSERT INTO public.users (email, password_hash, email_confirmed_at, is_super_admin)
-             VALUES ($1, NULL, NOW(), $2)
-             RETURNING *`,
-            [email, role === 'admin']
-          );
-          user = insertResult.rows[0] as User;
-          isNewUser = true;
-
-          // Create user role - delete existing roles first, then insert new one
-          // This handles both schema types: single PK on user_id or composite PK on (user_id, role)
-          await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
-          await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
-        } else {
-          user = result.rows[0] as User;
-          logger.info('Found existing user for passwordless auth', { email, userId: user.id, role });
-          
-          // Update user role - delete existing roles first, then insert new one
-          await client.query('DELETE FROM public.user_roles WHERE user_id = $1', [user.id]);
-          await client.query('INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
-        }
-
-        // Update last sign in
-        await client.query(
-          'UPDATE public.users SET last_sign_in_at = NOW() WHERE id = $1',
-          [user.id]
-        );
-
-        // Update raw_user_meta_data with connection URLs
-        const metaData = { metabaseDbUrl, iotDbUrl };
-        await client.query(
-          'UPDATE public.users SET raw_user_meta_data = $1 WHERE id = $2',
-          [JSON.stringify(metaData), user.id]
-        );
-        
-        logger.info('Updated user raw_user_meta_data with connection URLs', { 
-          userId: user.id, 
-          email,
-          isNewUser,
-          hasIotDbUrl: !!iotDbUrl,
-          hasMetabaseDbUrl: !!metabaseDbUrl
-        });
-
-        // Generate JWT token
-        const token = jwt.sign(
-          { 
-            userId: user.id, 
-            email: user.email,
-            role: role
-          },
-          process.env.JWT_SECRET || 'fallback-secret',
-          { expiresIn: '24h' }
-        );
-
-        return { user, token };
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Passwordless authentication error:', error);
-      throw new CustomError(
-        `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        500
-      );
-    }
-  }
-
-  async getUserRole(userId: string, pool?: Pool): Promise<string> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT role FROM public.user_roles WHERE user_id = $1',
-          [userId]
-        );
-
-        return result.rows.length > 0 ? result.rows[0].role : 'viewer';
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error getting user role:', error);
-      return 'viewer';
-    }
-  }
-
-  async createUser(
-    email: string, 
-    password: string, 
-    role: string = 'viewer'
-  ): Promise<User> {
-    try {
-      const client = await this.appPool.connect();
-      
-      try {
-        const passwordHash = await bcrypt.hash(password, 10);
-        
-        const result = await client.query(
-          `INSERT INTO public.users (email, password_hash, email_confirmed_at, is_super_admin)
-           VALUES ($1, $2, NOW(), $3)
-           RETURNING *`,
-          [email, passwordHash, role === 'admin']
-        );
-
-        const user = result.rows[0] as User;
-
-        // Create user role
-        await client.query(
-          'INSERT INTO public.user_roles (user_id, role) VALUES ($1, $2)',
-          [user.id, role]
-        );
-
-        return user;
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error creating user:', error);
-      throw new CustomError('Failed to create user', 500);
-    }
-  }
-
-  async getUsers(): Promise<User[]> {
-    try {
-      const client = await this.appPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT * FROM public.users ORDER BY created_at ASC'
-        );
-
-        return result.rows as User[];
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error getting users:', error);
-      throw new CustomError('Failed to get users', 500);
-    }
-  }
-
-
-  // ==========================================
-  // App Settings Methods
-  // ==========================================
-
-  async getAppSettings(pool?: Pool): Promise<any> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT * FROM public.app_settings WHERE id = 1'
-        );
-
-        return result.rows.length > 0 ? result.rows[0] : null;
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error getting app settings:', error);
-      throw new CustomError('Failed to get app settings', 500);
-    }
-  }
-
-  async updateAppSettings(settings: any, pool?: Pool): Promise<void> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        await client.query(
-          `UPDATE public.app_settings 
-           SET timezone = $1, external_db_url = $2,
-               external_db_host = $3, external_db_port = $4, external_db_name = $5,
-               external_db_user = $6, external_db_password = $7, external_db_ssl = $8
-           WHERE id = 1`,
-          [
-            settings.timezone,
-            settings.external_db_url,
-            settings.external_db_host,
-            settings.external_db_port,
-            settings.external_db_name,
-            settings.external_db_user,
-            settings.external_db_password,
-            settings.external_db_ssl
-          ]
-        );
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error updating app settings:', error);
-      throw new CustomError('Failed to update app settings', 500);
-    }
-  }
-
-  // ==========================================
-  // Global Variables Methods
-  // ==========================================
-
-  async getGlobalVariables(pool?: Pool): Promise<any[]> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        // Check if table exists first
-        const tableExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'global_variables'
-          )
-        `);
-
-        if (!tableExists.rows[0].exists) {
-          logger.warn('global_variables table does not exist yet');
-          return [];
-        }
-
-        const result = await client.query(
-          'SELECT * FROM public.global_variables ORDER BY label ASC'
-        );
-
-        return result.rows;
-      } finally {
-        client.release();
-      }
-    } catch (error: any) {
-      // If table doesn't exist, return empty array instead of error
-      if (error.code === '42P01') { // undefined_table
-        logger.warn('global_variables table does not exist:', error.message);
-        return [];
-      }
-      logger.error('Error getting global variables:', error);
-      throw new CustomError('Failed to get global variables', 500);
-    }
-  }
-
-  async getGlobalVariableById(id: string, pool?: Pool): Promise<any | null> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT * FROM public.global_variables WHERE id = $1',
-          [id]
-        );
-
-        return result.rows.length > 0 ? result.rows[0] : null;
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error getting global variable:', error);
-      throw new CustomError('Failed to get global variable', 500);
-    }
-  }
-
-  async createGlobalVariable(data: {
-    label: string;
-    description?: string;
-    value?: string;
-  }, pool?: Pool): Promise<any> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        const result = await client.query(
-          `INSERT INTO public.global_variables (label, description, value)
-           VALUES ($1, $2, $3)
-           RETURNING *`,
-          [data.label, data.description || null, data.value || null]
-        );
-
-        return result.rows[0];
-      } finally {
-        client.release();
-      }
-    } catch (error: any) {
-      if (error.code === '23505') { // Unique violation
-        throw new CustomError('A variable with this label already exists', 409);
-      }
-      logger.error('Error creating global variable:', error);
-      throw error instanceof CustomError ? error : new CustomError('Failed to create global variable', 500);
-    }
-  }
-
-  async updateGlobalVariable(id: string, data: {
-    label?: string;
-    description?: string;
-    value?: string;
-  }, pool?: Pool): Promise<any> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        // Get existing variable
-        const existing = await this.getGlobalVariableById(id, dbPool);
-        if (!existing) {
-          throw new CustomError('Global variable not found', 404);
-        }
-
-        const updateFields: string[] = [];
-        const updateValues: any[] = [];
-        let paramIndex = 1;
-
-        // Allow updating all fields
-        if (data.label !== undefined) {
-          updateFields.push(`label = $${paramIndex}`);
-          updateValues.push(data.label);
-          paramIndex++;
-        }
-        if (data.description !== undefined) {
-          updateFields.push(`description = $${paramIndex}`);
-          updateValues.push(data.description);
-          paramIndex++;
-        }
-        if (data.value !== undefined) {
-          updateFields.push(`value = $${paramIndex}`);
-          updateValues.push(data.value);
-          paramIndex++;
-        }
-
-        if (updateFields.length === 0) {
-          return existing;
-        }
-
-        updateFields.push(`updated_at = NOW()`);
-        updateValues.push(id);
-
-        const result = await client.query(
-          `UPDATE public.global_variables 
-           SET ${updateFields.join(', ')}
-           WHERE id = $${paramIndex}
-           RETURNING *`,
-          updateValues
-        );
-
-        if (result.rows.length === 0) {
-          throw new CustomError('Global variable not found', 404);
-        }
-
-        return result.rows[0];
-      } finally {
-        client.release();
-      }
-    } catch (error: any) {
-      if (error.code === '23505') { // Unique violation
-        throw new CustomError('A variable with this label already exists', 409);
-      }
-      logger.error('Error updating global variable:', error);
-      throw error instanceof CustomError ? error : new CustomError('Failed to update global variable', 500);
-    }
-  }
-
-  // ==========================================
-  // User Preferences Methods
-  // ==========================================
-
-  async getUserPreferences(userId: string, pool?: Pool): Promise<{ timezone: string } | null> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        // Check if table exists first
-        const tableExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'user_preferences'
-          )
-        `);
-
-        if (!tableExists.rows[0].exists) {
-          logger.warn('user_preferences table does not exist yet');
-          return null;
-        }
-
-        const result = await client.query(
-          'SELECT timezone FROM public.user_preferences WHERE user_id = $1',
-          [userId]
-        );
-
-        if (result.rows.length === 0) {
-          return null; // No preferences set, will default to UTC
-        }
-
-        return {
-          timezone: result.rows[0].timezone || 'UTC'
-        };
-      } finally {
-        client.release();
-      }
-    } catch (error: any) {
-      // If table doesn't exist, return null instead of error
-      if (error.code === '42P01') { // undefined_table
-        logger.warn('user_preferences table does not exist:', error.message);
-        return null;
-      }
-      logger.error('Error getting user preferences:', error);
-      throw new CustomError('Failed to get user preferences', 500);
-    }
-  }
-
-  async updateUserPreferences(userId: string, preferences: { timezone: string }, pool?: Pool): Promise<{ timezone: string }> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        // Validate timezone
-        if (!this.isValidTimezone(preferences.timezone)) {
-          throw new CustomError(`Invalid timezone: ${preferences.timezone}`, 400);
-        }
-
-        // Check if table exists first
-        const tableExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'user_preferences'
-          )
-        `);
-
-        if (!tableExists.rows[0].exists) {
-          throw new CustomError('user_preferences table does not exist. Please run migration.', 500);
-        }
-
-        // Use INSERT ... ON CONFLICT to handle both insert and update
-        const result = await client.query(
-          `INSERT INTO public.user_preferences (user_id, timezone, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (user_id) 
-           DO UPDATE SET timezone = $2, updated_at = NOW()
-           RETURNING timezone`,
-          [userId, preferences.timezone]
-        );
-
-        return {
-          timezone: result.rows[0].timezone
-        };
-      } finally {
-        client.release();
-      }
-    } catch (error: any) {
-      if (error instanceof CustomError) {
-        throw error;
-      }
-      logger.error('Error updating user preferences:', {
-        error: error.message,
-        stack: error.stack,
-        code: error.code,
-        userId
-      });
-      throw new CustomError(
-        `Failed to update user preferences: ${error.message || 'Unknown error'}`,
-        500
-      );
-    }
-  }
-
-  /**
-   * Validate timezone string against IANA timezone database
-   * Uses Intl.supportedValuesOf if available, otherwise validates format
-   */
-  private isValidTimezone(timezone: string): boolean {
-    if (!timezone || typeof timezone !== 'string' || timezone.length > 50) {
-      return false;
-    }
-
-    // Check if Intl.supportedValuesOf is available (Node.js 20+)
-    try {
-      if (typeof Intl.supportedValuesOf === 'function') {
-        const supportedTimezones = Intl.supportedValuesOf('timeZone');
-        return supportedTimezones.includes(timezone);
-      }
-    } catch (e) {
-      // Fallback if not available
-      logger.warn('Intl.supportedValuesOf not available, using fallback validation');
-    }
-
-    // Fallback validation: check format and try to use it
-    // Format: Continent/City or similar (e.g., America/New_York, Europe/London, UTC)
-    // Also allow common formats like UTC, GMT, etc.
-    if (timezone === 'UTC' || timezone === 'GMT') {
-      return true;
-    }
-
-    // Try to create a date formatter with this timezone to validate
-    try {
-      const formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone });
-      // If we can create a formatter, the timezone is valid
-      return true;
-    } catch (e) {
-      logger.warn(`Invalid timezone format: ${timezone}`, e);
-      return false;
-    }
-  }
-
-  async deleteGlobalVariable(id: string, pool?: Pool): Promise<void> {
-    const dbPool = pool || this.appPool;
-    try {
-      const client = await dbPool.connect();
-      
-      try {
-        const result = await client.query(
-          'DELETE FROM public.global_variables WHERE id = $1',
-          [id]
-        );
-
-        if (result.rowCount === 0) {
-          throw new CustomError('Global variable not found', 404);
-        }
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error deleting global variable:', error);
-      throw error instanceof CustomError ? error : new CustomError('Failed to delete global variable', 500);
-    }
-  }
-
-  async getGlobalVariablesAsMap(pool?: Pool): Promise<Record<string, string>> {
-    try {
-      const variables = await this.getGlobalVariables(pool);
-      const map: Record<string, string> = {};
-      
-      variables.forEach(variable => {
-        if (variable.value !== null && variable.value !== undefined) {
-          map[variable.label] = variable.value;
-        }
-      });
-
-      return map;
-    } catch (error) {
-      logger.error('Error getting global variables as map:', error);
-      // Return empty map instead of throwing error
-      return {};
-    }
-  }
-
-  // ==========================================
-  // External Database Methods
+  // Client Settings Pool Management
   // ==========================================
 
   /**
-   * Get user's IoT database URL from raw_user_meta_data
-   * @param userId - User's ID to look up
-   * @returns The iotDbUrl from user's metadata, or null if not found
+   * Parse a PostgreSQL URL and extract connection components
    */
-  async getUserIotDbUrl(userId: string): Promise<string | null> {
-    try {
-      const client = await this.appPool.connect();
-      
-      try {
-        const result = await client.query(
-          'SELECT raw_user_meta_data FROM public.users WHERE id = $1',
-          [userId]
-        );
-
-        if (result.rows.length === 0) {
-          logger.warn('User not found when fetching iotDbUrl', { userId });
-          return null;
-        }
-
-        const rawMetaData = result.rows[0].raw_user_meta_data;
-        
-        if (!rawMetaData) {
-          logger.warn('User has no raw_user_meta_data', { userId });
-          return null;
-        }
-
-        // Parse if it's a string, otherwise use as-is (PostgreSQL JSONB)
-        const metaData = typeof rawMetaData === 'string' 
-          ? JSON.parse(rawMetaData) 
-          : rawMetaData;
-
-        if (!metaData.iotDbUrl) {
-          logger.warn('User raw_user_meta_data has no iotDbUrl', { userId });
-          return null;
-        }
-
-        return metaData.iotDbUrl;
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      logger.error('Error fetching user iotDbUrl:', { error, userId });
-      throw new CustomError('Failed to get user database configuration', 500);
-    }
-  }
-
-  async testConnectionWithSettings(settings: any): Promise<void> {
-    try {
-      let config: DatabaseConfig;
-
-      if (settings.external_db_url) {
-        config = this.parsePostgresUrl(settings.external_db_url);
-      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
-        config = {
-          user: settings.external_db_user,
-          password: settings.external_db_password || '',
-          database: settings.external_db_name,
-          hostname: settings.external_db_host,
-          port: settings.external_db_port || 5432,
-          ssl: settings.external_db_ssl || false,
-        };
-      } else {
-        throw new CustomError('Incomplete database configuration provided for testing', 400);
-      }
-
-      // Create a temporary pool for testing
-      const testPool = new Pool({
-        user: config.user,
-        password: config.password,
-        database: config.database,
-        host: config.hostname,
-        port: config.port,
-        ssl: config.ssl ? { rejectUnauthorized: false } : false,
-        max: 1,
-        idleTimeoutMillis: 5000,
-        connectionTimeoutMillis: 5000,
-      });
-
-      let client: PoolClient | null = null;
-      try {
-        client = await testPool.connect();
-        await client.query('SELECT 1 as test');
-        logger.info('Test connection successful', {
-          host: config.hostname,
-          port: config.port,
-          database: config.database,
-          user: config.user
-        });
-      } finally {
-        if (client) {
-          client.release();
-        }
-        await testPool.end();
-      }
-    } catch (error: any) {
-      logger.error('Test connection failed:', {
-        error: error.message,
-        settings: {
-          host: settings.external_db_host,
-          port: settings.external_db_port,
-          database: settings.external_db_name,
-          user: settings.external_db_user,
-          hasPassword: !!settings.external_db_password
-        }
-      });
-      throw new CustomError(`Database connection failed: ${error.message}`, 400);
-    }
-  }
-
-  private async getExternalDatabaseConfig(userId?: string): Promise<DatabaseConfig> {
-    try {
-      // First, try to get iotDbUrl from user's metadata if userId is provided
-      if (userId) {
-        const iotDbUrl = await this.getUserIotDbUrl(userId);
-        if (iotDbUrl) {
-          logger.info('Using iotDbUrl from user metadata', { userId, iotDbUrl });
-          return this.parsePostgresUrl(iotDbUrl);
-        }
-        logger.warn('User iotDbUrl not found, falling back to app settings', { userId });
-      }
-
-      // Fallback to app settings if no user email or no iotDbUrl in user metadata
-      const settings = await this.getAppSettings();
-      
-      if (!settings) {
-        throw new CustomError('App settings not found', 500);
-      }
-
-      let config: DatabaseConfig;
-
-      if (settings.external_db_url) {
-        config = this.parsePostgresUrl(settings.external_db_url);
-      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
-        config = {
-          user: settings.external_db_user,
-          password: settings.external_db_password || '',
-          database: settings.external_db_name,
-          hostname: settings.external_db_host,
-          port: settings.external_db_port || 5432,
-          ssl: settings.external_db_ssl || false,
-        };
-      } else {
-        throw new CustomError('External database not configured. Please configure the external database connection in Settings.', 500);
-      }
-
-      return config;
-    } catch (error) {
-      logger.error('Error fetching external database config:', error);
-      throw error;
-    }
-  }
-
-  private parsePostgresUrl(url: string): DatabaseConfig {
+  parsePostgresUrl(url: string): DatabaseConfig {
     try {
       // Handle postgresql:// URLs
       if (!url.startsWith('postgresql://') && !url.startsWith('postgres://')) {
@@ -1096,6 +155,619 @@ export class DatabaseService {
     }
   }
 
+  /**
+   * Build a client settings connection string from user's iotDbUrl
+   * Uses CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD from env
+   * with host/port/database from the iotDbUrl
+   */
+  buildClientSettingsConnectionString(iotDbUrl: string): string {
+    const config = this.parsePostgresUrl(iotDbUrl);
+    const settingsUser = process.env.CLIENT_SETTINGS_DB_USER!;
+    const settingsPassword = process.env.CLIENT_SETTINGS_DB_PASSWORD!;
+    
+    return `postgresql://${encodeURIComponent(settingsUser)}:${encodeURIComponent(settingsPassword)}@${config.hostname}:${config.port}/${config.database}`;
+  }
+
+  /**
+   * Get or create a client settings pool for the given iotDbUrl
+   */
+  getClientSettingsPool(iotDbUrl: string): Pool {
+    const config = this.parsePostgresUrl(iotDbUrl);
+    const poolKey = `${config.hostname}:${config.port}/${config.database}`;
+    
+    if (!this.clientSettingsPools.has(poolKey)) {
+      const settingsUser = process.env.CLIENT_SETTINGS_DB_USER!;
+      const settingsPassword = process.env.CLIENT_SETTINGS_DB_PASSWORD!;
+      
+      const pool = new Pool({
+        user: settingsUser,
+        password: settingsPassword,
+        database: config.database,
+        host: config.hostname,
+        port: config.port,
+        ssl: config.ssl ? { rejectUnauthorized: false } : false,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+      });
+
+      this.clientSettingsPools.set(poolKey, pool);
+      logger.info('Created new client settings pool', { poolKey });
+    }
+
+    return this.clientSettingsPools.get(poolKey)!;
+  }
+
+  /**
+   * Test client settings database connection
+   */
+  async testClientSettingsConnection(iotDbUrl: string): Promise<void> {
+    const pool = this.getClientSettingsPool(iotDbUrl);
+    let client: PoolClient | null = null;
+    
+    try {
+      client = await pool.connect();
+      await client.query('SELECT 1');
+      logger.info('Client settings database connection successful');
+    } catch (error) {
+      logger.error('Failed to connect to client settings database:', error);
+      throw new CustomError(
+        `Failed to connect to client settings database: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        500
+      );
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  }
+
+  // ==========================================
+  // Authentication Methods
+  // ==========================================
+
+  /**
+   * Passwordless authentication for plugin mode
+   * Creates or updates user in client database and returns JWT
+   */
+  async authenticateUserPasswordless(
+    email: string,
+    role: 'admin' | 'editor' | 'viewer',
+    iotDbUrl: string
+  ): Promise<{ user: User; token: string }> {
+    const pool = this.getClientSettingsPool(iotDbUrl);
+    
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Check if user exists in client database (match by email)
+        let result = await client.query(
+          'SELECT * FROM dashboard_studio_meta_data.users WHERE email = $1',
+          [email]
+        );
+
+        let user: User;
+        let isNewUser = false;
+        
+        if (result.rows.length === 0) {
+          // Create new user
+          logger.info('Creating new user for passwordless auth', { email, role });
+          const insertResult = await client.query(
+            `INSERT INTO dashboard_studio_meta_data.users (email, email_confirmed_at, is_super_admin, raw_user_meta_data)
+             VALUES ($1, NOW(), $2, $3)
+             RETURNING *`,
+            [email, role === 'admin', JSON.stringify({ iotDbUrl })]
+          );
+          user = insertResult.rows[0] as User;
+          isNewUser = true;
+
+          // Create user role
+          await client.query('DELETE FROM dashboard_studio_meta_data.user_roles WHERE user_id = $1', [user.id]);
+          await client.query('INSERT INTO dashboard_studio_meta_data.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
+        } else {
+          user = result.rows[0] as User;
+          logger.info('Found existing user for passwordless auth', { email, userId: user.id, role });
+          
+          // Update user role
+          await client.query('DELETE FROM dashboard_studio_meta_data.user_roles WHERE user_id = $1', [user.id]);
+          await client.query('INSERT INTO dashboard_studio_meta_data.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
+        }
+
+        // Update last sign in and store iotDbUrl in metadata
+        await client.query(
+          'UPDATE dashboard_studio_meta_data.users SET last_sign_in_at = NOW(), raw_user_meta_data = $1 WHERE id = $2',
+          [JSON.stringify({ iotDbUrl }), user.id]
+        );
+        
+        logger.info('Updated user metadata with iotDbUrl', { 
+          userId: user.id, 
+          email,
+          isNewUser
+        });
+
+        // Generate JWT token - include iotDbUrl for subsequent requests
+        const token = jwt.sign(
+          { 
+            userId: user.id, 
+            email: user.email,
+            role: role,
+            iotDbUrl: iotDbUrl
+          },
+          process.env.JWT_SECRET || 'fallback-secret',
+          { expiresIn: '24h' }
+        );
+
+        return { user, token };
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      logger.error('Passwordless authentication error:', error);
+      
+      // Handle specific PostgreSQL error codes
+      const errorCode = error?.code;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // 28P01: Authentication failed (invalid password for settings user)
+      // 28000: Invalid authorization specification
+      if (errorCode === '28P01' || errorCode === '28000') {
+        throw new CustomError(
+          'Dashboard settings schema is not configured for this database. Please contact your administrator to set up the dashboard_studio_meta_data schema.',
+          403
+        );
+      }
+      
+      // 3D000: Database does not exist
+      if (errorCode === '3D000') {
+        throw new CustomError(
+          'The specified database does not exist. Please check your connection URL.',
+          400
+        );
+      }
+      
+      // ECONNREFUSED: Cannot connect to database
+      if (errorCode === 'ECONNREFUSED' || errorMessage.includes('ECONNREFUSED')) {
+        throw new CustomError(
+          'Cannot connect to the database server. Please check the host and port in your connection URL.',
+          400
+        );
+      }
+      
+      // ENOTFOUND: Host not found
+      if (errorCode === 'ENOTFOUND' || errorMessage.includes('ENOTFOUND')) {
+        throw new CustomError(
+          'Database host not found. Please check the hostname in your connection URL.',
+          400
+        );
+      }
+      
+      // 42P01: Table does not exist (schema not set up)
+      if (errorCode === '42P01') {
+        throw new CustomError(
+          'Dashboard settings tables are not configured. Please contact your administrator to set up the dashboard_studio_meta_data schema.',
+          403
+        );
+      }
+      
+      // 3F000: Schema does not exist
+      if (errorCode === '3F000' || errorMessage.includes('schema') && errorMessage.includes('does not exist')) {
+        throw new CustomError(
+          'Dashboard settings schema (dashboard_studio_meta_data) does not exist in this database. Please contact your administrator.',
+          403
+        );
+      }
+      
+      throw new CustomError(
+        `Authentication failed: ${errorMessage}`,
+        500
+      );
+    }
+  }
+
+  async getUserRole(userId: string, pool: Pool): Promise<string> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT role FROM dashboard_studio_meta_data.user_roles WHERE user_id = $1',
+          [userId]
+        );
+
+        return result.rows.length > 0 ? result.rows[0].role : 'viewer';
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error getting user role:', error);
+      return 'viewer';
+    }
+  }
+
+  async getUsers(pool: Pool): Promise<User[]> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT * FROM dashboard_studio_meta_data.users ORDER BY created_at ASC'
+        );
+
+        return result.rows as User[];
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error getting users:', error);
+      throw new CustomError('Failed to get users', 500);
+    }
+  }
+
+  // ==========================================
+  // Global Variables Methods
+  // ==========================================
+
+  async getGlobalVariables(pool: Pool): Promise<any[]> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Check if table exists first
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'global_variables'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('global_variables table does not exist yet');
+          return [];
+        }
+
+        const result = await client.query(
+          'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
+        );
+
+        return result.rows;
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      // If table doesn't exist, return empty array instead of error
+      if (error.code === '42P01') { // undefined_table
+        logger.warn('global_variables table does not exist:', error.message);
+        return [];
+      }
+      logger.error('Error getting global variables:', error);
+      throw new CustomError('Failed to get global variables', 500);
+    }
+  }
+
+  async getGlobalVariableById(id: string, pool: Pool): Promise<any | null> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT * FROM dashboard_studio_meta_data.global_variables WHERE id = $1',
+          [id]
+        );
+
+        return result.rows.length > 0 ? result.rows[0] : null;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error getting global variable:', error);
+      throw new CustomError('Failed to get global variable', 500);
+    }
+  }
+
+  async createGlobalVariable(data: {
+    label: string;
+    description?: string;
+    value?: string;
+  }, pool: Pool): Promise<any> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
+           VALUES ($1, $2, $3)
+           RETURNING *`,
+          [data.label, data.description || null, data.value || null]
+        );
+
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A variable with this label already exists', 409);
+      }
+      logger.error('Error creating global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to create global variable', 500);
+    }
+  }
+
+  async updateGlobalVariable(id: string, data: {
+    label?: string;
+    description?: string;
+    value?: string;
+  }, pool: Pool): Promise<any> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Get existing variable
+        const existing = await this.getGlobalVariableById(id, pool);
+        if (!existing) {
+          throw new CustomError('Global variable not found', 404);
+        }
+
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+        let paramIndex = 1;
+
+        // Allow updating all fields
+        if (data.label !== undefined) {
+          updateFields.push(`label = $${paramIndex}`);
+          updateValues.push(data.label);
+          paramIndex++;
+        }
+        if (data.description !== undefined) {
+          updateFields.push(`description = $${paramIndex}`);
+          updateValues.push(data.description);
+          paramIndex++;
+        }
+        if (data.value !== undefined) {
+          updateFields.push(`value = $${paramIndex}`);
+          updateValues.push(data.value);
+          paramIndex++;
+        }
+
+        if (updateFields.length === 0) {
+          return existing;
+        }
+
+        updateFields.push(`updated_at = NOW()`);
+        updateValues.push(id);
+
+        const result = await client.query(
+          `UPDATE dashboard_studio_meta_data.global_variables 
+           SET ${updateFields.join(', ')}
+           WHERE id = $${paramIndex}
+           RETURNING *`,
+          updateValues
+        );
+
+        if (result.rows.length === 0) {
+          throw new CustomError('Global variable not found', 404);
+        }
+
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A variable with this label already exists', 409);
+      }
+      logger.error('Error updating global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to update global variable', 500);
+    }
+  }
+
+  async deleteGlobalVariable(id: string, pool: Pool): Promise<void> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          'DELETE FROM dashboard_studio_meta_data.global_variables WHERE id = $1',
+          [id]
+        );
+
+        if (result.rowCount === 0) {
+          throw new CustomError('Global variable not found', 404);
+        }
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error deleting global variable:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to delete global variable', 500);
+    }
+  }
+
+  async getGlobalVariablesAsMap(pool: Pool): Promise<Record<string, string>> {
+    try {
+      const variables = await this.getGlobalVariables(pool);
+      const map: Record<string, string> = {};
+      
+      variables.forEach(variable => {
+        if (variable.value !== null && variable.value !== undefined) {
+          map[variable.label] = variable.value;
+        }
+      });
+
+      return map;
+    } catch (error) {
+      logger.error('Error getting global variables as map:', error);
+      // Return empty map instead of throwing error
+      return {};
+    }
+  }
+
+  // ==========================================
+  // External Database Methods (for SQL queries)
+  // ==========================================
+
+  /**
+   * Get user's IoT database URL from raw_user_meta_data
+   */
+  async getUserIotDbUrl(userId: string, pool: Pool): Promise<string | null> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        const result = await client.query(
+          'SELECT raw_user_meta_data FROM dashboard_studio_meta_data.users WHERE id = $1',
+          [userId]
+        );
+
+        if (result.rows.length === 0) {
+          logger.warn('User not found when fetching iotDbUrl', { userId });
+          return null;
+        }
+
+        const rawMetaData = result.rows[0].raw_user_meta_data;
+        
+        if (!rawMetaData) {
+          logger.warn('User has no raw_user_meta_data', { userId });
+          return null;
+        }
+
+        // Parse if it's a string, otherwise use as-is (PostgreSQL JSONB)
+        const metaData = typeof rawMetaData === 'string' 
+          ? JSON.parse(rawMetaData) 
+          : rawMetaData;
+
+        if (!metaData.iotDbUrl) {
+          logger.warn('User raw_user_meta_data has no iotDbUrl', { userId });
+          return null;
+        }
+
+        return metaData.iotDbUrl;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error fetching user iotDbUrl:', { error, userId });
+      throw new CustomError('Failed to get user database configuration', 500);
+    }
+  }
+
+  /**
+   * Test database connection with provided settings
+   */
+  async testDatabaseConnection(settings: any): Promise<void> {
+    try {
+      let config: DatabaseConfig;
+
+      if (settings.external_db_url) {
+        config = this.parsePostgresUrl(settings.external_db_url);
+      } else if (settings.external_db_host && settings.external_db_name && settings.external_db_user) {
+        config = {
+          user: settings.external_db_user,
+          password: settings.external_db_password || '',
+          database: settings.external_db_name,
+          hostname: settings.external_db_host,
+          port: settings.external_db_port || 5432,
+          ssl: settings.external_db_ssl || false,
+        };
+      } else {
+        throw new CustomError('Incomplete database configuration provided for testing', 400);
+      }
+      
+      // Create a temporary pool for testing
+      const poolConfig = {
+        user: config.user,
+        password: config.password,
+        database: config.database,
+        host: config.hostname,
+        port: config.port,
+        ssl: config.ssl ? { rejectUnauthorized: false } : false,
+        max: 1,
+        idleTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
+      };
+
+      logger.info('Creating test pool with config', {
+        host: poolConfig.host,
+        port: poolConfig.port,
+        database: poolConfig.database,
+        user: poolConfig.user,
+        connectionTimeout: poolConfig.connectionTimeoutMillis
+      });
+
+      const testPool = new Pool(poolConfig);
+
+      let client: PoolClient | null = null;
+      try {
+        logger.info('Attempting to connect to database...');
+        const connectStartTime = Date.now();
+        client = await testPool.connect();
+        const connectTime = Date.now() - connectStartTime;
+        logger.info('Successfully obtained client from pool', { connectTimeMs: connectTime });
+
+        logger.info('Executing test query...');
+        const queryStartTime = Date.now();
+        const result = await client.query('SELECT 1 as test');
+        const queryTime = Date.now() - queryStartTime;
+        logger.info('Test query executed successfully', { 
+          queryTimeMs: queryTime,
+          result: result.rows[0]
+        });
+
+        logger.info('Database connection test successful', {
+          host: config.hostname,
+          port: config.port,
+          database: config.database,
+          user: config.user,
+          totalTimeMs: Date.now() - connectStartTime
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any)?.code;
+        
+        logger.error('Database connection test failed - detailed error:', {
+          host: config.hostname,
+          port: config.port,
+          database: config.database,
+          user: config.user,
+          errorMessage,
+          errorCode,
+        });
+        
+        // Provide more helpful error messages
+        let userFriendlyMessage = errorMessage;
+        if (errorMessage.includes('ECONNREFUSED') || errorCode === 'ECONNREFUSED') {
+          userFriendlyMessage = `Cannot connect to database at ${config.hostname}:${config.port}. Please ensure PostgreSQL is running and accessible from the backend server.`;
+        } else if (errorMessage.includes('authentication failed') || errorMessage.includes('password') || errorCode === '28P01') {
+          userFriendlyMessage = `Authentication failed. Please check your username and password.`;
+        } else if (errorMessage.includes('does not exist') || errorCode === '3D000') {
+          userFriendlyMessage = `Database "${config.database}" does not exist. Please check the database name.`;
+        }
+        
+        throw new CustomError(`Failed to connect to database: ${userFriendlyMessage}`, 400);
+      } finally {
+        if (client) {
+          client.release();
+        }
+        await testPool.end();
+      }
+    } catch (error) {
+      if (error instanceof CustomError) {
+        throw error;
+      }
+      logger.error('Unexpected error testing database connection:', error);
+      throw new CustomError(
+        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        400
+      );
+    }
+  }
+
+  private async getExternalDatabaseConfig(iotDbUrl: string): Promise<DatabaseConfig> {
+    return this.parsePostgresUrl(iotDbUrl);
+  }
+
   private async getExternalPool(config: DatabaseConfig): Promise<Pool> {
     const configKey = `${config.hostname}:${config.port}/${config.database}`;
     
@@ -1146,7 +818,7 @@ export class DatabaseService {
     page: number = 1,
     pageSize: number = 25,
     sort?: string,
-    userId?: string,
+    iotDbUrl?: string,
   ): Promise<QueryResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
@@ -1158,7 +830,11 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig(userId);
+    if (!iotDbUrl) {
+      throw new CustomError('iotDbUrl is required for query execution', 400);
+    }
+
+    const config = await this.getExternalDatabaseConfig(iotDbUrl);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1253,7 +929,7 @@ export class DatabaseService {
     }
   }
 
-  async executeTileQuery(sql: string, userId?: string): Promise<TileResult> {
+  async executeTileQuery(sql: string, iotDbUrl?: string): Promise<TileResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
       SQLSelectGuard.assertSafeSelect(sql);
@@ -1264,7 +940,11 @@ export class DatabaseService {
       throw new CustomError('SQL validation failed', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig(userId);
+    if (!iotDbUrl) {
+      throw new CustomError('iotDbUrl is required for query execution', 400);
+    }
+
+    const config = await this.getExternalDatabaseConfig(iotDbUrl);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1331,16 +1011,15 @@ export class DatabaseService {
   // App Data Methods (Reports, Sections, etc.)
   // ==========================================
 
-  async getSections(pool?: Pool, userId?: string): Promise<any[]> {
-    const dbPool = pool || this.appPool;
+  async getSections(pool: Pool, userId?: string): Promise<any[]> {
     try {
-      const client = await dbPool.connect();
+      const client = await pool.connect();
       
       try {
         if (userId) {
           // Filter by user_id
           const result = await client.query(
-            'SELECT * FROM public.sections WHERE user_id = $1 AND is_deleted = FALSE ORDER BY sort_order',
+            'SELECT * FROM dashboard_studio_meta_data.sections WHERE user_id = $1 AND is_deleted = FALSE ORDER BY sort_order',
             [userId]
           );
           return result.rows;
@@ -1350,17 +1029,17 @@ export class DatabaseService {
             `SELECT EXISTS (
               SELECT 1 FROM pg_proc p 
               JOIN pg_namespace n ON p.pronamespace = n.oid 
-              WHERE n.nspname = 'public' AND p.proname = 'get_section_hierarchy'
+              WHERE n.nspname = 'dashboard_studio_meta_data' AND p.proname = 'get_section_hierarchy'
             )`
           );
           
           if (functionCheck.rows[0].exists) {
-            const result = await client.query(`SELECT * FROM get_section_hierarchy()`);
+            const result = await client.query(`SELECT * FROM dashboard_studio_meta_data.get_section_hierarchy()`);
             return result.rows;
           } else {
             // Fallback to simple query
             const result = await client.query(
-              'SELECT * FROM public.sections WHERE is_deleted = FALSE ORDER BY sort_order'
+              'SELECT * FROM dashboard_studio_meta_data.sections WHERE is_deleted = FALSE ORDER BY sort_order'
             );
             return result.rows;
           }
@@ -1374,10 +1053,9 @@ export class DatabaseService {
     }
   }
 
-  async getReports(pool?: Pool, userId?: string): Promise<any[]> {
-    const dbPool = pool || this.appPool;
+  async getReports(pool: Pool, userId?: string): Promise<any[]> {
     try {
-      const client = await dbPool.connect();
+      const client = await pool.connect();
       
       try {
         let result;
@@ -1385,16 +1063,16 @@ export class DatabaseService {
           // Filter by user_id
           result = await client.query(`
             SELECT r.*, s.name as section_name 
-            FROM public.reports r 
-            LEFT JOIN public.sections s ON r.section_id = s.id 
+            FROM dashboard_studio_meta_data.reports r 
+            LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
             WHERE r.user_id = $1 AND r.is_deleted = FALSE
             ORDER BY s.sort_order, r.sort_order
           `, [userId]);
         } else {
           result = await client.query(`
             SELECT r.*, s.name as section_name 
-            FROM public.reports r 
-            LEFT JOIN public.sections s ON r.section_id = s.id 
+            FROM dashboard_studio_meta_data.reports r 
+            LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
             WHERE r.is_deleted = FALSE
             ORDER BY s.sort_order, r.sort_order
           `);
@@ -1423,10 +1101,9 @@ export class DatabaseService {
     }
   }
 
-  async getReportById(id: string, pool?: Pool, userId?: string): Promise<any> {
-    const dbPool = pool || this.appPool;
+  async getReportById(id: string, pool: Pool, userId?: string): Promise<any> {
     try {
-      const client = await dbPool.connect();
+      const client = await pool.connect();
       
       try {
         let result;
@@ -1434,16 +1111,16 @@ export class DatabaseService {
           // Filter by user_id for security
           result = await client.query(
             `SELECT r.*, s.name as section_name 
-             FROM public.reports r 
-             LEFT JOIN public.sections s ON r.section_id = s.id 
+             FROM dashboard_studio_meta_data.reports r 
+             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
              WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE`,
             [id, userId]
           );
         } else {
           result = await client.query(
             `SELECT r.*, s.name as section_name 
-             FROM public.reports r 
-             LEFT JOIN public.sections s ON r.section_id = s.id 
+             FROM dashboard_studio_meta_data.reports r 
+             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
              WHERE r.id = $1 AND r.is_deleted = FALSE`,
             [id]
           );
@@ -1476,9 +1153,14 @@ export class DatabaseService {
   }
 
   async closeAllConnections(): Promise<void> {
-    await this.appPool.end();
-    logger.info('Closed app database pool');
+    // Close all client settings pools
+    for (const [key, pool] of this.clientSettingsPools) {
+      await pool.end();
+      logger.info(`Closed client settings pool: ${key}`);
+    }
+    this.clientSettingsPools.clear();
 
+    // Close all external pools
     for (const [key, pool] of this.externalPools) {
       await pool.end();
       logger.info(`Closed external database pool: ${key}`);
@@ -1487,83 +1169,16 @@ export class DatabaseService {
   }
 
   /**
-   * Transform date/timestamp values to user's timezone
-   * This is applied AFTER SQL execution, so no SQL injection risk
-   */
-  private transformToUserTimezone(value: any, columnType: string, userTimezone: string): any {
-    // Only transform date/timestamp types
-    if (columnType !== 'timestamp' && columnType !== 'timestamptz' && columnType !== 'date') {
-      return value;
-    }
-
-    // Handle null/undefined
-    if (value === null || value === undefined) {
-      return value;
-    }
-
-    // PostgreSQL returns timestamps as Date objects or ISO strings
-    let date: Date;
-    if (value instanceof Date) {
-      date = value;
-    } else if (typeof value === 'string') {
-      date = new Date(value);
-    } else {
-      // If it's not a date-like value, return as-is
-      return value;
-    }
-
-    // Validate date
-    if (isNaN(date.getTime())) {
-      return value; // Return original if invalid date
-    }
-
-    // Convert to user's timezone
-    // Return ISO string with timezone information preserved
-    try {
-      // Format as ISO string but in user's timezone
-      const formatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone: userTimezone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
-
-      const parts = formatter.formatToParts(date);
-      const year = parts.find(p => p.type === 'year')?.value;
-      const month = parts.find(p => p.type === 'month')?.value;
-      const day = parts.find(p => p.type === 'day')?.value;
-      const hour = parts.find(p => p.type === 'hour')?.value;
-      const minute = parts.find(p => p.type === 'minute')?.value;
-      const second = parts.find(p => p.type === 'second')?.value;
-
-      // For date type, return date only
-      if (columnType === 'date') {
-        return `${year}-${month}-${day}`;
-      }
-
-      // For timestamp types, return datetime
-      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-    } catch (error) {
-      // If timezone conversion fails, return original value
-      logger.warn('Failed to convert timezone, returning original value:', error);
-      return value;
-    }
-  }
-
-  /**
    * Execute parameterized SQL query with typed parameters
-   * @param userId - User ID for fetching timezone preferences and database connection from user metadata (optional, defaults to UTC)
+   * @param iotDbUrl - User's IoT database URL for query execution
+   * @param settingsPool - Pool for fetching user settings (optional, for global variables)
    */
   async executeParameterizedQuery(
     statement: string,
     params: Record<string, unknown>,
     timeoutMs: number = 30000,
     maxRows: number = 10000,
-    userId?: string,
+    iotDbUrl?: string,
     pagination?: { page: number; pageSize: number }
   ): Promise<ParameterizedQueryResult> {
     const startTime = Date.now();
@@ -1578,21 +1193,11 @@ export class DatabaseService {
       throw new CustomError('SQL template validation failed', 400);
     }
 
-    // Fetch user timezone preferences (if userId provided)
-    let userTimezone = 'UTC';
-    if (userId) {
-      try {
-        const preferences = await this.getUserPreferences(userId);
-        if (preferences?.timezone) {
-          userTimezone = preferences.timezone;
-        }
-      } catch (error) {
-        // Log but don't fail - default to UTC
-        logger.warn('Failed to fetch user preferences, using UTC:', error);
-      }
+    if (!iotDbUrl) {
+      throw new CustomError('iotDbUrl is required for query execution', 400);
     }
 
-    const config = await this.getExternalDatabaseConfig(userId);
+    const config = await this.getExternalDatabaseConfig(iotDbUrl);
     const pool = await this.getExternalPool(config);
     let client: PoolClient | null = null;
 
@@ -1631,7 +1236,6 @@ export class DatabaseService {
       }
 
       // Validate SQL again after parameter binding to ensure final SQL is safe
-      // This happens BEFORE execution, as requested
       try {
         SQLSelectGuard.assertSafeSelect(processedStatement);
       } catch (error) {
@@ -1658,7 +1262,6 @@ export class DatabaseService {
         const cleanedStatement = processedStatement.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
         
         // Get total count (wrap query in COUNT)
-        // Note: This COUNT query will use the same parameterized values
         const countStatement = `SELECT COUNT(*) as total FROM (${cleanedStatement}) as count_query`;
         const countResult = usedParamCount > 0
           ? await client.query(countStatement, paramValues)
@@ -1671,7 +1274,6 @@ export class DatabaseService {
         // Apply pagination with LIMIT/OFFSET
         const offset = (page - 1) * pageSize;
         finalStatement = `${cleanedStatement} LIMIT ${pageSize} OFFSET ${offset}`;
-        // Note: LIMIT and OFFSET are safe integers, not user input
       } else {
         // No pagination - check for existing LIMIT clause
         const hasLimitClause = /\bLIMIT\s+\d+/i.test(processedStatement);
@@ -1682,7 +1284,6 @@ export class DatabaseService {
       }
 
       // Execute query
-      // Only pass paramValues if there are actual parameters used in the SQL
       const result = usedParamCount > 0
         ? await client.query(finalStatement, finalParamValues)
         : await client.query(finalStatement);
@@ -1693,22 +1294,14 @@ export class DatabaseService {
         type: this.getPostgresTypeName(field.dataTypeID)
       }));
 
-      // Transform rows with timezone conversion
-      // This happens AFTER SQL execution, so no SQL injection risk
+      // Transform rows
       const rows = result.rows.map(row => {
         const rowArray = Object.values(row);
-        return rowArray.map((value, index) => {
+        return rowArray.map((value) => {
           // Convert BigInt to string for JSON serialization
           if (typeof value === 'bigint') {
             return value.toString();
           }
-          
-          // Apply timezone transformation for date/timestamp columns
-          const columnType = columns[index]?.type;
-          if (columnType && (columnType === 'timestamp' || columnType === 'timestamptz' || columnType === 'date')) {
-            return this.transformToUserTimezone(value, columnType, userTimezone);
-          }
-          
           return value;
         });
       });
@@ -1730,7 +1323,7 @@ export class DatabaseService {
         columns,
         rows,
         stats: {
-          rowCount: pagination ? rows.length : rows.length,
+          rowCount: rows.length,
           elapsedMs,
           usedParamCount
         }

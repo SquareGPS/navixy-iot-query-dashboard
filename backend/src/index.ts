@@ -19,7 +19,7 @@ const result = dotenv.config({ path: envPath });
 
 if (result.error) {
   console.warn('Warning: Could not load .env file:', result.error.message);
-  console.warn('Make sure DATABASE_URL is set in your environment');
+  console.warn('Make sure CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD are set in your environment');
 } else {
   console.log('Environment variables loaded from .env file');
 }
@@ -225,7 +225,17 @@ async function startServer() {
       process.exit(1);
     }
 
-    // Initialize database connection
+    if (!process.env.CLIENT_SETTINGS_DB_USER) {
+      logger.error('CLIENT_SETTINGS_DB_USER is not set. Please set CLIENT_SETTINGS_DB_USER in your environment variables.');
+      process.exit(1);
+    }
+
+    if (!process.env.CLIENT_SETTINGS_DB_PASSWORD) {
+      logger.error('CLIENT_SETTINGS_DB_PASSWORD is not set. Please set CLIENT_SETTINGS_DB_PASSWORD in your environment variables.');
+      process.exit(1);
+    }
+
+    // Initialize database service (no connection yet - connects on first request)
     await DatabaseService.initialize();
     logger.info('Database service initialized');
 
@@ -249,4 +259,3 @@ async function startServer() {
 startServer();
 
 export { app, server };
-

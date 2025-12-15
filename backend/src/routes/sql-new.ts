@@ -69,7 +69,7 @@ function generateParameterizedCacheKey(
   statement: string, 
   params: Record<string, unknown>,
   userId?: string,
-  userTimezone?: string,
+  iotDbUrl?: string,
   pagination?: { page: number; pageSize: number }
 ): string {
   const hash = crypto.createHash('sha256');
@@ -80,7 +80,7 @@ function generateParameterizedCacheKey(
       return acc;
     }, {} as Record<string, unknown>),
     userId: userId || 'anonymous',
-    timezone: userTimezone || 'UTC',
+    iotDbUrl: iotDbUrl || 'none',
     pagination: pagination || null
   };
   
@@ -131,40 +131,37 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     }
   }
 
+  // Get iotDbUrl from the authenticated user's token
+  const iotDbUrl = req.user?.iotDbUrl;
+  if (!iotDbUrl) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_IOT_DB_URL',
+        message: 'iotDbUrl is required for query execution'
+      }
+    });
+  }
+
   // Merge global variables into params (global variables have lower priority than explicit params)
   let mergedParams = { ...params };
   try {
-    const dbService = getDbService();
-    const appPool = dbService.appPool;
-    const globalVars = await dbService.getGlobalVariablesAsMap(appPool);
-    // Only add global variables that aren't already in params (explicit params take precedence)
-    Object.entries(globalVars).forEach(([key, value]) => {
-      if (!(key in mergedParams)) {
-        mergedParams[key] = value;
-      }
-    });
+    if (req.settingsPool) {
+      const dbService = getDbService();
+      const globalVars = await dbService.getGlobalVariablesAsMap(req.settingsPool);
+      // Only add global variables that aren't already in params (explicit params take precedence)
+      Object.entries(globalVars).forEach(([key, value]) => {
+        if (!(key in mergedParams)) {
+          mergedParams[key] = value;
+        }
+      });
+    }
   } catch (error) {
     logger.warn('Failed to load global variables, continuing without them:', error);
     // Continue execution without global variables if there's an error
   }
 
-  // Fetch user timezone for cache key
-  let userTimezone = 'UTC';
-  if (req.user?.userId) {
-    try {
-      const dbService = getDbService();
-      const preferences = await dbService.getUserPreferences(req.user.userId);
-      if (preferences?.timezone) {
-        userTimezone = preferences.timezone;
-      }
-    } catch (error) {
-      // Log but don't fail - default to UTC
-      logger.warn('Failed to fetch user preferences for cache key, using UTC:', error);
-    }
-  }
-
-  // Generate cache key (use merged params, userId, timezone, and pagination for caching)
-  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, userTimezone, pagination);
+  // Generate cache key (use merged params, userId, iotDbUrl, and pagination for caching)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, iotDbUrl, pagination);
   
   try {
     // Try to get from cache first
@@ -180,7 +177,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       mergedParams, 
       limits?.timeout_ms || 30000,
       limits?.max_rows || 10000,
-      req.user?.userId, // Pass userId for timezone preferences and database connection
+      iotDbUrl, // Pass iotDbUrl for database connection
       pagination // Pass pagination if provided
     );
     
@@ -222,20 +219,19 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
 router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql, page = 1, pageSize = 25, sort } = req.body;
 
-  // Convert legacy request to new format
-  const parameterizedRequest: ParameterizedQueryRequest = {
-    dialect: 'postgresql',
-    statement: sql,
-    params: {},
-    limits: {
-      timeout_ms: 30000,
-      max_rows: pageSize
-    },
-    read_only: true
-  };
+  // Get iotDbUrl from the authenticated user's token
+  const iotDbUrl = req.user?.iotDbUrl;
+  if (!iotDbUrl) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_IOT_DB_URL',
+        message: 'iotDbUrl is required for query execution'
+      }
+    });
+  }
 
   // Generate cache key
-  const cacheKey = generateParameterizedCacheKey(sql, { page, pageSize, sort }, req.user?.userId);
+  const cacheKey = generateParameterizedCacheKey(sql, { page, pageSize, sort }, req.user?.userId, iotDbUrl);
   
   try {
     // Try to get from cache first
@@ -245,8 +241,8 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
       return res.json(JSON.parse(cachedResult));
     }
 
-    // Execute query using legacy method for now
-    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, req.user?.userId);
+    // Execute query using legacy method
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl);
     
     // Cache result for 5 minutes
     await getRedisService().set(cacheKey, JSON.stringify(result), 300);
@@ -282,8 +278,19 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
 router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql } = req.body;
 
+  // Get iotDbUrl from the authenticated user's token
+  const iotDbUrl = req.user?.iotDbUrl;
+  if (!iotDbUrl) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_IOT_DB_URL',
+        message: 'iotDbUrl is required for query execution'
+      }
+    });
+  }
+
   // Generate cache key
-  const cacheKey = generateParameterizedCacheKey(sql, { type: 'tile' }, req.user?.userId);
+  const cacheKey = generateParameterizedCacheKey(sql, { type: 'tile' }, req.user?.userId, iotDbUrl);
   
   try {
     // Try to get from cache first
@@ -293,8 +300,8 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
       return res.json(JSON.parse(cachedResult));
     }
 
-    // Execute query using legacy method for now
-    const result = await getDbService().executeTileQuery(sql, req.user?.userId);
+    // Execute query using legacy method
+    const result = await getDbService().executeTileQuery(sql, iotDbUrl);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await getRedisService().set(cacheKey, JSON.stringify(result), 120);

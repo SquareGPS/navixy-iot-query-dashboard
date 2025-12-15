@@ -9,13 +9,29 @@ import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
 import crypto from 'crypto';
 
 const router = Router();
-const dbService = DatabaseService.getInstance();
-const redisService = RedisService.getInstance();
+
+// Initialize services lazily to avoid issues with environment variables
+let dbService: DatabaseService;
+let redisService: RedisService;
+
+const getDbService = () => {
+  if (!dbService) {
+    dbService = DatabaseService.getInstance();
+  }
+  return dbService;
+};
+
+const getRedisService = () => {
+  if (!redisService) {
+    redisService = RedisService.getInstance();
+  }
+  return redisService;
+};
 
 // Generate cache key for SQL queries
-function generateCacheKey(sql: string, params: any, userId?: string): string {
+function generateCacheKey(sql: string, params: any, userId?: string, iotDbUrl?: string): string {
   const hash = crypto.createHash('sha256');
-  hash.update(sql + JSON.stringify(params) + (userId || 'anonymous'));
+  hash.update(sql + JSON.stringify(params) + (userId || 'anonymous') + (iotDbUrl || 'none'));
   return `sql:${hash.digest('hex')}`;
 }
 
@@ -23,22 +39,33 @@ function generateCacheKey(sql: string, params: any, userId?: string): string {
 router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql, page = 1, pageSize = 25, sort } = req.body;
 
+  // Get iotDbUrl from the authenticated user's token
+  const iotDbUrl = req.user?.iotDbUrl;
+  if (!iotDbUrl) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_IOT_DB_URL',
+        message: 'iotDbUrl is required for query execution'
+      }
+    });
+  }
+
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { page, pageSize, sort }, req.user?.userId);
+  const cacheKey = generateCacheKey(sql, { page, pageSize, sort }, req.user?.userId, iotDbUrl);
   
   try {
     // Try to get from cache first
-    const cachedResult = await redisService.get(cacheKey);
+    const cachedResult = await getRedisService().get(cacheKey);
     if (cachedResult) {
       logger.info('Cache hit for table query', { cacheKey });
       return res.json(JSON.parse(cachedResult));
     }
 
     // Execute query
-    const result = await dbService.executeTableQuery(sql, page, pageSize, sort, req.user?.userId);
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl);
     
     // Cache result for 5 minutes
-    await redisService.set(cacheKey, JSON.stringify(result), 300);
+    await getRedisService().set(cacheKey, JSON.stringify(result), 300);
     
     logger.info('Table query executed and cached', {
       userId: req.user?.userId,
@@ -72,22 +99,33 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
 router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql } = req.body;
 
+  // Get iotDbUrl from the authenticated user's token
+  const iotDbUrl = req.user?.iotDbUrl;
+  if (!iotDbUrl) {
+    return res.status(400).json({
+      error: {
+        code: 'MISSING_IOT_DB_URL',
+        message: 'iotDbUrl is required for query execution'
+      }
+    });
+  }
+
   // Generate cache key
-  const cacheKey = generateCacheKey(sql, { type: 'tile' }, req.user?.userId);
+  const cacheKey = generateCacheKey(sql, { type: 'tile' }, req.user?.userId, iotDbUrl);
   
   try {
     // Try to get from cache first
-    const cachedResult = await redisService.get(cacheKey);
+    const cachedResult = await getRedisService().get(cacheKey);
     if (cachedResult) {
       logger.info('Cache hit for tile query', { cacheKey });
       return res.json(JSON.parse(cachedResult));
     }
 
     // Execute query
-    const result = await dbService.executeTileQuery(sql, req.user?.userId);
+    const result = await getDbService().executeTileQuery(sql, iotDbUrl);
     
     // Cache result for 2 minutes (tiles change more frequently)
-    await redisService.set(cacheKey, JSON.stringify(result), 120);
+    await getRedisService().set(cacheKey, JSON.stringify(result), 120);
     
     logger.info('Tile query executed and cached', {
       userId: req.user?.userId,
@@ -119,14 +157,25 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
 // Test database connection
 router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
+    // Get iotDbUrl from the authenticated user's token
+    const iotDbUrl = req.user?.iotDbUrl;
+    if (!iotDbUrl) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_IOT_DB_URL',
+          message: 'iotDbUrl is required for connection test'
+        }
+      });
+    }
+
     // Simple test query
-    const result = await dbService.executeTableQuery('SELECT 1 as test', 1, 1, undefined, req.user?.userId);
+    const result = await getDbService().executeTableQuery('SELECT 1 as test', 1, 1, undefined, iotDbUrl);
     
     logger.info('Database connection test successful', {
       userId: req.user?.userId,
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Database connection successful',
       result: result.rows[0]
@@ -137,7 +186,7 @@ router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, r
       error: error.message,
     });
 
-    res.status(500).json({
+    return res.status(500).json({
       error: {
         code: 'CONNECTION_ERROR',
         message: 'Database connection failed',
@@ -150,13 +199,13 @@ router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, r
 // Clear cache
 router.post('/clear-cache', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
-    await redisService.flushdb();
+    await getRedisService().flushdb();
     
     logger.info('Cache cleared', {
       userId: req.user?.userId,
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Cache cleared successfully'
     });
@@ -166,7 +215,7 @@ router.post('/clear-cache', asyncHandler(async (req: AuthenticatedRequest, res: 
       error: error.message,
     });
 
-    res.status(500).json({
+    return res.status(500).json({
       error: {
         code: 'CACHE_ERROR',
         message: 'Failed to clear cache',
@@ -177,4 +226,3 @@ router.post('/clear-cache', asyncHandler(async (req: AuthenticatedRequest, res: 
 }));
 
 export { router as sqlRoutes };
-
