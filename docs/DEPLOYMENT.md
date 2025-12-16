@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Navixy DataHub Dashboard to production on EC2.
+This guide covers deploying the Navixy IoT Query Dashboard to production on EC2.
 
 ## Prerequisites
 

@@ -40,17 +40,20 @@ const logger = winston.createLogger({
   ],
 });
 
-// If we're not in production, log to the console as well
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple(),
-      ),
-    }),
-  );
-}
+// Always log to console (required for CloudWatch in ECS/Docker)
+logger.add(
+  new winston.transports.Console({
+    format: process.env.NODE_ENV === 'production'
+      ? winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.json(),
+        )
+      : winston.format.combine(
+          winston.format.colorize(),
+          winston.format.simple(),
+        ),
+  }),
+);
 
 export { logger };
 

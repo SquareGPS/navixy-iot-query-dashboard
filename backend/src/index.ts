@@ -72,12 +72,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'https://localhost:8081',
       'http://localhost:3000',
       'https://localhost:3000',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
-      'https://dashboard.tools.squaregps.com',
-      'https://dashboard.tools.squaregps.com:443',
+      'https://builder.tools.datahub.navixy.com',
+      'https://builder.tools.datahub.navixy.com:443',
     ]
   : [
       'http://localhost',
@@ -90,10 +86,6 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
       'https://localhost:8081',
       'http://localhost:3000',
       'https://localhost:3000',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
     ];
 
 app.use(cors({

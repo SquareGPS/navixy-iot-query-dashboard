@@ -303,7 +303,16 @@ export class DatabaseService {
         client.release();
       }
     } catch (error: any) {
-      logger.error('Passwordless authentication error:', error);
+      // Log detailed error information for debugging
+      logger.error('Passwordless authentication error:', {
+        errorCode: error?.code,
+        errorMessage: error?.message,
+        errorDetail: error?.detail,
+        errorHint: error?.hint,
+        errorPosition: error?.position,
+        errorStack: error?.stack,
+        fullError: JSON.stringify(error, Object.getOwnPropertyNames(error))
+      });
       
       // Handle specific PostgreSQL error codes
       const errorCode = error?.code;
