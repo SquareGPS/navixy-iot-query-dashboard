@@ -49,8 +49,6 @@ If you prefer to set up manually:
 
 ### Required
 - `JWT_SECRET` - Secret key for JWT token signing (auto-generated if missing)
-- `CLIENT_SETTINGS_DB_USER` - Username for client settings database connection
-- `CLIENT_SETTINGS_DB_PASSWORD` - Password for client settings database connection
 
 ### Optional
 - `REPORT_SCHEMA_URL` - URL to report schema repository

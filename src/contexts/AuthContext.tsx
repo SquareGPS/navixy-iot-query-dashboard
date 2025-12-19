@@ -11,7 +11,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  signIn: (email: string, role: 'admin' | 'editor' | 'viewer', iotDbUrl: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, role: 'admin' | 'editor' | 'viewer', iotDbUrl: string, userDbUrl: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -88,7 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (
     email: string,
     role: 'admin' | 'editor' | 'viewer',
-    iotDbUrl: string
+    iotDbUrl: string,
+    userDbUrl: string
   ) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -96,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, role, iotDbUrl }),
+        body: JSON.stringify({ email, role, iotDbUrl, userDbUrl }),
       });
 
       if (!response.ok) {

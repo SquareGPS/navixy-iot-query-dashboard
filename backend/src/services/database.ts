@@ -68,14 +68,6 @@ export class DatabaseService {
   private externalPools: Map<string, Pool> = new Map();
 
   constructor() {
-    // Validate required environment variables
-    if (!process.env.CLIENT_SETTINGS_DB_USER) {
-      throw new Error('CLIENT_SETTINGS_DB_USER environment variable is required');
-    }
-    if (!process.env.CLIENT_SETTINGS_DB_PASSWORD) {
-      throw new Error('CLIENT_SETTINGS_DB_PASSWORD environment variable is required');
-    }
-
     logger.info('Database service initialized (client settings mode)');
   }
 
@@ -156,32 +148,17 @@ export class DatabaseService {
   }
 
   /**
-   * Build a client settings connection string from user's iotDbUrl
-   * Uses CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD from env
-   * with host/port/database from the iotDbUrl
+   * Get or create a client settings pool for the given userDbUrl
+   * Uses the userDbUrl directly (no transformation)
    */
-  buildClientSettingsConnectionString(iotDbUrl: string): string {
-    const config = this.parsePostgresUrl(iotDbUrl);
-    const settingsUser = process.env.CLIENT_SETTINGS_DB_USER!;
-    const settingsPassword = process.env.CLIENT_SETTINGS_DB_PASSWORD!;
-    
-    return `postgresql://${encodeURIComponent(settingsUser)}:${encodeURIComponent(settingsPassword)}@${config.hostname}:${config.port}/${config.database}`;
-  }
-
-  /**
-   * Get or create a client settings pool for the given iotDbUrl
-   */
-  getClientSettingsPool(iotDbUrl: string): Pool {
-    const config = this.parsePostgresUrl(iotDbUrl);
-    const poolKey = `${config.hostname}:${config.port}/${config.database}`;
+  getClientSettingsPool(userDbUrl: string): Pool {
+    const config = this.parsePostgresUrl(userDbUrl);
+    const poolKey = `settings:${config.user}@${config.hostname}:${config.port}/${config.database}`;
     
     if (!this.clientSettingsPools.has(poolKey)) {
-      const settingsUser = process.env.CLIENT_SETTINGS_DB_USER!;
-      const settingsPassword = process.env.CLIENT_SETTINGS_DB_PASSWORD!;
-      
       const pool = new Pool({
-        user: settingsUser,
-        password: settingsPassword,
+        user: config.user,
+        password: config.password,
         database: config.database,
         host: config.hostname,
         port: config.port,
@@ -201,8 +178,8 @@ export class DatabaseService {
   /**
    * Test client settings database connection
    */
-  async testClientSettingsConnection(iotDbUrl: string): Promise<void> {
-    const pool = this.getClientSettingsPool(iotDbUrl);
+  async testClientSettingsConnection(userDbUrl: string): Promise<void> {
+    const pool = this.getClientSettingsPool(userDbUrl);
     let client: PoolClient | null = null;
     
     try {
@@ -233,9 +210,10 @@ export class DatabaseService {
   async authenticateUserPasswordless(
     email: string,
     role: 'admin' | 'editor' | 'viewer',
-    iotDbUrl: string
+    iotDbUrl: string,
+    userDbUrl: string
   ): Promise<{ user: User; token: string }> {
-    const pool = this.getClientSettingsPool(iotDbUrl);
+    const pool = this.getClientSettingsPool(userDbUrl);
     
     try {
       const client = await pool.connect();
@@ -257,7 +235,7 @@ export class DatabaseService {
             `INSERT INTO dashboard_studio_meta_data.users (email, email_confirmed_at, is_super_admin, raw_user_meta_data)
              VALUES ($1, NOW(), $2, $3)
              RETURNING *`,
-            [email, role === 'admin', JSON.stringify({ iotDbUrl })]
+            [email, role === 'admin', JSON.stringify({ iotDbUrl, userDbUrl })]
           );
           user = insertResult.rows[0] as User;
           isNewUser = true;
@@ -274,25 +252,26 @@ export class DatabaseService {
           await client.query('INSERT INTO dashboard_studio_meta_data.user_roles (user_id, role) VALUES ($1, $2)', [user.id, role]);
         }
 
-        // Update last sign in and store iotDbUrl in metadata
+        // Update last sign in and store both URLs in metadata
         await client.query(
           'UPDATE dashboard_studio_meta_data.users SET last_sign_in_at = NOW(), raw_user_meta_data = $1 WHERE id = $2',
-          [JSON.stringify({ iotDbUrl }), user.id]
+          [JSON.stringify({ iotDbUrl, userDbUrl }), user.id]
         );
         
-        logger.info('Updated user metadata with iotDbUrl', { 
+        logger.info('Updated user metadata with database URLs', { 
           userId: user.id, 
           email,
           isNewUser
         });
 
-        // Generate JWT token - include iotDbUrl for subsequent requests
+        // Generate JWT token - include both URLs for subsequent requests
         const token = jwt.sign(
           { 
             userId: user.id, 
             email: user.email,
             role: role,
-            iotDbUrl: iotDbUrl
+            iotDbUrl: iotDbUrl,
+            userDbUrl: userDbUrl
           },
           process.env.JWT_SECRET || 'fallback-secret',
           { expiresIn: '24h' }

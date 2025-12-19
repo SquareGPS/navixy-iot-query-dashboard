@@ -11,6 +11,7 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     role: string;
     iotDbUrl: string;
+    userDbUrl: string;
   };
   settingsPool?: Pool;
 }
@@ -30,14 +31,17 @@ export const authenticateToken = async (
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any;
     
-    // Validate that iotDbUrl is present in the token
+    // Validate that both database URLs are present in the token
     if (!decoded.iotDbUrl) {
       throw new CustomError('Invalid token: missing iotDbUrl', 401);
     }
+    if (!decoded.userDbUrl) {
+      throw new CustomError('Invalid token: missing userDbUrl', 401);
+    }
 
-    // Get client settings pool from iotDbUrl in JWT
+    // Get client settings pool from userDbUrl in JWT
     const dbService = DatabaseService.getInstance();
-    const settingsPool = dbService.getClientSettingsPool(decoded.iotDbUrl);
+    const settingsPool = dbService.getClientSettingsPool(decoded.userDbUrl);
 
     // Verify user still exists and get current role
     const userRole = await dbService.getUserRole(decoded.userId, settingsPool);
@@ -46,7 +50,8 @@ export const authenticateToken = async (
       userId: decoded.userId,
       email: decoded.email,
       role: userRole,
-      iotDbUrl: decoded.iotDbUrl
+      iotDbUrl: decoded.iotDbUrl,
+      userDbUrl: decoded.userDbUrl
     };
     
     // Attach the settings pool to the request for use in routes

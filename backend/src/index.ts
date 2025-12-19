@@ -19,7 +19,6 @@ const result = dotenv.config({ path: envPath });
 
 if (result.error) {
   console.warn('Warning: Could not load .env file:', result.error.message);
-  console.warn('Make sure CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD are set in your environment');
 } else {
   console.log('Environment variables loaded from .env file');
 }
@@ -214,16 +213,6 @@ async function startServer() {
     // Validate required environment variables
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'fallback-secret') {
       logger.error('JWT_SECRET is not set or is using fallback value. Please set JWT_SECRET in your environment variables.');
-      process.exit(1);
-    }
-
-    if (!process.env.CLIENT_SETTINGS_DB_USER) {
-      logger.error('CLIENT_SETTINGS_DB_USER is not set. Please set CLIENT_SETTINGS_DB_USER in your environment variables.');
-      process.exit(1);
-    }
-
-    if (!process.env.CLIENT_SETTINGS_DB_PASSWORD) {
-      logger.error('CLIENT_SETTINGS_DB_PASSWORD is not set. Please set CLIENT_SETTINGS_DB_PASSWORD in your environment variables.');
       process.exit(1);
     }
 

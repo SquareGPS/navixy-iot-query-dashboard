@@ -79,11 +79,11 @@ if [ ! -f "backend/.env" ]; then
 NODE_ENV=development
 PORT=3001
 
-# Client Settings Database Credentials (REQUIRED)
-# These credentials are used to connect to the client's database for storing
+# Client Settings Database Username (REQUIRED)
+# This username is used to connect to the client's database for storing
 # user settings (users, user_roles, global_variables, reports, sections).
+# The password is taken from the user's login URL (iotDbUrl).
 CLIENT_SETTINGS_DB_USER=dashboard_settings
-CLIENT_SETTINGS_DB_PASSWORD=your_settings_password
 
 # Redis Cache
 REDIS_URL=redis://localhost:6379
@@ -107,7 +107,7 @@ LOG_LEVEL=info
 LOG_FILE=logs/app.log
 EOF
     print_success "Created backend/.env file"
-    print_warning "Please update CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD with actual credentials"
+    print_warning "Please update CLIENT_SETTINGS_DB_USER with actual username"
 else
     print_status "backend/.env file already exists"
 fi
@@ -207,7 +207,7 @@ print_status "  - Backend: PID $BACKEND_PID"
 print_status "  - Frontend: PID $FRONTEND_PID"
 echo ""
 print_warning "Note: Database connection happens on first login request."
-print_warning "Make sure CLIENT_SETTINGS_DB_USER and CLIENT_SETTINGS_DB_PASSWORD are configured in backend/.env"
+print_warning "Make sure CLIENT_SETTINGS_DB_USER is configured in backend/.env"
 echo ""
 print_status "To stop all services, run: ./scripts/stop-dev.sh"
 echo ""

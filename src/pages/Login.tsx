@@ -7,9 +7,20 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { BarChart3, Database, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { BarChart3, Database, CheckCircle2, XCircle, Loader2, Users } from 'lucide-react';
 
 interface DatabaseConnection {
+  connectionType: 'url' | 'host';
+  url?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  ssl?: boolean;
+}
+
+interface UserDbConnection {
   connectionType: 'url' | 'host';
   url?: string;
   host?: string;
@@ -42,6 +53,21 @@ const Login = () => {
     ssl: false,
   });
 
+  // User Settings DB connection
+  const [userDbConnectionMethod, setUserDbConnectionMethod] = useState<'url' | 'host'>('url');
+  const [isTestingUserDbConnection, setIsTestingUserDbConnection] = useState(false);
+  const [userDbTestResult, setUserDbTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [userDbConnection, setUserDbConnection] = useState<UserDbConnection>({
+    connectionType: 'url',
+    url: import.meta.env.VITE_DEFAULT_USER_DB_URL || '',
+    host: '',
+    port: 5432,
+    database: '',
+    user: '',
+    password: '',
+    ssl: false,
+  });
+
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
 
@@ -51,7 +77,7 @@ const Login = () => {
     }
   }, [user, navigate]);
 
-  // Parse URL to individual parameters
+  // Parse URL to individual parameters for IoT DB
   const parseUrl = (url: string) => {
     if (!url) return;
     try {
@@ -72,8 +98,29 @@ const Login = () => {
     }
   };
 
+  // Parse URL to individual parameters for User Settings DB
+  const parseUserDbUrl = (url: string) => {
+    if (!url) return;
+    try {
+      const urlObj = new URL(url);
+      const sslmode = urlObj.searchParams.get('sslmode');
+      
+      setUserDbConnection(prev => ({
+        ...prev,
+        host: urlObj.hostname,
+        port: parseInt(urlObj.port) || 5432,
+        database: urlObj.pathname.slice(1),
+        user: decodeURIComponent(urlObj.username || ''),
+        password: decodeURIComponent(urlObj.password || ''),
+        ssl: sslmode === 'require',
+      }));
+    } catch (e) {
+      console.error('Invalid URL format', e);
+    }
+  };
+
   // Construct URL from individual parameters
-  const constructUrl = (data: DatabaseConnection) => {
+  const constructUrl = (data: DatabaseConnection | UserDbConnection) => {
     if (!data.host || !data.database || !data.user) return '';
     
     const password = encodeURIComponent(data.password || '');
@@ -156,22 +203,106 @@ const Login = () => {
     }
   };
 
+  const testUserDbConnection = async () => {
+    setIsTestingUserDbConnection(true);
+    setUserDbTestResult(null);
+
+    let testSettings: any;
+    
+    if (userDbConnectionMethod === 'url') {
+      if (!userDbConnection.url || !userDbConnection.url.trim()) {
+        toast.error('Please provide a User Settings database connection URL');
+        setIsTestingUserDbConnection(false);
+        return;
+      }
+      testSettings = {
+        db_url: userDbConnection.url.trim(),
+      };
+    } else {
+      if (!userDbConnection.host || !userDbConnection.database || !userDbConnection.user) {
+        toast.error('Please provide host, database, and user for User Settings database connection');
+        setIsTestingUserDbConnection(false);
+        return;
+      }
+      testSettings = {
+        db_host: userDbConnection.host.trim(),
+        db_port: userDbConnection.port || 5432,
+        db_name: userDbConnection.database.trim(),
+        db_user: userDbConnection.user.trim(),
+        db_password: userDbConnection.password || '',
+        db_ssl: userDbConnection.ssl || false,
+      };
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/test-iot-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testSettings),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let errorMessage = 'Connection failed';
+        try {
+          const data = JSON.parse(text);
+          errorMessage = data.error?.message || data.message || errorMessage;
+        } catch {
+          errorMessage = text || `HTTP ${response.status}`;
+        }
+        setUserDbTestResult({ success: false, message: errorMessage });
+        toast.error(errorMessage);
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        setUserDbTestResult({ success: true, message: data.message || 'User Settings database connection successful!' });
+        toast.success('User Settings database connection successful!');
+      } else {
+        const errorMessage = data.error?.message || data.message || data.error || 'Connection failed';
+        setUserDbTestResult({ success: false, message: errorMessage });
+        toast.error(errorMessage);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Network error';
+      setUserDbTestResult({ success: false, message: `Network error: ${errorMessage}` });
+      toast.error(`Connection test failed: ${errorMessage}`);
+    } finally {
+      setIsTestingUserDbConnection(false);
+    }
+  };
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    // Get URL from connection
+    // Get IoT DB URL from connection
     const iotUrl = connectionMethod === 'url'
       ? connection.url || ''
       : constructUrl(connection);
 
     if (!iotUrl) {
-      toast.error('Please provide a database connection URL');
+      toast.error('Please provide an IoT database connection URL');
+      setIsLoading(false);
+      return;
+    }
+
+    // Get User Settings DB URL from userDbConnection
+    const userUrl = userDbConnectionMethod === 'url'
+      ? userDbConnection.url || ''
+      : constructUrl(userDbConnection);
+
+    if (!userUrl) {
+      toast.error('Please provide a User Settings database connection URL');
       setIsLoading(false);
       return;
     }
     
-    const { error } = await signIn(email, role, iotUrl);
+    const { error } = await signIn(email, role, iotUrl, userUrl);
     
     if (error) {
       toast.error(error.message || 'Failed to sign in');
@@ -225,12 +356,12 @@ const Login = () => {
               </Select>
             </div>
 
-            {/* Database Connection */}
+            {/* IoT Database Connection */}
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label className="text-text-secondary font-semibold flex items-center gap-2">
                   <Database className="h-4 w-4" />
-                  Database Connection
+                  IoT Database Connection
                 </Label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -406,7 +537,194 @@ const Login = () => {
                 ) : (
                   <>
                     <Database className="mr-2 h-4 w-4" />
-                    Test Connection
+                    Test IoT Connection
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* User Settings Database Connection */}
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label className="text-text-secondary font-semibold flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  User Settings Database Connection
+                </Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="userDbConnectionMethod"
+                      value="url"
+                      checked={userDbConnectionMethod === 'url'}
+                      onChange={() => {
+                        setUserDbConnectionMethod('url');
+                        setUserDbTestResult(null);
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm text-text-secondary">URL</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="userDbConnectionMethod"
+                      value="host"
+                      checked={userDbConnectionMethod === 'host'}
+                      onChange={() => {
+                        setUserDbConnectionMethod('host');
+                        setUserDbTestResult(null);
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm text-text-secondary">Connection Parameters</span>
+                  </label>
+                </div>
+              </div>
+
+              {userDbConnectionMethod === 'url' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="user-db-url" className="text-text-secondary">Connection URL</Label>
+                  <Input
+                    id="user-db-url"
+                    type="text"
+                    placeholder="postgresql://user:password@host:port/database"
+                    value={userDbConnection.url || ''}
+                    onChange={(e) => {
+                      setUserDbConnection({ ...userDbConnection, url: e.target.value });
+                      setUserDbTestResult(null);
+                      parseUserDbUrl(e.target.value);
+                    }}
+                    className="bg-surface-2 border-border text-sm font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="user-db-host" className="text-text-secondary text-sm">Host</Label>
+                      <Input
+                        id="user-db-host"
+                        type="text"
+                        placeholder="localhost"
+                        value={userDbConnection.host || ''}
+                        onChange={(e) => {
+                          setUserDbConnection({ ...userDbConnection, host: e.target.value });
+                          setUserDbTestResult(null);
+                        }}
+                        className="bg-surface-2 border-border text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="user-db-port" className="text-text-secondary text-sm">Port</Label>
+                      <Input
+                        id="user-db-port"
+                        type="number"
+                        placeholder="5432"
+                        value={userDbConnection.port || ''}
+                        onChange={(e) => {
+                          setUserDbConnection({ ...userDbConnection, port: parseInt(e.target.value) || 5432 });
+                          setUserDbTestResult(null);
+                        }}
+                        className="bg-surface-2 border-border text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="user-db-database" className="text-text-secondary text-sm">Database</Label>
+                    <Input
+                      id="user-db-database"
+                      type="text"
+                      placeholder="client_398286"
+                      value={userDbConnection.database || ''}
+                      onChange={(e) => {
+                        setUserDbConnection({ ...userDbConnection, database: e.target.value });
+                        setUserDbTestResult(null);
+                      }}
+                      className="bg-surface-2 border-border text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="user-db-user" className="text-text-secondary text-sm">User</Label>
+                      <Input
+                        id="user-db-user"
+                        type="text"
+                        placeholder="settings_user"
+                        value={userDbConnection.user || ''}
+                        onChange={(e) => {
+                          setUserDbConnection({ ...userDbConnection, user: e.target.value });
+                          setUserDbTestResult(null);
+                        }}
+                        className="bg-surface-2 border-border text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="user-db-password" className="text-text-secondary text-sm">Password</Label>
+                      <Input
+                        id="user-db-password"
+                        type="password"
+                        placeholder="password"
+                        value={userDbConnection.password || ''}
+                        onChange={(e) => {
+                          setUserDbConnection({ ...userDbConnection, password: e.target.value });
+                          setUserDbTestResult(null);
+                        }}
+                        className="bg-surface-2 border-border text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="user-db-ssl"
+                      checked={userDbConnection.ssl || false}
+                      onChange={(e) => {
+                        setUserDbConnection({ ...userDbConnection, ssl: e.target.checked });
+                        setUserDbTestResult(null);
+                      }}
+                      className="rounded border-border"
+                    />
+                    <Label htmlFor="user-db-ssl" className="text-text-secondary text-sm cursor-pointer">Use SSL</Label>
+                  </div>
+                </div>
+              )}
+
+              {userDbTestResult && (
+                <div className={`p-3 rounded-lg flex items-center space-x-2 ${
+                  userDbTestResult.success 
+                    ? 'bg-green-500/10 border border-green-500/20' 
+                    : 'bg-red-500/10 border border-red-500/20'
+                }`}>
+                  {userDbTestResult.success ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                  )}
+                  <p className={`text-sm ${
+                    userDbTestResult.success ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {userDbTestResult.message}
+                  </p>
+                </div>
+              )}
+
+              <Button 
+                type="button" 
+                onClick={testUserDbConnection} 
+                className="w-full" 
+                disabled={isTestingUserDbConnection}
+                variant="secondary"
+              >
+                {isTestingUserDbConnection ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <Users className="mr-2 h-4 w-4" />
+                    Test User Settings Connection
                   </>
                 )}
               </Button>

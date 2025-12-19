@@ -14,11 +14,11 @@ const router = Router();
 // Login (passwordless only - for plugin mode)
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, role, iotDbUrl } = req.body;
+    const { email, role, iotDbUrl, userDbUrl } = req.body;
 
     // Passwordless authentication only
-    if (!email || !role || !iotDbUrl) {
-      throw new CustomError('Email, role, and iotDbUrl are required', 400);
+    if (!email || !role || !iotDbUrl || !userDbUrl) {
+      throw new CustomError('Email, role, iotDbUrl, and userDbUrl are required', 400);
     }
 
     if (!['admin', 'editor', 'viewer'].includes(role)) {
@@ -31,7 +31,8 @@ router.post('/auth/login', async (req, res, next) => {
     const result = await dbService.authenticateUserPasswordless(
       email,
       role as 'admin' | 'editor' | 'viewer',
-      iotDbUrl
+      iotDbUrl,
+      userDbUrl
     );
 
     logger.info(`User logged in (passwordless): ${email}`);

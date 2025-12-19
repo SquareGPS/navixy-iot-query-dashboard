@@ -3,10 +3,12 @@
 ## Architecture Overview
 
 The dashboard application connects to **client databases** for both:
-1. **User Settings Storage** - Uses `CLIENT_SETTINGS_DB_USER` and `CLIENT_SETTINGS_DB_PASSWORD` from environment
-2. **SQL Query Execution** - Uses credentials from the user's login URL (iotDbUrl)
+1. **User Settings Storage** - Uses `CLIENT_SETTINGS_DB_USER` from environment with password from login URL
+2. **SQL Query Execution** - Uses username from the user's login URL (iotDbUrl)
 
-Both connections use the same host/port/database extracted from the user's login URL, but with different credentials for different purposes.
+Both connections use the same host/port/database/password extracted from the user's login URL, but with different usernames (roles) for different purposes:
+- SQL queries use the role from the login URL
+- Settings storage uses `CLIENT_SETTINGS_DB_USER` role (same password)
 
 ## Local Development (Recommended)
 
@@ -56,15 +58,13 @@ The following environment variables are **required** for the backend:
 
 | Variable | Description |
 |----------|-------------|
-| `CLIENT_SETTINGS_DB_USER` | Username for connecting to client database for settings storage |
-| `CLIENT_SETTINGS_DB_PASSWORD` | Password for the settings database user |
+| `CLIENT_SETTINGS_DB_USER` | Username for connecting to client database for settings storage (password taken from login URL) |
 | `JWT_SECRET` | Secret key for JWT token signing |
 
 ### Local Development
 - Create `backend/.env` (see `backend/.env.example`)
-- Set `CLIENT_SETTINGS_DB_USER` and `CLIENT_SETTINGS_DB_PASSWORD`
+- Set `CLIENT_SETTINGS_DB_USER` (password is taken from the user's login URL)
 - Create `.env.local` (see `.env.local.example`) for frontend variables
-- Set `VITE_DEFAULT_METABASE_DB_CONNECTION_URL` for prepopulated connection string
 
 ### Production / EC2
 - Set environment variables in `.env` file (see `.env.example`)
