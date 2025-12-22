@@ -434,9 +434,9 @@ test('GET /health returns 200', async () => {
 - Check backend logs
 
 **Issue: Database connection error**
-- Verify DATABASE_URL environment variable
-- Check PostgreSQL is running
-- Verify database exists
+- Verify the database URL entered at login is correct
+- Check that your external PostgreSQL database is accessible
+- Verify the `dashboard_studio_meta_data` schema exists on the settings database
 
 ## Common Tasks
 
@@ -531,16 +531,12 @@ npm run dev:stop
 
 ### Database Connection Issues
 
-```bash
-# Check PostgreSQL is running
-brew services list | grep postgresql
+Database connections are provided by users at login time. If you encounter connection errors:
 
-# Test connection
-psql -U user -d reports_app_db -c "SELECT 1;"
-
-# Check environment variable
-echo $DATABASE_URL
-```
+1. Verify the database URL format: `postgresql://user:password@host:port/database`
+2. Ensure the external database is accessible from your network
+3. Check that the `dashboard_studio_meta_data` schema exists on the settings database
+4. Verify database credentials are correct
 
 ### Module Not Found Errors
 

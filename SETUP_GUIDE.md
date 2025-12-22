@@ -105,22 +105,17 @@ npm run docker:build  # Rebuild containers
 
 ### Development Mode Issues
 
-1. **"DATABASE_URL environment variable is required"**
+1. **"JWT_SECRET is not set"**
    ```bash
    # Solution: Run the setup script
    npm run dev:setup
+   # Or manually set JWT_SECRET in backend/.env
    ```
 
 2. **"Port already in use"**
    ```bash
    # Solution: Stop all services
    npm run dev:stop
-   ```
-
-3. **PostgreSQL not running**
-   ```bash
-   # Solution: Start PostgreSQL
-   brew services start postgresql@14
    ```
 
 ### Docker Mode Issues
@@ -165,20 +160,15 @@ npm run docker:build  # Rebuild containers
 
 ### Custom Environment Variables
 
-**Development Mode:**
 Edit `backend/.env` file:
 ```env
-DATABASE_URL=postgresql://user:pass@localhost:5432/db
 JWT_SECRET=your_secret_here
+PORT=3001
+REDIS_URL=redis://localhost:6379
+CORS_ALLOWED_ORIGINS=https://your-domain.com
 ```
 
-**Docker Mode:**
-Create `.env` file in project root:
-```env
-POSTGRES_USER=your_user
-POSTGRES_PASSWORD=your_password
-JWT_SECRET=your_secret_here
-```
+**Note:** Database connections are provided by users at login time, not via environment variables.
 
 ### Running Individual Services
 
@@ -233,41 +223,30 @@ This project uses **two separate `.env` files** for different purposes:
 ```env
 NODE_ENV=development
 PORT=3001
-DATABASE_URL=postgresql://reports_user@localhost:5432/reports_app_db
+JWT_SECRET=your_secure_jwt_secret_here
 REDIS_URL=redis://localhost:6379
-JWT_SECRET=dev_jwt_secret_key_change_in_production
-# REPORT_SCHEMA_URL= # Optional: URL for default report schema
+CORS_ALLOWED_ORIGINS=https://your-domain.com
 ```
 
-### 2. `.env` (root) - Docker Compose Mode
+### Database Configuration
 
-**Used when:** Running services via Docker Compose (`npm run docker:up`, `docker-compose up`)
+This application uses **external databases** provided by users at login time:
+- **IoT Database** - Source database for SQL queries
+- **Settings Database** - Stores user settings in `dashboard_studio_meta_data` schema
 
-**Location:** `.env` in project root (copy from `.env.example`)
-
-**Example:**
-```env
-JWT_SECRET=your_secret_here
-POSTGRES_DB=reports_app_db
-POSTGRES_USER=reports_user
-POSTGRES_PASSWORD=postgres
-# REPORT_SCHEMA_URL= # Optional: URL for default report schema
-```
-
-**Note:** Docker Compose also reads variables from `docker-compose.yml` which references these values.
+No local database configuration is required.
 
 ### Setup
 
-The `npm run dev:setup` command automatically creates `backend/.env` from `backend/.env.example` if it doesn't exist.
-
-For Docker Compose, manually copy `.env.example` to `.env` and fill in the values:
-
 ```bash
-cp .env.example .env
-# Edit .env with your values
+# Copy the example environment file
+cp backend/.env.example backend/.env
+
+# Generate a secure JWT secret and add it to the file
+openssl rand -hex 32
 ```
 
-See [backend/.env.example](./backend/.env.example) and [.env.example](./.env.example) for complete configuration options.
+See [backend/.env.example](./backend/.env.example) for complete configuration options.
 
 ---
 

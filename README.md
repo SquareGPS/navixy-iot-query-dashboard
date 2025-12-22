@@ -181,9 +181,9 @@ See [DOCKER_SETUP.md](./docs/DOCKER_SETUP.md) for detailed Docker setup instruct
 
 ### Common Issues
 
-1. **"DATABASE_URL environment variable is required"**
+1. **"JWT_SECRET is not set"**
    - Run `npm run dev:setup` to ensure proper environment setup
-   - Or manually set: `DATABASE_URL="postgresql://reports_user@localhost:5432/reports_app_db"`
+   - Or manually set JWT_SECRET in `backend/.env`
 
 2. **"Port already in use"**
    - Run `npm run dev:stop` to stop all services
@@ -217,53 +217,35 @@ npm run dev:setup
 
 ## 📝 Environment Variables
 
-This project uses **two separate `.env` files** for different purposes:
-
-### 1. `backend/.env` - Backend Development Mode
-
-**Used when:** Running backend in development mode (`npm run dev`, `npm run dev:backend`, `npm run dev:full`)
-
 **Location:** `backend/.env` (copy from `backend/.env.example`)
 
-**Key Variables:**
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `JWT_SECRET` | Secret key for JWT token signing | **Yes** |
+| `PORT` | Backend server port | No (default: `3001`) |
+| `NODE_ENV` | Environment mode | No (default: `development`) |
+| `REDIS_URL` | Redis connection string for caching | No (default: `redis://localhost:6379`) |
+| `CORS_ALLOWED_ORIGINS` | Additional allowed CORS origins (comma-separated) | No |
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NODE_ENV` | Environment mode | `development` |
-| `PORT` | Backend server port | `3001` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://reports_user@localhost:5432/reports_app_db` |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
-| `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
-| `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `backend/.env.example` |
+### Database Configuration
 
-### 2. `.env` (root) - Docker Compose Mode
+This application uses **external databases** provided by the user at login time:
+- **IoT Database** - Source database for SQL queries
+- **Settings Database** - Stores user settings in `dashboard_studio_meta_data` schema
 
-**Used when:** Running services via Docker Compose (`npm run docker:up`, `docker-compose up`)
-
-**Location:** `.env` in project root (copy from `.env.example`)
-
-**Key Variables:**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `JWT_SECRET` | JWT signing secret (REQUIRED) | Must be set |
-| `POSTGRES_DB` | PostgreSQL database name | `reports_app_db` |
-| `POSTGRES_USER` | PostgreSQL username | `reports_user` |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
-| `REPORT_SCHEMA_URL` | Example dashboard schema URL | See `.env.example` |
+No local PostgreSQL database is required. Users enter their database connection URLs on the login page.
 
 ### Setup
 
-The `npm run dev:setup` command automatically creates `backend/.env` from `backend/.env.example` if it doesn't exist.
-
-For Docker Compose, manually copy `.env.example` to `.env` and fill in the values:
-
 ```bash
-cp .env.example .env
-# Edit .env with your values
-```
+# Copy the example environment file
+cp backend/.env.example backend/.env
 
-See [backend/.env.example](./backend/.env.example) for complete configuration options.
+# Generate a secure JWT secret
+openssl rand -hex 32
+
+# Edit backend/.env and set JWT_SECRET
+```
 
 ## 🚀 Production Deployment
 
