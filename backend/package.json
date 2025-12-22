@@ -1,7 +1,13 @@
 {
-  "name": "sql-report-dash-backend",
+  "name": "navixy-iot-query-dashboard-backend",
   "version": "1.0.0",
-  "description": "Backend API for SQL Report Dashboard",
+  "description": "Backend API for Navixy IoT Query Dashboard",
+  "license": "MPL-2.0",
+  "author": "Navixy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SquareGPS/navixy-iot-query-dashboard.git"
+  },
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

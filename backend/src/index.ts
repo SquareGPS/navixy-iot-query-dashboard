@@ -19,7 +19,6 @@ const result = dotenv.config({ path: envPath });
 
 if (result.error) {
   console.warn('Warning: Could not load .env file:', result.error.message);
-  console.warn('Make sure DATABASE_URL is set in your environment');
 } else {
   console.log('Environment variables loaded from .env file');
 }
@@ -60,41 +59,26 @@ app.use(helmet({
 
 // CORS configuration
 // Supports both HTTP and HTTPS
-const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? [
-      'http://localhost',
-      'http://localhost:80',
-      'https://localhost',
-      'https://localhost:443',
-      'http://localhost:8080',
-      'https://localhost:8080',
-      'http://localhost:8081',
-      'https://localhost:8081',
-      'http://localhost:3000',
-      'https://localhost:3000',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
-      'https://dashboard.tools.squaregps.com',
-      'https://dashboard.tools.squaregps.com:443',
-    ]
-  : [
-      'http://localhost',
-      'http://localhost:80',
-      'https://localhost',
-      'https://localhost:443',
-      'http://localhost:8080',
-      'https://localhost:8080',
-      'http://localhost:8081',
-      'https://localhost:8081',
-      'http://localhost:3000',
-      'https://localhost:3000',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'http://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:80',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com',
-      'https://ec2-44-247-98-167.us-west-2.compute.amazonaws.com:443',
-    ];
+// Additional origins can be configured via CORS_ALLOWED_ORIGINS environment variable (comma-separated)
+const baseOrigins = [
+  'http://localhost',
+  'http://localhost:80',
+  'https://localhost',
+  'https://localhost:443',
+  'http://localhost:8080',
+  'https://localhost:8080',
+  'http://localhost:8081',
+  'https://localhost:8081',
+  'http://localhost:3000',
+  'https://localhost:3000',
+];
+
+// Parse additional origins from environment variable
+const additionalOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+const allowedOrigins = [...baseOrigins, ...additionalOrigins];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -225,7 +209,7 @@ async function startServer() {
       process.exit(1);
     }
 
-    // Initialize database connection
+    // Initialize database service (no connection yet - connects on first request)
     await DatabaseService.initialize();
     logger.info('Database service initialized');
 
@@ -249,4 +233,3 @@ async function startServer() {
 startServer();
 
 export { app, server };
-

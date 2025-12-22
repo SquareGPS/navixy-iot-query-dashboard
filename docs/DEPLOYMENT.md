@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying the Navixy DataHub Dashboard to production on EC2.
+This guide covers deploying the Navixy IoT Query Dashboard to production on EC2.
 
 ## Prerequisites
 
@@ -25,8 +25,8 @@ The production deployment uses:
 
 ```bash
 cd /home/ec2-user
-git clone https://github.com/DanilNezhdanov/navixy-datahub-dashboard.git
-cd navixy-datahub-dashboard
+git clone https://github.com/SquareGPS/navixy-iot-query-dashboard.git
+cd navixy-iot-query-dashboard
 ```
 
 ### 2. Configure Environment Variables
@@ -34,7 +34,7 @@ cd navixy-datahub-dashboard
 Copy and configure environment files:
 
 ```bash
-cp backend/env.example backend/.env
+cp backend/.env.example backend/.env
 # Edit backend/.env with your configuration
 ```
 
@@ -63,19 +63,13 @@ This script:
 Pull latest images and start containers:
 
 ```bash
-docker pull dnezhdanov/navixy-dashboard:latest
-docker pull dnezhdanov/navixy-dashboard:frontend-latest
+docker pull squaregps/navixy-iot-query-dashboard:backend-latest
+docker pull squaregps/navixy-iot-query-dashboard:frontend-latest
 
 docker-compose --profile production up -d
 ```
 
-### 6. Run Database Migrations (if needed)
-
-```bash
-docker-compose exec postgres psql -U reports_user -d reports_app_db -f /path/to/migration.sql
-```
-
-### 7. Verify Deployment
+### 6. Verify Deployment
 
 - Check containers are running: `docker ps`
 - Check nginx status: `sudo systemctl status nginx`
@@ -141,18 +135,16 @@ For CI/CD, you can create a deployment script that:
 1. Pulls latest code
 2. Pulls latest Docker images
 3. Restarts containers
-4. Runs migrations
-5. Verifies deployment
+4. Verifies deployment
 
 Example:
 ```bash
 #!/bin/bash
 set -e
-cd /home/ec2-user/navixy-datahub-dashboard
+cd /home/ec2-user/navixy-iot-query-dashboard
 git pull origin main
 docker-compose pull
 docker-compose --profile production up -d
-# Run migrations if needed
 # Verify deployment
 ```
 
@@ -163,7 +155,6 @@ docker-compose --profile production up -d
 - [ ] Domain accessible via HTTPS
 - [ ] Backend health check passes
 - [ ] Frontend loads correctly
-- [ ] Database migrations applied
 - [ ] SSL certificate valid and auto-renewal configured
 
 ## Maintenance

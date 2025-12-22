@@ -1,11 +1,21 @@
 # Development Setup
 
+## Architecture Overview
+
+The dashboard application connects to **client databases** for both:
+1. **User Settings Storage** - Uses `CLIENT_SETTINGS_DB_USER` from environment with password from login URL
+2. **SQL Query Execution** - Uses username from the user's login URL (iotDbUrl)
+
+Both connections use the same host/port/database/password extracted from the user's login URL, but with different usernames (roles) for different purposes:
+- SQL queries use the role from the login URL
+- Settings storage uses `CLIENT_SETTINGS_DB_USER` role (same password)
+
 ## Local Development (Recommended)
 
 For local development, run the frontend separately using Vite dev server for hot reload:
 
 ```bash
-# Terminal 1: Start backend services (PostgreSQL, Redis, Backend API)
+# Terminal 1: Start backend services (Redis + Backend API)
 npm run docker:up
 
 # Terminal 2: Start frontend dev server
@@ -42,10 +52,19 @@ docker compose --profile production up -d
 
 ## Environment Variables
 
+### Required Backend Variables
+
+The following environment variables are **required** for the backend:
+
+| Variable | Description |
+|----------|-------------|
+| `CLIENT_SETTINGS_DB_USER` | Username for connecting to client database for settings storage (password taken from login URL) |
+| `JWT_SECRET` | Secret key for JWT token signing |
+
 ### Local Development
-- Create `.env.local` (see `.env.local.example`)
-- Set `VITE_DEFAULT_METABASE_DB_CONNECTION_URL` for prepopulated connection string
-- Vite automatically loads `.env.local` in dev mode
+- Create `backend/.env` (see `backend/.env.example`)
+- Set `CLIENT_SETTINGS_DB_USER` (password is taken from the user's login URL)
+- Create `.env.local` (see `.env.local.example`) for frontend variables
 
 ### Production / EC2
 - Set environment variables in `.env` file (see `.env.example`)
@@ -55,8 +74,7 @@ docker compose --profile production up -d
 ## Docker Services
 
 **Default (dev mode):**
-- `postgres` - PostgreSQL database
-- `redis` - Redis cache
+- `redis` - Redis cache for query results
 - `backend` - Node.js backend API
 
 **Production profile:**
@@ -71,7 +89,7 @@ docker compose --profile production up -d
 ```bash
 # Local development
 npm run dev                    # Start Vite dev server
-npm run docker:up              # Start backend services (no frontend)
+npm run docker:up              # Start backend services (Redis + Backend)
 
 # Production
 npm run build                  # Build frontend
@@ -81,3 +99,15 @@ npm run docker:up:prod         # Start all services including frontend
 npm run docker:logs            # View logs
 npm run docker:down            # Stop all services
 ```
+
+## Database Schema
+
+The application stores user settings in a `dashboard_studio_meta_data` schema on the user's external database. The following tables are expected:
+
+- `dashboard_studio_meta_data.users` - User accounts
+- `dashboard_studio_meta_data.user_roles` - User role assignments
+- `dashboard_studio_meta_data.global_variables` - Dashboard-wide variables
+- `dashboard_studio_meta_data.sections` - Report sections/folders
+- `dashboard_studio_meta_data.reports` - Dashboard reports with schemas
+
+**Note:** The schema must be set up on the user's database before first use. Contact your database administrator for setup.

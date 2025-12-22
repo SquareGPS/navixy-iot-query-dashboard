@@ -50,10 +50,7 @@ If you prefer to set up manually:
 ### Required
 - `JWT_SECRET` - Secret key for JWT token signing (auto-generated if missing)
 
-### Optional (with defaults)
-- `POSTGRES_DB` - Database name (default: `reports_app_db`)
-- `POSTGRES_USER` - Database user (default: `reports_user`)
-- `POSTGRES_PASSWORD` - Database password (default: `postgres`)
+### Optional
 - `REPORT_SCHEMA_URL` - URL to report schema repository
 
 ## Common Commands
@@ -92,41 +89,29 @@ docker compose down
 
 # Or check what's using the port
 lsof -i :3001  # Backend
-lsof -i :5432  # PostgreSQL
 lsof -i :6379  # Redis
-```
-
-### Database Issues
-```bash
-# Reset database (WARNING: deletes all data)
-docker compose down -v
-docker compose up -d
+lsof -i :8080  # Frontend
 ```
 
 ## Services
 
+- **Frontend**: http://localhost:8080
 - **Backend API**: http://localhost:3001
-- **PostgreSQL**: localhost:5432
 - **Redis**: localhost:6379
 - **Health Check**: http://localhost:3001/health
 
-## Default Credentials
+## Login
 
-**Plugin Mode (Passwordless - Recommended):**
-- **Email**: admin@example.com (prepopulated on login screen)
+- **Email**: Enter your email address
 - **Role**: Select from dropdown (admin, editor, viewer)
-- **Database URLs**: Configure Metabase and IoT database URLs on login screen
+- **Database URL**: Enter your PostgreSQL connection URL
 
-**Legacy Mode (Password-based):**
-- **Email**: admin@example.com
-- **Password**: admin123 (if user was created with password)
-
-**Note:** The app now operates primarily in plugin mode where authentication is token-based. Database configuration is handled on the login screen, not in Settings.
+**Note:** The app operates in passwordless mode where authentication is token-based. Database connection is configured on the login screen.
 
 ## Notes
 
 - The `.env` file is gitignored for security
 - Never commit `.env` to version control
 - The script automatically generates a secure JWT_SECRET if missing
-- Database is initialized automatically on first start via `init-db.sql`
+- User settings are stored in the client's database (schema: `dashboard_studio_meta_data`)
 

@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { DatabaseService } from '../services/database.js';
 import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
@@ -22,14 +21,16 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Use the database function to get the menu tree filtered by user_id
       const result = await client.query(
-        'SELECT get_menu_tree($1, $2) as menu_tree',
+        'SELECT dashboard_studio_meta_data.get_menu_tree($1, $2) as menu_tree',
         [userId, includeDeleted]
       );
 
@@ -73,9 +74,11 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
       throw new CustomError('Sections and reports must be arrays', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       logger.info('Starting database transaction');
@@ -96,7 +99,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
         // Check version for optimistic concurrency (also verify user ownership)
         logger.info('Checking section version', { sectionId: section.id, expectedVersion: section.version });
         const currentResult = await client.query(
-          'SELECT version FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+          'SELECT version FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
           [section.id, req.user?.userId]
         );
 
@@ -124,7 +127,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
         // Update section
         logger.info('Updating section', { sectionId: section.id, sortOrder: section.sortOrder });
         const updateResult = await client.query(
-          `UPDATE public.sections 
+          `UPDATE dashboard_studio_meta_data.sections 
            SET sort_order = $1, version = version + 1, updated_at = NOW(), updated_by = $2
            WHERE id = $3 
            RETURNING version`,
@@ -151,7 +154,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
         // Check version for optimistic concurrency (also verify user ownership)
         logger.info('Checking report version', { reportId: report.id, expectedVersion: report.version });
         const currentResult = await client.query(
-          'SELECT version FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+          'SELECT version FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
           [report.id, req.user?.userId]
         );
 
@@ -180,7 +183,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
         if (report.parentSectionId !== null) {
           logger.info('Validating parent section', { reportId: report.id, parentSectionId: report.parentSectionId });
           const sectionCheck = await client.query(
-            'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+            'SELECT id FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
             [report.parentSectionId, req.user?.userId]
           );
 
@@ -203,7 +206,7 @@ router.patch('/v1/menu/reorder', authenticateToken, requireAdminOrEditor, async 
           sortOrder: report.sortOrder 
         });
         const updateResult = await client.query(
-          `UPDATE public.reports 
+          `UPDATE dashboard_studio_meta_data.reports 
            SET section_id = $1, sort_order = $2, version = version + 1, updated_at = NOW(), updated_by = $3
            WHERE id = $4 
            RETURNING version`,
@@ -268,14 +271,16 @@ router.patch('/v1/sections/:id', authenticateToken, requireAdminOrEditor, async 
       throw new CustomError('Version is required for optimistic concurrency', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Check version for optimistic concurrency (also verify user ownership)
       const currentResult = await client.query(
-        'SELECT version FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        'SELECT version FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
         [id, req.user?.userId]
       );
 
@@ -289,7 +294,7 @@ router.patch('/v1/sections/:id', authenticateToken, requireAdminOrEditor, async 
 
       // Update section
       const result = await client.query(
-        `UPDATE public.sections 
+        `UPDATE dashboard_studio_meta_data.sections 
          SET name = $1, version = version + 1, updated_at = NOW(), updated_by = $2
          WHERE id = $3 
          RETURNING id, name, version`,
@@ -324,14 +329,16 @@ router.patch('/v1/reports/:id', authenticateToken, requireAdminOrEditor, async (
       throw new CustomError('Version is required for optimistic concurrency', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Check version for optimistic concurrency (also verify user ownership)
       const currentResult = await client.query(
-        'SELECT version FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        'SELECT version FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
         [id, req.user?.userId]
       );
 
@@ -345,7 +352,7 @@ router.patch('/v1/reports/:id', authenticateToken, requireAdminOrEditor, async (
 
       // Update report
       const result = await client.query(
-        `UPDATE public.reports 
+        `UPDATE dashboard_studio_meta_data.reports 
          SET title = $1, version = version + 1, updated_at = NOW(), updated_by = $2
          WHERE id = $3 
          RETURNING id, title as name, version`,
@@ -376,16 +383,18 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
       throw new CustomError('Strategy must be either "move_children_to_root" or "delete_children"', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       await client.query('BEGIN');
 
       // Check if section exists (also verify user ownership)
       const sectionResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        'SELECT id, name FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
         [id, req.user?.userId]
       );
 
@@ -397,7 +406,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
 
       // Get child reports (verify user ownership)
       const reportsResult = await client.query(
-        'SELECT id FROM public.reports WHERE section_id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        'SELECT id FROM dashboard_studio_meta_data.reports WHERE section_id = $1 AND user_id = $2 AND is_deleted = FALSE',
         [id, req.user?.userId]
       );
 
@@ -408,7 +417,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
         if (strategy === 'move_children_to_root') {
           // Move reports to root and reassign sort orders
           await client.query(
-            'UPDATE public.reports SET section_id = NULL WHERE section_id = $1 AND is_deleted = FALSE',
+            'UPDATE dashboard_studio_meta_data.reports SET section_id = NULL WHERE section_id = $1 AND is_deleted = FALSE',
             [id]
           );
 
@@ -420,7 +429,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
         } else {
           // Soft delete all child reports
           await client.query(
-            'UPDATE public.reports SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE section_id = $2 AND is_deleted = FALSE',
+            'UPDATE dashboard_studio_meta_data.reports SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE section_id = $2 AND is_deleted = FALSE',
             [req.user?.userId, id]
           );
           affectedReports = childReports.length;
@@ -432,7 +441,7 @@ router.patch('/v1/sections/:id/delete', authenticateToken, requireAdminOrEditor,
       // Soft delete the section
       // The trigger function handles recursion prevention internally
       await client.query(
-        'UPDATE public.sections SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
+        'UPDATE dashboard_studio_meta_data.sections SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
         [req.user?.userId, id]
       );
 
@@ -460,14 +469,16 @@ router.patch('/v1/reports/:id/delete', authenticateToken, requireAdminOrEditor, 
   try {
     const { id } = req.params;
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Check if report exists (also verify user ownership)
       const reportResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
+        'SELECT id, title FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE',
         [id, req.user?.userId]
       );
 
@@ -479,7 +490,7 @@ router.patch('/v1/reports/:id/delete', authenticateToken, requireAdminOrEditor, 
 
       // Soft delete the report
       await client.query(
-        'UPDATE public.reports SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
+        'UPDATE dashboard_studio_meta_data.reports SET is_deleted = TRUE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
         [req.user?.userId, id]
       );
 
@@ -501,14 +512,16 @@ router.patch('/v1/sections/:id/restore', authenticateToken, requireAdminOrEditor
   try {
     const { id } = req.params;
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Check if section exists and is deleted (also verify user ownership)
       const sectionResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
+        'SELECT id, name FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
         [id, req.user?.userId]
       );
 
@@ -520,7 +533,7 @@ router.patch('/v1/sections/:id/restore', authenticateToken, requireAdminOrEditor
 
       // Restore the section
       await client.query(
-        'UPDATE public.sections SET is_deleted = FALSE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
+        'UPDATE dashboard_studio_meta_data.sections SET is_deleted = FALSE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
         [req.user?.userId, id]
       );
 
@@ -542,14 +555,16 @@ router.patch('/v1/reports/:id/restore', authenticateToken, requireAdminOrEditor,
   try {
     const { id } = req.params;
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Check if report exists and is deleted (also verify user ownership)
       const reportResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
+        'SELECT id, title FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2 AND is_deleted = TRUE',
         [id, req.user?.userId]
       );
 
@@ -561,7 +576,7 @@ router.patch('/v1/reports/:id/restore', authenticateToken, requireAdminOrEditor,
 
       // Restore the report
       await client.query(
-        'UPDATE public.reports SET is_deleted = FALSE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
+        'UPDATE dashboard_studio_meta_data.reports SET is_deleted = FALSE, updated_at = NOW(), updated_by = $1 WHERE id = $2',
         [req.user?.userId, id]
       );
 

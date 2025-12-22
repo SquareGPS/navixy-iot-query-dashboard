@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
 import { DatabaseService } from '../services/database.js';
 import { authenticateToken, requireAdmin, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -12,73 +11,41 @@ const router = Router();
 // Authentication Routes
 // ==========================================
 
-// Login (passwordless for plugin mode)
+// Login (passwordless only - for plugin mode)
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password, role, metabaseDbUrl, iotDbUrl } = req.body;
+    const { email, role, iotDbUrl, userDbUrl } = req.body;
 
-    // Support both password-based (legacy) and passwordless (plugin mode) authentication
-    if (password) {
-      // Legacy password-based authentication
-      if (!email || !password) {
-        throw new CustomError('Email and password are required', 400);
-      }
-
-      logger.info('Login attempt (password)', { email });
-
-      const dbService = DatabaseService.getInstance();
-      const result = await dbService.authenticateUser(email, password);
-
-      if (!result) {
-        throw new CustomError('Invalid credentials', 401);
-      }
-
-      logger.info(`User logged in: ${email}`);
-
-      // Extract role from token
-      const decoded = jwt.verify(result.token, process.env.JWT_SECRET || 'fallback-secret') as any;
-
-      res.json({
-        success: true,
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          role: decoded.role
-        },
-        token: result.token
-      });
-    } else {
-      // Passwordless authentication (plugin mode)
-      if (!email || !role || !metabaseDbUrl || !iotDbUrl) {
-        throw new CustomError('Email, role, metabaseDbUrl, and iotDbUrl are required', 400);
-      }
-
-      if (!['admin', 'editor', 'viewer'].includes(role)) {
-        throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
-      }
-
-      logger.info('Login attempt (passwordless)', { email, role });
-
-      const dbService = DatabaseService.getInstance();
-      const result = await dbService.authenticateUserPasswordless(
-        email,
-        role as 'admin' | 'editor' | 'viewer',
-        metabaseDbUrl,
-        iotDbUrl
-      );
-
-      logger.info(`User logged in (passwordless): ${email}`);
-
-      res.json({
-        success: true,
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          role: role
-        },
-        token: result.token
-      });
+    // Passwordless authentication only
+    if (!email || !role || !iotDbUrl || !userDbUrl) {
+      throw new CustomError('Email, role, iotDbUrl, and userDbUrl are required', 400);
     }
+
+    if (!['admin', 'editor', 'viewer'].includes(role)) {
+      throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
+    }
+
+    logger.info('Login attempt (passwordless)', { email, role });
+
+    const dbService = DatabaseService.getInstance();
+    const result = await dbService.authenticateUserPasswordless(
+      email,
+      role as 'admin' | 'editor' | 'viewer',
+      iotDbUrl,
+      userDbUrl
+    );
+
+    logger.info(`User logged in (passwordless): ${email}`);
+
+    res.json({
+      success: true,
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        role: role
+      },
+      token: result.token
+    });
   } catch (error) {
     logger.error('Login error:', {
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -91,8 +58,12 @@ router.post('/auth/login', async (req, res, next) => {
 // Get current user info (verify token)
 router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const role = await dbService.getUserRole(req.user?.userId || '', dbService.appPool);
+    const role = await dbService.getUserRole(req.user?.userId || '', req.settingsPool);
 
     res.json({
       success: true,
@@ -102,84 +73,6 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res,
         role: role
       }
     });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Test metadata database connection (public endpoint, no auth required)
-router.post('/auth/test-metadata-connection', async (req, res, next) => {
-  try {
-    const { external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl } = req.body;
-
-    const dbService = DatabaseService.getInstance();
-    
-    const testSettings = {
-      external_db_url,
-      external_db_host,
-      external_db_port,
-      external_db_name,
-      external_db_user,
-      external_db_password,
-      external_db_ssl
-    };
-
-    // Test the connection
-    try {
-      await dbService.testDatabaseConnection(testSettings);
-      
-      res.json({
-        success: true,
-        message: 'Database connection successful'
-      });
-    } catch (error) {
-      if (error instanceof CustomError) {
-        throw error;
-      }
-      throw new CustomError(
-        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        400
-      );
-    }
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Test Metabase database connection (public endpoint, no auth required)
-router.post('/auth/test-metabase-connection', async (req, res, next) => {
-  try {
-    const { db_url, db_host, db_port, db_name, db_user, db_password, db_ssl } = req.body;
-
-    const dbService = DatabaseService.getInstance();
-    
-    const testSettings = {
-      external_db_url: db_url,
-      external_db_host: db_host,
-      external_db_port: db_port,
-      external_db_name: db_name,
-      external_db_user: db_user,
-      external_db_password: db_password,
-      external_db_ssl: db_ssl
-    };
-
-    // Test the connection
-    try {
-      await dbService.testDatabaseConnection(testSettings);
-      
-      res.json({
-        success: true,
-        message: 'Metabase database connection successful'
-      });
-    } catch (error) {
-      if (error instanceof CustomError) {
-        throw error;
-      }
-      throw new CustomError(
-        `Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        400
-      );
-    }
   } catch (error) {
     next(error);
   }
@@ -224,166 +117,6 @@ router.post('/auth/test-iot-connection', async (req, res, next) => {
   }
 });
 
-// Public registration (for first admin user)
-router.post('/auth/register', async (req, res, next) => {
-  try {
-    const { email, password, role = 'viewer' } = req.body;
-
-    if (!email || !password) {
-      throw new CustomError('Email and password are required', 400);
-    }
-
-    if (!['admin', 'editor', 'viewer'].includes(role)) {
-      throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
-    }
-
-    const dbService = DatabaseService.getInstance();
-    
-    // Check if this is the first user (no users exist)
-    const existingUsers = await dbService.getUsers();
-    
-    // If users exist, require admin authentication
-    if (existingUsers.length > 0) {
-      // This should be handled by the authenticated route
-      throw new CustomError('Registration requires admin privileges', 403);
-    }
-
-    // Create first admin user
-    const user = await dbService.createUser(email, password, 'admin');
-
-    logger.info(`First admin user created: ${email}`);
-
-    res.status(201).json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: 'admin'
-      }
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('duplicate key')) {
-      next(new CustomError('User with this email already exists', 409));
-    } else {
-      next(error);
-    }
-  }
-});
-
-// Admin-only registration (for additional users)
-router.post('/auth/register-admin', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    const { email, password, role = 'viewer' } = req.body;
-
-    if (!email || !password) {
-      throw new CustomError('Email and password are required', 400);
-    }
-
-    if (!['admin', 'editor', 'viewer'].includes(role)) {
-      throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
-    }
-
-    const dbService = DatabaseService.getInstance();
-    const user = await dbService.createUser(email, password, role);
-
-    logger.info(`User created by ${req.user?.email}: ${email} with role ${role}`);
-
-    res.status(201).json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: role
-      }
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('duplicate key')) {
-      next(new CustomError('User with this email already exists', 409));
-    } else {
-      next(error);
-    }
-  }
-});
-
-// Get current user
-router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    res.json({
-      success: true,
-      user: req.user
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ==========================================
-// App Settings Routes
-// ==========================================
-
-// Get app settings
-router.get('/settings', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const settings = await dbService.getAppSettings(pool);
-
-    res.json({
-      success: true,
-      settings
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Update app settings (admin only)
-router.put('/settings', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    await dbService.updateAppSettings(req.body, pool);
-
-    logger.info(`App settings updated by ${req.user?.email}`);
-
-    res.json({
-      success: true,
-      message: 'Settings updated successfully'
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Test external database connection
-router.post('/settings/test-connection', authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    const { external_db_url, external_db_host, external_db_port, external_db_name, external_db_user, external_db_password, external_db_ssl } = req.body;
-
-    const dbService = DatabaseService.getInstance();
-    
-    const testSettings = {
-      external_db_url,
-      external_db_host,
-      external_db_port,
-      external_db_name,
-      external_db_user,
-      external_db_password,
-      external_db_ssl
-    };
-
-    // Test the connection without saving settings
-    await dbService.testConnectionWithSettings(testSettings);
-    
-    res.json({
-      success: true,
-      message: 'Database connection successful'
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 // ==========================================
 // Global Variables Routes
 // ==========================================
@@ -391,9 +124,12 @@ router.post('/settings/test-connection', authenticateToken, requireAdmin, async 
 // Get all global variables
 router.get('/global-variables', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const variables = await dbService.getGlobalVariables(pool);
+    const variables = await dbService.getGlobalVariables(req.settingsPool);
 
     res.json({
       success: true,
@@ -411,9 +147,13 @@ router.get('/global-variables/:id', authenticateToken, async (req: Authenticated
     if (!id) {
       throw new CustomError('Variable ID is required', 400);
     }
+
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const variable = await dbService.getGlobalVariableById(id as string, pool);
+    const variable = await dbService.getGlobalVariableById(id as string, req.settingsPool);
 
     if (!variable) {
       throw new CustomError('Global variable not found', 404);
@@ -437,13 +177,16 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
       throw new CustomError('Label is required', 400);
     }
 
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
     const variable = await dbService.createGlobalVariable({
       label,
       description,
       value
-    }, pool);
+    }, req.settingsPool);
 
     logger.info(`Global variable created by ${req.user?.email}: ${label}`);
 
@@ -465,13 +208,16 @@ router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req:
     }
     const { label, description, value } = req.body;
 
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
     const variable = await dbService.updateGlobalVariable(id as string, {
       label,
       description,
       value
-    }, pool);
+    }, req.settingsPool);
 
     logger.info(`Global variable updated by ${req.user?.email}: ${variable.label}`);
 
@@ -492,9 +238,12 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
       throw new CustomError('Variable ID is required', 400);
     }
 
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    await dbService.deleteGlobalVariable(id as string, pool);
+    await dbService.deleteGlobalVariable(id as string, req.settingsPool);
 
     logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
 
@@ -508,73 +257,18 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 });
 
 // ==========================================
-// User Preferences Routes
-// ==========================================
-
-// Get current user's preferences
-router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    if (!req.user?.userId) {
-      throw new CustomError('User not authenticated', 401);
-    }
-
-    const dbService = DatabaseService.getInstance();
-    const preferences = await dbService.getUserPreferences(req.user.userId);
-
-    // Return default preferences if none exist
-    res.json({
-      success: true,
-      preferences: preferences || { timezone: 'UTC' }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Update current user's preferences
-router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
-  try {
-    if (!req.user?.userId) {
-      throw new CustomError('User not authenticated', 401);
-    }
-
-    const { timezone } = req.body;
-
-    if (!timezone || typeof timezone !== 'string') {
-      throw new CustomError('Timezone is required', 400);
-    }
-
-    const dbService = DatabaseService.getInstance();
-    const updatedPreferences = await dbService.updateUserPreferences(req.user.userId, { timezone });
-
-    logger.info(`User preferences updated by ${req.user.email}`, { timezone });
-
-    res.json({
-      success: true,
-      preferences: updatedPreferences,
-      message: 'Preferences updated successfully'
-    });
-  } catch (error: any) {
-    logger.error('Error updating user preferences:', {
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.userId,
-      timezone: req.body?.timezone
-    });
-    next(error);
-  }
-});
-
-// ==========================================
 // Reports and Sections Routes
 // ==========================================
 
 // Get all sections (filtered by user_id)
 router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const sections = await dbService.getSections(pool, req.user?.userId);
+    const sections = await dbService.getSections(req.settingsPool, req.user?.userId);
 
     res.json({
       success: true,
@@ -588,9 +282,12 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
 // Get all reports (filtered by user_id)
 router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const reports = await dbService.getReports(pool, req.user?.userId);
+    const reports = await dbService.getReports(req.settingsPool, req.user?.userId);
 
     res.json({
       success: true,
@@ -608,9 +305,13 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
+
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
     const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const report = await dbService.getReportById(id, pool, req.user?.userId);
+    const report = await dbService.getReportById(id, req.settingsPool, req.user?.userId);
 
     if (!report) {
       throw new CustomError('Report not found', 404);
@@ -628,7 +329,7 @@ router.get('/reports/:id', authenticateToken, async (req: AuthenticatedRequest, 
 // Create section (admin/editor only)
 router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, sort_order, parent_section_id } = req.body;
+    const { name, sort_order } = req.body;
     
     if (!name) {
       throw new CustomError('Section name is required', 400);
@@ -638,13 +339,15 @@ router.post('/sections', authenticateToken, requireAdminOrEditor, async (req: Au
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       const result = await client.query(
-        'INSERT INTO public.sections (name, sort_order, user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO dashboard_studio_meta_data.sections (name, sort_order, user_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
         [name, sort_order || 0, req.user.userId, req.user.userId]
       );
 
@@ -676,14 +379,16 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Verify user owns this section
       const ownerCheck = await client.query(
-        'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+        'SELECT id FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2',
         [id, req.user.userId]
       );
       if (ownerCheck.rows.length === 0) {
@@ -701,7 +406,7 @@ router.put('/sections/:id', authenticateToken, requireAdminOrEditor, async (req:
       }
 
       const result = await client.query(
-        `UPDATE public.sections SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        `UPDATE dashboard_studio_meta_data.sections SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
         [...updateValues, id]
       );
 
@@ -733,16 +438,18 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       await client.query('BEGIN');
 
       // First check if section exists and user owns it
       const checkResult = await client.query(
-        'SELECT id, name FROM public.sections WHERE id = $1 AND user_id = $2',
+        'SELECT id, name FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2',
         [id, req.user.userId]
       );
 
@@ -754,7 +461,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
 
       // Get reports in this section
       const reportsResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE section_id = $1',
+        'SELECT id, title FROM dashboard_studio_meta_data.reports WHERE section_id = $1',
         [id]
       );
 
@@ -764,7 +471,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
         if (moveReportsToSection) {
           // Move reports to another section (verify user owns target section)
           const targetSectionResult = await client.query(
-            'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+            'SELECT id FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2',
             [moveReportsToSection, req.user.userId]
           );
 
@@ -773,7 +480,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
           }
 
           await client.query(
-            'UPDATE public.reports SET section_id = $1 WHERE section_id = $2',
+            'UPDATE dashboard_studio_meta_data.reports SET section_id = $1 WHERE section_id = $2',
             [moveReportsToSection, id]
           );
 
@@ -781,7 +488,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
         } else {
           // Move reports to root (no section)
           await client.query(
-            'UPDATE public.reports SET section_id = NULL WHERE section_id = $1',
+            'UPDATE dashboard_studio_meta_data.reports SET section_id = NULL WHERE section_id = $1',
             [id]
           );
 
@@ -791,7 +498,7 @@ router.delete('/sections/:id', authenticateToken, requireAdminOrEditor, async (r
 
       // Delete the section
       const deleteResult = await client.query(
-        'DELETE FROM public.sections WHERE id = $1 RETURNING id',
+        'DELETE FROM dashboard_studio_meta_data.sections WHERE id = $1 RETURNING id',
         [id]
       );
 
@@ -828,9 +535,11 @@ router.put('/sections/reorder', authenticateToken, requireAdminOrEditor, async (
       throw new CustomError('Sections array is required', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       await client.query('BEGIN');
@@ -841,7 +550,7 @@ router.put('/sections/reorder', authenticateToken, requireAdminOrEditor, async (
         }
 
         await client.query(
-          'UPDATE public.sections SET sort_index = $1 WHERE id = $2',
+          'UPDATE dashboard_studio_meta_data.sections SET sort_index = $1 WHERE id = $2',
           [section.sort_index, section.id]
         );
       }
@@ -874,9 +583,11 @@ router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (r
       throw new CustomError('Reports array is required', 400);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       await client.query('BEGIN');
@@ -897,7 +608,7 @@ router.put('/reports/reorder', authenticateToken, requireAdminOrEditor, async (r
         }
 
         await client.query(
-          `UPDATE public.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
+          `UPDATE dashboard_studio_meta_data.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
           [...updateValues, report.id]
         );
       }
@@ -934,15 +645,17 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // If section_id is provided, verify it belongs to the user
       if (section_id) {
         const sectionCheck = await client.query(
-          'SELECT id FROM public.sections WHERE id = $1 AND user_id = $2',
+          'SELECT id FROM dashboard_studio_meta_data.sections WHERE id = $1 AND user_id = $2',
           [section_id, req.user.userId]
         );
         if (sectionCheck.rows.length === 0) {
@@ -951,7 +664,7 @@ router.post('/reports', authenticateToken, requireAdminOrEditor, async (req: Aut
       }
 
       const result = await client.query(
-        `INSERT INTO public.reports (title, section_id, slug, sort_order, report_schema, user_id, created_by, updated_by)
+        `INSERT INTO dashboard_studio_meta_data.reports (title, section_id, slug, sort_order, report_schema, user_id, created_by, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [
           title,
@@ -993,14 +706,16 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // Verify user owns this report
       const ownerCheck = await client.query(
-        'SELECT id FROM public.reports WHERE id = $1 AND user_id = $2',
+        'SELECT id FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2',
         [id, req.user.userId]
       );
       if (ownerCheck.rows.length === 0) {
@@ -1024,7 +739,7 @@ router.put('/reports/:id', authenticateToken, requireAdminOrEditor, async (req: 
         paramIndex++;
       }
 
-      const updateQuery = `UPDATE public.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+      const updateQuery = `UPDATE dashboard_studio_meta_data.reports SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
 
       const result = await client.query(
         updateQuery,
@@ -1063,14 +778,16 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
       throw new CustomError('User not authenticated', 401);
     }
 
-    const dbService = DatabaseService.getInstance();
-    const pool = dbService.appPool;
-    const client = await pool.connect();
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
     
     try {
       // First check if report exists and user owns it
       const checkResult = await client.query(
-        'SELECT id, title FROM public.reports WHERE id = $1 AND user_id = $2',
+        'SELECT id, title FROM dashboard_studio_meta_data.reports WHERE id = $1 AND user_id = $2',
         [id, req.user.userId]
       );
 
@@ -1082,7 +799,7 @@ router.delete('/reports/:id', authenticateToken, requireAdminOrEditor, async (re
 
       // Delete the report
       const deleteResult = await client.query(
-        'DELETE FROM public.reports WHERE id = $1 RETURNING id',
+        'DELETE FROM dashboard_studio_meta_data.reports WHERE id = $1 RETURNING id',
         [id]
       );
 
@@ -1157,7 +874,7 @@ router.get('/schema/config', async (req, res, next) => {
     
     res.json({
       success: true,
-      defaultUrl: schemaUrl || 'https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json'
+      defaultUrl: schemaUrl || ''
     });
   } catch (error) {
     next(error);

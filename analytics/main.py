@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,15 +16,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="SQL Report Analytics Service",
-    description="Python-based analytics service for SQL Report Dashboard",
+    title="Navixy IoT Query Analytics Service",
+    description="Python-based analytics service for Navixy IoT Query Dashboard",
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - configurable via environment variable
+default_origins = ["http://localhost:8080", "http://localhost:3000", "http://localhost:8081"]
+additional_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+allowed_origins = default_origins + [o.strip() for o in additional_origins if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

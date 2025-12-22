@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import type { Pool } from 'pg';
 import jwt from 'jsonwebtoken';
 import { DatabaseService } from '../services/database.js';
 import { logger } from '../utils/logger.js';
@@ -9,7 +10,10 @@ export interface AuthenticatedRequest extends Request {
     userId: string;
     email: string;
     role: string;
+    iotDbUrl: string;
+    userDbUrl: string;
   };
+  settingsPool?: Pool;
 }
 
 export const authenticateToken = async (
@@ -27,21 +31,39 @@ export const authenticateToken = async (
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any;
     
-    // Verify user still exists and get current role
+    // Validate that both database URLs are present in the token
+    if (!decoded.iotDbUrl) {
+      throw new CustomError('Invalid token: missing iotDbUrl', 401);
+    }
+    if (!decoded.userDbUrl) {
+      throw new CustomError('Invalid token: missing userDbUrl', 401);
+    }
+
+    // Get client settings pool from userDbUrl in JWT
     const dbService = DatabaseService.getInstance();
-    const userRole = await dbService.getUserRole(decoded.userId, dbService.appPool);
+    const settingsPool = dbService.getClientSettingsPool(decoded.userDbUrl);
+
+    // Verify user still exists and get current role
+    const userRole = await dbService.getUserRole(decoded.userId, settingsPool);
 
     req.user = {
       userId: decoded.userId,
       email: decoded.email,
-      role: userRole
+      role: userRole,
+      iotDbUrl: decoded.iotDbUrl,
+      userDbUrl: decoded.userDbUrl
     };
+    
+    // Attach the settings pool to the request for use in routes
+    req.settingsPool = settingsPool;
 
     next();
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
       logger.warn('Invalid JWT token:', error.message);
       next(new CustomError('Invalid token', 401));
+    } else if (error instanceof CustomError) {
+      next(error);
     } else {
       logger.error('Authentication error:', error);
       next(new CustomError('Authentication failed', 401));
