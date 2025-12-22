@@ -34,7 +34,7 @@ cd navixy-iot-query-dashboard
 Copy and configure environment files:
 
 ```bash
-cp backend/env.example backend/.env
+cp backend/.env.example backend/.env
 # Edit backend/.env with your configuration
 ```
 
