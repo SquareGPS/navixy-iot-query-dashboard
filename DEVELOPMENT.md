@@ -100,17 +100,14 @@ npm run docker:logs            # View logs
 npm run docker:down            # Stop all services
 ```
 
-## Database Tables
+## Database Schema
 
-The following tables are expected in the client database (created by the client or via migrations):
+The application stores user settings in a `dashboard_studio_meta_data` schema on the user's external database. The following tables are expected:
 
-- `users` - User accounts
-- `user_roles` - User role assignments
-- `global_variables` - Dashboard-wide variables
-- `sections` - Report sections/folders
-- `reports` - Dashboard reports with schemas
+- `dashboard_studio_meta_data.users` - User accounts
+- `dashboard_studio_meta_data.user_roles` - User role assignments
+- `dashboard_studio_meta_data.global_variables` - Dashboard-wide variables
+- `dashboard_studio_meta_data.sections` - Report sections/folders
+- `dashboard_studio_meta_data.reports` - Dashboard reports with schemas
 
-Migrations can be run using:
-```bash
-./scripts/run-migration.sh <database_url> <migration_file>
-```
+**Note:** The schema must be set up on the user's database before first use. Contact your database administrator for setup.

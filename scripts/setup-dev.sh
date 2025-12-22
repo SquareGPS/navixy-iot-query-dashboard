@@ -100,7 +100,7 @@ RATE_LIMIT_MAX_REQUESTS=5000
 ANALYTICS_SERVICE_URL=http://localhost:8001
 
 # Report Schema Repository
-REPORT_SCHEMA_URL=https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json
+# REPORT_SCHEMA_URL= # Optional: URL for default report schema
 
 # Logging
 LOG_LEVEL=info

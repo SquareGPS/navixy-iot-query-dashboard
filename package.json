@@ -1,11 +1,19 @@
 {
-  "name": "vite_react_shadcn_ts",
-  "private": true,
-  "version": "0.0.0",
+  "name": "navixy-iot-query-dashboard",
+  "private": false,
+  "version": "1.0.0",
   "type": "module",
+  "license": "MPL-2.0",
+  "description": "A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data",
+  "author": "Navixy",
+  "keywords": ["dashboard", "sql", "reports", "analytics", "visualization", "react", "typescript", "iot", "navixy"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/DanilNezhdanov/navixy-datahub-dashboard.git"
+    "url": "https://github.com/SquareGPS/navixy-iot-query-dashboard.git"
+  },
+  "homepage": "https://github.com/SquareGPS/navixy-iot-query-dashboard#readme",
+  "bugs": {
+    "url": "https://github.com/SquareGPS/navixy-iot-query-dashboard/issues"
   },
   "scripts": {
     "dev": "vite",

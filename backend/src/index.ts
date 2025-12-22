@@ -59,33 +59,26 @@ app.use(helmet({
 
 // CORS configuration
 // Supports both HTTP and HTTPS
-const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? [
-      'http://localhost',
-      'http://localhost:80',
-      'https://localhost',
-      'https://localhost:443',
-      'http://localhost:8080',
-      'https://localhost:8080',
-      'http://localhost:8081',
-      'https://localhost:8081',
-      'http://localhost:3000',
-      'https://localhost:3000',
-      'https://builder.tools.datahub.navixy.com',
-      'https://builder.tools.datahub.navixy.com:443',
-    ]
-  : [
-      'http://localhost',
-      'http://localhost:80',
-      'https://localhost',
-      'https://localhost:443',
-      'http://localhost:8080',
-      'https://localhost:8080',
-      'http://localhost:8081',
-      'https://localhost:8081',
-      'http://localhost:3000',
-      'https://localhost:3000',
-    ];
+// Additional origins can be configured via CORS_ALLOWED_ORIGINS environment variable (comma-separated)
+const baseOrigins = [
+  'http://localhost',
+  'http://localhost:80',
+  'https://localhost',
+  'https://localhost:443',
+  'http://localhost:8080',
+  'https://localhost:8080',
+  'http://localhost:8081',
+  'https://localhost:8081',
+  'http://localhost:3000',
+  'https://localhost:3000',
+];
+
+// Parse additional origins from environment variable
+const additionalOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+const allowedOrigins = [...baseOrigins, ...additionalOrigins];
 
 app.use(cors({
   origin: (origin, callback) => {

@@ -484,19 +484,22 @@ test('GET /health returns 200', async () => {
    }
    ```
 
-### Database Migration
+### Database Schema
 
-1. **Create migration file** (`migrations/YYYYMMDD_description.sql`)
-   ```sql
-   ALTER TABLE reports ADD COLUMN new_column TEXT;
-   ```
+The application stores user settings in a `dashboard_studio_meta_data` schema on the user's external database. This schema is automatically expected to exist when users connect.
 
-2. **Apply migration**
-   ```bash
-   psql -U user -d reports_app_db -f migrations/YYYYMMDD_description.sql
-   ```
+**Schema Structure:**
+- `dashboard_studio_meta_data.users` - User accounts
+- `dashboard_studio_meta_data.user_roles` - User role assignments
+- `dashboard_studio_meta_data.sections` - Menu sections
+- `dashboard_studio_meta_data.reports` - Report definitions
+- `dashboard_studio_meta_data.global_variables` - Shared variables
 
-3. **Update TypeScript types** if schema changed
+**Schema Setup:**
+The schema must be created on the user's external database before first use. Contact your database administrator for setup instructions.
+
+**TypeScript Types:**
+Update types in `src/types/` if schema changes are needed.
 
 ### Environment Variables
 

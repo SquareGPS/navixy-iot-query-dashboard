@@ -1,6 +1,6 @@
 /**
  * Dashboard Types - Dashboard JSON Schema
- * Documentation: https://github.com/DanilNezhdanov/navixy-datahub-dashboard
+ * Documentation: https://github.com/SquareGPS/navixy-iot-query-dashboard
  */
 
 export interface Dashboard {

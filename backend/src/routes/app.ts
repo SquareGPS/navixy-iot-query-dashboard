@@ -874,7 +874,7 @@ router.get('/schema/config', async (req, res, next) => {
     
     res.json({
       success: true,
-      defaultUrl: schemaUrl || 'https://raw.githubusercontent.com/DanilNezhdanov/report_flex_schemas/main/examples/report-page.example.json'
+      defaultUrl: schemaUrl || ''
     });
   } catch (error) {
     next(error);

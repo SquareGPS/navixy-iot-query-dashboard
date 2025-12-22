@@ -14,7 +14,7 @@ However, the `latest` tag is not being updated automatically.
 
 ### Option 1: Configure Docker Hub Automated Builds (Recommended)
 
-1. Go to Docker Hub: https://hub.docker.com/r/dnezhdanov/navixy-dashboard/builds
+1. Go to Docker Hub: https://hub.docker.com/r/squaregps/navixy-iot-query-dashboard/builds
 2. Click on "Build Settings" or edit the automated build
 3. For each build configuration (backend and frontend):
    - In the "Tags" section, add `latest` as an additional tag
@@ -23,7 +23,7 @@ However, the `latest` tag is not being updated automatically.
 ### Option 2: Manual Tagging via Docker Hub Web UI
 
 After a successful build:
-1. Go to the image repository: https://hub.docker.com/r/dnezhdanov/navixy-dashboard/tags
+1. Go to the image repository: https://hub.docker.com/r/squaregps/navixy-iot-query-dashboard/tags
 2. Find the commit-specific tag (e.g., `backend-b3f7dd0`)
 3. Click on the tag and select "Tag" or "Create Tag"
 4. Create a new tag named `latest` pointing to the same image
@@ -34,13 +34,13 @@ After Docker Hub builds the image, you can manually tag and push:
 
 ```bash
 # Pull the commit-specific tag
-docker pull dnezhdanov/navixy-dashboard:backend-b3f7dd0
+docker pull squaregps/navixy-iot-query-dashboard:backend-b3f7dd0
 
 # Tag it as latest
-docker tag dnezhdanov/navixy-dashboard:backend-b3f7dd0 dnezhdanov/navixy-dashboard:latest
+docker tag squaregps/navixy-iot-query-dashboard:backend-b3f7dd0 squaregps/navixy-iot-query-dashboard:latest
 
 # Push the latest tag
-docker push dnezhdanov/navixy-dashboard:latest
+docker push squaregps/navixy-iot-query-dashboard:latest
 ```
 
 ### Option 4: Configure Build Tags in Docker Hub
@@ -64,8 +64,8 @@ In Docker Hub build settings, configure the tag pattern to include `latest`:
 For best practices with a single `latest` tag:
 
 1. **Separate Repositories** (Recommended):
-   - `dnezhdanov/navixy-dashboard-backend` → tags as `latest`
-   - `dnezhdanov/navixy-dashboard-frontend` → tags as `latest`
+   - `squaregps/navixy-iot-query-dashboard-backend` → tags as `latest`
+   - `squaregps/navixy-iot-query-dashboard-frontend` → tags as `latest`
 
 2. **Single Repository with Multiple Tags**:
    - Configure Docker Hub to tag backend builds as `backend-latest`
@@ -80,8 +80,8 @@ For best practices with a single `latest` tag:
 ## Current docker-compose.yml Configuration
 
 The `docker-compose.yml` uses:
-- Backend: `dnezhdanov/navixy-dashboard:latest`
-- Frontend: `dnezhdanov/navixy-dashboard:frontend-latest`
+- Backend: `squaregps/navixy-iot-query-dashboard:latest`
+- Frontend: `squaregps/navixy-iot-query-dashboard:frontend-latest`
 
 Ensure Docker Hub is configured to update these tags on each build.
 

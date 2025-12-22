@@ -1,6 +1,6 @@
-# SQL Report Dashboard
+# Navixy IoT Query Dashboard
 
-A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards. Built for teams who need self-service business intelligence without requiring deep SQL expertise.
+A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data. Built for teams who need self-service business intelligence without requiring deep SQL expertise.
 
 ## 🎯 Overview
 
@@ -88,7 +88,6 @@ sql-report-dash/
 │   │   └── utils/               # Utility functions (logger, SQL validation)
 │   └── .env                      # Environment variables
 ├── scripts/                      # Development scripts
-├── migrations/                   # Database migration scripts
 ├── docs/                         # Documentation
 └── docker-compose.yml           # Docker services configuration
 ```
@@ -272,7 +271,17 @@ For production deployment, see [DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**.
+
+See [LICENSE](./LICENSE) for the full license text.
+
+### What this means:
+- ✅ You can use this software for commercial purposes
+- ✅ You can modify and distribute the software
+- ✅ You can use this in proprietary projects
+- ⚠️ Modified files must remain under MPL-2.0
+- ⚠️ You must disclose source code of modified MPL files
+- ⚠️ You must include the license and copyright notice
 
 ## 👥 Contributing
 
@@ -284,5 +293,5 @@ For issues, questions, or feature requests, please open an issue on GitHub.
 
 ## 📦 Repository
 
-**GitHub**: [https://github.com/DanilNezhdanov/navixy-datahub-dashboard](https://github.com/DanilNezhdanov/navixy-datahub-dashboard)
+**GitHub**: [https://github.com/SquareGPS/navixy-iot-query-dashboard](https://github.com/SquareGPS/navixy-iot-query-dashboard)
 
