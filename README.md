@@ -7,7 +7,7 @@ A modern, full-stack web application for creating, managing, and viewing SQL-bas
 ## 🎯 Overview
 
 SQL Report Dashboard enables users to:
-- **Execute SQL queries** against [IoT Query DB](https://www.navixy.com/docs/analytics)) with built-in security guards
+- **Execute SQL queries** against [IoT Query DB](https://www.navixy.com/docs/analytics) with built-in security guards
 - **Create interactive dashboards** with multiple visualization types (bar charts, pie charts, tables, tiles)
 - **Organize reports** in a hierarchical menu structure
 - **Edit layouts** using an intuitive drag-and-drop interface
