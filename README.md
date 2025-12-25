@@ -1,13 +1,13 @@
 # Navixy IoT Query Dashboard
 
-Learn more about [IoT Query datatabase](https://www.navixy.com/en/iot-query/)!
+Learn more about [IoT Query solution](https://www.navixy.com/en/iot-query/)!
 
 A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data. Built for teams who need self-service business intelligence without requiring deep SQL expertise.
 
 ## 🎯 Overview
 
 SQL Report Dashboard enables users to:
-- **Execute SQL queries** against [IoT Query datatabase](https://www.navixy.com/en/iot-query/) with built-in security guards
+- **Execute SQL queries** against [IoT Query DB](https://www.navixy.com/docs/analytics)) with built-in security guards
 - **Create interactive dashboards** with multiple visualization types (bar charts, pie charts, tables, tiles)
 - **Organize reports** in a hierarchical menu structure
 - **Edit layouts** using an intuitive drag-and-drop interface
@@ -21,7 +21,7 @@ This is a full-stack TypeScript application:
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **Backend**: Node.js + Express + TypeScript
-- **Database**: [IoT Query datatabase](https://www.navixy.com/en/iot-query/)
+- **Database**: [IoT Query DB](https://www.navixy.com/docs/analytics)
 - **Cache**: Redis (query result caching)
 - **Authentication**: JWT-based authentication
 
