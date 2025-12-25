@@ -1,11 +1,13 @@
 # Navixy IoT Query Dashboard
 
+Learn more about [IoT Query datatabase](https://www.navixy.com/en/iot-query/)!
+
 A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data. Built for teams who need self-service business intelligence without requiring deep SQL expertise.
 
 ## 🎯 Overview
 
 SQL Report Dashboard enables users to:
-- **Execute SQL queries** against PostgreSQL databases with built-in security guards
+- **Execute SQL queries** against [IoT Query datatabase](https://www.navixy.com/en/iot-query/) with built-in security guards
 - **Create interactive dashboards** with multiple visualization types (bar charts, pie charts, tables, tiles)
 - **Organize reports** in a hierarchical menu structure
 - **Edit layouts** using an intuitive drag-and-drop interface
@@ -19,7 +21,7 @@ This is a full-stack TypeScript application:
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **Backend**: Node.js + Express + TypeScript
-- **Database**: PostgreSQL (application data) + PostgreSQL (query data source)
+- **Database**: [IoT Query datatabase](https://www.navixy.com/en/iot-query/)
 - **Cache**: Redis (query result caching)
 - **Authentication**: JWT-based authentication
 
@@ -230,10 +232,10 @@ npm run dev:setup
 ### Database Configuration
 
 This application uses **external databases** provided by the user at login time:
-- **IoT Database** - Source database for SQL queries
-- **Settings Database** - Stores user settings in `dashboard_studio_meta_data` schema
+- ** [IoT Query datatabase](https://www.navixy.com/en/iot-query/)** - Source database for SQL queries
+- **Settings Data Schema** - Stores user settings in the same DB 
 
-No local PostgreSQL database is required. Users enter their database connection URLs on the login page.
+
 
 ### Setup
 
