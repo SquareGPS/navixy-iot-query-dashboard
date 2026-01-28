@@ -438,6 +438,101 @@ test('GET /health returns 200', async () => {
 - Check that your external PostgreSQL database is accessible
 - Verify the `dashboard_studio_meta_data` schema exists on the settings database
 
+## Demo Mode
+
+Demo Mode allows users to experiment with the dashboard builder without modifying the original database. All changes are stored locally in the browser using IndexedDB.
+
+### How Demo Mode Works
+
+1. **Login with Demo Mode enabled**: Check the "Demo Mode" checkbox on the login page, or pass `demo=true` in the API login request
+2. **Initial data seeding**: The app fetches sections, reports, and global variables from the `userDbUrl` database and stores them in IndexedDB
+3. **Local operations**: All CRUD operations (create, update, delete) are performed on the local IndexedDB instead of the remote database
+4. **SQL queries**: SQL queries still execute against the remote `iotDbUrl` database (read-only operations)
+5. **Persistence**: Demo data persists across browser sessions until explicitly reset
+
+### Demo Mode Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend                                  │
+│  ┌──────────────────────┐    ┌─────────────────────────────────┐│
+│  │   AuthContext        │    │      demoApi.ts                 ││
+│  │   - signInDemo()     │───▶│   - Intercepts API calls        ││
+│  │   - reseedDemoData() │    │   - Routes to demoStorage       ││
+│  │   - clearDemoData()  │    │                                 ││
+│  └──────────────────────┘    └────────────┬────────────────────┘│
+│                                           │                      │
+│                              ┌────────────▼────────────────────┐│
+│                              │    demoStorage.ts (IndexedDB)   ││
+│                              │    - sections                   ││
+│                              │    - reports                    ││
+│                              │    - globalVariables            ││
+│                              │    - metadata                   ││
+│                              └─────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ SQL queries only
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Backend                                   │
+│  ┌──────────────────────┐                                       │
+│  │   /api/sql-new/      │──────▶ IoT Database (read-only)       │
+│  │   execute            │                                       │
+│  └──────────────────────┘                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Files
+
+| File | Description |
+|------|-------------|
+| `src/services/demoStorage.ts` | IndexedDB storage service using Dexie.js |
+| `src/services/demoApi.ts` | API interceptor that routes to local storage |
+| `src/contexts/AuthContext.tsx` | Auth context with demo mode functions |
+| `src/pages/Login.tsx` | Login page with Demo Mode checkbox |
+| `src/pages/Settings.tsx` | Settings page with Reset Demo Data button |
+
+### Resetting Demo Data
+
+Users can reset their demo data to the original templates from the Settings page:
+
+1. Go to Settings
+2. Find the "Demo Mode" section (only visible when in Demo Mode)
+3. Click "Reset to Original" button
+4. Confirm the action
+
+This will:
+- Clear all local IndexedDB data
+- Fetch fresh data from the `userDbUrl` database
+- Reload the page to apply changes
+
+### API Demo Mode Flag
+
+The login API accepts a `demo` field:
+
+```bash
+curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "role": "admin",
+    "iotDbUrl": "postgresql://...",
+    "userDbUrl": "postgresql://...",
+    "demo": true
+  }'
+```
+
+The response includes the demo flag:
+
+```json
+{
+  "success": true,
+  "user": { "id": "...", "email": "...", "role": "admin" },
+  "token": "...",
+  "demo": true
+}
+```
+
 ## Common Tasks
 
 ### Adding a New Visualization Type

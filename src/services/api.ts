@@ -1,4 +1,7 @@
 // API service for backend communication
+import { isDemoMode } from './demoApi';
+import { demoApiService } from './demoApi';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export interface ApiResponse<T = any> {
@@ -85,6 +88,7 @@ class ApiService {
   }
 
   async executeTableQuery(params: TableQueryParams): Promise<ApiResponse<TableQueryResult>> {
+    // SQL queries always go to real backend, even in demo mode
     return this.request<TableQueryResult>('/api/sql/table', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -92,6 +96,7 @@ class ApiService {
   }
 
   async executeTileQuery(params: TileQueryParams): Promise<ApiResponse<TileQueryResult>> {
+    // SQL queries always go to real backend, even in demo mode
     return this.request<TileQueryResult>('/api/sql/tile', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -121,6 +126,7 @@ class ApiService {
       total: number;
     };
   }>> {
+    // SQL queries always go to real backend, even in demo mode
     const requestBody: any = {
       dialect: 'postgresql',
       statement: params.sql,
@@ -161,10 +167,16 @@ class ApiService {
 
   // App Settings
   async getAppSettings(): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.getAppSettings();
+    }
     return this.request('/api/settings');
   }
 
   async updateAppSettings(settings: any): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.updateAppSettings(settings);
+    }
     return this.request('/api/settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
@@ -172,6 +184,7 @@ class ApiService {
   }
 
   async testDatabaseConnection(settings: any): Promise<ApiResponse<any>> {
+    // Always use real backend for connection testing
     return this.request('/api/settings/test-connection', {
       method: 'POST',
       body: JSON.stringify(settings),
@@ -180,6 +193,9 @@ class ApiService {
 
   // Reports and Sections
   async getSections(): Promise<ApiResponse<any[]>> {
+    if (isDemoMode()) {
+      return demoApiService.getSections();
+    }
     const response = await this.request('/api/sections');
     if (response.data && (response.data as any).sections) {
       return { data: (response.data as any).sections };
@@ -188,6 +204,9 @@ class ApiService {
   }
 
   async getReports(): Promise<ApiResponse<any[]>> {
+    if (isDemoMode()) {
+      return demoApiService.getReports();
+    }
     const response = await this.request('/api/reports');
     if (response.data && (response.data as any).reports) {
       return { data: (response.data as any).reports };
@@ -196,10 +215,16 @@ class ApiService {
   }
 
   async getReportById(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.getReportById(id);
+    }
     return this.request(`/api/reports/${id}`);
   }
 
   async createSection(name: string, sortOrder?: number): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.createSection(name, sortOrder);
+    }
     const response = await this.request('/api/sections', {
       method: 'POST',
       body: JSON.stringify({ 
@@ -214,6 +239,9 @@ class ApiService {
   }
 
   async updateSection(id: string, name: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.updateSection(id, name);
+    }
     const response = await this.request(`/api/sections/${id}`, {
       method: 'PUT',
       body: JSON.stringify({ name }),
@@ -231,6 +259,9 @@ class ApiService {
     sort_order?: number;
     report_schema: any;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.createReport(reportData);
+    }
     const response = await this.request('/api/reports', {
       method: 'POST',
       body: JSON.stringify(reportData),
@@ -242,6 +273,9 @@ class ApiService {
   }
 
   async updateReport(id: string, reportData: any): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.updateReport(id, reportData);
+    }
     const response = await this.request(`/api/reports/${id}`, {
       method: 'PUT',
       body: JSON.stringify(reportData),
@@ -255,6 +289,9 @@ class ApiService {
 
 
   async reorderSections(sections: Array<{ id: string; sort_index: number }>): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.reorderSections(sections);
+    }
     return this.request('/api/sections/reorder', {
       method: 'PUT',
       body: JSON.stringify({ sections }),
@@ -262,6 +299,9 @@ class ApiService {
   }
 
   async reorderReports(reports: Array<{ id: string; sort_index: number; section_id?: string | null }>): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.reorderReports(reports);
+    }
     return this.request('/api/reports/reorder', {
       method: 'PUT',
       body: JSON.stringify({ reports }),
@@ -270,19 +310,27 @@ class ApiService {
 
   // Schema
   async getExampleSchema(): Promise<ApiResponse<any>> {
+    // Schema always from real backend
     return this.request('/api/schema/example');
   }
 
   async getSchemaConfig(): Promise<ApiResponse<{ defaultUrl: string }>> {
+    // Schema config always from real backend
     return this.request('/api/schema/config');
   }
 
   // Menu Management API (v1)
   async getMenuTree(includeDeleted: boolean = false): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.getMenuTree(includeDeleted);
+    }
     return this.request(`/api/v1/menu/tree?include_deleted=${includeDeleted}`);
   }
 
   async reorderMenu(payload: any): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.reorderMenu(payload);
+    }
     try {
       const result = await this.request('/api/v1/menu/reorder', {
         method: 'PATCH',
@@ -297,6 +345,9 @@ class ApiService {
   }
 
   async renameSection(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.renameSection(id, name, version);
+    }
     return this.request(`/api/v1/sections/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ name, version }),
@@ -304,6 +355,9 @@ class ApiService {
   }
 
   async renameReport(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.renameReport(id, name, version);
+    }
     return this.request(`/api/v1/reports/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ name, version }),
@@ -311,6 +365,9 @@ class ApiService {
   }
 
   async deleteSection(id: string, strategy: 'move_children_to_root' | 'delete_children'): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.deleteSection(id, strategy);
+    }
     return this.request(`/api/v1/sections/${id}/delete`, {
       method: 'PATCH',
       body: JSON.stringify({ strategy }),
@@ -318,18 +375,27 @@ class ApiService {
   }
 
   async deleteReport(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.deleteReport(id);
+    }
     return this.request(`/api/v1/reports/${id}/delete`, {
       method: 'PATCH',
     });
   }
 
   async restoreSection(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.restoreSection(id);
+    }
     return this.request(`/api/v1/sections/${id}/restore`, {
       method: 'PATCH',
     });
   }
 
   async restoreReport(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.restoreReport(id);
+    }
     return this.request(`/api/v1/reports/${id}/restore`, {
       method: 'PATCH',
     });
@@ -337,6 +403,9 @@ class ApiService {
 
   // Global Variables
   async getGlobalVariables(): Promise<ApiResponse<any[]>> {
+    if (isDemoMode()) {
+      return demoApiService.getGlobalVariables();
+    }
     const response = await this.request('/api/global-variables');
     if (response.data && (response.data as any).variables) {
       return { data: (response.data as any).variables };
@@ -349,6 +418,9 @@ class ApiService {
     description?: string;
     value?: string;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.createGlobalVariable(data);
+    }
     const response = await this.request('/api/global-variables', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -364,6 +436,9 @@ class ApiService {
     description?: string;
     value?: string;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.updateGlobalVariable(id, data);
+    }
     const response = await this.request(`/api/global-variables/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -375,6 +450,9 @@ class ApiService {
   }
 
   async deleteGlobalVariable(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.deleteGlobalVariable(id);
+    }
     return this.request(`/api/global-variables/${id}`, {
       method: 'DELETE',
     });
@@ -382,6 +460,9 @@ class ApiService {
 
   // User Preferences
   async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
+    if (isDemoMode()) {
+      return demoApiService.getUserPreferences();
+    }
     const response = await this.request('/api/user/preferences');
     if (response.data && (response.data as any).preferences) {
       return { data: (response.data as any).preferences };
@@ -390,6 +471,9 @@ class ApiService {
   }
 
   async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
+    if (isDemoMode()) {
+      return demoApiService.updateUserPreferences(preferences);
+    }
     const response = await this.request('/api/user/preferences', {
       method: 'PUT',
       body: JSON.stringify(preferences),
@@ -402,4 +486,3 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
-

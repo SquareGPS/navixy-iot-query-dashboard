@@ -365,6 +365,71 @@ Subsequent Requests: Authorization header
 
 **Note:** The app now operates primarily in plugin mode where authentication is token-based. Database configuration (Metabase and IoT URLs) is provided during login and stored in user metadata, not in app settings.
 
+### Demo Mode Architecture
+
+Demo Mode allows users to experiment with dashboards without modifying the production database. All changes are stored locally in the browser.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Demo Mode Flow                            │
+└─────────────────────────────────────────────────────────────────┘
+
+Login with demo=true
+    ↓
+POST /api/auth/login (with demo: true)
+    ↓
+Backend: Authenticate normally, return demo flag
+    ↓
+Frontend: AuthContext.signInDemo()
+    ↓
+Fetch sections, reports, global variables from backend
+    ↓
+Seed IndexedDB with fetched data (demoStorageService)
+    ↓
+Enable demo mode flag in memory
+    ↓
+All subsequent CRUD operations:
+    ├── Read: demoStorageService.get*()
+    ├── Create: demoStorageService.create*()
+    ├── Update: demoStorageService.update*()
+    └── Delete: demoStorageService.delete*()
+    ↓
+SQL queries still go to backend (read-only)
+```
+
+**Demo Mode Components:**
+
+| Component | File | Responsibility |
+|-----------|------|----------------|
+| `DemoStorageService` | `src/services/demoStorage.ts` | IndexedDB CRUD operations using Dexie.js |
+| `demoApi` | `src/services/demoApi.ts` | API interceptor for demo mode |
+| `AuthContext` | `src/contexts/AuthContext.tsx` | Demo mode state and functions |
+
+**IndexedDB Schema:**
+
+```typescript
+{
+  sections: 'id, name, sortOrder, userId, isDeleted',
+  reports: 'id, title, sectionId, sortOrder, userId, isDeleted',
+  globalVariables: 'id, label',
+  metadata: 'id, key'  // Stores seed info, timestamps
+}
+```
+
+**Reset Flow:**
+
+```
+User clicks "Reset to Original" in Settings
+    ↓
+AuthContext.reseedDemoData()
+    ↓
+Fetch fresh data from backend API
+    ↓
+demoStorageService.seedFromBackend() (clears existing + inserts new)
+    ↓
+Page reload to apply changes
+```
+
 ### Report Creation Flow
 
 ```
