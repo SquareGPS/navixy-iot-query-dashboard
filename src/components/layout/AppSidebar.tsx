@@ -1,7 +1,9 @@
 import { MenuEditor } from '@/components/menu/MenuEditor';
+import { DemoBadge } from './DemoBanner';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
 } from '@/components/ui/sidebar';
 
 export function AppSidebar() {
@@ -11,6 +13,9 @@ export function AppSidebar() {
         {/* Main Menu Content */}
         <MenuEditor />
       </SidebarContent>
+      <SidebarFooter className="p-3">
+        <DemoBadge />
+      </SidebarFooter>
     </Sidebar>
   );
 }

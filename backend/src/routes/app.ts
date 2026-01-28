@@ -12,9 +12,10 @@ const router = Router();
 // ==========================================
 
 // Login (passwordless only - for plugin mode)
+// Accepts optional 'demo' field to indicate demo mode
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, role, iotDbUrl, userDbUrl } = req.body;
+    const { email, role, iotDbUrl, userDbUrl, demo } = req.body;
 
     // Passwordless authentication only
     if (!email || !role || !iotDbUrl || !userDbUrl) {
@@ -25,17 +26,19 @@ router.post('/auth/login', async (req, res, next) => {
       throw new CustomError('Invalid role. Must be admin, editor, or viewer', 400);
     }
 
-    logger.info('Login attempt (passwordless)', { email, role });
+    const isDemoMode = demo === true || demo === 'true';
+    logger.info('Login attempt (passwordless)', { email, role, demo: isDemoMode });
 
     const dbService = DatabaseService.getInstance();
     const result = await dbService.authenticateUserPasswordless(
       email,
       role as 'admin' | 'editor' | 'viewer',
       iotDbUrl,
-      userDbUrl
+      userDbUrl,
+      isDemoMode
     );
 
-    logger.info(`User logged in (passwordless): ${email}`);
+    logger.info(`User logged in (passwordless): ${email}`, { demo: isDemoMode });
 
     res.json({
       success: true,
@@ -44,7 +47,8 @@ router.post('/auth/login', async (req, res, next) => {
         email: result.user.email,
         role: role
       },
-      token: result.token
+      token: result.token,
+      demo: isDemoMode
     });
   } catch (error) {
     logger.error('Login error:', {

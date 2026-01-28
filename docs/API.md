@@ -30,10 +30,19 @@ Authenticate a user without password. This endpoint supports both password-based
 {
   "email": "user@example.com",
   "role": "admin",
-  "metabaseDbUrl": "postgresql://user:pass@host:5432/metabase_db",
-  "iotDbUrl": "postgresql://user:pass@host:5432/iot_db"
+  "iotDbUrl": "postgresql://user:pass@host:5432/iot_db",
+  "userDbUrl": "postgresql://user:pass@host:5432/settings_db",
+  "demo": false
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | User's email address |
+| `role` | string | Yes | User role: `admin`, `editor`, or `viewer` |
+| `iotDbUrl` | string | Yes | PostgreSQL connection URL for IoT data queries |
+| `userDbUrl` | string | Yes | PostgreSQL connection URL for user settings storage |
+| `demo` | boolean | No | Enable Demo Mode (default: `false`) |
 
 **Request Body (Legacy Password Mode):**
 ```json
@@ -52,13 +61,29 @@ Authenticate a user without password. This endpoint supports both password-based
     "email": "user@example.com",
     "role": "admin"
   },
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "demo": false
 }
 ```
 
+| Response Field | Type | Description |
+|----------------|------|-------------|
+| `success` | boolean | Whether login was successful |
+| `user` | object | User information (id, email, role) |
+| `token` | string | JWT authentication token |
+| `demo` | boolean | Whether Demo Mode is enabled |
+
+**Demo Mode:**
+
+When `demo=true` is passed in the request:
+- The response will include `"demo": true`
+- The frontend will store all report changes locally in IndexedDB
+- Original templates are loaded from `userDbUrl` but not modified
+- Users can reset to original templates from the Settings page
+
 **Status Codes:**
 - `200`: Success
-- `400`: Missing required fields (email, role, metabaseDbUrl, iotDbUrl for passwordless mode OR email, password for legacy mode)
+- `400`: Missing required fields (email, role, iotDbUrl, userDbUrl for passwordless mode OR email, password for legacy mode)
 - `401`: Invalid credentials (legacy mode only)
 
 **Note:** In plugin mode, database URLs are provided during login and stored in user metadata. The app acts as a plugin to an existing platform where authentication is handled via tokens containing user_id, role, and database URLs.

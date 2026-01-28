@@ -6,7 +6,17 @@
   "license": "MPL-2.0",
   "description": "A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data",
   "author": "Navixy",
-  "keywords": ["dashboard", "sql", "reports", "analytics", "visualization", "react", "typescript", "iot", "navixy"],
+  "keywords": [
+    "dashboard",
+    "sql",
+    "reports",
+    "analytics",
+    "visualization",
+    "react",
+    "typescript",
+    "iot",
+    "navixy"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/SquareGPS/navixy-iot-query-dashboard.git"
@@ -79,6 +89,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
+    "dexie": "^4.2.1",
     "embla-carousel-react": "^8.6.0",
     "immer": "^10.2.0",
     "input-otp": "^1.4.2",

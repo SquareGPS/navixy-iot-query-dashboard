@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { BarChart3, Database, CheckCircle2, XCircle, Loader2, Users } from 'lucide-react';
+import { BarChart3, Database, CheckCircle2, XCircle, Loader2, Users, FlaskConical } from 'lucide-react';
 
 interface DatabaseConnection {
   connectionType: 'url' | 'host';
@@ -37,6 +38,7 @@ const Login = () => {
   const [email, setEmail] = useState(import.meta.env.VITE_DEFAULT_USER_EMAIL || '');
   const [role, setRole] = useState<'admin' | 'editor' | 'viewer'>('admin');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   
   // IoT DB connection
   const [connectionMethod, setConnectionMethod] = useState<'url' | 'host'>('url');
@@ -68,7 +70,7 @@ const Login = () => {
     ssl: false,
   });
 
-  const { signIn, user } = useAuth();
+  const { signIn, signInDemo, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -302,10 +304,21 @@ const Login = () => {
       return;
     }
     
-    const { error } = await signIn(email, role, iotUrl, userUrl);
-    
-    if (error) {
-      toast.error(error.message || 'Failed to sign in');
+    // Use demo sign-in if demo mode is enabled
+    if (isDemoMode) {
+      const { error } = await signInDemo(email, role, iotUrl, userUrl);
+      
+      if (error) {
+        toast.error(error.message || 'Failed to sign in with Demo mode');
+      } else {
+        toast.success('Signed in with Demo mode. Changes will be stored locally.');
+      }
+    } else {
+      const { error } = await signIn(email, role, iotUrl, userUrl);
+      
+      if (error) {
+        toast.error(error.message || 'Failed to sign in');
+      }
     }
     
     setIsLoading(false);
@@ -730,8 +743,40 @@ const Login = () => {
               </Button>
             </div>
 
+            {/* Demo Mode Toggle */}
+            <div className="pt-2 border-t border-border">
+              <div className="flex items-center space-x-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <Checkbox
+                  id="demo-mode"
+                  checked={isDemoMode}
+                  onCheckedChange={(checked) => setIsDemoMode(checked === true)}
+                  className="data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+                />
+                <div className="flex-1">
+                  <Label 
+                    htmlFor="demo-mode" 
+                    className="text-amber-700 dark:text-amber-400 font-medium cursor-pointer flex items-center gap-2"
+                  >
+                    <FlaskConical className="h-4 w-4" />
+                    Demo Mode
+                  </Label>
+                  <p className="text-xs text-amber-600/80 dark:text-amber-400/70 mt-0.5">
+                    Load existing reports once, then store all changes locally in your browser. 
+                    No modifications will be saved to the User Settings database.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {isDemoMode ? 'Starting Demo Mode...' : 'Signing in...'}
+                </>
+              ) : (
+                isDemoMode ? 'Start Demo Mode' : 'Sign In'
+              )}
             </Button>
           </form>
         </div>

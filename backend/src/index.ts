@@ -61,6 +61,13 @@ app.use(helmet({
 // Supports both HTTP and HTTPS
 // Additional origins can be configured via CORS_ALLOWED_ORIGINS environment variable (comma-separated)
 const baseOrigins = [
+  // Production domain
+  'https://builder.tools.datahub.navixy.com',
+  'http://builder.tools.datahub.navixy.com',
+  // AWS ALB (direct access)
+  'http://navixy-alb-598226812.eu-central-1.elb.amazonaws.com',
+  'https://navixy-alb-598226812.eu-central-1.elb.amazonaws.com',
+  // Local development
   'http://localhost',
   'http://localhost:80',
   'https://localhost',
@@ -82,7 +89,7 @@ const allowedOrigins = [...baseOrigins, ...additionalOrigins];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl requests, or server-to-server)
     if (!origin) return callback(null, true);
     
     // Check if origin is localhost (for local development even in production mode)
@@ -92,13 +99,20 @@ app.use(cors({
                        origin.startsWith('http://127.0.0.1') ||
                        origin.startsWith('https://127.0.0.1');
     
-    if (allowedOrigins.includes(origin) || isLocalhost) {
+    // Check if origin is an AWS ELB/ALB (for AWS deployments)
+    const isAwsLoadBalancer = origin.includes('.elb.amazonaws.com') ||
+                              origin.includes('.elasticloadbalancing.') ||
+                              origin.includes('.amazonaws.com');
+    
+    if (allowedOrigins.includes(origin) || isLocalhost || isAwsLoadBalancer) {
       callback(null, true);
     } else {
       // In development, allow any origin for easier testing
       if (process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
+        // Log the rejected origin for debugging
+        console.warn(`CORS: Rejected origin: ${origin}`);
         // In production, reject unknown origins
         callback(new Error('Not allowed by CORS'));
       }

@@ -11,12 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
-import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable } from 'lucide-react';
+import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable, FlaskConical, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const Settings = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, demoMode, reseedDemoData } = useAuth();
   const navigate = useNavigate();
   
   // Global Variables state
@@ -40,6 +40,9 @@ const Settings = () => {
     }
   });
   const [showBrowserTimezonePrompt, setShowBrowserTimezonePrompt] = useState(false);
+  
+  // Demo mode state
+  const [resettingDemo, setResettingDemo] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -250,6 +253,30 @@ const Settings = () => {
     setShowBrowserTimezonePrompt(false);
   };
 
+  // Demo mode handlers
+  const handleResetDemoData = async () => {
+    if (!confirm('This will discard all your local changes and reload the original report templates from the database. Are you sure?')) {
+      return;
+    }
+
+    setResettingDemo(true);
+    try {
+      const { error } = await reseedDemoData();
+      if (error) {
+        toast.error(error.message || 'Failed to reset demo data');
+      } else {
+        toast.success('Demo data has been reset to original templates');
+        // Reload the page to reflect changes
+        window.location.reload();
+      }
+    } catch (error: any) {
+      console.error('Error resetting demo data:', error);
+      toast.error(error.message || 'Failed to reset demo data');
+    } finally {
+      setResettingDemo(false);
+    }
+  };
+
   if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -373,6 +400,65 @@ const Settings = () => {
                   </div>
                 </div>
               </Card>
+
+              {/* Demo Mode Section - Only visible in demo mode */}
+              {demoMode && (
+                <Card className="mt-6">
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                        <FlaskConical className="h-5 w-5 text-amber-500" />
+                        Demo Mode
+                      </h2>
+                      <p className="text-sm text-text-muted">
+                        You are currently in Demo Mode. All changes are stored locally in your browser and will not affect the original database.
+                      </p>
+                    </div>
+
+                    <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800">
+                      <FlaskConical className="h-4 w-4 text-amber-600" />
+                      <AlertDescription>
+                        <div className="space-y-2">
+                          <p className="text-sm text-amber-900 dark:text-amber-100">
+                            <strong>Demo Mode Active:</strong> Your changes are saved locally and persist across browser sessions.
+                          </p>
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            To discard all local changes and restore the original templates from the database, click the button below.
+                          </p>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="flex items-center justify-between pt-4 border-t">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-text-primary">Reset Demo Data</p>
+                        <p className="text-xs text-text-muted">
+                          Discard all local changes and reload original templates
+                        </p>
+                      </div>
+                      <Button 
+                        onClick={handleResetDemoData}
+                        disabled={resettingDemo}
+                        variant="secondary"
+                        size="sm"
+                        className="text-amber-700 border-amber-300 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900"
+                      >
+                        {resettingDemo ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Resetting...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Reset to Original
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="configuration" className="mt-6">

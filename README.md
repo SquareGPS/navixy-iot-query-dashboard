@@ -110,8 +110,8 @@ sql-report-dash/
 ## 📚 Documentation
 
 - **[Architecture Guide](./docs/ARCHITECTURE.md)** - System architecture, design decisions, and component structure
-- **[API Documentation](./docs/API.md)** - Complete API reference
-- **[Development Guide](./docs/DEVELOPMENT.md)** - Development workflows, coding standards, and best practices
+- **[API Documentation](./docs/API.md)** - Complete API reference (includes Demo Mode API)
+- **[Development Guide](./docs/DEVELOPMENT.md)** - Development workflows, coding standards, Demo Mode architecture
 - **[Deployment Guide](./docs/DEPLOYMENT.md)** - Production deployment instructions
 - **[Contributing Guide](./docs/CONTRIBUTING.md)** - How to contribute to the project
 
@@ -124,6 +124,13 @@ sql-report-dash/
 - **CORS Configuration**: Controlled cross-origin resource sharing
 
 ## 🎨 Key Features
+
+### Demo Mode
+- **Try before you commit**: Enable Demo Mode on the login page to experiment with dashboards
+- **Local storage**: All changes are stored locally in your browser using IndexedDB
+- **Persistent sessions**: Demo data persists across browser sessions
+- **Easy reset**: Reset to original templates anytime from Settings
+- **API support**: Demo mode can be enabled via API with `demo=true` flag
 
 ### Dashboard Editor
 - Drag-and-drop panel positioning
