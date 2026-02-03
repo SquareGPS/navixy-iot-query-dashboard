@@ -43,8 +43,17 @@ export const authenticateToken = async (
     const dbService = DatabaseService.getInstance();
     const settingsPool = dbService.getClientSettingsPool(decoded.userDbUrl);
 
-    // Verify user still exists and get current role
-    const userRole = await dbService.getUserRole(decoded.userId, settingsPool);
+    // For demo mode, use role from token (user may be deleted after seed)
+    // For normal mode, verify user still exists and get current role from DB
+    let userRole: string;
+    if (decoded.demo === true) {
+      // Demo mode: trust the role from the token, don't check DB
+      userRole = decoded.role || 'viewer';
+      logger.debug('Demo mode: using role from token', { userId: decoded.userId, role: userRole });
+    } else {
+      // Normal mode: verify user exists and get role from DB
+      userRole = await dbService.getUserRole(decoded.userId, settingsPool);
+    }
 
     req.user = {
       userId: decoded.userId,

@@ -62,22 +62,79 @@ router.post('/auth/login', async (req, res, next) => {
 // Get current user info (verify token)
 router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
-    if (!req.settingsPool) {
-      throw new CustomError('Settings pool not available', 500);
-    }
-
-    const dbService = DatabaseService.getInstance();
-    const role = await dbService.getUserRole(req.user?.userId || '', req.settingsPool);
-
+    // For demo mode, use role from request (already set by authenticateToken)
+    // For normal mode, get role from database
     res.json({
       success: true,
       user: {
         id: req.user?.userId,
         email: req.user?.email,
-        role: role
+        role: req.user?.role
       }
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// Delete demo user after data has been seeded to IndexedDB
+// This cleans up temporary demo users from the database
+router.delete('/auth/demo-user', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new CustomError('User ID not found', 400);
+    }
+
+    const client = await req.settingsPool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Delete user roles
+      await client.query(
+        'DELETE FROM dashboard_studio_meta_data.user_roles WHERE user_id = $1',
+        [userId]
+      );
+
+      // Delete user's sections (by user_id and client_id)
+      await client.query(
+        'DELETE FROM dashboard_studio_meta_data.sections WHERE user_id = $1 OR client_id = $1',
+        [userId]
+      );
+
+      // Delete user's reports (by user_id and client_id)
+      await client.query(
+        'DELETE FROM dashboard_studio_meta_data.reports WHERE user_id = $1 OR client_id = $1',
+        [userId]
+      );
+
+      // Delete the user
+      await client.query(
+        'DELETE FROM dashboard_studio_meta_data.users WHERE id = $1',
+        [userId]
+      );
+
+      await client.query('COMMIT');
+
+      logger.info('Demo user deleted successfully', { userId, email: req.user?.email });
+
+      res.json({
+        success: true,
+        message: 'Demo user deleted successfully'
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    logger.error('Error deleting demo user:', error);
     next(error);
   }
 });
@@ -274,6 +331,12 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
     const dbService = DatabaseService.getInstance();
     const sections = await dbService.getSections(req.settingsPool, req.user?.userId);
 
+    logger.info('GET /sections response', {
+      userId: req.user?.userId,
+      count: sections.length,
+      sectionNames: sections.map((s: any) => s.name)
+    });
+
     res.json({
       success: true,
       sections
@@ -292,6 +355,12 @@ router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res,
 
     const dbService = DatabaseService.getInstance();
     const reports = await dbService.getReports(req.settingsPool, req.user?.userId);
+
+    logger.info('GET /reports response', {
+      userId: req.user?.userId,
+      count: reports.length,
+      reportTitles: reports.map((r: any) => r.title)
+    });
 
     res.json({
       success: true,

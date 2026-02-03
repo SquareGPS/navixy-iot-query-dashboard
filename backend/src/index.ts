@@ -64,6 +64,8 @@ const baseOrigins = [
   // Production domain
   'https://builder.tools.datahub.navixy.com',
   'http://builder.tools.datahub.navixy.com',
+  'https://dashboard.tools.iotquery.navixy.com',
+  'http://dashboard.tools.iotquery.navixy.com',
   // AWS ALB (direct access)
   'http://navixy-alb-598226812.eu-central-1.elb.amazonaws.com',
   'https://navixy-alb-598226812.eu-central-1.elb.amazonaws.com',

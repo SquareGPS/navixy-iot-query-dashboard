@@ -113,9 +113,42 @@ export class DemoStorageService {
     globalVariables: any[];
     userId: string;
   }): Promise<void> {
+    console.log('[DemoStorage] seedFromBackend called with:', {
+      sectionsCount: data.sections?.length ?? 0,
+      reportsCount: data.reports?.length ?? 0,
+      globalVariablesCount: data.globalVariables?.length ?? 0,
+      userId: data.userId
+    });
+
+    // Log raw input data for debugging
+    if (data.reports?.length > 0) {
+      console.log('[DemoStorage] Raw reports from backend:', data.reports.map(r => ({
+        id: r.id,
+        title: r.title,
+        section_id: r.section_id,
+        user_id: r.user_id,
+        is_deleted: r.is_deleted,
+        hasSchema: !!(r.report_schema || r.reportSchema)
+      })));
+    } else {
+      console.warn('[DemoStorage] No reports received from backend!');
+    }
+
+    if (data.sections?.length > 0) {
+      console.log('[DemoStorage] Raw sections from backend:', data.sections.map(s => ({
+        id: s.id,
+        name: s.name,
+        user_id: s.user_id,
+        is_deleted: s.is_deleted
+      })));
+    } else {
+      console.warn('[DemoStorage] No sections received from backend!');
+    }
+
     const database = getDb();
     
-    // Clear existing data first
+    // Clear existing data first (should already be cleared, but double-check)
+    console.log('[DemoStorage] Clearing existing data before seeding...');
     await this.clearAllData();
 
     // Seed sections
@@ -131,6 +164,13 @@ export class DemoStorageService {
       createdAt: new Date(s.created_at ?? s.createdAt ?? new Date()),
       updatedAt: new Date(s.updated_at ?? s.updatedAt ?? new Date())
     }));
+
+    console.log('[DemoStorage] Transformed sections for IndexedDB:', sections.map(s => ({
+      id: s.id,
+      name: s.name,
+      userId: s.userId,
+      isDeleted: s.isDeleted
+    })));
 
     // Seed reports
     const reports: DemoReport[] = data.reports.map(r => ({
@@ -149,6 +189,15 @@ export class DemoStorageService {
       updatedAt: new Date(r.updated_at ?? r.updatedAt ?? new Date())
     }));
 
+    console.log('[DemoStorage] Transformed reports for IndexedDB:', reports.map(r => ({
+      id: r.id,
+      title: r.title,
+      sectionId: r.sectionId,
+      userId: r.userId,
+      isDeleted: r.isDeleted,
+      hasSchema: !!r.reportSchema && Object.keys(r.reportSchema).length > 0
+    })));
+
     // Seed global variables
     const globalVariables: DemoGlobalVariable[] = data.globalVariables.map(gv => ({
       id: gv.id,
@@ -158,6 +207,11 @@ export class DemoStorageService {
       createdAt: new Date(gv.created_at ?? gv.createdAt ?? new Date()),
       updatedAt: new Date(gv.updated_at ?? gv.updatedAt ?? new Date())
     }));
+
+    console.log('[DemoStorage] Transformed global variables for IndexedDB:', globalVariables.map(gv => ({
+      id: gv.id,
+      label: gv.label
+    })));
 
     // Store seeded data timestamp
     const metadata: DemoMetadata = {
@@ -173,18 +227,46 @@ export class DemoStorageService {
     };
 
     // Bulk insert all data
-    await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata], async () => {
-      if (sections.length > 0) await database.sections.bulkAdd(sections);
-      if (reports.length > 0) await database.reports.bulkAdd(reports);
-      if (globalVariables.length > 0) await database.globalVariables.bulkAdd(globalVariables);
-      await database.metadata.put(metadata);
+    console.log('[DemoStorage] Starting bulk insert to IndexedDB...');
+    try {
+      await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata], async () => {
+        if (sections.length > 0) {
+          console.log('[DemoStorage] Inserting', sections.length, 'sections...');
+          await database.sections.bulkAdd(sections);
+        }
+        if (reports.length > 0) {
+          console.log('[DemoStorage] Inserting', reports.length, 'reports...');
+          await database.reports.bulkAdd(reports);
+        }
+        if (globalVariables.length > 0) {
+          console.log('[DemoStorage] Inserting', globalVariables.length, 'global variables...');
+          await database.globalVariables.bulkAdd(globalVariables);
+        }
+        await database.metadata.put(metadata);
+      });
+      console.log('[DemoStorage] Bulk insert completed successfully');
+    } catch (error) {
+      console.error('[DemoStorage] Bulk insert failed:', error);
+      throw error;
+    }
+
+    // Verify data was inserted correctly
+    const insertedReports = await database.reports.count();
+    const insertedSections = await database.sections.count();
+    const insertedGlobalVars = await database.globalVariables.count();
+    
+    console.log('[DemoStorage] Database seeded successfully - Verification:', {
+      sectionsInserted: insertedSections,
+      reportsInserted: insertedReports,
+      globalVariablesInserted: insertedGlobalVars,
+      expectedSections: sections.length,
+      expectedReports: reports.length,
+      expectedGlobalVars: globalVariables.length
     });
 
-    console.log('[DemoStorage] Database seeded successfully', {
-      sections: sections.length,
-      reports: reports.length,
-      globalVariables: globalVariables.length
-    });
+    if (insertedReports !== reports.length) {
+      console.error('[DemoStorage] MISMATCH: Expected', reports.length, 'reports but found', insertedReports, 'in IndexedDB');
+    }
   }
 
   /**
@@ -201,13 +283,32 @@ export class DemoStorageService {
    */
   async clearAllData(): Promise<void> {
     const database = getDb();
+    
+    // Log what we're about to delete
+    const existingReports = await database.reports.count();
+    const existingSections = await database.sections.count();
+    const existingGlobalVars = await database.globalVariables.count();
+    
+    console.log('[DemoStorage] Clearing all data. Current counts:', {
+      reports: existingReports,
+      sections: existingSections,
+      globalVariables: existingGlobalVars
+    });
+
     await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata], async () => {
       await database.sections.clear();
       await database.reports.clear();
       await database.globalVariables.clear();
       await database.metadata.clear();
     });
-    console.log('[DemoStorage] All data cleared');
+    
+    // Verify everything is cleared
+    const afterReports = await database.reports.count();
+    const afterSections = await database.sections.count();
+    console.log('[DemoStorage] All data cleared. Verification:', {
+      reportsAfterClear: afterReports,
+      sectionsAfterClear: afterSections
+    });
   }
 
   // ==========================================
@@ -354,11 +455,33 @@ export class DemoStorageService {
     const database = getDb();
     
     let reports = await database.reports.toArray();
+    console.log('[DemoStorage] getReports - Total reports in IndexedDB:', reports.length);
+    
+    const beforeFilter = reports.length;
     reports = reports.filter(r => !r.isDeleted);
+    console.log('[DemoStorage] getReports - After filtering isDeleted:', {
+      before: beforeFilter,
+      after: reports.length,
+      filteredOut: beforeFilter - reports.length
+    });
     
     if (userId) {
+      const beforeUserFilter = reports.length;
       reports = reports.filter(r => r.userId === userId);
+      console.log('[DemoStorage] getReports - After filtering by userId:', {
+        userId,
+        before: beforeUserFilter,
+        after: reports.length,
+        filteredOut: beforeUserFilter - reports.length
+      });
     }
+    
+    console.log('[DemoStorage] getReports - Returning reports:', reports.map(r => ({
+      id: r.id,
+      title: r.title,
+      userId: r.userId,
+      isDeleted: r.isDeleted
+    })));
     
     return reports.sort((a, b) => a.sortOrder - b.sortOrder);
   }

@@ -157,6 +157,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       };
 
+      // First, clear IndexedDB to ensure fresh data
+      console.log('[AuthContext] Clearing IndexedDB before initializing demo storage...');
+      await demoStorageService.clearAllData();
+
       const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/sections`, { headers }),
         fetch(`${API_BASE_URL}/api/reports`, { headers }),
@@ -188,6 +192,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables,
         userId
       });
+
+      // Delete the temporary demo user from the database
+      // This cleans up the user record since all data is now in IndexedDB
+      console.log('[AuthContext] Deleting temporary demo user from database...');
+      try {
+        const deleteRes = await fetch(`${API_BASE_URL}/api/auth/demo-user`, {
+          method: 'DELETE',
+          headers
+        });
+        if (deleteRes.ok) {
+          console.log('[AuthContext] Demo user deleted successfully');
+        } else if (deleteRes.status === 404) {
+          console.log('[AuthContext] Demo user already deleted (404)');
+        } else {
+          console.warn('[AuthContext] Failed to delete demo user:', deleteRes.status);
+        }
+      } catch (deleteError) {
+        // Non-critical error, just log it
+        console.warn('[AuthContext] Error deleting demo user:', deleteError);
+      }
 
       console.log('[AuthContext] Demo storage initialized from backend', {
         sections: sections.length,
@@ -264,7 +288,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userDbUrl: string
   ): Promise<{ error: Error | null }> => {
     try {
+      console.log('[AuthContext] Starting demo sign-in...', { email, role });
+      
+      // IMPORTANT: Clear IndexedDB first to remove any leftovers from previous sessions
+      console.log('[AuthContext] Clearing IndexedDB before demo login...');
+      await demoStorageService.clearAllData();
+      console.log('[AuthContext] IndexedDB cleared successfully');
+
       // First, authenticate with demo flag to get the token and initial access
+      console.log('[AuthContext] Authenticating with backend...');
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -282,10 +314,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           errorMessage = text || `HTTP ${response.status}`;
         }
+        console.error('[AuthContext] Authentication failed:', errorMessage);
         return { error: new Error(errorMessage) };
       }
 
       const loginData = await response.json();
+      console.log('[AuthContext] Authentication response:', { 
+        success: loginData.success, 
+        userId: loginData.user?.id,
+        demo: loginData.demo 
+      });
 
       if (!loginData.success) {
         return { error: new Error(loginData.error?.message || 'Login failed') };
@@ -296,6 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userId = loginData.user.id;
 
       // Fetch all data in parallel
+      console.log('[AuthContext] Fetching sections, reports, and global variables from backend...');
       const headers = {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',
@@ -315,25 +354,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (sectionsRes.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
+        console.log('[AuthContext] Sections fetched from backend:', { 
+          count: sections.length,
+          sectionNames: sections.map((s: any) => s.name)
+        });
+      } else {
+        console.warn('[AuthContext] Failed to fetch sections:', sectionsRes.status, sectionsRes.statusText);
       }
 
       if (reportsRes.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
+        console.log('[AuthContext] Reports fetched from backend:', { 
+          count: reports.length,
+          reportTitles: reports.map((r: any) => r.title),
+          reportIds: reports.map((r: any) => r.id)
+        });
+      } else {
+        console.warn('[AuthContext] Failed to fetch reports:', reportsRes.status, reportsRes.statusText);
       }
 
       if (globalVarsRes?.ok) {
         const data = await globalVarsRes.json();
         globalVariables = data.variables || data.data || [];
+        console.log('[AuthContext] Global variables fetched from backend:', { 
+          count: globalVariables.length,
+          labels: globalVariables.map((gv: any) => gv.label)
+        });
+      } else {
+        console.warn('[AuthContext] Failed to fetch global variables or endpoint not available');
       }
 
       // Seed the demo database
+      console.log('[AuthContext] Seeding IndexedDB with fetched data...');
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
         userId
       });
+
+      // Delete the temporary demo user from the database
+      // This cleans up the user record since all data is now in IndexedDB
+      // The token will still work because demo mode bypasses user verification
+      console.log('[AuthContext] Deleting temporary demo user from database...');
+      try {
+        const deleteRes = await fetch(`${API_BASE_URL}/api/auth/demo-user`, {
+          method: 'DELETE',
+          headers
+        });
+        if (deleteRes.ok) {
+          console.log('[AuthContext] Demo user deleted successfully');
+        } else {
+          console.warn('[AuthContext] Failed to delete demo user:', deleteRes.status);
+        }
+      } catch (deleteError) {
+        // Non-critical error, just log it
+        console.warn('[AuthContext] Error deleting demo user:', deleteError);
+      }
 
       // Enable demo mode
       setDemoMode(true);
@@ -346,6 +424,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('auth_token', authToken);
 
       console.log('[AuthContext] Demo mode sign-in complete', {
+        userId,
         sections: sections.length,
         reports: reports.length,
         globalVariables: globalVariables.length
@@ -354,7 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       navigate('/app');
       return { error: null };
     } catch (error) {
-      console.error('Demo sign-in failed:', error);
+      console.error('[AuthContext] Demo sign-in failed:', error);
       return { error: error instanceof Error ? error : new Error('Demo sign-in failed') };
     }
   };
