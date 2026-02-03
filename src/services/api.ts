@@ -626,6 +626,16 @@ class ApiService {
       return null;
     }
   }
+
+  // Geocoding
+  async geocodeBatch(coordinates: { lat: number; lng: number }[]): Promise<ApiResponse<{
+    results: { lat: number; lng: number; address: string | null }[];
+  }>> {
+    return this.request('/api/composite-reports/geocode-batch', {
+      method: 'POST',
+      body: JSON.stringify({ coordinates }),
+    });
+  }
 }
 
 export const apiService = new ApiService();

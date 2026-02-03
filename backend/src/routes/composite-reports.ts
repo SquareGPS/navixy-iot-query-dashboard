@@ -543,4 +543,123 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
   }
 });
 
+/**
+ * POST /api/composite-reports/geocode
+ * Geocode coordinates to address using Navixy API
+ */
+router.post('/composite-reports/geocode', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { lat, lng } = req.body;
+
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      throw new CustomError('Invalid coordinates: lat and lng must be numbers', 400);
+    }
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw new CustomError('Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180', 400);
+    }
+
+    // Hardcoded hash for now - will be changed later
+    const GEOCODER_HASH = '5fe594fd45a7a7df9e355fad48ec7e30';
+
+    const response = await fetch('https://api.eu.navixy.com/v2/geocoder/search_location', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        hash: GEOCODER_HASH,
+        location: {
+          lat,
+          lng,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new CustomError(`Geocoder API error: ${response.status}`, 502);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new CustomError('Geocoding failed', 502);
+    }
+
+    res.json({
+      success: true,
+      address: data.value || null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/composite-reports/geocode-batch
+ * Geocode multiple coordinates to addresses
+ */
+router.post('/composite-reports/geocode-batch', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { coordinates } = req.body;
+
+    if (!Array.isArray(coordinates)) {
+      throw new CustomError('coordinates must be an array', 400);
+    }
+
+    if (coordinates.length > 50) {
+      throw new CustomError('Maximum 50 coordinates per batch', 400);
+    }
+
+    const GEOCODER_HASH = '5fe594fd45a7a7df9e355fad48ec7e30';
+    const results: { lat: number; lng: number; address: string | null }[] = [];
+
+    for (const coord of coordinates) {
+      const { lat, lng } = coord;
+
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        results.push({ lat, lng, address: null });
+        continue;
+      }
+
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        results.push({ lat, lng, address: null });
+        continue;
+      }
+
+      try {
+        const response = await fetch('https://api.eu.navixy.com/v2/geocoder/search_location', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            hash: GEOCODER_HASH,
+            location: { lat, lng },
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          results.push({ lat, lng, address: data.success ? data.value : null });
+        } else {
+          results.push({ lat, lng, address: null });
+        }
+      } catch {
+        results.push({ lat, lng, address: null });
+      }
+
+      // Small delay between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    res.json({
+      success: true,
+      results,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

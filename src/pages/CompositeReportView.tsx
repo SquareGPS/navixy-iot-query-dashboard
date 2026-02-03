@@ -19,7 +19,7 @@ import {
   AlertCircle,
   Table as TableIcon,
   LineChart,
-  Map
+  Map as MapIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +27,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Save, Play } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Save, Play, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
@@ -90,6 +91,11 @@ export default function CompositeReportView() {
   const [editableSql, setEditableSql] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
+  
+  // Geocoding state
+  const [geocodeEnabled, setGeocodeEnabled] = useState(false);
+  const [geocodedAddresses, setGeocodedAddresses] = useState<Map<string, string>>(new Map());
+  const [geocoding, setGeocoding] = useState(false);
   
   // Chart column selection state
   const [chartXColumn, setChartXColumn] = useState<string>('');
@@ -210,6 +216,71 @@ export default function CompositeReportView() {
         data: row,
       }));
   }, [execution.data?.gps, rowObjects]);
+
+  // Geocode coordinates when enabled
+  useEffect(() => {
+    if (!geocodeEnabled || !execution.data?.gps || !rowObjects.length) {
+      return;
+    }
+
+    const { latColumn, lonColumn } = execution.data.gps;
+    
+    const geocodeCoordinates = async () => {
+      setGeocoding(true);
+      
+      // Get unique coordinates to geocode (limit to first 15 rows shown in table)
+      const coordsToGeocode: { lat: number; lng: number }[] = [];
+      
+      for (const row of rowObjects.slice(0, 15)) {
+        const lat = parseFloat(String(row[latColumn]));
+        const lng = parseFloat(String(row[lonColumn]));
+        
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+          if (!geocodedAddresses.has(key) && !coordsToGeocode.find(c => 
+            `${c.lat.toFixed(6)},${c.lng.toFixed(6)}` === key
+          )) {
+            coordsToGeocode.push({ lat, lng });
+          }
+        }
+      }
+
+      if (coordsToGeocode.length === 0) {
+        setGeocoding(false);
+        return;
+      }
+
+      try {
+        // Use batch geocoding endpoint on backend
+        const response = await apiService.geocodeBatch(coordsToGeocode);
+        
+        if (response.data?.results) {
+          setGeocodedAddresses(prev => {
+            const updated = new Map(prev);
+            for (const result of response.data.results) {
+              if (result.address) {
+                const key = `${result.lat.toFixed(6)},${result.lng.toFixed(6)}`;
+                updated.set(key, result.address);
+              }
+            }
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.error('Geocoding error:', error);
+      }
+      
+      setGeocoding(false);
+    };
+
+    geocodeCoordinates();
+  }, [geocodeEnabled, execution.data?.gps, rowObjects]);
+
+  // Get address for coordinates
+  const getAddressForCoords = useCallback((lat: number, lng: number): string | null => {
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    return geocodedAddresses.get(key) || null;
+  }, [geocodedAddresses]);
 
   // Prepare chart data using selected columns
   const chartData = useMemo(() => {
@@ -555,16 +626,39 @@ export default function CompositeReportView() {
             <section className="print:break-before-avoid">
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <TableIcon className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-xl">Data Table</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <TableIcon className="h-5 w-5 text-muted-foreground" />
+                        <CardTitle className="text-xl">Data Table</CardTitle>
+                      </div>
+                      <CardDescription className="mt-1">
+                        {execution.data.pagination 
+                          ? `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.pagination.total} rows`
+                          : `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.rows.length} rows`
+                        }
+                      </CardDescription>
+                    </div>
+                    
+                    {/* Geocode Checkbox - only show if GPS columns detected */}
+                    {execution.data.gps && (
+                      <div className="flex items-center gap-2 print:hidden">
+                        <Checkbox
+                          id="geocode"
+                          checked={geocodeEnabled}
+                          onCheckedChange={(checked) => setGeocodeEnabled(checked === true)}
+                        />
+                        <label
+                          htmlFor="geocode"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1"
+                        >
+                          <MapPin className="h-4 w-4" />
+                          Geocode to address
+                          {geocoding && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
+                        </label>
+                      </div>
+                    )}
                   </div>
-                  <CardDescription>
-                    {execution.data.pagination 
-                      ? `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.pagination.total} rows`
-                      : `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.rows.length} rows`
-                    }
-                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -572,23 +666,77 @@ export default function CompositeReportView() {
                       <Table>
                         <TableHeader className="sticky top-0 bg-background z-10">
                           <TableRow>
-                            {execution.data.columns.map((col) => (
-                              <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                {col.name}
-                              </TableHead>
-                            ))}
+                            {execution.data.columns.map((col) => {
+                              // Replace lat/lon column headers with "Address" when geocoding
+                              if (geocodeEnabled && execution.data?.gps) {
+                                if (col.name === execution.data.gps.latColumn) {
+                                  return (
+                                    <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                      Address
+                                    </TableHead>
+                                  );
+                                }
+                                if (col.name === execution.data.gps.lonColumn) {
+                                  return null; // Hide lon column when geocoding
+                                }
+                              }
+                              return (
+                                <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                  {col.name}
+                                </TableHead>
+                              );
+                            }).filter(Boolean)}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {execution.data.rows.slice(0, 15).map((row, rowIdx) => (
-                            <TableRow key={rowIdx}>
-                              {row.map((cell, cellIdx) => (
-                                <TableCell key={cellIdx} className="max-w-[300px] truncate">
-                                  {formatCellValue(cell)}
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
+                          {execution.data.rows.slice(0, 15).map((row, rowIdx) => {
+                            // Get lat/lon indices for geocoding
+                            const latIdx = execution.data?.gps 
+                              ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
+                              : -1;
+                            const lonIdx = execution.data?.gps
+                              ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
+                              : -1;
+                            
+                            return (
+                              <TableRow key={rowIdx}>
+                                {row.map((cell, cellIdx) => {
+                                  const colName = execution.data?.columns[cellIdx]?.name;
+                                  
+                                  // Handle geocoding display
+                                  if (geocodeEnabled && execution.data?.gps) {
+                                    // Skip lon column when geocoding
+                                    if (colName === execution.data.gps.lonColumn) {
+                                      return null;
+                                    }
+                                    
+                                    // Replace lat column with address
+                                    if (colName === execution.data.gps.latColumn) {
+                                      const lat = parseFloat(String(row[latIdx]));
+                                      const lng = parseFloat(String(row[lonIdx]));
+                                      
+                                      const address = getAddressForCoords(lat, lng);
+                                      return (
+                                        <TableCell key={cellIdx} className="max-w-[400px]">
+                                          {address || (geocoding ? (
+                                            <span className="text-muted-foreground italic">Loading...</span>
+                                          ) : (
+                                            <span className="text-muted-foreground">{`${lat.toFixed(6)}, ${lng.toFixed(6)}`}</span>
+                                          ))}
+                                        </TableCell>
+                                      );
+                                    }
+                                  }
+                                  
+                                  return (
+                                    <TableCell key={cellIdx} className="max-w-[300px] truncate">
+                                      {formatCellValue(cell)}
+                                    </TableCell>
+                                  );
+                                }).filter(Boolean)}
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -761,7 +909,7 @@ export default function CompositeReportView() {
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <Map className="h-5 w-5 text-muted-foreground" />
+                    <MapIcon className="h-5 w-5 text-muted-foreground" />
                     <CardTitle className="text-xl">Location Map</CardTitle>
                   </div>
                   <CardDescription>
@@ -784,7 +932,7 @@ export default function CompositeReportView() {
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <Map className="h-5 w-5 text-muted-foreground" />
+                    <MapIcon className="h-5 w-5 text-muted-foreground" />
                     <CardTitle className="text-xl">Location Map</CardTitle>
                   </div>
                 </CardHeader>
