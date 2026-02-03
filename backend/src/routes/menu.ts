@@ -36,6 +36,67 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
 
       const menuTree = result.rows[0].menu_tree;
 
+      // Get report types to identify composite reports
+      const reportTypesResult = await client.query(
+        `SELECT id, report_schema->>'type' as report_type 
+         FROM dashboard_studio_meta_data.reports 
+         WHERE user_id = $1 AND is_deleted = FALSE`,
+        [userId]
+      );
+
+      // Create a map of report id -> type
+      const reportTypeMap = new Map<string, string>();
+      for (const row of reportTypesResult.rows) {
+        if (row.report_type) {
+          reportTypeMap.set(row.id, row.report_type);
+        }
+      }
+
+      logger.info('Report types found:', { 
+        count: reportTypesResult.rows.length, 
+        types: Object.fromEntries(reportTypeMap) 
+      });
+
+      // Add type to reports in menu tree
+      if (menuTree) {
+        // Handle reports inside sections
+        if (Array.isArray(menuTree.sections)) {
+          for (const section of menuTree.sections) {
+            if (section.reports && Array.isArray(section.reports)) {
+              for (const report of section.reports) {
+                report.type = reportTypeMap.get(report.id) || 'standard';
+              }
+            }
+          }
+        }
+        // Handle uncategorized reports
+        if (Array.isArray(menuTree.uncategorized)) {
+          for (const report of menuTree.uncategorized) {
+            report.type = reportTypeMap.get(report.id) || 'standard';
+          }
+        }
+        // Handle root-level reports (reports without section)
+        if (Array.isArray(menuTree.rootReports)) {
+          for (const report of menuTree.rootReports) {
+            report.type = reportTypeMap.get(report.id) || 'standard';
+          }
+        }
+        // Handle sectionReports array
+        if (Array.isArray(menuTree.sectionReports)) {
+          for (const report of menuTree.sectionReports) {
+            report.type = reportTypeMap.get(report.id) || 'standard';
+          }
+        }
+      }
+      
+      logger.info('Menu tree structure:', { 
+        hasSections: menuTree?.sections?.length || 0,
+        hasUncategorized: menuTree?.uncategorized?.length || 0,
+        hasRootReports: menuTree?.reports?.length || 0,
+        allKeys: menuTree ? Object.keys(menuTree) : [],
+        sampleReport: menuTree?.sections?.[0]?.reports?.[0] || menuTree?.uncategorized?.[0] || menuTree?.reports?.[0]
+      });
+
       res.json(menuTree);
     } finally {
       client.release();

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2, Code, Wrench } from 'lucide-react';
+import { Plus, Search, FolderOpen, FileText, ChevronDown, ChevronRight, MoreHorizontal, Database, Trash2, GripVertical, Edit2, Code, Wrench, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SidebarContent,
@@ -151,7 +151,7 @@ function SortableSectionItem({ section, isEditMode, onRename, onDelete }: Sortab
 
 // Sortable Report Item Component
 interface SortableReportItemProps {
-  report: { id: string; name: string; sortOrder: number; version: number };
+  report: { id: string; name: string; sortOrder: number; version: number; type?: string };
   parentSectionId: string | null; // Add this to know the parent section
   isEditMode: boolean;
   onRename: (id: string, name: string) => void;
@@ -185,7 +185,12 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const isActive = location.pathname === `/app/report/${report.id}`;
+  // Determine the correct route based on report type
+  const routePath = report.type === 'composite' 
+    ? `/app/composite-report/${report.id}`
+    : `/app/report/${report.id}`;
+  
+  const isActive = location.pathname === routePath;
 
   const handleReportClick = () => {
     // Don't do anything if clicking the currently active report
@@ -201,11 +206,11 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
       window.dispatchEvent(new CustomEvent('exit-report-editing'));
       // Small delay to ensure editing mode exits before navigation
       setTimeout(() => {
-        navigate(`/app/report/${report.id}`);
+        navigate(routePath);
       }, 0);
     } else {
       // Navigate immediately if not in editing mode
-      navigate(`/app/report/${report.id}`);
+      navigate(routePath);
     }
   };
 
@@ -229,7 +234,11 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
                 className={`w-full justify-start ${isActive ? 'bg-accent-soft' : ''}`}
                 onClick={handleReportClick}
               >
-                <FileText className="h-4 w-4 flex-shrink-0" />
+                {report.type === 'composite' ? (
+                  <Layers className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <FileText className="h-4 w-4 flex-shrink-0" />
+                )}
                 <span className="truncate min-w-0">{report.name}</span>
               </SidebarMenuButton>
             </TooltipTrigger>
@@ -772,6 +781,10 @@ export function MenuEditor() {
                         <DropdownMenuItem onClick={() => setIsCreateReportModalOpen(true)} className="py-1.5">
                           <FileText className="h-4 w-4 mr-2" />
                           New report
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate('/app/composite-report/new')} className="py-1.5">
+                          <Layers className="h-4 w-4 mr-2" />
+                          New composite report
                         </DropdownMenuItem>
                         <DropdownMenuItem 
                           onClick={() => setIsEditMode(true)} 

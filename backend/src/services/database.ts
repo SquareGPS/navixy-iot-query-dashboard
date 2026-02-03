@@ -1143,6 +1143,310 @@ export class DatabaseService {
     }
   }
 
+  // ==========================================
+  // Composite Reports Methods
+  // ==========================================
+  // Composite reports are stored in the existing 'reports' table
+  // They are identified by report_schema->>'type' = 'composite'
+  // The report_schema contains: type, description, sqlQuery, config
+
+  /**
+   * Transform a report row from the database into a composite report format
+   */
+  private transformToCompositeReport(report: any): any {
+    // Parse report_schema if it's a string
+    let schema = report.report_schema;
+    if (schema && typeof schema === 'string') {
+      try {
+        schema = JSON.parse(schema);
+      } catch (parseError) {
+        logger.warn('Failed to parse report_schema JSON:', parseError);
+        schema = {};
+      }
+    }
+    schema = schema || {};
+
+    return {
+      id: report.id,
+      title: report.title,
+      description: schema.description || null,
+      slug: report.slug,
+      section_id: report.section_id,
+      section_name: report.section_name,
+      sort_order: report.sort_order,
+      sql_query: schema.sqlQuery || '',
+      config: schema.config || {
+        table: { enabled: true, pageSize: 50 },
+        chart: { enabled: true, type: 'timeseries' },
+        map: { enabled: false, autoDetect: true }
+      },
+      report_schema: schema,
+      user_id: report.user_id,
+      created_by: report.created_by,
+      updated_by: report.updated_by,
+      created_at: report.created_at,
+      updated_at: report.updated_at,
+      is_deleted: report.is_deleted,
+    };
+  }
+
+  async getCompositeReports(pool: Pool, userId?: string): Promise<any[]> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        let result;
+        if (userId) {
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM dashboard_studio_meta_data.reports r 
+            LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
+            WHERE r.user_id = $1 AND r.is_deleted = FALSE
+              AND r.report_schema->>'type' = 'composite'
+            ORDER BY s.sort_order, r.sort_order
+          `, [userId]);
+        } else {
+          result = await client.query(`
+            SELECT r.*, s.name as section_name 
+            FROM dashboard_studio_meta_data.reports r 
+            LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
+            WHERE r.is_deleted = FALSE
+              AND r.report_schema->>'type' = 'composite'
+            ORDER BY s.sort_order, r.sort_order
+          `);
+        }
+
+        return result.rows.map(report => this.transformToCompositeReport(report));
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      logger.error('Error getting composite reports:', error);
+      throw new CustomError('Failed to get composite reports', 500);
+    }
+  }
+
+  async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<any | null> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        let result;
+        if (userId) {
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM dashboard_studio_meta_data.reports r 
+             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE
+               AND r.report_schema->>'type' = 'composite'`,
+            [id, userId]
+          );
+        } else {
+          result = await client.query(
+            `SELECT r.*, s.name as section_name 
+             FROM dashboard_studio_meta_data.reports r 
+             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
+             WHERE r.id = $1 AND r.is_deleted = FALSE
+               AND r.report_schema->>'type' = 'composite'`,
+            [id]
+          );
+        }
+
+        if (result.rows.length === 0) {
+          return null;
+        }
+
+        return this.transformToCompositeReport(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error getting composite report:', error);
+      throw new CustomError('Failed to get composite report', 500);
+    }
+  }
+
+  async createCompositeReport(data: {
+    title: string;
+    description?: string;
+    slug: string;
+    section_id?: string;
+    sort_order?: number;
+    sql_query: string;
+    config: Record<string, any>;
+    report_schema?: Record<string, any>;
+    user_id: string;
+    created_by: string;
+  }, pool: Pool): Promise<any> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Build the report_schema with composite report data
+        const compositeSchema = {
+          type: 'composite',
+          description: data.description || null,
+          sqlQuery: data.sql_query,
+          config: data.config,
+          ...(data.report_schema || {})
+        };
+
+        const result = await client.query(
+          `INSERT INTO dashboard_studio_meta_data.reports 
+           (title, slug, section_id, sort_order, report_schema, user_id, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING *`,
+          [
+            data.title,
+            data.slug,
+            data.section_id || null,
+            data.sort_order || 0,
+            JSON.stringify(compositeSchema),
+            data.user_id,
+            data.created_by,
+            data.created_by
+          ]
+        );
+
+        return this.transformToCompositeReport(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A composite report with this slug already exists', 409);
+      }
+      logger.error('Error creating composite report:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to create composite report', 500);
+    }
+  }
+
+  async updateCompositeReport(id: string, data: {
+    title?: string;
+    description?: string;
+    slug?: string;
+    section_id?: string | null;
+    sort_order?: number;
+    sql_query?: string;
+    config?: Record<string, any>;
+    report_schema?: Record<string, any>;
+    updated_by: string;
+  }, pool: Pool, userId?: string): Promise<any> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Verify report exists and user has access
+        const existing = await this.getCompositeReportById(id, pool, userId);
+        if (!existing) {
+          throw new CustomError('Composite report not found', 404);
+        }
+
+        // Build the updated report_schema
+        const existingSchema = existing.report_schema || {};
+        const updatedSchema = {
+          ...existingSchema,
+          type: 'composite',
+          description: data.description !== undefined ? data.description : existingSchema.description,
+          sqlQuery: data.sql_query !== undefined ? data.sql_query : existingSchema.sqlQuery,
+          config: data.config !== undefined ? data.config : existingSchema.config,
+          ...(data.report_schema || {})
+        };
+
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+        let paramIndex = 1;
+
+        if (data.title !== undefined) {
+          updateFields.push(`title = $${paramIndex}`);
+          updateValues.push(data.title);
+          paramIndex++;
+        }
+        if (data.slug !== undefined) {
+          updateFields.push(`slug = $${paramIndex}`);
+          updateValues.push(data.slug);
+          paramIndex++;
+        }
+        if (data.section_id !== undefined) {
+          updateFields.push(`section_id = $${paramIndex}`);
+          updateValues.push(data.section_id);
+          paramIndex++;
+        }
+        if (data.sort_order !== undefined) {
+          updateFields.push(`sort_order = $${paramIndex}`);
+          updateValues.push(data.sort_order);
+          paramIndex++;
+        }
+
+        // Always update report_schema with the merged data
+        updateFields.push(`report_schema = $${paramIndex}`);
+        updateValues.push(JSON.stringify(updatedSchema));
+        paramIndex++;
+
+        updateFields.push(`updated_by = $${paramIndex}`);
+        updateValues.push(data.updated_by);
+        paramIndex++;
+
+        updateFields.push(`updated_at = NOW()`);
+        
+        updateValues.push(id);
+
+        const result = await client.query(
+          `UPDATE dashboard_studio_meta_data.reports 
+           SET ${updateFields.join(', ')}
+           WHERE id = $${paramIndex}
+           RETURNING *`,
+          updateValues
+        );
+
+        if (result.rows.length === 0) {
+          throw new CustomError('Composite report not found', 404);
+        }
+
+        return this.transformToCompositeReport(result.rows[0]);
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      if (error.code === '23505') { // Unique violation
+        throw new CustomError('A composite report with this slug already exists', 409);
+      }
+      logger.error('Error updating composite report:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to update composite report', 500);
+    }
+  }
+
+  async deleteCompositeReport(id: string, pool: Pool, userId?: string): Promise<void> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Verify report exists and user has access
+        const existing = await this.getCompositeReportById(id, pool, userId);
+        if (!existing) {
+          throw new CustomError('Composite report not found', 404);
+        }
+
+        // Soft delete
+        const result = await client.query(
+          `UPDATE dashboard_studio_meta_data.reports 
+           SET is_deleted = TRUE, updated_at = NOW()
+           WHERE id = $1`,
+          [id]
+        );
+
+        if (result.rowCount === 0) {
+          throw new CustomError('Composite report not found', 404);
+        }
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      logger.error('Error deleting composite report:', error);
+      throw error instanceof CustomError ? error : new CustomError('Failed to delete composite report', 500);
+    }
+  }
+
   async closeAllConnections(): Promise<void> {
     // Close all client settings pools
     for (const [key, pool] of this.clientSettingsPools) {

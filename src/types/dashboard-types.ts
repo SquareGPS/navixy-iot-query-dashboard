@@ -416,3 +416,113 @@ export interface PieChartPanelOptions {
   displayLabels?: string[];
 }
 
+// ==========================================
+// Composite Report Types
+// ==========================================
+
+/**
+ * Composite Report - A report that combines SQL query results into 
+ * Table, Chart, and Map visualizations in a linear, print-friendly layout
+ */
+export interface CompositeReport {
+  id: string;
+  title: string;
+  description?: string | null;
+  slug: string;
+  section_id?: string | null;
+  section_name?: string;
+  sort_order: number;
+  sql_query: string;
+  config: CompositeReportConfig;
+  report_schema?: Dashboard | null;
+  user_id: string;
+  created_by: string;
+  updated_by?: string;
+  created_at: string;
+  updated_at: string;
+  is_deleted: boolean;
+  version: number;
+}
+
+/**
+ * Configuration for Composite Report components
+ */
+export interface CompositeReportConfig {
+  table: CompositeTableConfig;
+  chart: CompositeChartConfig;
+  map: CompositeMapConfig;
+}
+
+export interface CompositeTableConfig {
+  enabled: boolean;
+  pageSize: number;
+  showTotals?: boolean;
+}
+
+export interface CompositeChartConfig {
+  enabled: boolean;
+  type: 'timeseries' | 'bar';
+  xColumn?: string;
+  yColumns?: string[];
+}
+
+export interface CompositeMapConfig {
+  enabled: boolean;
+  autoDetect: boolean;
+  latColumn?: string;
+  lonColumn?: string;
+  labelColumn?: string;
+}
+
+/**
+ * GPS column detection result
+ */
+export interface GPSColumnsInfo {
+  latColumn: string;
+  lonColumn: string;
+  labelColumn?: string;
+  hasValidData: boolean;
+  pointCount?: number;
+}
+
+/**
+ * GPS point for map rendering
+ */
+export interface GPSPoint {
+  lat: number;
+  lon: number;
+  label?: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Column detection result for composite report configuration
+ */
+export interface ColumnDetectionResult {
+  columns: Array<{ name: string; type: string }>;
+  suggestions: {
+    gps?: { latColumn: string; lonColumn: string } | null;
+    labelColumn?: string | null;
+    xColumn?: string;
+    yColumns?: string[];
+  };
+}
+
+/**
+ * Composite report execution result
+ */
+export interface CompositeReportExecutionResult {
+  columns: Array<{ name: string; type: string }>;
+  rows: unknown[][];
+  stats: {
+    rowCount: number;
+    elapsedMs: number;
+  };
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+  gps?: GPSColumnsInfo | null;
+}
+
