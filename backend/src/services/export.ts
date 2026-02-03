@@ -559,4 +559,67 @@ export class ExportService {
     };
     return str.replace(/[&<>"']/g, char => escapeMap[char] ?? char);
   }
+
+  /**
+   * Generate PDF from HTML content using Puppeteer
+   */
+  async generatePDF(html: string): Promise<Buffer> {
+    // Dynamic import to avoid loading puppeteer when not needed
+    const puppeteer = await import('puppeteer');
+    
+    let browser = null;
+    try {
+      // Use system Chromium if available (Docker), otherwise use bundled
+      const launchOptions: Parameters<typeof puppeteer.default.launch>[0] = {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      };
+      
+      // Only set executablePath if defined (for Docker with system Chromium)
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+      
+      browser = await puppeteer.default.launch(launchOptions);
+      
+      const page = await browser.newPage();
+      
+      // Set content and wait for resources to load
+      await page.setContent(html, {
+        waitUntil: ['networkidle0', 'domcontentloaded'],
+        timeout: 30000,
+      });
+      
+      // Wait a bit for any charts/scripts to render
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 1000)));
+      
+      // Generate PDF
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '20mm',
+          right: '15mm',
+          bottom: '20mm',
+          left: '15mm',
+        },
+        displayHeaderFooter: true,
+        headerTemplate: '<div></div>',
+        footerTemplate: `
+          <div style="font-size: 10px; color: #666; width: 100%; text-align: center; padding: 10px 0;">
+            Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+          </div>
+        `,
+      });
+      
+      return Buffer.from(pdfBuffer);
+    } catch (error) {
+      logger.error('PDF generation failed:', error);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
 }

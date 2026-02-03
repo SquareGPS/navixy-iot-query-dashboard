@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Save, Play, MapPin } from 'lucide-react';
+import { Save, Play, MapPin, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
@@ -87,7 +87,7 @@ export default function CompositeReportView() {
     lastExecuted: null,
   });
   const [sqlExpanded, setSqlExpanded] = useState(false);
-  const [exporting, setExporting] = useState<'excel' | 'html' | null>(null);
+  const [exporting, setExporting] = useState<'excel' | 'html' | 'pdf' | null>(null);
   const [editableSql, setEditableSql] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
@@ -466,13 +466,34 @@ export default function CompositeReportView() {
     }
   };
 
+  // Prepare geocoded addresses for export
+  const getExportGeocodingOptions = () => {
+    if (!geocodeEnabled || geocodedAddresses.size === 0 || !execution.data?.gps) {
+      return {};
+    }
+    
+    // Convert Map to plain object for JSON serialization
+    const addressesObj: Record<string, string> = {};
+    geocodedAddresses.forEach((address, key) => {
+      addressesObj[key] = address;
+    });
+    
+    return {
+      geocodedAddresses: addressesObj,
+      latColumn: execution.data.gps.latColumn,
+      lonColumn: execution.data.gps.lonColumn,
+    };
+  };
+
   // Export handlers
   const handleExportExcel = async () => {
     if (!id) return;
     
     setExporting('excel');
     try {
-      const blob = await apiService.exportCompositeReportExcel(id);
+      const blob = await apiService.exportCompositeReportExcel(id, {
+        ...getExportGeocodingOptions(),
+      });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.xlsx`);
         toast.success('Excel export downloaded');
@@ -494,6 +515,7 @@ export default function CompositeReportView() {
       const blob = await apiService.exportCompositeReportHTML(id, {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
+        ...getExportGeocodingOptions(),
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.html`);
@@ -503,6 +525,29 @@ export default function CompositeReportView() {
       }
     } catch (error: any) {
       toast.error(`Export failed: ${error.message}`);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!id) return;
+    
+    setExporting('pdf');
+    try {
+      const blob = await apiService.exportCompositeReportPDF(id, {
+        includeChart: report?.config.chart.enabled,
+        includeMap: report?.config.map.enabled && gpsPoints.length > 0,
+        ...getExportGeocodingOptions(),
+      });
+      if (blob) {
+        downloadBlob(blob, `${report?.slug || 'composite-report'}.pdf`);
+        toast.success('PDF export downloaded');
+      } else {
+        throw new Error('PDF export failed');
+      }
+    } catch (error: any) {
+      toast.error(`PDF export failed: ${error.message}`);
     } finally {
       setExporting(null);
     }
@@ -591,6 +636,19 @@ export default function CompositeReportView() {
                 <FileCode2 className="h-4 w-4 mr-2" />
               )}
               HTML
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPDF}
+              disabled={!!exporting || !execution.data}
+            >
+              {exporting === 'pdf' ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4 mr-2" />
+              )}
+              PDF
             </Button>
           </div>
         </div>

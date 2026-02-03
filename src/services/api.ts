@@ -575,7 +575,12 @@ class ApiService {
     return response;
   }
 
-  async exportCompositeReportExcel(id: string, params?: Record<string, unknown>): Promise<Blob | null> {
+  async exportCompositeReportExcel(id: string, options?: {
+    params?: Record<string, unknown>;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
+  }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/excel`;
       const response = await fetch(url, {
@@ -584,7 +589,7 @@ class ApiService {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify({ params: params || {} }),
+        body: JSON.stringify(options || {}),
       });
 
       if (!response.ok) {
@@ -603,6 +608,9 @@ class ApiService {
     params?: Record<string, unknown>;
     includeChart?: boolean;
     includeMap?: boolean;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/html`;
@@ -623,6 +631,37 @@ class ApiService {
       return await response.blob();
     } catch (error) {
       console.error('Export error:', error);
+      return null;
+    }
+  }
+
+  async exportCompositeReportPDF(id: string, options?: {
+    params?: Record<string, unknown>;
+    includeChart?: boolean;
+    includeMap?: boolean;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/composite-reports/${id}/export/pdf`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options || {}),
+      });
+
+      if (!response.ok) {
+        console.error('PDF Export failed:', response.status);
+        return null;
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('PDF Export error:', error);
       return null;
     }
   }

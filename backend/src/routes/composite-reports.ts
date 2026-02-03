@@ -409,6 +409,64 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
 });
 
 /**
+ * Helper function to apply geocoded addresses to data
+ * Replaces lat/lon columns with a single Address column
+ */
+function applyGeocodedAddresses(
+  columns: { name: string; type: string }[],
+  rows: unknown[][],
+  geocodedAddresses: Record<string, string> | undefined,
+  latColumn: string | undefined,
+  lonColumn: string | undefined
+): { columns: { name: string; type: string }[]; rows: unknown[][] } {
+  if (!geocodedAddresses || !latColumn || !lonColumn || Object.keys(geocodedAddresses).length === 0) {
+    return { columns, rows };
+  }
+
+  const latIdx = columns.findIndex(c => c.name === latColumn);
+  const lonIdx = columns.findIndex(c => c.name === lonColumn);
+
+  if (latIdx === -1 || lonIdx === -1) {
+    return { columns, rows };
+  }
+
+  // Create new columns: replace lat column with Address, remove lon column
+  const newColumns = columns
+    .map((col, idx) => {
+      if (idx === latIdx) {
+        return { name: 'Address', type: 'text' };
+      }
+      if (idx === lonIdx) {
+        return null; // Remove lon column
+      }
+      return col;
+    })
+    .filter((col): col is { name: string; type: string } => col !== null);
+
+  // Transform rows
+  const newRows = rows.map(row => {
+    const lat = parseFloat(String(row[latIdx]));
+    const lng = parseFloat(String(row[lonIdx]));
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    const address = geocodedAddresses[key] || `${lat}, ${lng}`;
+
+    return row
+      .map((cell, idx) => {
+        if (idx === latIdx) {
+          return address;
+        }
+        if (idx === lonIdx) {
+          return null; // Remove lon value
+        }
+        return cell;
+      })
+      .filter((_, idx) => idx !== lonIdx);
+  });
+
+  return { columns: newColumns, rows: newRows };
+}
+
+/**
  * POST /api/composite-reports/:id/export/excel
  * Export composite report data as Excel file
  */
@@ -418,7 +476,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {} } = req.body;
+    const { params = {}, geocodedAddresses, latColumn, lonColumn } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -447,13 +505,22 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       iotDbUrl
     );
 
+    // Apply geocoded addresses if provided
+    const { columns, rows } = applyGeocodedAddresses(
+      result.columns,
+      result.rows,
+      geocodedAddresses,
+      latColumn,
+      lonColumn
+    );
+
     // Generate Excel file
     const exportService = ExportService.getInstance();
     const excelBuffer = await exportService.generateExcel({
       title: compositeReport.title,
       description: compositeReport.description,
-      columns: result.columns,
-      rows: result.rows,
+      columns,
+      rows,
       executedAt: new Date(),
     });
 
@@ -479,7 +546,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -508,7 +575,16 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       iotDbUrl
     );
 
-    // Detect GPS columns for map
+    // Apply geocoded addresses if provided
+    const { columns, rows } = applyGeocodedAddresses(
+      result.columns,
+      result.rows,
+      geocodedAddresses,
+      latColumn,
+      lonColumn
+    );
+
+    // Detect GPS columns for map (use original columns, not geocoded ones for map functionality)
     const columnInfo: ColumnInfo[] = result.columns.map(col => ({
       name: col.name,
       type: col.type,
@@ -519,15 +595,15 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
         ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
         : null;
 
-    // Generate HTML
+    // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
-      columns: result.columns,
-      rows: result.rows,
+      columns,
+      rows,
       config: compositeReport.config,
-      gpsColumns: includeMap ? gpsColumns : null,
+      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
       includeChart,
       executedAt: new Date(),
     });
@@ -538,6 +614,95 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     res.send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/composite-reports/:id/export/pdf
+ * Export composite report as PDF
+ */
+router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id;
+    if (!id) {
+      throw new CustomError('Report ID is required', 400);
+    }
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn } = req.body;
+    const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
+
+    if (!iotDbUrl) {
+      throw new CustomError('IoT database URL not configured', 400);
+    }
+
+    const dbService = DatabaseService.getInstance();
+    const pool = dbService.getClientSettingsPool(userDbUrl);
+    
+    // Get the composite report
+    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    if (!compositeReport) {
+      throw new CustomError('Composite report not found', 404);
+    }
+
+    // Get global variables
+    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
+    const mergedParams = { ...globalVariables, ...params };
+
+    // Execute query
+    const result = await dbService.executeParameterizedQuery(
+      compositeReport.sql_query,
+      mergedParams,
+      60000,
+      10000,
+      iotDbUrl
+    );
+
+    // Apply geocoded addresses if provided
+    const { columns, rows } = applyGeocodedAddresses(
+      result.columns,
+      result.rows,
+      geocodedAddresses,
+      latColumn,
+      lonColumn
+    );
+
+    // Detect GPS columns for map (use original columns, not geocoded ones for map functionality)
+    const columnInfo: ColumnInfo[] = result.columns.map(col => ({
+      name: col.name,
+      type: col.type,
+    }));
+    const gpsColumns = compositeReport.config?.map?.autoDetect 
+      ? detectGPSColumns(columnInfo)
+      : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
+        ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
+        : null;
+
+    // Generate HTML first (use geocoded data for table, but original for map)
+    const exportService = ExportService.getInstance();
+    const html = await exportService.generateHTML({
+      title: compositeReport.title,
+      description: compositeReport.description,
+      columns,
+      rows,
+      config: compositeReport.config,
+      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
+      includeChart,
+      executedAt: new Date(),
+    });
+
+    // Convert HTML to PDF
+    const pdfBuffer = await exportService.generatePDF(html);
+
+    logger.info('Exported composite report to PDF', { id, userId, size: pdfBuffer.length });
+
+    // Set response headers
+    const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    res.send(pdfBuffer);
   } catch (error) {
     next(error);
   }
