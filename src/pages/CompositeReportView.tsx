@@ -101,6 +101,7 @@ export default function CompositeReportView() {
   const [chartXColumn, setChartXColumn] = useState<string>('');
   const [chartYColumn, setChartYColumn] = useState<string>('');
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Filter by specific group values
 
   // Load report
   useEffect(() => {
@@ -191,9 +192,11 @@ export default function CompositeReportView() {
       const columns = execution.data.columns.map(c => c.name);
       const defaultX = report.config.chart.xColumn || columns[0] || '';
       const defaultY = report.config.chart.yColumns?.[0] || columns.find(c => c !== defaultX) || '';
+      const defaultGroup = report.config.chart.colorColumn || 'none';
       
       if (!chartXColumn) setChartXColumn(defaultX);
       if (!chartYColumn) setChartYColumn(defaultY);
+      if (!chartColorColumn) setChartColorColumn(defaultGroup);
     }
   }, [execution.data?.columns, report?.config.chart]);
 
@@ -282,22 +285,97 @@ export default function CompositeReportView() {
     return geocodedAddresses.get(key) || null;
   }, [geocodedAddresses]);
 
+  // Get unique group values for the chart - scan ALL rows to find all groups
+  const chartGroupValues = useMemo(() => {
+    if (!chartColorColumn || chartColorColumn === 'none' || !rowObjects.length) return [];
+    
+    const uniqueValues = new Set<string>();
+    for (const row of rowObjects) {
+      const groupVal = row[chartColorColumn];
+      if (groupVal !== null && groupVal !== undefined) {
+        uniqueValues.add(String(groupVal));
+      }
+    }
+    return Array.from(uniqueValues).slice(0, 10); // Limit to 10 groups for readability
+  }, [chartColorColumn, rowObjects]);
+
+  // Get active groups to display (filtered if any selected, otherwise all)
+  const activeGroups = useMemo(() => {
+    if (selectedGroups.length > 0) {
+      return chartGroupValues.filter(g => selectedGroups.includes(g));
+    }
+    return chartGroupValues;
+  }, [chartGroupValues, selectedGroups]);
+
   // Prepare chart data using selected columns
   const chartData = useMemo(() => {
     if (!report?.config.chart.enabled || !execution.data) return null;
     if (!chartXColumn || !chartYColumn) return null;
 
-    return rowObjects.slice(0, 200).map(row => {
-      const point: Record<string, unknown> = {
-        [chartXColumn]: formatChartLabel(row[chartXColumn]),
-      };
+    const hasGrouping = chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0;
+
+    if (hasGrouping) {
+      // Filter rows to only include active groups
+      const groupsToShow = activeGroups.length > 0 ? activeGroups : chartGroupValues;
+      const filteredRows = rowObjects.filter(row => {
+        const groupVal = String(row[chartColorColumn] ?? 'Unknown');
+        return groupsToShow.includes(groupVal);
+      });
+
+      // Sort rows by X value first
+      const sortedRows = [...filteredRows].sort((a, b) => {
+        const aVal = a[chartXColumn];
+        const bVal = b[chartXColumn];
+        if (aVal < bVal) return -1;
+        if (aVal > bVal) return 1;
+        return 0;
+      });
+
+      // Create data points - each row creates a point with its group's Y value
+      const dataPoints: Record<string, unknown>[] = [];
+      const seenX = new Map<string, number>(); // Map to track indices by X value
       
-      const val = row[chartYColumn];
-      point[chartYColumn] = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
+      for (const row of sortedRows) {
+        const xRaw = row[chartXColumn];
+        const xFormatted = formatChartLabel(xRaw, true); // Include time
+        const groupVal = String(row[chartColorColumn] ?? 'Unknown');
+        const yVal = row[chartYColumn];
+        const yNumeric = typeof yVal === 'number' ? yVal : parseFloat(String(yVal)) || 0;
+        
+        const xKey = String(xRaw);
+        
+        if (!seenX.has(xKey)) {
+          // New X value - create a new data point
+          const point: Record<string, unknown> = { [chartXColumn]: xFormatted };
+          // Initialize only active groups to null
+          for (const group of groupsToShow) {
+            point[group] = null;
+          }
+          point[groupVal] = yNumeric;
+          dataPoints.push(point);
+          seenX.set(xKey, dataPoints.length - 1);
+        } else {
+          // Existing X value - update the point with this group's value
+          const idx = seenX.get(xKey)!;
+          dataPoints[idx][groupVal] = yNumeric;
+        }
+      }
       
-      return point;
-    });
-  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn]);
+      return dataPoints;
+    } else {
+      // No grouping - single series
+      return rowObjects.slice(0, 200).map(row => {
+        const point: Record<string, unknown> = {
+          [chartXColumn]: formatChartLabel(row[chartXColumn], true),
+        };
+        
+        const val = row[chartYColumn];
+        point[chartYColumn] = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
+        
+        return point;
+      });
+    }
+  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups]);
 
   // Save SQL query
   const handleSaveSql = async (): Promise<boolean> => {
@@ -341,11 +419,12 @@ export default function CompositeReportView() {
   };
 
   // Check if chart config has unsaved changes
+  const savedGroupColumn = report?.config.chart.colorColumn || 'none';
+  const currentGroupColumn = chartColorColumn || 'none';
   const chartConfigChanged = report && (
     chartXColumn !== (report.config.chart.xColumn || '') ||
     chartYColumn !== (report.config.chart.yColumns?.[0] || '') ||
-    (chartColorColumn !== 'none' && chartColorColumn !== '') !== Boolean(report.config.chart.colorColumn) ||
-    (chartColorColumn !== 'none' && chartColorColumn !== '' && chartColorColumn !== report.config.chart.colorColumn)
+    currentGroupColumn !== savedGroupColumn
   );
 
   // Save chart configuration
@@ -809,9 +888,12 @@ export default function CompositeReportView() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="color-by">Color by</Label>
-                      <Select value={chartColorColumn} onValueChange={setChartColorColumn}>
-                        <SelectTrigger id="color-by">
+                      <Label htmlFor="group-by">Group by</Label>
+                      <Select value={chartColorColumn} onValueChange={(val) => {
+                        setChartColorColumn(val);
+                        setSelectedGroups([]); // Reset filter when group column changes
+                      }}>
+                        <SelectTrigger id="group-by">
                           <SelectValue placeholder="None" />
                         </SelectTrigger>
                         <SelectContent>
@@ -823,6 +905,49 @@ export default function CompositeReportView() {
                       </Select>
                     </div>
                   </div>
+
+                  {/* Filter by specific group values */}
+                  {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
+                    <div className="space-y-2 print:hidden">
+                      <Label>Filter by {chartColorColumn}</Label>
+                      <Select 
+                        value={selectedGroups.length === 1 ? selectedGroups[0] : selectedGroups.length > 1 ? 'multiple' : 'all'}
+                        onValueChange={(val) => {
+                          if (val === 'all') {
+                            setSelectedGroups([]);
+                          } else if (val !== 'multiple') {
+                            setSelectedGroups([val]);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue>
+                            {selectedGroups.length === 0 
+                              ? 'All groups' 
+                              : selectedGroups.length === 1 
+                                ? selectedGroups[0]
+                                : `${selectedGroups.length} groups selected`}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All groups ({chartGroupValues.length})</SelectItem>
+                          {chartGroupValues.map(group => (
+                            <SelectItem key={group} value={group}>{group}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedGroups.length > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => setSelectedGroups([])}
+                          className="text-xs text-muted-foreground"
+                        >
+                          Clear filter
+                        </Button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Save Chart Settings Button */}
                   <div className="flex items-center gap-3 print:hidden">
@@ -848,6 +973,7 @@ export default function CompositeReportView() {
                   {chartXColumn && chartYColumn && (
                     <p className="text-sm font-medium text-muted-foreground">
                       {chartYColumn} over {chartXColumn}
+                      {chartColorColumn && chartColorColumn !== 'none' && ` (grouped by ${chartColorColumn})`}
                     </p>
                   )}
 
@@ -875,21 +1001,48 @@ export default function CompositeReportView() {
                             }}
                           />
                           <Legend />
-                          <Area
-                            type="monotone"
-                            dataKey={chartYColumn}
-                            fill={CHART_COLORS[0]}
-                            fillOpacity={0.1}
-                            stroke="none"
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey={chartYColumn}
-                            stroke={CHART_COLORS[0]}
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4 }}
-                          />
+                          {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 ? (
+                            // Grouped chart - multiple series (filtered by activeGroups)
+                            <>
+                              {activeGroups.map((groupVal) => {
+                                // Use original index from chartGroupValues to maintain consistent colors
+                                const colorIdx = chartGroupValues.indexOf(groupVal);
+                                return (
+                                  <React.Fragment key={groupVal}>
+                                    <Line
+                                      type="monotone"
+                                      dataKey={groupVal}
+                                      name={groupVal}
+                                      stroke={CHART_COLORS[colorIdx % CHART_COLORS.length]}
+                                      strokeWidth={2}
+                                      dot={{ r: 2 }}
+                                      activeDot={{ r: 4 }}
+                                      connectNulls={false}
+                                    />
+                                  </React.Fragment>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            // Single series chart
+                            <>
+                              <Area
+                                type="monotone"
+                                dataKey={chartYColumn}
+                                fill={CHART_COLORS[0]}
+                                fillOpacity={0.1}
+                                stroke="none"
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey={chartYColumn}
+                                stroke={CHART_COLORS[0]}
+                                strokeWidth={2}
+                                dot={false}
+                                activeDot={{ r: 4 }}
+                              />
+                            </>
+                          )}
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -968,7 +1121,7 @@ function formatCellValue(value: unknown): string {
   return String(value);
 }
 
-function formatChartLabel(value: unknown): string {
+function formatChartLabel(value: unknown, includeTime: boolean = false): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -976,6 +1129,14 @@ function formatChartLabel(value: unknown): string {
     // Try to format as date if it looks like a timestamp
     const date = new Date(value);
     if (!isNaN(date.getTime()) && value.includes('-')) {
+      if (includeTime) {
+        return date.toLocaleString(undefined, { 
+          month: 'short', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
       return date.toLocaleDateString();
     }
   }
