@@ -61,7 +61,6 @@ function FitBounds({ points }: { points: GPSPoint[] }) {
 
     if (points.length === 1) {
       // Single point: zoom in reasonably close
-      console.log(`[Map] Single point, setting zoom to 12`);
       map.setView([points[0].lat, points[0].lon], 12);
     } else {
       const bounds = L.latLngBounds(
@@ -75,7 +74,6 @@ function FitBounds({ points }: { points: GPSPoint[] }) {
       setTimeout(() => {
         const fitZoom = map.getZoom();
         const targetZoom = Math.min(fitZoom + 1, 18); // FitBounds + 1, max 18
-        console.log(`[Map] FitBounds zoom: ${fitZoom}, zooming to: ${targetZoom}, points: ${points.length}`);
         map.setZoom(targetZoom);
       }, 100);
     }
@@ -94,7 +92,6 @@ function ViewTracker({ onViewChange }: { onViewChange?: (viewState: MapViewState
     const handleViewChange = () => {
       const center = map.getCenter();
       const zoom = map.getZoom();
-      console.log(`[Map] View changed: zoom=${zoom}, center=[${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}]`);
       
       if (onViewChange) {
         onViewChange({
@@ -142,13 +139,11 @@ function ShowAllButton({ points }: { points: GPSPoint[] }) {
     if (points.length === 0) return;
 
     if (points.length === 1) {
-      console.log(`[Map] Show All: Single point, setting zoom to 12`);
       map.setView([points[0].lat, points[0].lon], 12, { animate: true });
     } else {
       const bounds = L.latLngBounds(
         points.map(p => [p.lat, p.lon] as [number, number])
       );
-      console.log(`[Map] Show All: Fitting bounds for ${points.length} points`);
       map.fitBounds(bounds, { 
         padding: [50, 50],
         animate: true
@@ -157,7 +152,6 @@ function ShowAllButton({ points }: { points: GPSPoint[] }) {
       setTimeout(() => {
         const fitZoom = map.getZoom();
         const targetZoom = Math.min(fitZoom + 1, 18);
-        console.log(`[Map] Show All: FitBounds zoom: ${fitZoom}, zooming to: ${targetZoom}`);
         map.setZoom(targetZoom);
       }, 300);
     }
@@ -205,10 +199,7 @@ function ClickableMarker({
   const map = useMap();
   
   const handleClick = () => {
-    const currentZoom = map.getZoom();
     const targetZoom = 10; // Zoom level when clicking on marker
-    console.log(`[Map] Current zoom: ${currentZoom}, zooming to: ${targetZoom} at [${point.lat}, ${point.lon}]`);
-    // Zoom in to the clicked location
     map.setView([point.lat, point.lon], targetZoom, { animate: true });
   };
 
