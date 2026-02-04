@@ -525,4 +525,3 @@ export interface CompositeReportExecutionResult {
   };
   gps?: GPSColumnsInfo | null;
 }
-

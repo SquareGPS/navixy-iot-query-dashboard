@@ -730,6 +730,17 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
   }
 });
 
+// Geocoding cache TTL: 30 days (addresses don't change often)
+const GEOCODE_CACHE_TTL = 30 * 24 * 60 * 60; // 30 days in seconds
+
+/**
+ * Generate cache key for geocoding
+ */
+function getGeocodeCacheKey(lat: number, lng: number): string {
+  // Round to 6 decimal places for consistent cache keys
+  return `geocode:${lat.toFixed(6)},${lng.toFixed(6)}`;
+}
+
 /**
  * POST /api/composite-reports/geocode
  * Geocode coordinates to address using Navixy API
@@ -744,6 +755,21 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
 
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       throw new CustomError('Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180', 400);
+    }
+
+    // Check Redis cache first
+    const cacheKey = getGeocodeCacheKey(lat, lng);
+    const redisService = (await import('../services/redis.js')).RedisService.getInstance();
+    const cachedAddress = await redisService.get(cacheKey);
+    
+    if (cachedAddress !== null) {
+      logger.debug('Geocode cache hit', { lat, lng });
+      res.json({
+        success: true,
+        address: cachedAddress,
+        cached: true,
+      });
+      return;
     }
 
     // Hardcoded hash for now - will be changed later
@@ -773,9 +799,18 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
       throw new CustomError('Geocoding failed', 502);
     }
 
+    const address = data.value || null;
+
+    // Cache the result if we got an address
+    if (address) {
+      await redisService.set(cacheKey, address, GEOCODE_CACHE_TTL);
+      logger.debug('Geocode result cached', { lat, lng });
+    }
+
     res.json({
       success: true,
-      address: data.value || null,
+      address,
+      cached: false,
     });
   } catch (error) {
     next(error);
@@ -784,7 +819,7 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
 
 /**
  * POST /api/composite-reports/geocode-batch
- * Geocode multiple coordinates to addresses
+ * Geocode multiple coordinates to addresses with Redis caching
  */
 router.post('/composite-reports/geocode-batch', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -799,7 +834,11 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
     }
 
     const GEOCODER_HASH = '5fe594fd45a7a7df9e355fad48ec7e30';
-    const results: { lat: number; lng: number; address: string | null }[] = [];
+    const redisService = (await import('../services/redis.js')).RedisService.getInstance();
+    const results: { lat: number; lng: number; address: string | null; cached?: boolean }[] = [];
+    
+    let cacheHits = 0;
+    let apiCalls = 0;
 
     for (const coord of coordinates) {
       const { lat, lng } = coord;
@@ -814,6 +853,17 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
         continue;
       }
 
+      // Check cache first
+      const cacheKey = getGeocodeCacheKey(lat, lng);
+      const cachedAddress = await redisService.get(cacheKey);
+      
+      if (cachedAddress !== null) {
+        results.push({ lat, lng, address: cachedAddress, cached: true });
+        cacheHits++;
+        continue;
+      }
+
+      // Not in cache, call API
       try {
         const response = await fetch('https://api.eu.navixy.com/v2/geocoder/search_location', {
           method: 'POST',
@@ -828,21 +878,40 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
 
         if (response.ok) {
           const data = await response.json();
-          results.push({ lat, lng, address: data.success ? data.value : null });
+          const address = data.success ? data.value : null;
+          results.push({ lat, lng, address, cached: false });
+          
+          // Cache successful results
+          if (address) {
+            await redisService.set(cacheKey, address, GEOCODE_CACHE_TTL);
+          }
         } else {
-          results.push({ lat, lng, address: null });
+          results.push({ lat, lng, address: null, cached: false });
         }
+        apiCalls++;
       } catch {
-        results.push({ lat, lng, address: null });
+        results.push({ lat, lng, address: null, cached: false });
+        apiCalls++;
       }
 
-      // Small delay between requests to avoid rate limiting
+      // Small delay between API requests to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+
+    logger.info('Batch geocoding completed', { 
+      total: coordinates.length, 
+      cacheHits, 
+      apiCalls 
+    });
 
     res.json({
       success: true,
       results,
+      stats: {
+        total: coordinates.length,
+        cacheHits,
+        apiCalls,
+      },
     });
   } catch (error) {
     next(error);
