@@ -61,7 +61,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMenuTree, useReorderMenuMutation } from '@/hooks/use-menu-mutations';
-import { RenameModal, DeleteModal, CreateSectionModal, CreateReportModal } from './MenuModals';
+import { RenameModal, DeleteModal, CreateSectionModal, CreateReportModal, CreateCompositeReportModal } from './MenuModals';
 import type { MenuTree, DragItem, DropResult } from '@/types/menu-editor';
 
 // Sortable Section Item Component
@@ -327,6 +327,7 @@ export function MenuEditor() {
   const [deleteStrategy, setDeleteStrategy] = useState<'move_children_to_root' | 'delete_children' | null>(null);
   const [isCreateSectionModalOpen, setIsCreateSectionModalOpen] = useState(false);
   const [isCreateReportModalOpen, setIsCreateReportModalOpen] = useState(false);
+  const [isCreateCompositeReportModalOpen, setIsCreateCompositeReportModalOpen] = useState(false);
 
   // Queries and mutations
   const { data: menuTree, isLoading, error } = useMenuTree();
@@ -782,7 +783,7 @@ export function MenuEditor() {
                           <FileText className="h-4 w-4 mr-2" />
                           New dashboard
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => navigate('/app/composite-report/new')} className="py-1.5">
+                        <DropdownMenuItem onClick={() => setIsCreateCompositeReportModalOpen(true)} className="py-1.5">
                           <Layers className="h-4 w-4 mr-2" />
                           New report
                         </DropdownMenuItem>
@@ -851,6 +852,11 @@ export function MenuEditor() {
       <CreateReportModal 
         isOpen={isCreateReportModalOpen}
         onClose={() => setIsCreateReportModalOpen(false)}
+      />
+
+      <CreateCompositeReportModal 
+        isOpen={isCreateCompositeReportModalOpen}
+        onClose={() => setIsCreateCompositeReportModalOpen(false)}
       />
     </>
   );

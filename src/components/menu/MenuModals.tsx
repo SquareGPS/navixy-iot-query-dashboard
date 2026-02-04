@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -503,6 +504,131 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
               disabled={isSubmitting || !title.trim()}
             >
               {isSubmitting ? 'Creating...' : 'Create Dashboard'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Create Composite Report Modal Component
+interface CreateCompositeReportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function CreateCompositeReportModal({ isOpen, onClose }: CreateCompositeReportModalProps) {
+  const [title, setTitle] = useState('');
+  const [parentSectionId, setParentSectionId] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const { data: menuTree } = useMenuTree();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Calculate sort_order the same way as for dashboards
+    let sortOrder = 1000;
+    if (parentSectionId) {
+      const sectionReports = menuTree?.sectionReports?.[parentSectionId] || [];
+      if (sectionReports.length > 0) {
+        const maxSortOrder = Math.max(...sectionReports.map((r: { sortOrder?: number }) => r.sortOrder ?? 0));
+        sortOrder = maxSortOrder + 1000;
+      }
+    } else {
+      const rootReports = menuTree?.rootReports || [];
+      if (rootReports.length > 0) {
+        const maxSortOrder = Math.max(...rootReports.map((r: { sortOrder?: number }) => r.sortOrder ?? 0));
+        sortOrder = maxSortOrder + 1000;
+      }
+    }
+
+    // Build URL with section_id and sort_order (same as dashboard create)
+    let url = '/app/composite-report/new';
+    const params = new URLSearchParams();
+    
+    if (title.trim()) {
+      params.set('title', title.trim());
+    }
+    if (parentSectionId) {
+      params.set('section_id', parentSectionId);
+    }
+    params.set('sort_order', String(sortOrder));
+
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    // Reset form and close modal
+    setTitle('');
+    setParentSectionId(null);
+    onClose();
+    
+    // Navigate to the composite report editor
+    navigate(url);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create New Report</DialogTitle>
+          <DialogDescription>
+            Create a new report with table, chart, and map visualizations. You can choose which section it belongs to or leave it in the root.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="composite-report-title" className="text-right">
+                Title
+              </Label>
+              <Input
+                id="composite-report-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="col-span-3"
+                placeholder="Enter report title (optional)..."
+                maxLength={120}
+                autoFocus
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="composite-parent-section" className="text-right">
+                Section
+              </Label>
+              <Select value={parentSectionId || 'root'} onValueChange={(value) => setParentSectionId(value === 'root' ? null : value)}>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select section (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="root">Root (no section)</SelectItem>
+                  {(menuTree?.sections || []).map((section) => (
+                    <SelectItem key={section.id} value={section.id}>
+                      {section.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit">
+              Continue
             </Button>
           </DialogFooter>
         </form>

@@ -81,10 +81,14 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
             report.type = reportTypeMap.get(report.id) || 'standard';
           }
         }
-        // Handle sectionReports array
-        if (Array.isArray(menuTree.sectionReports)) {
-          for (const report of menuTree.sectionReports) {
-            report.type = reportTypeMap.get(report.id) || 'standard';
+        // Handle sectionReports (object keyed by section id: { [sectionId]: reports[] })
+        if (menuTree.sectionReports && typeof menuTree.sectionReports === 'object' && !Array.isArray(menuTree.sectionReports)) {
+          for (const reports of Object.values(menuTree.sectionReports) as any[][]) {
+            if (Array.isArray(reports)) {
+              for (const report of reports) {
+                report.type = reportTypeMap.get(report.id) || 'standard';
+              }
+            }
           }
         }
       }

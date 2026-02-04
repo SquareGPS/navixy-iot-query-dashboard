@@ -48,10 +48,14 @@ export default function CompositeReportEditor() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const isNew = !id;
-  const sectionId = searchParams.get('section_id');
+  const sectionIdParam = searchParams.get('section_id');
+  const sectionId = sectionIdParam === '' ? null : sectionIdParam;
+  const sortOrderParam = searchParams.get('sort_order');
+  const initialSortOrder = sortOrderParam != null && sortOrderParam !== '' ? parseInt(sortOrderParam, 10) : undefined;
+  const initialTitle = searchParams.get('title');
 
   // Form state
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(initialTitle || '');
   const [description, setDescription] = useState('');
   const [sqlQuery, setSqlQuery] = useState('');
   const [config, setConfig] = useState<CompositeReportConfig>(DEFAULT_CONFIG);
@@ -191,13 +195,27 @@ export default function CompositeReportEditor() {
 
     setSaving(true);
     try {
-      const reportData = {
+      const reportData: {
+        title: string;
+        description?: string;
+        sql_query: string;
+        config: CompositeReportConfig;
+        section_id?: string | null;
+        sort_order?: number;
+      } = {
         title: title.trim(),
         description: description.trim() || undefined,
         sql_query: sqlQuery.trim(),
         config,
-        section_id: sectionId || undefined,
       };
+
+      if (isNew) {
+        // On create: pass section_id and sort_order from URL (same as dashboard create)
+        reportData.section_id = sectionId ?? null;
+        if (initialSortOrder !== undefined && !Number.isNaN(initialSortOrder)) {
+          reportData.sort_order = initialSortOrder;
+        }
+      }
 
       let response;
       if (isNew) {

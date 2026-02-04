@@ -616,17 +616,6 @@ export default function CompositeReportView() {
       <header className="mb-8 print:mb-4">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => navigate('/')}
-                className="print:hidden"
-              >
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back
-              </Button>
-            </div>
             <h1 className="text-3xl font-bold tracking-tight">{report.title}</h1>
             {report.description && (
               <p className="text-muted-foreground mt-2">{report.description}</p>
