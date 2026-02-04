@@ -38,6 +38,11 @@ export interface HTMLExportOptions {
     yColumn?: string;
     groupColumn?: string;
   };
+  // Map view state from frontend (center and zoom)
+  mapSettings?: {
+    center: [number, number];
+    zoom: number;
+  };
 }
 
 export class ExportService {
@@ -60,11 +65,24 @@ export class ExportService {
     workbook.creator = 'Dashboard Studio';
     workbook.created = executedAt;
 
+    // Filter out empty columns
+    const emptyColumnIndices = new Set<number>();
+    columns.forEach((col, idx) => {
+      const isEmpty = rows.every(row => {
+        const val = row[idx];
+        return val === null || val === undefined || val === '';
+      });
+      if (isEmpty) {
+        emptyColumnIndices.add(idx);
+      }
+    });
+    const visibleColumns = columns.filter((_, idx) => !emptyColumnIndices.has(idx));
+
     // Create data sheet
     const dataSheet = workbook.addWorksheet('Data');
 
     // Add header row
-    dataSheet.columns = columns.map(col => ({
+    dataSheet.columns = visibleColumns.map(col => ({
       header: col.name,
       key: col.name,
       width: Math.max(col.name.length + 2, 15),
@@ -84,6 +102,11 @@ export class ExportService {
     rows.forEach((row) => {
       const rowData: Record<string, unknown> = {};
       columns.forEach((col, idx) => {
+        // Skip empty columns
+        if (emptyColumnIndices.has(idx)) {
+          return;
+        }
+        
         let value = row[idx];
         
         // Convert values based on type
@@ -94,7 +117,7 @@ export class ExportService {
           const dateValue = new Date(value as string);
           rowData[col.name] = isNaN(dateValue.getTime()) ? value : dateValue;
         } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
-          // Handle numeric values
+          // Handle numeric values - parseFloat automatically removes trailing zeros
           rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
         } else {
           rowData[col.name] = value;
@@ -117,7 +140,7 @@ export class ExportService {
       }
       
       // Apply short date format to date/timestamp columns
-      const col = columns[colIdx];
+      const col = visibleColumns[colIdx];
       if (col && (col.type.includes('timestamp') || col.type.includes('date'))) {
         // Apply date format to all cells in this column (skip header row)
         for (let rowNum = 2; rowNum <= rows.length + 1; rowNum++) {
@@ -175,29 +198,65 @@ export class ExportService {
   generateCSV(options: ExcelExportOptions): Buffer {
     const { columns, rows } = options;
     
+    // Filter out empty columns
+    const emptyColumnIndices = new Set<number>();
+    columns.forEach((col, idx) => {
+      const isEmpty = rows.every(row => {
+        const val = row[idx];
+        return val === null || val === undefined || val === '';
+      });
+      if (isEmpty) {
+        emptyColumnIndices.add(idx);
+      }
+    });
+    const visibleColumns = columns.filter((_, idx) => !emptyColumnIndices.has(idx));
+    
     const lines: string[] = [];
     
     // Add header row
-    lines.push(columns.map(col => this.escapeCSVField(col.name)).join(','));
+    lines.push(visibleColumns.map(col => this.escapeCSVField(col.name)).join(','));
     
     // Add data rows
     rows.forEach((row) => {
-      const csvRow = columns.map((col, idx) => {
+      const csvRow: string[] = [];
+      columns.forEach((col, idx) => {
+        // Skip empty columns
+        if (emptyColumnIndices.has(idx)) {
+          return;
+        }
+        
         let value = row[idx];
         
         if (value === null || value === undefined) {
-          return '';
+          csvRow.push('');
+          return;
         }
         
         // Format dates in short locale format
         if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (!isNaN(dateValue.getTime())) {
-            return this.escapeCSVField(this.formatShortDateTime(dateValue));
+            csvRow.push(this.escapeCSVField(this.formatShortDateTime(dateValue)));
+            return;
           }
         }
         
-        return this.escapeCSVField(String(value));
+        // Trim trailing zeros for numeric values
+        if (typeof value === 'number') {
+          csvRow.push(this.escapeCSVField(this.formatNumericValue(value)));
+          return;
+        }
+        
+        // Check for string numbers with trailing zeros
+        if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
+          const num = parseFloat(value);
+          if (!isNaN(num)) {
+            csvRow.push(this.escapeCSVField(this.formatNumericValue(num)));
+            return;
+          }
+        }
+        
+        csvRow.push(this.escapeCSVField(String(value)));
       });
       lines.push(csvRow.join(','));
     });
@@ -206,7 +265,7 @@ export class ExportService {
     
     logger.info('Generated CSV export', { 
       rowCount: rows.length, 
-      columnCount: columns.length 
+      columnCount: visibleColumns.length 
     });
     
     return Buffer.from(csvContent, 'utf-8');
@@ -236,6 +295,31 @@ export class ExportService {
     const minutes = String(date.getMinutes()).padStart(2, '0');
     
     return `${day}/${month}/${year} ${hours}:${minutes}`;
+  }
+
+  /**
+   * Format a numeric value, trimming trailing zeros (for coordinates)
+   */
+  private formatNumericValue(value: number): string {
+    // Remove trailing zeros while keeping precision
+    return parseFloat(value.toPrecision(15)).toString();
+  }
+
+  /**
+   * Check if a column is empty (all values are null/undefined/empty string)
+   */
+  private isColumnEmpty(rows: Record<string, unknown>[], colName: string): boolean {
+    return rows.every(row => {
+      const val = row[colName];
+      return val === null || val === undefined || val === '';
+    });
+  }
+
+  /**
+   * Filter out columns that have no values
+   */
+  private filterEmptyColumns(columns: ExportColumn[], rows: Record<string, unknown>[]): ExportColumn[] {
+    return columns.filter(col => !this.isColumnEmpty(rows, col.name));
   }
 
   /**
@@ -287,7 +371,7 @@ export class ExportService {
     // Generate map HTML if enabled and GPS data available
     let mapHTML = '';
     if (gpsColumns && config.map?.enabled) {
-      mapHTML = this.generateMapHTML(rowObjects, gpsColumns);
+      mapHTML = this.generateMapHTML(rowObjects, gpsColumns, options.mapSettings);
     }
 
     // Build full HTML document
@@ -478,15 +562,27 @@ export class ExportService {
    * Generate HTML table from data
    */
   private generateTableHTML(columns: ExportColumn[], rows: Record<string, unknown>[]): string {
-    const headerCells = columns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
+    // Filter out empty columns
+    const visibleColumns = this.filterEmptyColumns(columns, rows);
+    
+    const headerCells = visibleColumns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
     
     const bodyRows = rows.slice(0, 500).map(row => {
-      const cells = columns.map(col => {
+      const cells = visibleColumns.map(col => {
         let value = row[col.name];
         if (value === null || value === undefined) {
           value = '';
+        } else if (typeof value === 'number') {
+          // Trim trailing zeros for numbers (especially coordinates)
+          value = this.formatNumericValue(value);
         } else if (value instanceof Date) {
           value = this.formatShortDateTime(value);
+        } else if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
+          // String that looks like a number with trailing zeros
+          const num = parseFloat(value);
+          if (!isNaN(num)) {
+            value = this.formatNumericValue(num);
+          }
         } else if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
           // Format ISO date strings in short format
           const date = new Date(value);
@@ -682,7 +778,7 @@ export class ExportService {
         backgroundColor: color + '20',
         fill: false,
         tension: 0.1,
-        spanGaps: false,
+        spanGaps: true,
       };
     });
 
@@ -749,7 +845,8 @@ export class ExportService {
    */
   private generateMapHTML(
     rows: Record<string, unknown>[],
-    gpsColumns: { latColumn: string; lonColumn: string }
+    gpsColumns: { latColumn: string; lonColumn: string },
+    mapSettings?: { center: [number, number]; zoom: number }
   ): string {
     // Extract valid GPS points
     const points = rows
@@ -766,20 +863,50 @@ export class ExportService {
 
     if (points.length === 0) return '';
 
-    // Calculate center
-    const avgLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
-    const avgLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
+    // Use mapSettings from frontend if provided, otherwise calculate default
+    let centerLat: number;
+    let centerLon: number;
+    let zoom: number;
+
+    if (mapSettings) {
+      // Use the exact view state from the frontend
+      centerLat = mapSettings.center[0];
+      centerLon = mapSettings.center[1];
+      zoom = mapSettings.zoom;
+    } else {
+      // Calculate center from points
+      centerLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+      centerLon = points.reduce((sum, p) => sum + p.lon, 0) / points.length;
+      zoom = 10;
+    }
+
+    // If mapSettings provided, don't auto-fit bounds - use exact view
+    const fitBoundsCode = mapSettings ? '' : `
+        if (markers.length > 1) {
+          const group = L.featureGroup(markers);
+          map.fitBounds(group.getBounds().pad(0.1));
+        }`;
 
     return `
       document.addEventListener('DOMContentLoaded', function() {
         const container = document.getElementById('map-container');
         if (!container) return;
         
-        const map = L.map(container).setView([${avgLat}, ${avgLon}], 10);
+        const map = L.map(container, { attributionControl: false }).setView([${centerLat}, ${centerLon}], ${zoom});
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        
+        // Add Navixy logo in bottom right
+        const navixyControl = L.control({ position: 'bottomright' });
+        navixyControl.onAdd = function() {
+          const div = L.DomUtil.create('div', 'navixy-attribution');
+          div.innerHTML = '<a href="https://www.navixy.com" target="_blank" rel="noopener noreferrer" title="Powered by Navixy" style="display:block"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g clip-path="url(#clip0_navixy)"><path d="M9.92784 0.0618557C4.26804 1.05155 0.0927835 5.96907 0 11.7217V12.3402L10.3608 6.15464V0L9.92784 0.0618557Z" fill="#007AD2"/><path d="M24.064 11.8763C24.033 6.06186 19.8578 1.08247 14.1361 0.0618557L13.7031 0V6.21649L24.064 12.4948V11.8763Z" fill="#007AD2"/><path d="M0.772149 16.1754C1.63813 18.4331 3.12266 20.3816 5.10205 21.7733C7.14328 23.196 9.52473 23.9692 12.0299 23.9692C14.5041 23.9692 16.8855 23.227 18.8959 21.8043C20.8752 20.4434 22.3598 18.5259 23.2258 16.2991L23.3185 16.0208L11.999 9.15479L0.648438 15.928L0.772149 16.1754Z" fill="#007AD2"/></g><defs><clipPath id="clip0_navixy"><rect width="24" height="24" fill="white"/></clipPath></defs></svg></a>';
+          div.style.background = 'rgba(255,255,255,0.8)';
+          div.style.padding = '2px 4px';
+          div.style.borderRadius = '4px';
+          return div;
+        };
+        navixyControl.addTo(map);
         
         const points = ${JSON.stringify(points)};
         const markers = [];
@@ -788,11 +915,7 @@ export class ExportService {
           const marker = L.marker([point.lat, point.lon]).addTo(map);
           markers.push(marker);
         });
-        
-        if (markers.length > 1) {
-          const group = L.featureGroup(markers);
-          map.fitBounds(group.getBounds().pad(0.1));
-        }
+        ${fitBoundsCode}
       });
     `;
   }

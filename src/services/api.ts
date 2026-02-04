@@ -617,6 +617,10 @@ class ApiService {
       yColumn?: string;
       groupColumn?: string;
     };
+    mapSettings?: {
+      center: [number, number];
+      zoom: number;
+    };
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/html`;
@@ -652,6 +656,10 @@ class ApiService {
       xColumn?: string;
       yColumn?: string;
       groupColumn?: string;
+    };
+    mapSettings?: {
+      center: [number, number];
+      zoom: number;
     };
   }): Promise<Blob | null> {
     try {

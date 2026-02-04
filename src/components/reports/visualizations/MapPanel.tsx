@@ -28,6 +28,11 @@ export interface GPSPoint {
   data?: Record<string, unknown>;
 }
 
+export interface MapViewState {
+  center: [number, number];
+  zoom: number;
+}
+
 export interface MapPanelProps {
   /** Array of GPS points to display on the map */
   points: GPSPoint[];
@@ -41,6 +46,8 @@ export interface MapPanelProps {
   popupColumns?: string[];
   /** Enable marker clustering for large datasets */
   enableClustering?: boolean;
+  /** Callback when map view changes (center or zoom) */
+  onViewChange?: (viewState: MapViewState) => void;
 }
 
 /**
@@ -53,16 +60,171 @@ function FitBounds({ points }: { points: GPSPoint[] }) {
     if (points.length === 0) return;
 
     if (points.length === 1) {
-      map.setView([points[0].lat, points[0].lon], 13);
+      // Single point: zoom in reasonably close
+      console.log(`[Map] Single point, setting zoom to 12`);
+      map.setView([points[0].lat, points[0].lon], 12);
     } else {
       const bounds = L.latLngBounds(
         points.map(p => [p.lat, p.lon] as [number, number])
       );
-      map.fitBounds(bounds, { padding: [50, 50] });
+      // First fit bounds to calculate optimal zoom
+      map.fitBounds(bounds, { 
+        padding: [50, 50]
+      });
+      // Then zoom in one level closer
+      setTimeout(() => {
+        const fitZoom = map.getZoom();
+        const targetZoom = Math.min(fitZoom + 1, 18); // FitBounds + 1, max 18
+        console.log(`[Map] FitBounds zoom: ${fitZoom}, zooming to: ${targetZoom}, points: ${points.length}`);
+        map.setZoom(targetZoom);
+      }, 100);
     }
   }, [map, points]);
 
   return null;
+}
+
+/**
+ * Component to track view changes (zoom and pan) and report to parent
+ */
+function ViewTracker({ onViewChange }: { onViewChange?: (viewState: MapViewState) => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleViewChange = () => {
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      console.log(`[Map] View changed: zoom=${zoom}, center=[${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}]`);
+      
+      if (onViewChange) {
+        onViewChange({
+          center: [center.lat, center.lng],
+          zoom: zoom
+        });
+      }
+    };
+
+    // Listen for both zoom and move (pan) events
+    map.on('zoomend', handleViewChange);
+    map.on('moveend', handleViewChange);
+
+    // Report initial state after a short delay (after FitBounds completes)
+    const timer = setTimeout(() => {
+      handleViewChange();
+    }, 500);
+
+    return () => {
+      map.off('zoomend', handleViewChange);
+      map.off('moveend', handleViewChange);
+      clearTimeout(timer);
+    };
+  }, [map, onViewChange]);
+
+  return null;
+}
+
+/**
+ * Show All button component - fits map to show all markers
+ */
+function ShowAllButton({ points }: { points: GPSPoint[] }) {
+  const map = useMap();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Disable click propagation to map using Leaflet's method
+  useEffect(() => {
+    if (buttonRef.current) {
+      L.DomEvent.disableClickPropagation(buttonRef.current);
+      L.DomEvent.disableScrollPropagation(buttonRef.current);
+    }
+  }, []);
+
+  const handleShowAll = () => {
+    if (points.length === 0) return;
+
+    if (points.length === 1) {
+      console.log(`[Map] Show All: Single point, setting zoom to 12`);
+      map.setView([points[0].lat, points[0].lon], 12, { animate: true });
+    } else {
+      const bounds = L.latLngBounds(
+        points.map(p => [p.lat, p.lon] as [number, number])
+      );
+      console.log(`[Map] Show All: Fitting bounds for ${points.length} points`);
+      map.fitBounds(bounds, { 
+        padding: [50, 50],
+        animate: true
+      });
+      // Zoom in one level after fit
+      setTimeout(() => {
+        const fitZoom = map.getZoom();
+        const targetZoom = Math.min(fitZoom + 1, 18);
+        console.log(`[Map] Show All: FitBounds zoom: ${fitZoom}, zooming to: ${targetZoom}`);
+        map.setZoom(targetZoom);
+      }, 300);
+    }
+  };
+
+  return (
+    <div 
+      className="leaflet-top leaflet-right" 
+      style={{ 
+        position: 'absolute', 
+        top: 10, 
+        right: 10, 
+        zIndex: 1000,
+        pointerEvents: 'auto'  // Override Leaflet's pointer-events: none on overlays
+      }}
+    >
+      <button
+        ref={buttonRef}
+        onClick={handleShowAll}
+        className="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        style={{ 
+          cursor: 'pointer',
+          pointerEvents: 'auto'  // Ensure button receives pointer events
+        }}
+        title="Fit map to show all locations"
+      >
+        Show all
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Clickable marker that zooms to location when clicked
+ */
+function ClickableMarker({ 
+  point, 
+  index, 
+  popupColumns 
+}: { 
+  point: GPSPoint; 
+  index: number;
+  popupColumns?: string[];
+}) {
+  const map = useMap();
+  
+  const handleClick = () => {
+    const currentZoom = map.getZoom();
+    const targetZoom = 10; // Zoom level when clicking on marker
+    console.log(`[Map] Current zoom: ${currentZoom}, zooming to: ${targetZoom} at [${point.lat}, ${point.lon}]`);
+    // Zoom in to the clicked location
+    map.setView([point.lat, point.lon], targetZoom, { animate: true });
+  };
+
+  return (
+    <Marker 
+      key={`marker-${index}-${point.lat}-${point.lon}`}
+      position={[point.lat, point.lon]}
+      eventHandlers={{
+        click: handleClick
+      }}
+    >
+      <Popup>
+        <PopupContent point={point} popupColumns={popupColumns} />
+      </Popup>
+    </Marker>
+  );
 }
 
 /**
@@ -156,6 +318,7 @@ export function MapPanel({
   height = 400,
   className = '',
   popupColumns,
+  onViewChange,
 }: MapPanelProps) {
   const mapRef = useRef<L.Map>(null);
 
@@ -216,24 +379,57 @@ export function MapPanel({
           zoom={10}
           style={{ height: '100%', width: '100%' }}
           scrollWheelZoom={true}
+          attributionControl={false}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           
           <FitBounds points={validPoints} />
+          <ViewTracker onViewChange={onViewChange} />
+          <ShowAllButton points={validPoints} />
           
           {validPoints.map((point, index) => (
-            <Marker 
+            <ClickableMarker 
               key={`marker-${index}-${point.lat}-${point.lon}`}
-              position={[point.lat, point.lon]}
-            >
-              <Popup>
-                <PopupContent point={point} popupColumns={popupColumns} />
-              </Popup>
-            </Marker>
+              point={point}
+              index={index}
+              popupColumns={popupColumns}
+            />
           ))}
+          
+          {/* Custom Navixy attribution */}
+          <div 
+            className="leaflet-bottom leaflet-right"
+            style={{ 
+              position: 'absolute', 
+              bottom: 5, 
+              right: 5, 
+              zIndex: 1000,
+              pointerEvents: 'auto'
+            }}
+          >
+            <a 
+              href="https://www.navixy.com" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              title="Powered by Navixy"
+              style={{ display: 'block' }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g clipPath="url(#clip0_navixy)">
+                  <path d="M9.92784 0.0618557C4.26804 1.05155 0.0927835 5.96907 0 11.7217V12.3402L10.3608 6.15464V0L9.92784 0.0618557Z" fill="#007AD2"/>
+                  <path d="M24.064 11.8763C24.033 6.06186 19.8578 1.08247 14.1361 0.0618557L13.7031 0V6.21649L24.064 12.4948V11.8763Z" fill="#007AD2"/>
+                  <path d="M0.772149 16.1754C1.63813 18.4331 3.12266 20.3816 5.10205 21.7733C7.14328 23.196 9.52473 23.9692 12.0299 23.9692C14.5041 23.9692 16.8855 23.227 18.8959 21.8043C20.8752 20.4434 22.3598 18.5259 23.2258 16.2991L23.3185 16.0208L11.999 9.15479L0.648438 15.928L0.772149 16.1754Z" fill="#007AD2"/>
+                </g>
+                <defs>
+                  <clipPath id="clip0_navixy">
+                    <rect width="24" height="24" fill="white"/>
+                  </clipPath>
+                </defs>
+              </svg>
+            </a>
+          </div>
         </MapContainer>
       </div>
       <div className="text-xs text-muted-foreground mt-2">

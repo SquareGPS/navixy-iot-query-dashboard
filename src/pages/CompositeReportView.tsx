@@ -39,7 +39,7 @@ import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
-import { MapPanel } from '@/components/reports/visualizations/MapPanel';
+import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
   Table,
   TableBody,
@@ -103,6 +103,9 @@ export default function CompositeReportView() {
   const [geocodeEnabled, setGeocodeEnabled] = useState(false);
   const [geocodedAddresses, setGeocodedAddresses] = useState<Map<string, string>>(new Map());
   const [geocoding, setGeocoding] = useState(false);
+  
+  // Map view state (for export sync)
+  const [mapViewState, setMapViewState] = useState<MapViewState | null>(null);
   
   // Chart column selection state
   const [chartXColumn, setChartXColumn] = useState<string>('');
@@ -530,6 +533,10 @@ export default function CompositeReportView() {
           yColumn: chartYColumn || undefined,
           groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
         },
+        mapSettings: mapViewState ? {
+          center: mapViewState.center,
+          zoom: mapViewState.zoom,
+        } : undefined,
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.html`);
@@ -558,6 +565,10 @@ export default function CompositeReportView() {
           yColumn: chartYColumn || undefined,
           groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
         },
+        mapSettings: mapViewState ? {
+          center: mapViewState.center,
+          zoom: mapViewState.zoom,
+        } : undefined,
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.pdf`);
@@ -838,82 +849,104 @@ export default function CompositeReportView() {
                 <CardContent>
                   <div className="overflow-x-auto">
                     <div className="max-h-[480px] overflow-y-auto border rounded-md">
-                      <Table>
-                        <TableHeader className="sticky top-0 bg-background z-10">
-                          <TableRow>
-                            {execution.data.columns.map((col) => {
-                              // Replace lat/lon column headers with "Address" when geocoding
-                              if (geocodeEnabled && execution.data?.gps) {
-                                if (col.name === execution.data.gps.latColumn) {
-                                  return (
-                                    <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                      Address
-                                    </TableHead>
-                                  );
-                                }
-                                if (col.name === execution.data.gps.lonColumn) {
-                                  return null; // Hide lon column when geocoding
-                                }
-                              }
-                              return (
-                                <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                  {col.name}
-                                </TableHead>
-                              );
-                            }).filter(Boolean)}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {execution.data.rows.slice(0, 15).map((row, rowIdx) => {
-                            // Get lat/lon indices for geocoding
-                            const latIdx = execution.data?.gps 
-                              ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
-                              : -1;
-                            const lonIdx = execution.data?.gps
-                              ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
-                              : -1;
-                            
-                            return (
-                              <TableRow key={rowIdx}>
-                                {row.map((cell, cellIdx) => {
-                                  const colName = execution.data?.columns[cellIdx]?.name;
-                                  
-                                  // Handle geocoding display
-                                  if (geocodeEnabled && execution.data?.gps) {
-                                    // Skip lon column when geocoding
-                                    if (colName === execution.data.gps.lonColumn) {
-                                      return null;
-                                    }
-                                    
-                                    // Replace lat column with address
-                                    if (colName === execution.data.gps.latColumn) {
-                                      const lat = parseFloat(String(row[latIdx]));
-                                      const lng = parseFloat(String(row[lonIdx]));
-                                      
-                                      const address = getAddressForCoords(lat, lng);
-                                      return (
-                                        <TableCell key={cellIdx} className="max-w-[400px]">
-                                          {address || (geocoding ? (
-                                            <span className="text-muted-foreground italic">Loading...</span>
-                                          ) : (
-                                            <span className="text-muted-foreground">{`${lat.toFixed(6)}, ${lng.toFixed(6)}`}</span>
-                                          ))}
-                                        </TableCell>
-                                      );
-                                    }
+                      {(() => {
+                        // Determine which columns to hide (empty columns)
+                        const emptyColumnIndices = new Set<number>();
+                        execution.data.columns.forEach((_, idx) => {
+                          if (isColumnEmpty(execution.data?.rows || [], idx)) {
+                            emptyColumnIndices.add(idx);
+                          }
+                        });
+                        
+                        return (
+                          <Table>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                              <TableRow>
+                                {execution.data.columns.map((col, colIdx) => {
+                                  // Skip empty columns
+                                  if (emptyColumnIndices.has(colIdx)) {
+                                    return null;
                                   }
                                   
+                                  // Replace lat/lon column headers with "Address" when geocoding
+                                  if (geocodeEnabled && execution.data?.gps) {
+                                    if (col.name === execution.data.gps.latColumn) {
+                                      return (
+                                        <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                          Address
+                                        </TableHead>
+                                      );
+                                    }
+                                    if (col.name === execution.data.gps.lonColumn) {
+                                      return null; // Hide lon column when geocoding
+                                    }
+                                  }
                                   return (
-                                    <TableCell key={cellIdx} className="max-w-[300px] truncate">
-                                      {formatCellValue(cell)}
-                                    </TableCell>
+                                    <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                      {col.name}
+                                    </TableHead>
                                   );
                                 }).filter(Boolean)}
                               </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {execution.data.rows.slice(0, 15).map((row, rowIdx) => {
+                                // Get lat/lon indices for geocoding
+                                const latIdx = execution.data?.gps 
+                                  ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
+                                  : -1;
+                                const lonIdx = execution.data?.gps
+                                  ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
+                                  : -1;
+                                
+                                return (
+                                  <TableRow key={rowIdx}>
+                                    {row.map((cell, cellIdx) => {
+                                      // Skip empty columns
+                                      if (emptyColumnIndices.has(cellIdx)) {
+                                        return null;
+                                      }
+                                      
+                                      const colName = execution.data?.columns[cellIdx]?.name;
+                                      
+                                      // Handle geocoding display
+                                      if (geocodeEnabled && execution.data?.gps) {
+                                        // Skip lon column when geocoding
+                                        if (colName === execution.data.gps.lonColumn) {
+                                          return null;
+                                        }
+                                        
+                                        // Replace lat column with address
+                                        if (colName === execution.data.gps.latColumn) {
+                                          const lat = parseFloat(String(row[latIdx]));
+                                          const lng = parseFloat(String(row[lonIdx]));
+                                          
+                                          const address = getAddressForCoords(lat, lng);
+                                          return (
+                                            <TableCell key={cellIdx} className="max-w-[400px]">
+                                              {address || (geocoding ? (
+                                                <span className="text-muted-foreground italic">Loading...</span>
+                                              ) : (
+                                                <span className="text-muted-foreground">{`${lat.toFixed(6)}, ${lng.toFixed(6)}`}</span>
+                                              ))}
+                                            </TableCell>
+                                          );
+                                        }
+                                      }
+                                      
+                                      return (
+                                        <TableCell key={cellIdx} className="max-w-[300px] truncate">
+                                          {formatCellValue(cell)}
+                                        </TableCell>
+                                      );
+                                    }).filter(Boolean)}
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        );
+                      })()}
                     </div>
                     {execution.data.rows.length > 15 && (
                       <p className="text-sm text-muted-foreground mt-3 text-center">
@@ -1080,17 +1113,18 @@ export default function CompositeReportView() {
                                 {activeGroups.map((groupVal) => {
                                   // Use original index from chartGroupValues to maintain consistent colors
                                   const colorIdx = chartGroupValues.indexOf(groupVal);
+                                  const color = CHART_COLORS[colorIdx % CHART_COLORS.length];
                                   return (
                                     <React.Fragment key={groupVal}>
                                       <Line
                                         type="monotone"
                                         dataKey={groupVal}
                                         name={groupVal}
-                                        stroke={CHART_COLORS[colorIdx % CHART_COLORS.length]}
+                                        stroke={color}
                                         strokeWidth={2}
-                                        dot={{ r: 2 }}
-                                        activeDot={{ r: 4 }}
-                                        connectNulls={false}
+                                        dot={{ r: 3, fill: color, strokeWidth: 0 }}
+                                        activeDot={{ r: 5, fill: color }}
+                                        connectNulls={true}
                                       />
                                     </React.Fragment>
                                   );
@@ -1211,6 +1245,7 @@ export default function CompositeReportView() {
                   <MapPanel
                     points={gpsPoints}
                     height={400}
+                    onViewChange={setMapViewState}
                   />
                 </CardContent>
               </Card>
@@ -1251,6 +1286,17 @@ function formatCellValue(value: unknown): string {
   if (typeof value === 'boolean') {
     return value ? 'Yes' : 'No';
   }
+  if (typeof value === 'number') {
+    // Trim trailing zeros for numbers (especially coordinates)
+    // Use parseFloat(toFixed) to remove trailing zeros while keeping precision
+    const str = value.toString();
+    // Check if it's a coordinate-like number (has many decimal places)
+    if (str.includes('.') && str.split('.')[1]?.length > 6) {
+      // Remove trailing zeros
+      return parseFloat(value.toPrecision(15)).toString();
+    }
+    return str;
+  }
   if (typeof value === 'object') {
     if (value instanceof Date) {
       // Short locale format for Date objects
@@ -1263,6 +1309,13 @@ function formatCellValue(value: unknown): string {
       });
     }
     return JSON.stringify(value);
+  }
+  // Check if string looks like a number with trailing zeros (from DB)
+  if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      return num.toString();
+    }
   }
   // Check if string looks like an ISO date/timestamp
   if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
@@ -1279,6 +1332,14 @@ function formatCellValue(value: unknown): string {
     }
   }
   return String(value);
+}
+
+// Check if a column has any non-empty values
+function isColumnEmpty(rows: unknown[][], colIdx: number): boolean {
+  return rows.every(row => {
+    const val = row[colIdx];
+    return val === null || val === undefined || val === '';
+  });
 }
 
 function formatChartLabel(value: unknown, includeTime: boolean = false): string {
