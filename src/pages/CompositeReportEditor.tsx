@@ -210,7 +210,7 @@ export default function CompositeReportEditor() {
         throw new Error(response.error.message);
       }
 
-      toast.success(isNew ? 'Composite report created' : 'Composite report updated');
+      toast.success(isNew ? 'Report created' : 'Report updated');
       setHasChanges(false);
 
       // Navigate to view page
@@ -270,7 +270,7 @@ export default function CompositeReportEditor() {
             </Button>
             <div>
               <h1 className="text-2xl font-bold">
-                {isNew ? 'New Composite Report' : 'Edit Composite Report'}
+                {isNew ? 'New Report' : 'Edit Report'}
               </h1>
               <p className="text-muted-foreground text-sm mt-1">
                 Create a report with table, chart, and map visualizations from a SQL query
@@ -302,7 +302,7 @@ export default function CompositeReportEditor() {
                 <Label htmlFor="title">Title *</Label>
                 <Input
                   id="title"
-                  placeholder="My Composite Report"
+                  placeholder="My Report"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />

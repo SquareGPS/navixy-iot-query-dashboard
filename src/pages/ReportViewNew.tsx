@@ -205,7 +205,7 @@ const ReportView = () => {
       const response = await apiService.deleteReport(reportId);
       
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to delete report');
+        throw new Error(response.error.message || 'Failed to delete dashboard');
       }
 
       toast({
@@ -219,7 +219,7 @@ const ReportView = () => {
       console.error('Error deleting report:', err);
       toast({
         title: 'Error',
-        description: err.message || 'Failed to delete report',
+        description: err.message || 'Failed to delete dashboard',
         variant: 'destructive',
       });
     } finally {
@@ -479,7 +479,7 @@ const ReportView = () => {
         <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Delete Report</DialogTitle>
+              <DialogTitle>Delete Dashboard</DialogTitle>
               <DialogDescription>
                 Are you sure you want to delete "{legacyReport?.title}"? This action cannot be undone.
               </DialogDescription>

@@ -77,7 +77,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
         }
         
         if (!currentReport) {
-          toast.error('Report not found');
+          toast.error('Dashboard not found');
           return;
         }
         
@@ -108,7 +108,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
     <Dialog open={!!item} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Rename {item.type === 'section' ? 'Section' : 'Report'}</DialogTitle>
+          <DialogTitle>Rename {item.type === 'section' ? 'Section' : 'Dashboard'}</DialogTitle>
           <DialogDescription>
             Enter a new name for this {item.type}.
           </DialogDescription>
@@ -201,7 +201,7 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
     <Dialog open={!!item} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Delete {item.type === 'section' ? 'Section' : 'Report'}</DialogTitle>
+          <DialogTitle>Delete {item.type === 'section' ? 'Section' : 'Dashboard'}</DialogTitle>
           <DialogDescription>
             {item.type === 'section' 
               ? 'Deleting a section will affect its reports. Choose what to do with the reports in this section.'
@@ -369,7 +369,7 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
     e.preventDefault();
     
     if (!title.trim()) {
-      toast.error('Report title cannot be empty');
+      toast.error('Dashboard title cannot be empty');
       return;
     }
 
@@ -397,7 +397,7 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
         dashboard: {
           uid: `report_${Date.now()}`,
           title: title.trim(),
-          description: `Report: ${title.trim()}`,
+          description: `Dashboard: ${title.trim()}`,
           tags: [],
           timezone: 'UTC',
           refresh: '30s',
@@ -450,9 +450,9 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create New Report</DialogTitle>
+          <DialogTitle>Create New Dashboard</DialogTitle>
           <DialogDescription>
-            Create a new report. You can choose which section it belongs to or leave it in the root.
+            Create a new dashboard. You can choose which section it belongs to or leave it in the root.
           </DialogDescription>
         </DialogHeader>
         
@@ -502,7 +502,7 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
               type="submit" 
               disabled={isSubmitting || !title.trim()}
             >
-              {isSubmitting ? 'Creating...' : 'Create Report'}
+              {isSubmitting ? 'Creating...' : 'Create Dashboard'}
             </Button>
           </DialogFooter>
         </form>

@@ -120,7 +120,7 @@ export const FloatingEditMenu = ({
                 className="w-full justify-start text-xs"
               >
                 <Trash2 className="h-3 w-3 mr-2" />
-                Delete Report
+                Delete Dashboard
               </Button>
 
               {/* Exit Edit Mode */}

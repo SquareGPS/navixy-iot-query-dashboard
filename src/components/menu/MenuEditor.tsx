@@ -610,7 +610,7 @@ export function MenuEditor() {
       <SidebarContent>
           {/* Header */}
           <SidebarGroup className="pb-1 pt-6">
-            <SidebarGroupLabel>Reports</SidebarGroupLabel>
+            <SidebarGroupLabel>Dashboards</SidebarGroupLabel>
             <SidebarGroupContent>
               <div className="flex items-center gap-2 px-2 py-1">
                 <div className="relative flex-1">
@@ -780,11 +780,11 @@ export function MenuEditor() {
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setIsCreateReportModalOpen(true)} className="py-1.5">
                           <FileText className="h-4 w-4 mr-2" />
-                          New report
+                          New dashboard
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => navigate('/app/composite-report/new')} className="py-1.5">
                           <Layers className="h-4 w-4 mr-2" />
-                          New composite report
+                          New report
                         </DropdownMenuItem>
                         <DropdownMenuItem 
                           onClick={() => setIsEditMode(true)} 
