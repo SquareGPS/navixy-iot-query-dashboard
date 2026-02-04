@@ -10,11 +10,12 @@ import { detectGPSColumns, validateGPSData, extractGPSPoints, suggestLabelColumn
 const router = Router();
 
 // Helper to extract user info from request
-function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUrl?: string } {
+function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUrl?: string; sessionId?: string } {
   const user = (req as any).user;
   const userDbUrl = user?.userDbUrl;
   const userId = user?.userId;
   const iotDbUrl = user?.iotDbUrl;
+  const sessionId = user?.session_id;
 
   if (!userDbUrl || typeof userDbUrl !== 'string') {
     throw new CustomError('User database URL not configured', 400);
@@ -24,7 +25,7 @@ function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUr
     throw new CustomError('User ID not found', 400);
   }
 
-  return { userDbUrl, userId, iotDbUrl };
+  return { userDbUrl, userId, iotDbUrl, sessionId };
 }
 
 // All routes require authentication
@@ -748,6 +749,11 @@ function getGeocodeCacheKey(lat: number, lng: number): string {
 router.post('/composite-reports/geocode', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { lat, lng } = req.body;
+    const { sessionId } = getUserInfo(req);
+
+    if (!sessionId) {
+      throw new CustomError('Session ID (hash) is required for geocoding', 400);
+    }
 
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       throw new CustomError('Invalid coordinates: lat and lng must be numbers', 400);
@@ -772,16 +778,13 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
       return;
     }
 
-    // Hardcoded hash for now - will be changed later
-    const GEOCODER_HASH = '5fe594fd45a7a7df9e355fad48ec7e30';
-
     const response = await fetch('https://api.eu.navixy.com/v2/geocoder/search_location', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        hash: GEOCODER_HASH,
+        hash: sessionId,
         location: {
           lat,
           lng,
@@ -824,6 +827,11 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
 router.post('/composite-reports/geocode-batch', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { coordinates } = req.body;
+    const { sessionId } = getUserInfo(req);
+
+    if (!sessionId) {
+      throw new CustomError('Session ID (hash) is required for geocoding', 400);
+    }
 
     if (!Array.isArray(coordinates)) {
       throw new CustomError('coordinates must be an array', 400);
@@ -832,8 +840,6 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
     if (coordinates.length > 50) {
       throw new CustomError('Maximum 50 coordinates per batch', 400);
     }
-
-    const GEOCODER_HASH = '5fe594fd45a7a7df9e355fad48ec7e30';
     const redisService = (await import('../services/redis.js')).RedisService.getInstance();
     const results: { lat: number; lng: number; address: string | null; cached?: boolean }[] = [];
     
@@ -871,7 +877,7 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            hash: GEOCODER_HASH,
+            hash: sessionId,
             location: { lat, lng },
           }),
         });

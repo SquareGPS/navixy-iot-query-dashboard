@@ -207,13 +207,15 @@ export class DatabaseService {
    * Passwordless authentication for plugin mode
    * Creates or updates user in client database and returns JWT
    * @param demo - If true, enables demo mode where settings are stored locally
+   * @param sessionId - Optional session identifier for tracking
    */
   async authenticateUserPasswordless(
     email: string,
     role: 'admin' | 'editor' | 'viewer',
     iotDbUrl: string,
     userDbUrl: string,
-    demo: boolean = false
+    demo: boolean = false,
+    sessionId?: string
   ): Promise<{ user: User; token: string }> {
     const pool = this.getClientSettingsPool(userDbUrl);
     
@@ -266,16 +268,23 @@ export class DatabaseService {
           isNewUser
         });
 
-        // Generate JWT token - include both URLs and demo flag for subsequent requests
+        // Generate JWT token - include both URLs, demo flag, and optional session_id for subsequent requests
+        const tokenPayload: Record<string, unknown> = { 
+          userId: user.id, 
+          email: user.email,
+          role: role,
+          iotDbUrl: iotDbUrl,
+          userDbUrl: userDbUrl,
+          demo: demo
+        };
+        
+        // Add session_id if provided
+        if (sessionId) {
+          tokenPayload.session_id = sessionId;
+        }
+        
         const token = jwt.sign(
-          { 
-            userId: user.id, 
-            email: user.email,
-            role: role,
-            iotDbUrl: iotDbUrl,
-            userDbUrl: userDbUrl,
-            demo: demo
-          },
+          tokenPayload,
           process.env.JWT_SECRET || 'fallback-secret',
           { expiresIn: '24h' }
         );
