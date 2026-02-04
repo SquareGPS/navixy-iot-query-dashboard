@@ -525,6 +525,11 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
+        chartSettings: {
+          xColumn: chartXColumn || undefined,
+          yColumn: chartYColumn || undefined,
+          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
+        },
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.html`);
@@ -548,6 +553,11 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
+        chartSettings: {
+          xColumn: chartXColumn || undefined,
+          yColumn: chartYColumn || undefined,
+          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
+        },
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.pdf`);
@@ -1043,8 +1053,13 @@ export default function CompositeReportView() {
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                             <XAxis 
                               dataKey={chartXColumn} 
-                              tick={{ fontSize: 12 }}
+                              tick={{ fontSize: 11 }}
                               tickLine={false}
+                              interval="preserveStartEnd"
+                              minTickGap={50}
+                              angle={-20}
+                              textAnchor="end"
+                              height={50}
                             />
                             <YAxis 
                               tick={{ fontSize: 12 }}
@@ -1238,9 +1253,30 @@ function formatCellValue(value: unknown): string {
   }
   if (typeof value === 'object') {
     if (value instanceof Date) {
-      return value.toLocaleString();
+      // Short locale format for Date objects
+      return value.toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'numeric',
+        year: '2-digit',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
     }
     return JSON.stringify(value);
+  }
+  // Check if string looks like an ISO date/timestamp
+  if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      // Short locale format for date strings
+      return date.toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'numeric',
+        year: '2-digit',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
   }
   return String(value);
 }
@@ -1254,14 +1290,21 @@ function formatChartLabel(value: unknown, includeTime: boolean = false): string 
     const date = new Date(value);
     if (!isNaN(date.getTime()) && value.includes('-')) {
       if (includeTime) {
+        // Short locale format: "2/2/26, 10:00 PM" or "02.02.26, 22:00"
         return date.toLocaleString(undefined, { 
-          month: 'short', 
           day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
+          month: 'numeric',
+          year: '2-digit',
+          hour: 'numeric',
+          minute: '2-digit',
         });
       }
-      return date.toLocaleDateString();
+      // Short date only: "2/2/26" or "02.02.26"
+      return date.toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'numeric', 
+        year: '2-digit',
+      });
     }
   }
   return String(value);

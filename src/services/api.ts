@@ -612,6 +612,11 @@ class ApiService {
     geocodedAddresses?: Record<string, string>;
     latColumn?: string;
     lonColumn?: string;
+    chartSettings?: {
+      xColumn?: string;
+      yColumn?: string;
+      groupColumn?: string;
+    };
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/html`;
@@ -643,6 +648,11 @@ class ApiService {
     geocodedAddresses?: Record<string, string>;
     latColumn?: string;
     lonColumn?: string;
+    chartSettings?: {
+      xColumn?: string;
+      yColumn?: string;
+      groupColumn?: string;
+    };
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/pdf`;

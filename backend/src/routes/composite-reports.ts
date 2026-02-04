@@ -564,7 +564,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -624,6 +624,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
       includeChart,
       executedAt: new Date(),
+      chartSettings, // Pass chart settings from frontend
     });
 
     // Set response headers
@@ -647,7 +648,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -707,6 +708,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
       includeChart,
       executedAt: new Date(),
+      chartSettings, // Pass chart settings from frontend
     });
 
     // Convert HTML to PDF

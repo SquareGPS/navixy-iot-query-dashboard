@@ -32,6 +32,12 @@ export interface HTMLExportOptions {
   gpsColumns?: { latColumn: string; lonColumn: string } | null;
   includeChart?: boolean;
   executedAt: Date;
+  // Override chart settings from frontend
+  chartSettings?: {
+    xColumn?: string;
+    yColumn?: string;
+    groupColumn?: string;
+  };
 }
 
 export class ExportService {
@@ -97,8 +103,8 @@ export class ExportService {
       dataSheet.addRow(rowData);
     });
 
-    // Auto-fit columns based on content
-    dataSheet.columns.forEach((column) => {
+    // Auto-fit columns and apply date formatting
+    dataSheet.columns.forEach((column, colIdx) => {
       if (column.values) {
         let maxLength = 0;
         column.values.forEach((value) => {
@@ -108,6 +114,18 @@ export class ExportService {
           }
         });
         column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+      }
+      
+      // Apply short date format to date/timestamp columns
+      const col = columns[colIdx];
+      if (col && (col.type.includes('timestamp') || col.type.includes('date'))) {
+        // Apply date format to all cells in this column (skip header row)
+        for (let rowNum = 2; rowNum <= rows.length + 1; rowNum++) {
+          const cell = dataSheet.getCell(rowNum, colIdx + 1);
+          if (cell.value instanceof Date) {
+            cell.numFmt = 'dd/mm/yy hh:mm';
+          }
+        }
       }
     });
 
@@ -171,11 +189,11 @@ export class ExportService {
           return '';
         }
         
-        // Format dates as ISO strings
+        // Format dates in short locale format
         if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (!isNaN(dateValue.getTime())) {
-            return this.escapeCSVField(dateValue.toISOString());
+            return this.escapeCSVField(this.formatShortDateTime(dateValue));
           }
         }
         
@@ -207,10 +225,24 @@ export class ExportService {
   }
 
   /**
+   * Format date/time in short format (e.g., "02/02/26 22:00")
+   * Uses manual formatting to avoid Node.js locale issues in Docker/Alpine
+   */
+  private formatShortDateTime(date: Date): string {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  }
+
+  /**
    * Generate self-contained HTML from composite report data
    */
   async generateHTML(options: HTMLExportOptions): Promise<string> {
-    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt } = options;
+    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt, chartSettings } = options;
 
     // Convert rows to objects for easier template processing
     const rowObjects = rows.map((row) => {
@@ -225,9 +257,31 @@ export class ExportService {
     const tableHTML = this.generateTableHTML(columns, rowObjects);
 
     // Generate chart HTML/JS if enabled
+    // Use chartSettings from frontend if provided, otherwise fall back to config
     let chartHTML = '';
-    if (includeChart && config.chart?.enabled && config.chart.xColumn && config.chart.yColumns?.length) {
-      chartHTML = this.generateChartHTML(columns, rowObjects, config.chart);
+    const effectiveXColumn = chartSettings?.xColumn || config.chart?.xColumn;
+    const effectiveYColumn = chartSettings?.yColumn;
+    const effectiveGroupColumn = chartSettings?.groupColumn;
+    const effectiveYColumns = effectiveYColumn ? [effectiveYColumn] : config.chart?.yColumns;
+    
+    if (includeChart && config.chart?.enabled && effectiveXColumn && effectiveYColumns?.length) {
+      // If groupColumn is specified, generate grouped chart
+      if (effectiveGroupColumn && effectiveYColumns[0]) {
+        chartHTML = this.generateGroupedChartHTML(columns, rowObjects, {
+          xColumn: effectiveXColumn,
+          yColumn: effectiveYColumns[0],
+          groupColumn: effectiveGroupColumn,
+        });
+      } else {
+        const chartConfigForGeneration: { type?: string; xColumn?: string; yColumns?: string[] } = {
+          xColumn: effectiveXColumn,
+          yColumns: effectiveYColumns,
+        };
+        if (config.chart?.type) {
+          chartConfigForGeneration.type = config.chart.type;
+        }
+        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration);
+      }
     }
 
     // Generate map HTML if enabled and GPS data available
@@ -432,7 +486,13 @@ export class ExportService {
         if (value === null || value === undefined) {
           value = '';
         } else if (value instanceof Date) {
-          value = value.toLocaleString();
+          value = this.formatShortDateTime(value);
+        } else if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
+          // Format ISO date strings in short format
+          const date = new Date(value);
+          if (!isNaN(date.getTime())) {
+            value = this.formatShortDateTime(date);
+          }
         } else if (typeof value === 'object') {
           value = JSON.stringify(value);
         }
@@ -463,12 +523,12 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
-    // Prepare chart data
+    // Prepare chart data with short date format
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
-      if (val instanceof Date) return val.toLocaleString();
+      if (val instanceof Date) return this.formatShortDateTime(val);
       if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-        return new Date(val).toLocaleString();
+        return this.formatShortDateTime(new Date(val));
       }
       return String(val || '');
     });
@@ -489,6 +549,10 @@ export class ExportService {
         tension: 0.4,
       };
     });
+
+    // Calculate appropriate tick skip based on data size
+    const maxTicks = 15;
+    const skipInterval = Math.max(1, Math.ceil(labels.length / maxTicks));
 
     return `
       document.addEventListener('DOMContentLoaded', function() {
@@ -518,11 +582,160 @@ export class ExportService {
                 title: {
                   display: true,
                   text: ${JSON.stringify(xColumn)}
+                },
+                ticks: {
+                  maxRotation: 45,
+                  minRotation: 20,
+                  autoSkip: true,
+                  maxTicksLimit: ${maxTicks},
+                  callback: function(val, index) {
+                    return index % ${skipInterval} === 0 ? this.getLabelForValue(val) : '';
+                  }
                 }
               },
               y: {
                 display: true,
                 beginAtZero: true
+              }
+            }
+          }
+        });
+      });
+    `;
+  }
+
+  /**
+   * Generate Chart.js code for grouped time series chart
+   */
+  private generateGroupedChartHTML(
+    columns: ExportColumn[], 
+    rows: Record<string, unknown>[],
+    chartConfig: { xColumn: string; yColumn: string; groupColumn: string }
+  ): string {
+    const { xColumn, yColumn, groupColumn } = chartConfig;
+    if (!xColumn || !yColumn || !groupColumn) return '';
+
+    // Get unique group values
+    const groupValues = new Set<string>();
+    rows.forEach(row => {
+      const groupVal = row[groupColumn];
+      if (groupVal !== null && groupVal !== undefined) {
+        groupValues.add(String(groupVal));
+      }
+    });
+    const groups = Array.from(groupValues).slice(0, 10); // Limit to 10 groups
+
+    // Sort rows by X value
+    const sortedRows = [...rows].sort((a, b) => {
+      const aVal = a[xColumn];
+      const bVal = b[xColumn];
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+      return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+    }).slice(0, 500); // Limit for performance
+
+    // Get unique X values (labels) with short date format
+    const xValuesSet = new Set<string>();
+    sortedRows.forEach(row => {
+      const val = row[xColumn];
+      if (val !== null && val !== undefined) {
+        if (val instanceof Date) {
+          xValuesSet.add(this.formatShortDateTime(val));
+        } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
+          xValuesSet.add(this.formatShortDateTime(new Date(val)));
+        } else {
+          xValuesSet.add(String(val));
+        }
+      }
+    });
+    const labels = Array.from(xValuesSet);
+
+    // Create datasets for each group
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'];
+    const datasets = groups.map((group, idx) => {
+      const color = colors[idx % colors.length];
+      const groupRows = sortedRows.filter(row => String(row[groupColumn] ?? 'Unknown') === group);
+      
+      // Map X values to Y values for this group
+      const dataMap = new Map<string, number>();
+      groupRows.forEach(row => {
+        const xVal = row[xColumn];
+        let label: string;
+        if (xVal instanceof Date) {
+          label = this.formatShortDateTime(xVal);
+        } else if (typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
+          label = this.formatShortDateTime(new Date(xVal));
+        } else {
+          label = String(xVal || '');
+        }
+        const yVal = row[yColumn];
+        const numVal = typeof yVal === 'number' ? yVal : parseFloat(String(yVal)) || 0;
+        dataMap.set(label, numVal);
+      });
+      
+      const data = labels.map(label => dataMap.get(label) ?? null);
+      
+      return {
+        label: group,
+        data,
+        borderColor: color,
+        backgroundColor: color + '20',
+        fill: false,
+        tension: 0.1,
+        spanGaps: false,
+      };
+    });
+
+    // Calculate appropriate tick skip based on data size
+    const maxTicks = 15;
+    const skipInterval = Math.max(1, Math.ceil(labels.length / maxTicks));
+
+    return `
+      document.addEventListener('DOMContentLoaded', function() {
+        const ctx = document.getElementById('chart-container');
+        if (!ctx) return;
+        
+        const canvas = document.createElement('canvas');
+        ctx.appendChild(canvas);
+        
+        new Chart(canvas, {
+          type: 'line',
+          data: {
+            labels: ${JSON.stringify(labels)},
+            datasets: ${JSON.stringify(datasets)}
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+              }
+            },
+            scales: {
+              x: {
+                display: true,
+                title: {
+                  display: true,
+                  text: ${JSON.stringify(xColumn)}
+                },
+                ticks: {
+                  maxRotation: 45,
+                  minRotation: 20,
+                  autoSkip: true,
+                  maxTicksLimit: ${maxTicks},
+                  callback: function(val, index) {
+                    return index % ${skipInterval} === 0 ? this.getLabelForValue(val) : '';
+                  }
+                }
+              },
+              y: {
+                display: true,
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: ${JSON.stringify(yColumn)}
+                }
               }
             }
           }
