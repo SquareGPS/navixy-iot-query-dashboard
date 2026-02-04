@@ -152,6 +152,61 @@ export class ExportService {
   }
 
   /**
+   * Generate CSV file from composite report data
+   */
+  generateCSV(options: ExcelExportOptions): Buffer {
+    const { columns, rows } = options;
+    
+    const lines: string[] = [];
+    
+    // Add header row
+    lines.push(columns.map(col => this.escapeCSVField(col.name)).join(','));
+    
+    // Add data rows
+    rows.forEach((row) => {
+      const csvRow = columns.map((col, idx) => {
+        let value = row[idx];
+        
+        if (value === null || value === undefined) {
+          return '';
+        }
+        
+        // Format dates as ISO strings
+        if (col.type.includes('timestamp') || col.type.includes('date')) {
+          const dateValue = new Date(value as string);
+          if (!isNaN(dateValue.getTime())) {
+            return this.escapeCSVField(dateValue.toISOString());
+          }
+        }
+        
+        return this.escapeCSVField(String(value));
+      });
+      lines.push(csvRow.join(','));
+    });
+    
+    const csvContent = lines.join('\n');
+    
+    logger.info('Generated CSV export', { 
+      rowCount: rows.length, 
+      columnCount: columns.length 
+    });
+    
+    return Buffer.from(csvContent, 'utf-8');
+  }
+
+  /**
+   * Escape a field for CSV format
+   */
+  private escapeCSVField(value: string): string {
+    // If field contains comma, quote, or newline, wrap in quotes
+    if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+      // Escape quotes by doubling them
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+  }
+
+  /**
    * Generate self-contained HTML from composite report data
    */
   async generateHTML(options: HTMLExportOptions): Promise<string> {

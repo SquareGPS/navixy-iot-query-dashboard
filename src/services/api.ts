@@ -580,6 +580,7 @@ class ApiService {
     geocodedAddresses?: Record<string, string>;
     latColumn?: string;
     lonColumn?: string;
+    format?: 'xlsx' | 'csv';
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/excel`;

@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
+import { AppLayout } from '@/components/layout/AppLayout';
 import type { 
   CompositeReport, 
   CompositeReportConfig, 
@@ -248,14 +249,17 @@ export default function CompositeReportEditor() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="container max-w-5xl mx-auto py-6 px-4">
+    <AppLayout>
+      <div className="max-w-5xl mx-auto py-6 px-4">
       {/* Header */}
       <header className="mb-6">
         <div className="flex items-center justify-between">
@@ -600,6 +604,7 @@ export default function CompositeReportEditor() {
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+      </div>
+    </AppLayout>
   );
 }

@@ -28,9 +28,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Save, Play, MapPin, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
+import { AppLayout } from '@/components/layout/AppLayout';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
 import { MapPanel } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -88,6 +95,7 @@ export default function CompositeReportView() {
   });
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [exporting, setExporting] = useState<'excel' | 'html' | 'pdf' | null>(null);
+  const [excelFormat, setExcelFormat] = useState<'xlsx' | 'csv'>('xlsx');
   const [editableSql, setEditableSql] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
@@ -486,17 +494,19 @@ export default function CompositeReportView() {
   };
 
   // Export handlers
-  const handleExportExcel = async () => {
+  const handleExportExcel = async (format: 'xlsx' | 'csv' = excelFormat) => {
     if (!id) return;
     
     setExporting('excel');
     try {
       const blob = await apiService.exportCompositeReportExcel(id, {
         ...getExportGeocodingOptions(),
+        format,
       });
       if (blob) {
-        downloadBlob(blob, `${report?.slug || 'composite-report'}.xlsx`);
-        toast.success('Excel export downloaded');
+        const extension = format === 'csv' ? 'csv' : 'xlsx';
+        downloadBlob(blob, `${report?.slug || 'composite-report'}.${extension}`);
+        toast.success(`${format.toUpperCase()} export downloaded`);
       } else {
         throw new Error('Export failed');
       }
@@ -556,27 +566,32 @@ export default function CompositeReportView() {
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
     );
   }
 
   if (!report) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <AlertCircle className="h-12 w-12 text-muted-foreground" />
-        <p className="text-muted-foreground">Report not found</p>
-        <Button variant="outline" onClick={() => navigate('/')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Home
-        </Button>
-      </div>
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center h-full gap-4">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <p className="text-muted-foreground">Report not found</p>
+          <Button variant="outline" onClick={() => navigate('/app')}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Home
+          </Button>
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="container max-w-6xl mx-auto py-6 px-4 print:py-0 print:px-0">
+    <AppLayout>
+      <div className="max-w-6xl mx-auto py-6 px-4 print:py-0 print:px-0">
       {/* Header */}
       <header className="mb-8 print:mb-4">
         <div className="flex items-start justify-between gap-4 mb-4">
@@ -610,19 +625,33 @@ export default function CompositeReportView() {
               Refresh
             </Button>
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportExcel}
-              disabled={!!exporting || !execution.data}
-            >
-              {exporting === 'excel' ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4 mr-2" />
-              )}
-              Excel
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!!exporting || !execution.data}
+                >
+                  {exporting === 'excel' ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  )}
+                  Excel
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
+                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  Excel (.xlsx)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  CSV (.csv)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             
             <Button
               variant="outline"
@@ -885,21 +914,35 @@ export default function CompositeReportView() {
                     )}
                   </div>
                   
-                  {/* Download Excel Button */}
+                  {/* Download Excel/CSV Button */}
                   <div className="mt-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleExportExcel}
-                      disabled={exporting === 'excel'}
-                    >
-                      {exporting === 'excel' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <FileSpreadsheet className="h-4 w-4 mr-2" />
-                      )}
-                      Download Excel
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={exporting === 'excel'}
+                        >
+                          {exporting === 'excel' ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <FileSpreadsheet className="h-4 w-4 mr-2" />
+                          )}
+                          Download
+                          <ChevronDown className="h-3 w-3 ml-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
+                          <FileSpreadsheet className="h-4 w-4 mr-2" />
+                          Excel (.xlsx)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          CSV (.csv)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
@@ -1157,7 +1200,8 @@ export default function CompositeReportView() {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </AppLayout>
   );
 }
 

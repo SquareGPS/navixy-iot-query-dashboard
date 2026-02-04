@@ -468,7 +468,7 @@ function applyGeocodedAddresses(
 
 /**
  * POST /api/composite-reports/:id/export/excel
- * Export composite report data as Excel file
+ * Export composite report data as Excel (xlsx) or CSV file
  */
 router.post('/composite-reports/:id/export/excel', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -476,11 +476,16 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, geocodedAddresses, latColumn, lonColumn } = req.body;
+    const { params = {}, geocodedAddresses, latColumn, lonColumn, format = 'xlsx' } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
       throw new CustomError('IoT database URL not configured', 400);
+    }
+
+    // Validate format
+    if (format !== 'xlsx' && format !== 'csv') {
+      throw new CustomError('Invalid format. Must be "xlsx" or "csv"', 400);
     }
 
     const dbService = DatabaseService.getInstance();
@@ -514,23 +519,36 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       lonColumn
     );
 
-    // Generate Excel file
     const exportService = ExportService.getInstance();
-    const excelBuffer = await exportService.generateExcel({
+    const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
       columns,
       rows,
       executedAt: new Date(),
-    });
+    };
 
-    // Set response headers for file download
-    const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', excelBuffer.length);
+    if (format === 'csv') {
+      // Generate CSV file
+      const csvBuffer = exportService.generateCSV(exportOptions);
 
-    res.send(excelBuffer);
+      const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', csvBuffer.length);
+
+      res.send(csvBuffer);
+    } else {
+      // Generate Excel file (default)
+      const excelBuffer = await exportService.generateExcel(exportOptions);
+
+      const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', excelBuffer.length);
+
+      res.send(excelBuffer);
+    }
   } catch (error) {
     next(error);
   }
