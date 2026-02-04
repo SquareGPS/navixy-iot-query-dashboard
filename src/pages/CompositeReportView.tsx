@@ -55,7 +55,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   Area,
   ComposedChart,
@@ -1007,49 +1006,6 @@ export default function CompositeReportView() {
                     </div>
                   </div>
 
-                  {/* Filter by specific group values */}
-                  {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
-                    <div className="space-y-2 print:hidden">
-                      <Label>Filter by {chartColorColumn}</Label>
-                      <Select 
-                        value={selectedGroups.length === 1 ? selectedGroups[0] : selectedGroups.length > 1 ? 'multiple' : 'all'}
-                        onValueChange={(val) => {
-                          if (val === 'all') {
-                            setSelectedGroups([]);
-                          } else if (val !== 'multiple') {
-                            setSelectedGroups([val]);
-                          }
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue>
-                            {selectedGroups.length === 0 
-                              ? 'All groups' 
-                              : selectedGroups.length === 1 
-                                ? selectedGroups[0]
-                                : `${selectedGroups.length} groups selected`}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All groups ({chartGroupValues.length})</SelectItem>
-                          {chartGroupValues.map(group => (
-                            <SelectItem key={group} value={group}>{group}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {selectedGroups.length > 0 && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => setSelectedGroups([])}
-                          className="text-xs text-muted-foreground"
-                        >
-                          Clear filter
-                        </Button>
-                      )}
-                    </div>
-                  )}
-
                   {/* Save Chart Settings Button */}
                   <div className="flex items-center gap-3 print:hidden">
                     <Button
@@ -1080,72 +1036,138 @@ export default function CompositeReportView() {
 
                   {/* Chart */}
                   {chartData && chartData.length > 0 ? (
-                    <div className="h-[400px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis 
-                            dataKey={chartXColumn} 
-                            tick={{ fontSize: 12 }}
-                            tickLine={false}
-                          />
-                          <YAxis 
-                            tick={{ fontSize: 12 }}
-                            tickLine={false}
-                            axisLine={false}
-                          />
-                          <Tooltip 
-                            contentStyle={{
-                              backgroundColor: 'hsl(var(--popover))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '6px',
-                            }}
-                          />
-                          <Legend />
-                          {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 ? (
-                            // Grouped chart - multiple series (filtered by activeGroups)
-                            <>
-                              {activeGroups.map((groupVal) => {
-                                // Use original index from chartGroupValues to maintain consistent colors
-                                const colorIdx = chartGroupValues.indexOf(groupVal);
-                                return (
-                                  <React.Fragment key={groupVal}>
-                                    <Line
-                                      type="monotone"
-                                      dataKey={groupVal}
-                                      name={groupVal}
-                                      stroke={CHART_COLORS[colorIdx % CHART_COLORS.length]}
-                                      strokeWidth={2}
-                                      dot={{ r: 2 }}
-                                      activeDot={{ r: 4 }}
-                                      connectNulls={false}
-                                    />
-                                  </React.Fragment>
-                                );
-                              })}
-                            </>
-                          ) : (
-                            // Single series chart
-                            <>
-                              <Area
-                                type="monotone"
-                                dataKey={chartYColumn}
-                                fill={CHART_COLORS[0]}
-                                fillOpacity={0.1}
-                                stroke="none"
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey={chartYColumn}
-                                stroke={CHART_COLORS[0]}
-                                strokeWidth={2}
-                                dot={false}
-                                activeDot={{ r: 4 }}
-                              />
-                            </>
+                    <div className="space-y-4">
+                      <div className="h-[400px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                            <XAxis 
+                              dataKey={chartXColumn} 
+                              tick={{ fontSize: 12 }}
+                              tickLine={false}
+                            />
+                            <YAxis 
+                              tick={{ fontSize: 12 }}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <Tooltip 
+                              contentStyle={{
+                                backgroundColor: 'hsl(var(--popover))',
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: '6px',
+                              }}
+                            />
+                            {/* No built-in Legend - using custom clickable legend below */}
+                            {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 ? (
+                              // Grouped chart - multiple series (filtered by activeGroups)
+                              <>
+                                {activeGroups.map((groupVal) => {
+                                  // Use original index from chartGroupValues to maintain consistent colors
+                                  const colorIdx = chartGroupValues.indexOf(groupVal);
+                                  return (
+                                    <React.Fragment key={groupVal}>
+                                      <Line
+                                        type="monotone"
+                                        dataKey={groupVal}
+                                        name={groupVal}
+                                        stroke={CHART_COLORS[colorIdx % CHART_COLORS.length]}
+                                        strokeWidth={2}
+                                        dot={{ r: 2 }}
+                                        activeDot={{ r: 4 }}
+                                        connectNulls={false}
+                                      />
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </>
+                            ) : (
+                              // Single series chart
+                              <>
+                                <Area
+                                  type="monotone"
+                                  dataKey={chartYColumn}
+                                  fill={CHART_COLORS[0]}
+                                  fillOpacity={0.1}
+                                  stroke="none"
+                                />
+                                <Line
+                                  type="monotone"
+                                  dataKey={chartYColumn}
+                                  stroke={CHART_COLORS[0]}
+                                  strokeWidth={2}
+                                  dot={false}
+                                  activeDot={{ r: 4 }}
+                                />
+                              </>
+                            )}
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                      
+                      {/* Custom Clickable Legend */}
+                      {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
+                        <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 print:gap-x-3">
+                          {chartGroupValues.map((groupVal, idx) => {
+                            const isActive = selectedGroups.length === 0 || selectedGroups.includes(groupVal);
+                            const color = CHART_COLORS[idx % CHART_COLORS.length];
+                            
+                            return (
+                              <button
+                                key={groupVal}
+                                onClick={() => {
+                                  if (selectedGroups.length === 0) {
+                                    // No filter - click to filter to this one
+                                    setSelectedGroups([groupVal]);
+                                  } else if (selectedGroups.includes(groupVal) && selectedGroups.length === 1) {
+                                    // This is the only one selected - clear filter (show all)
+                                    setSelectedGroups([]);
+                                  } else {
+                                    // Filter to this one
+                                    setSelectedGroups([groupVal]);
+                                  }
+                                }}
+                                className={`
+                                  flex items-center gap-1.5 px-2 py-1 rounded-md text-sm transition-all
+                                  hover:bg-muted/50 cursor-pointer
+                                  ${isActive ? '' : 'opacity-40 grayscale'}
+                                  ${selectedGroups.includes(groupVal) && selectedGroups.length > 0 ? 'bg-muted ring-1 ring-primary/30' : ''}
+                                `}
+                                title={isActive ? 'Click to filter' : 'Click to show only this'}
+                              >
+                                <span
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: isActive ? color : '#9ca3af' }}
+                                />
+                                <span className={isActive ? 'text-foreground' : 'text-muted-foreground'}>
+                                  {groupVal}
+                                </span>
+                              </button>
+                            );
+                          })}
+                          {selectedGroups.length > 0 && (
+                            <button
+                              onClick={() => setSelectedGroups([])}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+                            >
+                              Show all
+                            </button>
                           )}
-                        </ComposedChart>
-                      </ResponsiveContainer>
+                        </div>
+                      )}
+                      
+                      {/* Single series legend */}
+                      {(!chartColorColumn || chartColorColumn === 'none' || chartGroupValues.length === 0) && (
+                        <div className="flex justify-center">
+                          <div className="flex items-center gap-1.5 text-sm">
+                            <span
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: CHART_COLORS[0] }}
+                            />
+                            <span>{chartYColumn}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="h-[200px] flex items-center justify-center text-muted-foreground">
