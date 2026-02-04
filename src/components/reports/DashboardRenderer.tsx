@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, f
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info, RefreshCw, MapPin } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info, RefreshCw, MapPin, Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
@@ -1746,6 +1749,75 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     );
   };
 
+  // Export panel data
+  const handleExportPanel = async (panel: Panel, format: 'xlsx' | 'csv') => {
+    const panelState = panelData[panel.title];
+    if (!panelState?.data?.rows || !panelState?.data?.columns) {
+      toast.error('No data to export');
+      return;
+    }
+
+    try {
+      const blob = await apiService.exportPanelData({
+        title: panel.title,
+        columns: panelState.data.columns,
+        rows: panelState.data.rows,
+        format,
+      });
+
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${panel.title.replace(/[^a-zA-Z0-9]/g, '-')}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success(`${format.toUpperCase()} exported successfully`);
+      } else {
+        throw new Error('Export failed');
+      }
+    } catch (error: any) {
+      toast.error(`Export failed: ${error.message}`);
+    }
+  };
+
+  // Export button component - appears on hover
+  const PanelExportButton = ({ panel }: { panel: Panel }) => {
+    const panelState = panelData[panel.title];
+    const hasData = panelState?.data?.rows && panelState.data.rows.length > 0;
+    
+    if (!hasData) return null;
+    
+    const isTablePanel = panel.type === 'table';
+    
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="p-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-md shadow-sm hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Download className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          {isTablePanel && (
+            <DropdownMenuItem onClick={() => handleExportPanel(panel, 'xlsx')}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Export Excel
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={() => handleExportPanel(panel, 'csv')}>
+            <FileText className="h-4 w-4 mr-2" />
+            Export CSV
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
   const renderPanel = (panel: Panel) => {
     const panelState = panelData[panel.title];
     const navixyConfig = panel['x-navixy'];
@@ -1865,17 +1937,18 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       <div className="space-y-4">
         <Canvas
           renderPanelContent={(panel) => (
-            <div>
-              <div className="pb-3 relative">
+            <div className="h-full flex flex-col group">
+              <div className="pb-3 relative flex-shrink-0">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
                   {getPanelIcon(panel.type)}
                   <span>{panel.title}</span>
                 </h3>
-                <div className="absolute top-0 right-0 flex items-center">
+                <div className="absolute top-0 right-0 flex items-center gap-1">
                   <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
+                  <PanelExportButton panel={panel} />
                 </div>
               </div>
-              <div>
+              <div className="flex-1 overflow-auto relative">
                 {renderPanel(panel)}
               </div>
             </div>
@@ -1932,24 +2005,25 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                   {getPanelIcon(panel.type)}
                   <span>{panel.title}</span>
                 </h3>
-                <div className="absolute top-0 right-0 flex items-center">
+                <div className="absolute top-0 right-0 flex items-center gap-1">
                   <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
+                  <PanelExportButton panel={panel} />
+                  {/* Edit Button */}
+                  {editMode && onEditPanel && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditPanel(panel);
+                      }}
+                      className="p-1.5 bg-primary text-primary-foreground rounded-md shadow-sm hover:bg-primary/90 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="flex-1 overflow-auto relative">
                 {renderPanel(panel)}
-                {/* Edit Button */}
-                {editMode && onEditPanel && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEditPanel(panel);
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all z-50 opacity-0 group-hover:opacity-100"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                )}
               </div>
             </>
           );

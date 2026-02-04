@@ -33,6 +33,7 @@ import { analyticsRoutes } from './routes/analytics.js';
 import appRoutes from './routes/app.js';
 import menuRoutes from './routes/menu.js';
 import compositeReportsRoutes from './routes/composite-reports.js';
+import panelsRoutes from './routes/panels.js';
 import { DatabaseService } from './services/database.js';
 import { RedisService } from './services/redis.js';
 
@@ -170,6 +171,9 @@ app.use('/api', menuRoutes);
 
 // Composite reports routes
 app.use('/api', compositeReportsRoutes);
+
+// Panel routes (export, etc.)
+app.use('/api', panelsRoutes);
 
 // Protected routes
 app.use('/api/sql', authenticateToken, sqlRoutes);

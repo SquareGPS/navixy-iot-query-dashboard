@@ -694,6 +694,35 @@ class ApiService {
       body: JSON.stringify({ coordinates }),
     });
   }
+
+  // Panel Export
+  async exportPanelData(options: {
+    title: string;
+    columns: { name: string; type: string }[];
+    rows: unknown[][];
+    format: 'xlsx' | 'csv';
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/panels/export`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Panel export error:', error);
+      return null;
+    }
+  }
 }
 
 export const apiService = new ApiService();
