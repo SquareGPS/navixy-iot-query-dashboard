@@ -28,6 +28,7 @@ function getDefaultDatasetShape(panelType: PanelType): 'kpi' | 'category_value' 
     case 'stat':
       return 'kpi';
     case 'table':
+    case 'geomap':
       return 'table';
     case 'barchart':
     case 'bargauge':
@@ -414,6 +415,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                       <SelectItem value="piechart">Pie Chart</SelectItem>
                       <SelectItem value="linechart">Line Chart</SelectItem>
                       <SelectItem value="timeseries">Time Series</SelectItem>
+                      <SelectItem value="geomap">Map</SelectItem>
                       <SelectItem value="text">Text</SelectItem>
                     </SelectContent>
                   </Select>

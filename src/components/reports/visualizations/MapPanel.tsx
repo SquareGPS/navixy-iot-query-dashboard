@@ -48,12 +48,16 @@ export interface MapPanelProps {
   enableClustering?: boolean;
   /** Callback when map view changes (center or zoom) */
   onViewChange?: (viewState: MapViewState) => void;
+  /** Show location count footer (default: true) */
+  showLocationCount?: boolean;
+  /** Zoom in one level after fitting bounds (default: true) */
+  zoomAfterFit?: boolean;
 }
 
 /**
  * Component to fit map bounds to all markers
  */
-function FitBounds({ points }: { points: GPSPoint[] }) {
+function FitBounds({ points, zoomAfterFit = true }: { points: GPSPoint[]; zoomAfterFit?: boolean }) {
   const map = useMap();
 
   useEffect(() => {
@@ -70,14 +74,16 @@ function FitBounds({ points }: { points: GPSPoint[] }) {
       map.fitBounds(bounds, { 
         padding: [50, 50]
       });
-      // Then zoom in one level closer
-      setTimeout(() => {
-        const fitZoom = map.getZoom();
-        const targetZoom = Math.min(fitZoom + 1, 18); // FitBounds + 1, max 18
-        map.setZoom(targetZoom);
-      }, 100);
+      // Optionally zoom in one level closer
+      if (zoomAfterFit) {
+        setTimeout(() => {
+          const fitZoom = map.getZoom();
+          const targetZoom = Math.min(fitZoom + 1, 18); // FitBounds + 1, max 18
+          map.setZoom(targetZoom);
+        }, 100);
+      }
     }
-  }, [map, points]);
+  }, [map, points, zoomAfterFit]);
 
   return null;
 }
@@ -123,7 +129,7 @@ function ViewTracker({ onViewChange }: { onViewChange?: (viewState: MapViewState
 /**
  * Show All button component - fits map to show all markers
  */
-function ShowAllButton({ points }: { points: GPSPoint[] }) {
+function ShowAllButton({ points, zoomAfterFit = true }: { points: GPSPoint[]; zoomAfterFit?: boolean }) {
   const map = useMap();
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -148,12 +154,14 @@ function ShowAllButton({ points }: { points: GPSPoint[] }) {
         padding: [50, 50],
         animate: true
       });
-      // Zoom in one level after fit
-      setTimeout(() => {
-        const fitZoom = map.getZoom();
-        const targetZoom = Math.min(fitZoom + 1, 18);
-        map.setZoom(targetZoom);
-      }, 300);
+      // Optionally zoom in one level after fit
+      if (zoomAfterFit) {
+        setTimeout(() => {
+          const fitZoom = map.getZoom();
+          const targetZoom = Math.min(fitZoom + 1, 18);
+          map.setZoom(targetZoom);
+        }, 300);
+      }
     }
   };
 
@@ -310,6 +318,8 @@ export function MapPanel({
   className = '',
   popupColumns,
   onViewChange,
+  showLocationCount = true,
+  zoomAfterFit = true,
 }: MapPanelProps) {
   const mapRef = useRef<L.Map>(null);
 
@@ -355,14 +365,17 @@ export function MapPanel({
     );
   }
 
+  // Determine if using flex layout (when height is 100%)
+  const useFlexLayout = height === '100%';
+  
   return (
-    <div className={className}>
+    <div className={`${className} ${useFlexLayout ? 'flex flex-col h-full' : ''}`}>
       {title && (
         <h3 className="text-lg font-semibold mb-3">{title}</h3>
       )}
       <div 
-        className="rounded-lg overflow-hidden border border-border"
-        style={{ height }}
+        className={`rounded-lg overflow-hidden border border-border ${useFlexLayout ? 'flex-1 min-h-0' : ''}`}
+        style={useFlexLayout ? undefined : { height }}
       >
         <MapContainer
           ref={mapRef}
@@ -376,9 +389,9 @@ export function MapPanel({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           
-          <FitBounds points={validPoints} />
+          <FitBounds points={validPoints} zoomAfterFit={zoomAfterFit} />
           <ViewTracker onViewChange={onViewChange} />
-          <ShowAllButton points={validPoints} />
+          <ShowAllButton points={validPoints} zoomAfterFit={zoomAfterFit} />
           
           {validPoints.map((point, index) => (
             <ClickableMarker 
@@ -423,9 +436,11 @@ export function MapPanel({
           </div>
         </MapContainer>
       </div>
-      <div className="text-xs text-muted-foreground mt-2">
-        Showing {validPoints.length} location{validPoints.length !== 1 ? 's' : ''}
-      </div>
+      {showLocationCount && (
+        <div className="text-xs text-muted-foreground mt-2">
+          Showing {validPoints.length} location{validPoints.length !== 1 ? 's' : ''}
+        </div>
+      )}
     </div>
   );
 }

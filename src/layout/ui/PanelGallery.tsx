@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, PieChart, Table, TrendingUp, Info } from 'lucide-react';
+import { BarChart3, PieChart, Table, TrendingUp, Info, MapPin } from 'lucide-react';
 import { DEFAULT_SIZE_BY_TYPE } from '../geometry/add';
 import type { GrafanaPanelType } from '@/types/grafana-dashboard';
 
@@ -49,6 +49,12 @@ const PANEL_TYPES: PanelTypeOption[] = [
     label: 'Text',
     description: 'Display markdown or plain text',
     icon: Info,
+  },
+  {
+    type: 'geomap',
+    label: 'Map',
+    description: 'Display GPS coordinates on a map',
+    icon: MapPin,
   },
 ];
 

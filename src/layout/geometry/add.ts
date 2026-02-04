@@ -31,6 +31,7 @@ export const DEFAULT_SIZE_BY_TYPE: Record<string, { w: number; h: number }> = {
   piechart: { w: 8, h: 8 },
   table: { w: 24, h: 8 },
   text: { w: 24, h: 4 },
+  geomap: { w: 12, h: 10 },
 };
 
 /**
