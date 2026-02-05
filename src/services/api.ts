@@ -483,6 +483,246 @@ class ApiService {
     }
     return response as ApiResponse<{ timezone: string }>;
   }
+
+  // ==========================================
+  // Composite Reports API
+  // ==========================================
+
+  async getCompositeReports(): Promise<ApiResponse<any[]>> {
+    const response = await this.request('/api/composite-reports');
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response as ApiResponse<any[]>;
+  }
+
+  async getCompositeReportById(id: string): Promise<ApiResponse<any>> {
+    const response = await this.request(`/api/composite-reports/${id}`);
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response;
+  }
+
+  async createCompositeReport(data: {
+    title: string;
+    description?: string;
+    slug?: string;
+    section_id?: string | null;
+    sort_order?: number;
+    sql_query: string;
+    config: any;
+    report_schema?: any;
+  }): Promise<ApiResponse<any>> {
+    const response = await this.request('/api/composite-reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response;
+  }
+
+  async updateCompositeReport(id: string, data: {
+    title?: string;
+    description?: string;
+    slug?: string;
+    section_id?: string | null;
+    sort_order?: number;
+    sql_query?: string;
+    config?: any;
+    report_schema?: any;
+  }): Promise<ApiResponse<any>> {
+    const response = await this.request(`/api/composite-reports/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response;
+  }
+
+  async deleteCompositeReport(id: string): Promise<ApiResponse<any>> {
+    return this.request(`/api/composite-reports/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async executeCompositeReport(id: string, params?: {
+    page?: number;
+    pageSize?: number;
+    params?: Record<string, unknown>;
+  }): Promise<ApiResponse<any>> {
+    const response = await this.request(`/api/composite-reports/${id}/execute`, {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    });
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response;
+  }
+
+  async detectCompositeReportColumns(id: string): Promise<ApiResponse<any>> {
+    const response = await this.request(`/api/composite-reports/${id}/detect-columns`, {
+      method: 'POST',
+    });
+    if (response.data && (response.data as any).data) {
+      return { data: (response.data as any).data };
+    }
+    return response;
+  }
+
+  async exportCompositeReportExcel(id: string, options?: {
+    params?: Record<string, unknown>;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
+    format?: 'xlsx' | 'csv';
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/composite-reports/${id}/export/excel`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options || {}),
+      });
+
+      if (!response.ok) {
+        console.error('Export failed:', response.status);
+        return null;
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Export error:', error);
+      return null;
+    }
+  }
+
+  async exportCompositeReportHTML(id: string, options?: {
+    params?: Record<string, unknown>;
+    includeChart?: boolean;
+    includeMap?: boolean;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
+    chartSettings?: {
+      xColumn?: string;
+      yColumn?: string;
+      groupColumn?: string;
+    };
+    mapSettings?: {
+      center: [number, number];
+      zoom: number;
+    };
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/composite-reports/${id}/export/html`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options || {}),
+      });
+
+      if (!response.ok) {
+        console.error('Export failed:', response.status);
+        return null;
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Export error:', error);
+      return null;
+    }
+  }
+
+  async exportCompositeReportPDF(id: string, options?: {
+    params?: Record<string, unknown>;
+    includeChart?: boolean;
+    includeMap?: boolean;
+    geocodedAddresses?: Record<string, string>;
+    latColumn?: string;
+    lonColumn?: string;
+    chartSettings?: {
+      xColumn?: string;
+      yColumn?: string;
+      groupColumn?: string;
+    };
+    mapSettings?: {
+      center: [number, number];
+      zoom: number;
+    };
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/composite-reports/${id}/export/pdf`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options || {}),
+      });
+
+      if (!response.ok) {
+        console.error('PDF Export failed:', response.status);
+        return null;
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('PDF Export error:', error);
+      return null;
+    }
+  }
+
+  // Geocoding
+  async geocodeBatch(coordinates: { lat: number; lng: number }[]): Promise<ApiResponse<{
+    results: { lat: number; lng: number; address: string | null }[];
+  }>> {
+    return this.request('/api/composite-reports/geocode-batch', {
+      method: 'POST',
+      body: JSON.stringify({ coordinates }),
+    });
+  }
+
+  // Panel Export
+  async exportPanelData(options: {
+    title: string;
+    columns: { name: string; type: string }[];
+    rows: unknown[][];
+    format: 'xlsx' | 'csv';
+  }): Promise<Blob | null> {
+    try {
+      const url = `${API_BASE_URL}/api/panels/export`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders(),
+        },
+        body: JSON.stringify(options),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Panel export error:', error);
+      return null;
+    }
+  }
 }
 
 export const apiService = new ApiService();

@@ -34,7 +34,104 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
         [userId, includeDeleted]
       );
 
-      const menuTree = result.rows[0].menu_tree;
+      let menuTree = result.rows[0].menu_tree;
+
+      // Normalize menu tree structure to ensure rootReports exists
+      // The database function may return 'reports' instead of 'rootReports'
+      if (menuTree) {
+        // Ensure rootReports is an array
+        if (!Array.isArray(menuTree.rootReports)) {
+          // If reports exists as top-level, use it for rootReports
+          if (Array.isArray(menuTree.reports)) {
+            menuTree.rootReports = menuTree.reports;
+          } else {
+            menuTree.rootReports = [];
+          }
+        }
+        
+        // Ensure sectionReports is an object
+        if (!menuTree.sectionReports || typeof menuTree.sectionReports !== 'object') {
+          menuTree.sectionReports = {};
+          // Build sectionReports from sections if they have embedded reports
+          if (Array.isArray(menuTree.sections)) {
+            for (const section of menuTree.sections) {
+              if (Array.isArray(section.reports)) {
+                menuTree.sectionReports[section.id] = section.reports;
+              }
+            }
+          }
+        }
+        
+        // Ensure sections is an array
+        if (!Array.isArray(menuTree.sections)) {
+          menuTree.sections = [];
+        }
+      }
+
+      // Get report types to identify composite reports
+      const reportTypesResult = await client.query(
+        `SELECT id, report_schema->>'type' as report_type 
+         FROM dashboard_studio_meta_data.reports 
+         WHERE user_id = $1 AND is_deleted = FALSE`,
+        [userId]
+      );
+
+      // Create a map of report id -> type
+      const reportTypeMap = new Map<string, string>();
+      for (const row of reportTypesResult.rows) {
+        if (row.report_type) {
+          reportTypeMap.set(row.id, row.report_type);
+        }
+      }
+
+      logger.info('Report types found:', { 
+        count: reportTypesResult.rows.length, 
+        types: Object.fromEntries(reportTypeMap) 
+      });
+
+      // Add type to reports in menu tree
+      if (menuTree) {
+        // Handle reports inside sections
+        if (Array.isArray(menuTree.sections)) {
+          for (const section of menuTree.sections) {
+            if (section.reports && Array.isArray(section.reports)) {
+              for (const report of section.reports) {
+                report.type = reportTypeMap.get(report.id) || 'standard';
+              }
+            }
+          }
+        }
+        // Handle uncategorized reports
+        if (Array.isArray(menuTree.uncategorized)) {
+          for (const report of menuTree.uncategorized) {
+            report.type = reportTypeMap.get(report.id) || 'standard';
+          }
+        }
+        // Handle root-level reports (reports without section)
+        if (Array.isArray(menuTree.rootReports)) {
+          for (const report of menuTree.rootReports) {
+            report.type = reportTypeMap.get(report.id) || 'standard';
+          }
+        }
+        // Handle sectionReports (object keyed by section id: { [sectionId]: reports[] })
+        if (menuTree.sectionReports && typeof menuTree.sectionReports === 'object' && !Array.isArray(menuTree.sectionReports)) {
+          for (const reports of Object.values(menuTree.sectionReports) as any[][]) {
+            if (Array.isArray(reports)) {
+              for (const report of reports) {
+                report.type = reportTypeMap.get(report.id) || 'standard';
+              }
+            }
+          }
+        }
+      }
+      
+      logger.info('Menu tree structure:', { 
+        hasSections: menuTree?.sections?.length || 0,
+        hasRootReports: menuTree?.rootReports?.length || 0,
+        hasSectionReports: Object.keys(menuTree?.sectionReports || {}).length,
+        allKeys: menuTree ? Object.keys(menuTree) : [],
+        sampleRootReport: menuTree?.rootReports?.[0],
+      });
 
       res.json(menuTree);
     } finally {

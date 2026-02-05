@@ -12,6 +12,7 @@ export interface AuthenticatedRequest extends Request {
     role: string;
     iotDbUrl: string;
     userDbUrl: string;
+    session_id?: string;
   };
   settingsPool?: Pool;
 }
@@ -60,7 +61,8 @@ export const authenticateToken = async (
       email: decoded.email,
       role: userRole,
       iotDbUrl: decoded.iotDbUrl,
-      userDbUrl: decoded.userDbUrl
+      userDbUrl: decoded.userDbUrl,
+      ...(decoded.session_id != null && { session_id: String(decoded.session_id) }),
     };
     
     // Attach the settings pool to the request for use in routes

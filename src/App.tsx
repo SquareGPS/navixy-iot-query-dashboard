@@ -13,6 +13,8 @@ import Settings from "./pages/Settings";
 import SqlEditor from "./pages/SqlEditor";
 import NotFound from "./pages/NotFound";
 import LineChartTest from "./pages/LineChartTest";
+import CompositeReportView from "./pages/CompositeReportView";
+import CompositeReportEditor from "./pages/CompositeReportEditor";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +38,9 @@ const App = () => (
               <Route path="/app/report/:reportId" element={<ReportView />} />
               <Route path="/app/settings" element={<Settings />} />
               <Route path="/app/sql-editor" element={<SqlEditor />} />
+              <Route path="/app/composite-report/:id" element={<CompositeReportView />} />
+              <Route path="/app/composite-report/new" element={<CompositeReportEditor />} />
+              <Route path="/app/composite-report/:id/edit" element={<CompositeReportEditor />} />
               <Route path="/test/line-chart" element={<LineChartTest />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

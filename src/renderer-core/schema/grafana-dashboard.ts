@@ -76,7 +76,8 @@ export type PanelType =
   | "piechart" 
   | "stat" 
   | "table" 
-  | "text";
+  | "text"
+  | "geomap";
 
 export interface GridPosition {
   h: number;

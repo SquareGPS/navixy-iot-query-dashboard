@@ -168,7 +168,7 @@ export const EditToolbar = ({
               </TooltipContent>
             </Tooltip>
 
-            {/* Delete Report */}
+            {/* Delete Dashboard */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -184,7 +184,7 @@ export const EditToolbar = ({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
-                <p>Delete Report</p>
+                <p>Delete Dashboard</p>
               </TooltipContent>
             </Tooltip>
           </>

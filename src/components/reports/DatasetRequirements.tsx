@@ -37,6 +37,13 @@ function getDatasetRequirements(panelType: PanelType): string {
         '• Column 2: Value (slice sizes)\n\n' +
         'Example: `SELECT category, SUM(amount) AS value FROM table GROUP BY category`';
 
+    case 'geomap':
+      return 'Expected dataset: 2 columns minimum.\n' +
+        '• Column 1: Latitude (named lat, latitude, or similar)\n' +
+        '• Column 2: Longitude (named lon, lng, longitude, or similar)\n\n' +
+        'Optional: Additional columns for marker popups\n\n' +
+        'Example: `SELECT lat, lon, name, timestamp FROM locations`';
+
     case 'linechart':
     case 'timeseries':
       return 'Expected dataset: 2 columns minimum.\n' +

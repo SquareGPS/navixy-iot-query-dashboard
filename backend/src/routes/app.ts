@@ -13,9 +13,10 @@ const router = Router();
 
 // Login (passwordless only - for plugin mode)
 // Accepts optional 'demo' field to indicate demo mode
+// Accepts optional 'session_id' field for session tracking
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, role, iotDbUrl, userDbUrl, demo } = req.body;
+    const { email, role, iotDbUrl, userDbUrl, demo, session_id } = req.body;
 
     // Passwordless authentication only
     if (!email || !role || !iotDbUrl || !userDbUrl) {
@@ -27,6 +28,8 @@ router.post('/auth/login', async (req, res, next) => {
     }
 
     const isDemoMode = demo === true || demo === 'true';
+    // Accept session_id as string or convert to string if provided
+    const sessionId = session_id !== undefined && session_id !== null ? String(session_id) : undefined;
     logger.info('Login attempt (passwordless)', { email, role, demo: isDemoMode });
 
     const dbService = DatabaseService.getInstance();
@@ -35,7 +38,8 @@ router.post('/auth/login', async (req, res, next) => {
       role as 'admin' | 'editor' | 'viewer',
       iotDbUrl,
       userDbUrl,
-      isDemoMode
+      isDemoMode,
+      sessionId
     );
 
     logger.info(`User logged in (passwordless): ${email}`, { demo: isDemoMode });

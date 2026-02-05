@@ -300,7 +300,7 @@ const ReportView = () => {
       setIsEditing(false);
       toast({
         title: 'Success',
-        description: 'Report schema updated successfully',
+        description: 'Dashboard schema updated successfully',
       });
       
       // Reload report data to reflect schema changes
@@ -467,7 +467,7 @@ const ReportView = () => {
       setEditingTitle(false);
       toast({
         title: "Success",
-        description: "Report page header updated successfully",
+        description: "Dashboard page header updated successfully",
       });
     } catch (error) {
       console.error('Error saving title:', error);
@@ -722,12 +722,12 @@ const ReportView = () => {
       const response = await apiService.deleteReport(reportId);
       
       if (response.error) {
-        throw new Error(response.error.message || 'Failed to delete report');
+        throw new Error(response.error.message || 'Failed to delete dashboard');
       }
       
       toast({
         title: 'Success',
-        description: 'Report deleted successfully',
+        description: 'Dashboard deleted successfully',
       });
       
       // Navigate back to the reports list
@@ -736,7 +736,7 @@ const ReportView = () => {
       console.error('Error deleting report:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to delete report',
+        description: error.message || 'Failed to delete dashboard',
         variant: 'destructive',
       });
     } finally {
@@ -843,7 +843,7 @@ const ReportView = () => {
       
       toast({
         title: 'Success',
-        description: `${editingBreadcrumb === 'section' ? 'Section' : 'Report'} updated successfully`,
+        description: `${editingBreadcrumb === 'section' ? 'Section' : 'Dashboard'} updated successfully`,
       });
     } catch (error: any) {
       console.error(`Error updating ${editingBreadcrumb}:`, error);
@@ -2091,7 +2091,7 @@ const ReportView = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
               <Trash2 className="h-5 w-5" />
-              Delete Report
+              Delete Dashboard
             </DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this report? This action cannot be undone.
@@ -2115,7 +2115,7 @@ const ReportView = () => {
               onClick={handleDeleteReport}
               disabled={deleting}
             >
-              {deleting ? 'Deleting...' : 'Delete Report'}
+              {deleting ? 'Deleting...' : 'Delete Dashboard'}
             </Button>
           </div>
         </DialogContent>

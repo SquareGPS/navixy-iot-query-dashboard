@@ -135,10 +135,10 @@ export function useRenameReportMutation() {
         return updatedData;
       });
 
-      toast.success('Report renamed successfully');
+      toast.success('Dashboard renamed successfully');
     },
     onError: (error: Error) => {
-      toast.error(`Failed to rename report: ${error.message}`);
+      toast.error(`Failed to rename dashboard: ${error.message}`);
     },
   });
 }
@@ -186,10 +186,10 @@ export function useDeleteReportMutation() {
     onSuccess: () => {
       // Invalidate and refetch the menu tree
       queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
-      toast.success('Report deleted successfully');
+      toast.success('Dashboard deleted successfully');
     },
     onError: (error: Error) => {
-      toast.error(`Failed to delete report: ${error.message}`);
+      toast.error(`Failed to delete dashboard: ${error.message}`);
     },
   });
 }
@@ -230,10 +230,10 @@ export function useRestoreReportMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
-      toast.success('Report restored successfully');
+      toast.success('Dashboard restored successfully');
     },
     onError: (error: Error) => {
-      toast.error(`Failed to restore report: ${error.message}`);
+      toast.error(`Failed to restore dashboard: ${error.message}`);
     },
   });
 }
@@ -280,10 +280,10 @@ export function useCreateReportMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
-      toast.success('Report created successfully');
+      toast.success('Dashboard created successfully');
     },
     onError: (error: Error) => {
-      toast.error(`Failed to create report: ${error.message}`);
+      toast.error(`Failed to create dashboard: ${error.message}`);
     },
   });
 }
