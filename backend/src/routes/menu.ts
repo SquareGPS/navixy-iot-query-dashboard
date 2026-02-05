@@ -34,7 +34,39 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
         [userId, includeDeleted]
       );
 
-      const menuTree = result.rows[0].menu_tree;
+      let menuTree = result.rows[0].menu_tree;
+
+      // Normalize menu tree structure to ensure rootReports exists
+      // The database function may return 'reports' instead of 'rootReports'
+      if (menuTree) {
+        // Ensure rootReports is an array
+        if (!Array.isArray(menuTree.rootReports)) {
+          // If reports exists as top-level, use it for rootReports
+          if (Array.isArray(menuTree.reports)) {
+            menuTree.rootReports = menuTree.reports;
+          } else {
+            menuTree.rootReports = [];
+          }
+        }
+        
+        // Ensure sectionReports is an object
+        if (!menuTree.sectionReports || typeof menuTree.sectionReports !== 'object') {
+          menuTree.sectionReports = {};
+          // Build sectionReports from sections if they have embedded reports
+          if (Array.isArray(menuTree.sections)) {
+            for (const section of menuTree.sections) {
+              if (Array.isArray(section.reports)) {
+                menuTree.sectionReports[section.id] = section.reports;
+              }
+            }
+          }
+        }
+        
+        // Ensure sections is an array
+        if (!Array.isArray(menuTree.sections)) {
+          menuTree.sections = [];
+        }
+      }
 
       // Get report types to identify composite reports
       const reportTypesResult = await client.query(
@@ -95,10 +127,10 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
       
       logger.info('Menu tree structure:', { 
         hasSections: menuTree?.sections?.length || 0,
-        hasUncategorized: menuTree?.uncategorized?.length || 0,
-        hasRootReports: menuTree?.reports?.length || 0,
+        hasRootReports: menuTree?.rootReports?.length || 0,
+        hasSectionReports: Object.keys(menuTree?.sectionReports || {}).length,
         allKeys: menuTree ? Object.keys(menuTree) : [],
-        sampleReport: menuTree?.sections?.[0]?.reports?.[0] || menuTree?.uncategorized?.[0] || menuTree?.reports?.[0]
+        sampleRootReport: menuTree?.rootReports?.[0],
       });
 
       res.json(menuTree);

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Save,
@@ -47,6 +48,7 @@ export default function CompositeReportEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isNew = !id;
   const sectionIdParam = searchParams.get('section_id');
   const sectionId = sectionIdParam === '' ? null : sectionIdParam;
@@ -227,6 +229,9 @@ export default function CompositeReportEditor() {
       if (response.error) {
         throw new Error(response.error.message);
       }
+
+      // Invalidate menu tree cache to show new/updated report in sidebar
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
 
       toast.success(isNew ? 'Report created' : 'Report updated');
       setHasChanges(false);

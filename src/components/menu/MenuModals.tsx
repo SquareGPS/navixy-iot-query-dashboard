@@ -525,6 +525,14 @@ export function CreateCompositeReportModal({ isOpen, onClose }: CreateCompositeR
 
   const { data: menuTree } = useMenuTree();
 
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setTitle('');
+      setParentSectionId(null);
+    }
+  }, [isOpen]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
