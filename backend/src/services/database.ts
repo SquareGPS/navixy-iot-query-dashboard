@@ -413,17 +413,17 @@ export class DatabaseService {
       const client = await pool.connect();
       
       try {
-        // Check if table exists first
+        // Check if table exists first (in dashboard_studio_meta_data schema)
         const tableExists = await client.query(`
           SELECT EXISTS (
             SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
+            WHERE table_schema = 'dashboard_studio_meta_data' 
             AND table_name = 'global_variables'
           )
         `);
 
         if (!tableExists.rows[0].exists) {
-          logger.warn('global_variables table does not exist yet');
+          logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
           return [];
         }
 
@@ -431,6 +431,7 @@ export class DatabaseService {
           'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
         );
 
+        logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: any) => r.label) });
         return result.rows;
       } finally {
         client.release();
@@ -819,6 +820,7 @@ export class DatabaseService {
     pageSize: number = 25,
     sort?: string,
     iotDbUrl?: string,
+    timeoutMs: number = 30000,
   ): Promise<QueryResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
@@ -842,7 +844,7 @@ export class DatabaseService {
       client = await pool.connect();
       
       // Set statement timeout to prevent long-running queries
-      await client.query('SET statement_timeout = 30000'); // 30 seconds
+      await client.query(`SET statement_timeout = ${timeoutMs}`);
 
       // Extract LIMIT from user's query if present
       const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
@@ -929,7 +931,7 @@ export class DatabaseService {
     }
   }
 
-  async executeTileQuery(sql: string, iotDbUrl?: string): Promise<TileResult> {
+  async executeTileQuery(sql: string, iotDbUrl?: string, timeoutMs: number = 30000): Promise<TileResult> {
     // Validate SQL using the new SQLSelectGuard
     try {
       SQLSelectGuard.assertSafeSelect(sql);
@@ -952,7 +954,7 @@ export class DatabaseService {
       client = await pool.connect();
       
       // Set statement timeout to prevent long-running queries
-      await client.query('SET statement_timeout = 30000'); // 30 seconds
+      await client.query(`SET statement_timeout = ${timeoutMs}`);
 
       // Execute query with LIMIT 1 enforced
       const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
