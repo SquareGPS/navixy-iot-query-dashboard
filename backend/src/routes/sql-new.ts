@@ -144,10 +144,21 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
 
   // Merge global variables into params (global variables have lower priority than explicit params)
   let mergedParams = { ...params };
+  let globalTimeoutMs: number | undefined;
+  
   try {
     if (req.settingsPool) {
       const dbService = getDbService();
       const globalVars = await dbService.getGlobalVariablesAsMap(req.settingsPool);
+      
+      // Extract sql_timeout_ms from global variables if set
+      if (globalVars.sql_timeout_ms) {
+        const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
+        if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
+          globalTimeoutMs = parsedTimeout;
+        }
+      }
+      
       // Only add global variables that aren't already in params (explicit params take precedence)
       Object.entries(globalVars).forEach(([key, value]) => {
         if (!(key in mergedParams)) {
@@ -159,6 +170,17 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     logger.warn('Failed to load global variables, continuing without them:', error);
     // Continue execution without global variables if there's an error
   }
+
+  // Determine timeout: global variable > request limits > default (30s)
+  // Global variable takes priority to give admin control over query timeouts
+  const effectiveTimeoutMs = globalTimeoutMs || limits?.timeout_ms || 30000;
+  
+  logger.info('SQL query timeout configuration', {
+    requestTimeout: limits?.timeout_ms,
+    globalVarTimeout: globalTimeoutMs,
+    effectiveTimeout: effectiveTimeoutMs,
+    source: globalTimeoutMs ? 'global_variable' : (limits?.timeout_ms ? 'request' : 'default')
+  });
 
   // Generate cache key (use merged params, userId, iotDbUrl, and pagination for caching)
   const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, iotDbUrl, pagination);
@@ -175,7 +197,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     const result = await getDbService().executeParameterizedQuery(
       statement, 
       mergedParams, 
-      limits?.timeout_ms || 30000,
+      effectiveTimeoutMs,
       limits?.max_rows || 10000,
       iotDbUrl, // Pass iotDbUrl for database connection
       pagination // Pass pagination if provided
@@ -215,6 +237,31 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
   }
 }));
 
+// Helper function to get timeout from global variables
+async function getGlobalTimeoutMs(settingsPool: any): Promise<number> {
+  const defaultTimeout = 30000;
+  if (!settingsPool) {
+    logger.info('SQL timeout: using default (no settings pool)', { timeout: defaultTimeout });
+    return defaultTimeout;
+  }
+  
+  try {
+    const dbService = getDbService();
+    const globalVars = await dbService.getGlobalVariablesAsMap(settingsPool);
+    if (globalVars.sql_timeout_ms) {
+      const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
+      if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
+        logger.info('SQL timeout: using global variable', { timeout: parsedTimeout, rawValue: globalVars.sql_timeout_ms });
+        return parsedTimeout;
+      }
+    }
+    logger.info('SQL timeout: using default (no global variable set)', { timeout: defaultTimeout, availableVars: Object.keys(globalVars) });
+  } catch (error) {
+    logger.warn('Failed to load global timeout, using default:', error);
+  }
+  return defaultTimeout;
+}
+
 // Legacy endpoints for backward compatibility
 router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql, page = 1, pageSize = 25, sort } = req.body;
@@ -230,6 +277,9 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     });
   }
 
+  // Get timeout from global variables
+  const timeoutMs = await getGlobalTimeoutMs(req.settingsPool);
+
   // Generate cache key
   const cacheKey = generateParameterizedCacheKey(sql, { page, pageSize, sort }, req.user?.userId, iotDbUrl);
   
@@ -242,7 +292,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     }
 
     // Execute query using legacy method
-    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl);
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl, timeoutMs);
     
     // Cache result for 5 minutes
     await getRedisService().set(cacheKey, JSON.stringify(result), 300);
@@ -289,6 +339,9 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     });
   }
 
+  // Get timeout from global variables
+  const timeoutMs = await getGlobalTimeoutMs(req.settingsPool);
+
   // Generate cache key
   const cacheKey = generateParameterizedCacheKey(sql, { type: 'tile' }, req.user?.userId, iotDbUrl);
   
@@ -301,7 +354,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     }
 
     // Execute query using legacy method
-    const result = await getDbService().executeTileQuery(sql, iotDbUrl);
+    const result = await getDbService().executeTileQuery(sql, iotDbUrl, timeoutMs);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await getRedisService().set(cacheKey, JSON.stringify(result), 120);

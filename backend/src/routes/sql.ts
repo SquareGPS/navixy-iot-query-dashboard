@@ -35,6 +35,31 @@ function generateCacheKey(sql: string, params: any, userId?: string, iotDbUrl?: 
   return `sql:${hash.digest('hex')}`;
 }
 
+// Helper function to get timeout from global variables
+async function getGlobalTimeoutMs(settingsPool: any): Promise<number> {
+  const defaultTimeout = 30000;
+  if (!settingsPool) {
+    logger.info('SQL timeout: using default (no settings pool)', { timeout: defaultTimeout });
+    return defaultTimeout;
+  }
+  
+  try {
+    const dbService = getDbService();
+    const globalVars = await dbService.getGlobalVariablesAsMap(settingsPool);
+    if (globalVars.sql_timeout_ms) {
+      const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
+      if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
+        logger.info('SQL timeout: using global variable', { timeout: parsedTimeout, rawValue: globalVars.sql_timeout_ms });
+        return parsedTimeout;
+      }
+    }
+    logger.info('SQL timeout: using default (no global variable set)', { timeout: defaultTimeout, availableVars: Object.keys(globalVars) });
+  } catch (error) {
+    logger.warn('Failed to load global timeout, using default:', error);
+  }
+  return defaultTimeout;
+}
+
 // Execute table query with caching
 router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { sql, page = 1, pageSize = 25, sort } = req.body;
@@ -50,6 +75,9 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     });
   }
 
+  // Get timeout from global variables
+  const timeoutMs = await getGlobalTimeoutMs(req.settingsPool);
+
   // Generate cache key
   const cacheKey = generateCacheKey(sql, { page, pageSize, sort }, req.user?.userId, iotDbUrl);
   
@@ -62,7 +90,7 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     }
 
     // Execute query
-    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl);
+    const result = await getDbService().executeTableQuery(sql, page, pageSize, sort, iotDbUrl, timeoutMs);
     
     // Cache result for 5 minutes
     await getRedisService().set(cacheKey, JSON.stringify(result), 300);
@@ -110,6 +138,9 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     });
   }
 
+  // Get timeout from global variables
+  const timeoutMs = await getGlobalTimeoutMs(req.settingsPool);
+
   // Generate cache key
   const cacheKey = generateCacheKey(sql, { type: 'tile' }, req.user?.userId, iotDbUrl);
   
@@ -122,7 +153,7 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     }
 
     // Execute query
-    const result = await getDbService().executeTileQuery(sql, iotDbUrl);
+    const result = await getDbService().executeTileQuery(sql, iotDbUrl, timeoutMs);
     
     // Cache result for 2 minutes (tiles change more frequently)
     await getRedisService().set(cacheKey, JSON.stringify(result), 120);
