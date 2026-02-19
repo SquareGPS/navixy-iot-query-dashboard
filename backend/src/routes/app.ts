@@ -30,7 +30,12 @@ router.post('/auth/login', async (req, res, next) => {
     const isDemoMode = demo === true || demo === 'true';
     // Accept session_id as string or convert to string if provided
     const sessionId = session_id !== undefined && session_id !== null ? String(session_id) : undefined;
-    logger.info('Login attempt (passwordless)', { email, role, demo: isDemoMode });
+    logger.info('Login attempt (passwordless)', { 
+      email, 
+      role, 
+      demo: isDemoMode,
+      session_id: sessionId ?? 'not provided',
+    });
 
     const dbService = DatabaseService.getInstance();
     const result = await dbService.authenticateUserPasswordless(
@@ -42,7 +47,7 @@ router.post('/auth/login', async (req, res, next) => {
       sessionId
     );
 
-    logger.info(`User logged in (passwordless): ${email}`, { demo: isDemoMode });
+    logger.info(`User logged in (passwordless): ${email}`, { demo: isDemoMode, session_id: sessionId ?? 'not provided' });
 
     res.json({
       success: true,
