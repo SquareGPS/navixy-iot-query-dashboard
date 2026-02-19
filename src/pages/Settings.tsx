@@ -568,41 +568,45 @@ const Settings = () => {
                                       </TableCell>
                                       <TableCell>
                                         {isEditing ? (
-                                          <div className="flex items-center gap-1">
+                                          <div className="flex items-center gap-2">
                                             <Button
                                               size="sm"
-                                              variant="ghost"
+                                              variant="default"
                                               onClick={() => handleSaveEdit(variable.id)}
-                                              className="h-7 w-7 p-0"
+                                              className="h-8 px-2"
+                                              title="Save changes"
                                             >
-                                              <Save className="h-3 w-3" />
+                                              <Save className="h-4 w-4" />
                                             </Button>
                                             <Button
                                               size="sm"
-                                              variant="ghost"
+                                              variant="outline"
                                               onClick={handleCancelEdit}
-                                              className="h-7 w-7 p-0"
+                                              className="h-8 px-2"
+                                              title="Cancel"
                                             >
-                                              <X className="h-3 w-3" />
+                                              <X className="h-4 w-4" />
                                             </Button>
                                           </div>
                                         ) : (
-                                          <div className="flex items-center gap-1">
+                                          <div className="flex items-center gap-2">
                                             <Button
                                               size="sm"
-                                              variant="ghost"
+                                              variant="outline"
                                               onClick={() => handleStartEdit(variable)}
-                                              className="h-7 w-7 p-0"
+                                              className="h-8 px-2"
+                                              title="Edit variable"
                                             >
-                                              <Edit2 className="h-3 w-3" />
+                                              <Edit2 className="h-4 w-4" />
                                             </Button>
                                             <Button
                                               size="sm"
-                                              variant="ghost"
+                                              variant="outline"
                                               onClick={() => handleDelete(variable.id)}
-                                              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                              className="h-8 px-2 text-destructive hover:text-destructive border-destructive/50 hover:bg-destructive/10"
+                                              title="Delete variable"
                                             >
-                                              <Trash2 className="h-3 w-3" />
+                                              <Trash2 className="h-4 w-4" />
                                             </Button>
                                           </div>
                                         )}

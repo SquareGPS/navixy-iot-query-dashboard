@@ -28,6 +28,17 @@ function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUr
   return { userDbUrl, userId, iotDbUrl, sessionId };
 }
 
+// Helper to extract timeout from global variables
+function getTimeoutFromGlobalVars(globalVars: Record<string, string>, defaultTimeout: number = 30000): number {
+  if (globalVars.sql_timeout_ms) {
+    const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
+    if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
+      return parsedTimeout;
+    }
+  }
+  return defaultTimeout;
+}
+
 // All routes require authentication
 router.use(authenticateToken);
 
@@ -255,13 +266,16 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     // Merge global variables with provided params
     const mergedParams = { ...globalVariables, ...params };
 
+    // Get timeout from global variables (default 30s)
+    const timeoutMs = getTimeoutFromGlobalVars(globalVariables);
+
     // Execute the SQL query
     let result;
     try {
       result = await dbService.executeParameterizedQuery(
         sqlQuery,
         mergedParams,
-        30000, // 30 second timeout
+        timeoutMs,
         10000, // max 10000 rows
         iotDbUrl,
         { page, pageSize }
@@ -502,11 +516,15 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
     const mergedParams = { ...globalVariables, ...params };
 
+    // Get timeout from global variables (2x for export, min 60s)
+    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+
     // Execute query to get all data (no pagination for export)
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
-      60000, // 60 second timeout for export
+      exportTimeoutMs,
       100000, // Allow more rows for export
       iotDbUrl
     );
@@ -585,11 +603,15 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
     const mergedParams = { ...globalVariables, ...params };
 
+    // Get timeout from global variables (2x for export, min 60s)
+    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+
     // Execute query
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
-      60000,
+      exportTimeoutMs,
       10000,
       iotDbUrl
     );
@@ -670,11 +692,15 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
     const mergedParams = { ...globalVariables, ...params };
 
+    // Get timeout from global variables (2x for export, min 60s)
+    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+
     // Execute query
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
-      60000,
+      exportTimeoutMs,
       10000,
       iotDbUrl
     );
