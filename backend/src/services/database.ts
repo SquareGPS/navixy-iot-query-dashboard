@@ -408,6 +408,54 @@ export class DatabaseService {
   // Global Variables Methods
   // ==========================================
 
+  // Default system variables that should always exist
+  private static readonly DEFAULT_GLOBAL_VARIABLES = [
+    {
+      label: 'sql_timeout_ms',
+      description: 'SQL query timeout in milliseconds (default: 30000 = 30 seconds)',
+      value: '30000'
+    }
+  ];
+
+  async ensureDefaultGlobalVariables(pool: Pool): Promise<void> {
+    try {
+      const client = await pool.connect();
+      
+      try {
+        // Check if table exists
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'dashboard_studio_meta_data' 
+            AND table_name = 'global_variables'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('global_variables table does not exist, cannot ensure defaults');
+          return;
+        }
+
+        // Insert default variables if they don't exist
+        for (const variable of DatabaseService.DEFAULT_GLOBAL_VARIABLES) {
+          await client.query(
+            `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (label) DO NOTHING`,
+            [variable.label, variable.description, variable.value]
+          );
+        }
+
+        logger.info('Ensured default global variables exist');
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      // Don't throw - this is a best-effort operation
+      logger.warn('Could not ensure default global variables:', error.message);
+    }
+  }
+
   async getGlobalVariables(pool: Pool): Promise<any[]> {
     try {
       const client = await pool.connect();
@@ -426,6 +474,9 @@ export class DatabaseService {
           logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
           return [];
         }
+
+        // Ensure default variables exist before fetching
+        await this.ensureDefaultGlobalVariables(pool);
 
         const result = await client.query(
           'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
