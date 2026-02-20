@@ -125,6 +125,30 @@ export class RedisService {
     }
   }
 
+  async deleteByPattern(pattern: string): Promise<number> {
+    if (!this.redis) {
+      logger.warn('Redis not available - skipping deleteByPattern operation');
+      return 0;
+    }
+
+    try {
+      let deleted = 0;
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await this.redis.del(...keys);
+          deleted += keys.length;
+        }
+      } while (cursor !== '0');
+      return deleted;
+    } catch (error) {
+      logger.error('Redis deleteByPattern error:', error);
+      return 0;
+    }
+  }
+
   async flushdb(): Promise<void> {
     if (!this.redis) {
       logger.warn('Redis not available - skipping flush operation');
