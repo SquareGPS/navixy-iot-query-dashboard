@@ -56,17 +56,27 @@ export const authenticateToken = async (
       userRole = await dbService.getUserRole(decoded.userId, settingsPool);
     }
 
+    const sessionId = decoded.session_id != null ? String(decoded.session_id) : undefined;
+
     req.user = {
       userId: decoded.userId,
       email: decoded.email,
       role: userRole,
       iotDbUrl: decoded.iotDbUrl,
       userDbUrl: decoded.userDbUrl,
-      ...(decoded.session_id != null && { session_id: String(decoded.session_id) }),
+      ...(sessionId && { session_id: sessionId }),
     };
     
     // Attach the settings pool to the request for use in routes
     req.settingsPool = settingsPool;
+
+    logger.info('Authenticated request', {
+      userId: decoded.userId,
+      email: decoded.email,
+      role: userRole,
+      session_id: sessionId ?? 'not in token',
+      demo: decoded.demo ?? false,
+    });
 
     next();
   } catch (error) {

@@ -100,6 +100,9 @@ export class DatabaseService {
 
       const urlObj = new URL(url);
       const sslmode = urlObj.searchParams.get('sslmode');
+
+      const decodedUser = decodeURIComponent(urlObj.username || '');
+      const decodedPassword = decodeURIComponent(urlObj.password || '');
       
       if (!urlObj.hostname) {
         throw new Error('Database URL must include a hostname');
@@ -114,7 +117,6 @@ export class DatabaseService {
       const isDocker = process.env.DOCKER_ENV === 'true' || existsSync('/.dockerenv');
       
       if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || hostname === '127.0.0.1') {
-        // If running in Docker, use host.docker.internal to reach host machine
         hostname = isDocker ? 'host.docker.internal' : '127.0.0.1';
         logger.info('Normalized localhost in URL', { 
           original: urlObj.hostname, 
@@ -122,7 +124,6 @@ export class DatabaseService {
           isDocker 
         });
       } else if (hostname === 'postgres' && !isDocker) {
-        // Convert Docker hostname "postgres" to localhost when running locally
         hostname = '127.0.0.1';
         logger.info('Normalized Docker hostname "postgres" to localhost', { 
           original: urlObj.hostname, 
@@ -131,9 +132,9 @@ export class DatabaseService {
       }
     
       return {
-        user: decodeURIComponent(urlObj.username || ''),
-        password: decodeURIComponent(urlObj.password || ''),
-        database: urlObj.pathname.slice(1), // Remove leading /
+        user: decodedUser,
+        password: decodedPassword,
+        database: urlObj.pathname.slice(1),
         hostname: hostname,
         port: parseInt(urlObj.port) || 5432,
         ssl: sslmode === 'require',
@@ -265,7 +266,8 @@ export class DatabaseService {
         logger.info('Updated user metadata with database URLs', { 
           userId: user.id, 
           email,
-          isNewUser
+          isNewUser,
+          session_id: sessionId ?? 'not provided',
         });
 
         // Generate JWT token - include both URLs, demo flag, and optional session_id for subsequent requests

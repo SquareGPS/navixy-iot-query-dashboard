@@ -409,6 +409,16 @@ export class ExportService {
       .page-break {
         page-break-before: always;
       }
+      table {
+        font-size: 10px;
+        word-break: break-word;
+      }
+      th, td {
+        padding: 4px 6px;
+      }
+      th {
+        white-space: normal;
+      }
     }
     
     header {
@@ -458,12 +468,14 @@ export class ExportService {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
+      table-layout: auto;
     }
     
     th, td {
       padding: 10px 12px;
       text-align: left;
       border: 1px solid #e0e0e0;
+      overflow-wrap: break-word;
     }
     
     th {
@@ -570,21 +582,19 @@ export class ExportService {
     const bodyRows = rows.slice(0, 500).map(row => {
       const cells = visibleColumns.map(col => {
         let value = row[col.name];
+        const isDateColumn = col.type.includes('timestamp') || col.type.includes('date');
         if (value === null || value === undefined) {
           value = '';
-        } else if (typeof value === 'number') {
-          // Trim trailing zeros for numbers (especially coordinates)
-          value = this.formatNumericValue(value);
         } else if (value instanceof Date) {
           value = this.formatShortDateTime(value);
+        } else if (typeof value === 'number') {
+          value = this.formatNumericValue(value);
         } else if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
-          // String that looks like a number with trailing zeros
           const num = parseFloat(value);
           if (!isNaN(num)) {
             value = this.formatNumericValue(num);
           }
-        } else if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
-          // Format ISO date strings in short format
+        } else if (isDateColumn && typeof value === 'string' && !isNaN(Date.parse(value))) {
           const date = new Date(value);
           if (!isNaN(date.getTime())) {
             value = this.formatShortDateTime(date);
@@ -987,12 +997,13 @@ export class ExportService {
       // Generate PDF
       const pdfBuffer = await page.pdf({
         format: 'A4',
+        landscape: true,
         printBackground: true,
         margin: {
-          top: '20mm',
-          right: '15mm',
-          bottom: '20mm',
-          left: '15mm',
+          top: '15mm',
+          right: '10mm',
+          bottom: '15mm',
+          left: '10mm',
         },
         displayHeaderFooter: true,
         headerTemplate: '<div></div>',

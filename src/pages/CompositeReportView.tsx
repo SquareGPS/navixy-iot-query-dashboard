@@ -34,10 +34,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Save, Play, MapPin, FileText } from 'lucide-react';
+import { Save, Play, MapPin, FileText, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -79,9 +90,21 @@ interface ExecutionState {
   lastExecuted: Date | null;
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const decoded = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
 export default function CompositeReportView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { token } = useAuth();
 
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
@@ -103,6 +126,13 @@ export default function CompositeReportView() {
   const [geocodeEnabled, setGeocodeEnabled] = useState(false);
   const [geocodedAddresses, setGeocodedAddresses] = useState<Map<string, string>>(new Map());
   const [geocoding, setGeocoding] = useState(false);
+  const [geocodeConfirmOpen, setGeocodeConfirmOpen] = useState(false);
+
+  const hasSessionId = useMemo(() => {
+    if (!token) return false;
+    const payload = decodeJwtPayload(token);
+    return payload?.session_id != null;
+  }, [token]);
   
   // Map view state (for export sync)
   const [mapViewState, setMapViewState] = useState<MapViewState | null>(null);
@@ -153,7 +183,7 @@ export default function CompositeReportView() {
     try {
       const response = await apiService.executeCompositeReport(id, {
         page: 1,
-        pageSize: 1000,
+        pageSize: 10000,
       });
 
       if (response.error) {
@@ -230,7 +260,22 @@ export default function CompositeReportView() {
       }));
   }, [execution.data?.gps, rowObjects]);
 
-  // Geocode coordinates when enabled
+  // Count of unique geocodable coordinates across ALL rows
+  const geocodableCount = useMemo(() => {
+    if (!execution.data?.gps || !rowObjects.length) return 0;
+    const { latColumn, lonColumn } = execution.data.gps;
+    const seen = new Set<string>();
+    for (const row of rowObjects) {
+      const lat = parseFloat(String(row[latColumn]));
+      const lng = parseFloat(String(row[lonColumn]));
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        seen.add(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+      }
+    }
+    return seen.size;
+  }, [execution.data?.gps, rowObjects]);
+
+  // Geocode ALL coordinates when enabled
   useEffect(() => {
     if (!geocodeEnabled || !execution.data?.gps || !rowObjects.length) {
       return;
@@ -241,18 +286,17 @@ export default function CompositeReportView() {
     const geocodeCoordinates = async () => {
       setGeocoding(true);
       
-      // Get unique coordinates to geocode (limit to first 15 rows shown in table)
       const coordsToGeocode: { lat: number; lng: number }[] = [];
+      const seen = new Set<string>();
       
-      for (const row of rowObjects.slice(0, 15)) {
+      for (const row of rowObjects) {
         const lat = parseFloat(String(row[latColumn]));
         const lng = parseFloat(String(row[lonColumn]));
         
         if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
           const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-          if (!geocodedAddresses.has(key) && !coordsToGeocode.find(c => 
-            `${c.lat.toFixed(6)},${c.lng.toFixed(6)}` === key
-          )) {
+          if (!geocodedAddresses.has(key) && !seen.has(key)) {
+            seen.add(key);
             coordsToGeocode.push({ lat, lng });
           }
         }
@@ -264,7 +308,6 @@ export default function CompositeReportView() {
       }
 
       try {
-        // Use batch geocoding endpoint on backend
         const response = await apiService.geocodeBatch(coordsToGeocode);
         
         if (response.data?.results) {
@@ -281,6 +324,7 @@ export default function CompositeReportView() {
         }
       } catch (error) {
         console.error('Geocoding error:', error);
+        toast.error('Geocoding failed. Please try again.');
       }
       
       setGeocoding(false);
@@ -817,23 +861,54 @@ export default function CompositeReportView() {
                     
                     {/* Geocode Checkbox - only show if GPS columns detected */}
                     {execution.data.gps && (
-                      <div className="flex items-center gap-2 print:hidden">
+                      <div className="flex items-center gap-2 print:hidden" title={!hasSessionId ? 'Geocoding requires a session. Please log in via the Navixy platform.' : undefined}>
                         <Checkbox
                           id="geocode"
                           checked={geocodeEnabled}
-                          onCheckedChange={(checked) => setGeocodeEnabled(checked === true)}
+                          disabled={!hasSessionId || geocoding}
+                          onCheckedChange={(checked) => {
+                            if (checked === true) {
+                              setGeocodeConfirmOpen(true);
+                            } else {
+                              setGeocodeEnabled(false);
+                              setGeocodedAddresses(new Map());
+                            }
+                          }}
                         />
                         <label
                           htmlFor="geocode"
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1"
+                          className={`text-sm font-medium leading-none flex items-center gap-1 ${!hasSessionId ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                         >
-                          <MapPin className="h-4 w-4" />
+                          {!hasSessionId ? <Lock className="h-3 w-3" /> : <MapPin className="h-4 w-4" />}
                           Geocode to address
                           {geocoding && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
                         </label>
                       </div>
                     )}
                   </div>
+
+                  {/* Geocoding Confirmation Dialog */}
+                  <AlertDialog open={geocodeConfirmOpen} onOpenChange={setGeocodeConfirmOpen}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Enable Geocoding?</AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-2">
+                          <p>
+                            This will geocode <strong>{geocodableCount.toLocaleString()}</strong> unique coordinate{geocodableCount !== 1 ? 's' : ''} to street addresses.
+                          </p>
+                          <p>
+                            This operation may take some time and will be billed according to your Navixy geocoding tariff.
+                          </p>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => setGeocodeEnabled(true)}>
+                          Geocode {geocodableCount.toLocaleString()} coordinates
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
