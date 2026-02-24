@@ -71,6 +71,29 @@ export class DatabaseService {
     logger.info('Database service initialized (client settings mode)');
   }
 
+  /**
+   * Wraps a Pool so that every client acquired via connect() automatically
+   * gets an 'error' event handler, preventing unhandled errors from crashing
+   * the process when a checked-out client's connection drops between queries.
+   */
+  private wrapPool(pool: Pool, label: string): Pool {
+    const originalConnect = pool.connect.bind(pool);
+    pool.connect = async (): Promise<PoolClient> => {
+      const client = await originalConnect();
+      const onError = (err: Error) => {
+        logger.error('Error on checked-out pg client', { label, error: err.message });
+      };
+      client.on('error', onError);
+      const originalRelease = client.release.bind(client);
+      client.release = (err?: boolean | Error) => {
+        client.removeListener('error', onError);
+        return originalRelease(err);
+      };
+      return client;
+    };
+    return pool;
+  }
+
   static getInstance(): DatabaseService {
     if (!DatabaseService.instance) {
       DatabaseService.instance = new DatabaseService();
@@ -169,6 +192,11 @@ export class DatabaseService {
         connectionTimeoutMillis: 5000,
       });
 
+      pool.on('error', (err) => {
+        logger.error('Unexpected error on idle client settings pool client', { poolKey, error: err.message });
+      });
+
+      this.wrapPool(pool, poolKey);
       this.clientSettingsPools.set(poolKey, pool);
       logger.info('Created new client settings pool', { poolKey });
     }
@@ -838,6 +866,11 @@ export class DatabaseService {
         connectionTimeoutMillis: 2000,
       });
 
+      pool.on('error', (err) => {
+        logger.error('Unexpected error on idle external pool client', { configKey, error: err.message });
+      });
+
+      this.wrapPool(pool, configKey);
       this.externalPools.set(configKey, pool);
     }
 
