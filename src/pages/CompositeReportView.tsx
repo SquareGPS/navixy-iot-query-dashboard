@@ -12,6 +12,9 @@ import {
   FileCode2, 
   ChevronDown, 
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   ArrowLeft,
   Clock,
   Database,
@@ -25,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -34,7 +38,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Save, Play, MapPin, FileText, Lock } from 'lucide-react';
+import { Save, Play, MapPin, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -121,7 +125,14 @@ export default function CompositeReportView() {
   const [editableSql, setEditableSql] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
-  
+  const [savingTableConfig, setSavingTableConfig] = useState(false);
+  const [tableSettingsExpanded, setTableSettingsExpanded] = useState(false);
+
+  // Editable table settings (local state, saved explicitly)
+  const [editPageSize, setEditPageSize] = useState(50);
+  const [editMaxRows, setEditMaxRows] = useState(10000);
+  const [editShowTotals, setEditShowTotals] = useState(false);
+
   // Geocoding state
   const [geocodeEnabled, setGeocodeEnabled] = useState(false);
   const [geocodedAddresses, setGeocodedAddresses] = useState<Map<string, string>>(new Map());
@@ -137,8 +148,12 @@ export default function CompositeReportView() {
   // Map view state (for export sync)
   const [mapViewState, setMapViewState] = useState<MapViewState | null>(null);
   
+  // Table pagination state
+  const [tablePage, setTablePage] = useState(1);
+
   // Chart column selection state
   const [chartXColumn, setChartXColumn] = useState<string>('');
+
   const [chartYColumn, setChartYColumn] = useState<string>('');
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Filter by specific group values
@@ -156,6 +171,12 @@ export default function CompositeReportView() {
         }
         setReport(response.data);
         setEditableSql(response.data.sql_query || '');
+        const tableConfig = response.data.config?.table;
+        if (tableConfig) {
+          setEditPageSize(tableConfig.pageSize || 50);
+          setEditMaxRows(tableConfig.maxRows || 10000);
+          setEditShowTotals(tableConfig.showTotals || false);
+        }
       } catch (error: any) {
         toast.error(`Failed to load report: ${error.message}`);
         navigate('/');
@@ -181,9 +202,10 @@ export default function CompositeReportView() {
     setExecution(prev => ({ ...prev, loading: true, error: null }));
     
     try {
+      const maxRows = report?.config.table.maxRows || 10000;
       const response = await apiService.executeCompositeReport(id, {
         page: 1,
-        pageSize: 10000,
+        pageSize: maxRows,
       });
 
       if (response.error) {
@@ -196,6 +218,7 @@ export default function CompositeReportView() {
         data: response.data,
         lastExecuted: new Date(),
       });
+      setTablePage(1);
     } catch (error: any) {
       setExecution({
         loading: false,
@@ -517,6 +540,53 @@ export default function CompositeReportView() {
       toast.error(`Failed to save chart settings: ${error.message}`);
     } finally {
       setSavingChartConfig(false);
+    }
+  };
+
+  // Check if table config has unsaved changes
+  const tableConfigChanged = report && (
+    editPageSize !== (report.config.table.pageSize || 50) ||
+    editMaxRows !== (report.config.table.maxRows || 10000) ||
+    editShowTotals !== (report.config.table.showTotals || false)
+  );
+
+  // Save table configuration
+  const handleSaveTableConfig = async () => {
+    if (!id || !report) return;
+
+    setSavingTableConfig(true);
+    try {
+      const updatedConfig = {
+        ...report.config,
+        table: {
+          ...report.config.table,
+          pageSize: editPageSize,
+          maxRows: editMaxRows,
+          showTotals: editShowTotals,
+        },
+      };
+
+      const response = await apiService.updateCompositeReport(id, {
+        title: report.title,
+        description: report.description,
+        slug: report.slug,
+        section_id: report.section_id,
+        sort_order: report.sort_order,
+        sql_query: report.sql_query,
+        config: updatedConfig,
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      setReport(response.data);
+      setTablePage(1);
+      toast.success('Table settings saved');
+    } catch (error: any) {
+      toast.error(`Failed to save table settings: ${error.message}`);
+    } finally {
+      setSavingTableConfig(false);
     }
   };
 
@@ -850,12 +920,21 @@ export default function CompositeReportView() {
                       <div className="flex items-center gap-2">
                         <TableIcon className="h-5 w-5 text-muted-foreground" />
                         <CardTitle className="text-xl">Data Table</CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 print:hidden"
+                          onClick={() => setTableSettingsExpanded(prev => !prev)}
+                          title="Table settings"
+                        >
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                        {tableConfigChanged && (
+                          <span className="text-xs text-amber-500 print:hidden">unsaved</span>
+                        )}
                       </div>
                       <CardDescription className="mt-1">
-                        {execution.data.pagination 
-                          ? `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.pagination.total} rows`
-                          : `Showing ${Math.min(execution.data.rows.length, 15)} of ${execution.data.rows.length} rows`
-                        }
+                        {execution.data.rows.length} rows loaded
                       </CardDescription>
                     </div>
                     
@@ -910,146 +989,252 @@ export default function CompositeReportView() {
                     </AlertDialogContent>
                   </AlertDialog>
                 </CardHeader>
+
+                {/* Table Settings Panel */}
+                {tableSettingsExpanded && (
+                  <div className="px-6 pb-4 space-y-3 border-b print:hidden">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Page Size</Label>
+                        <Select
+                          value={String(editPageSize)}
+                          onValueChange={(v) => setEditPageSize(parseInt(v))}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="25">25 rows</SelectItem>
+                            <SelectItem value="50">50 rows</SelectItem>
+                            <SelectItem value="100">100 rows</SelectItem>
+                            <SelectItem value="200">200 rows</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Max Rows</Label>
+                        <Select
+                          value={String(editMaxRows)}
+                          onValueChange={(v) => setEditMaxRows(parseInt(v))}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1000">1 000</SelectItem>
+                            <SelectItem value="5000">5 000</SelectItem>
+                            <SelectItem value="10000">10 000</SelectItem>
+                            <SelectItem value="50000">50 000</SelectItem>
+                            <SelectItem value="100000">100 000</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center gap-2 h-8">
+                        <Switch
+                          id="editShowTotals"
+                          checked={editShowTotals}
+                          onCheckedChange={setEditShowTotals}
+                        />
+                        <Label htmlFor="editShowTotals" className="text-sm">Show Totals</Label>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={handleSaveTableConfig}
+                        disabled={savingTableConfig || !tableConfigChanged}
+                      >
+                        {savingTableConfig ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4 mr-2" />
+                        )}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <div className="max-h-[480px] overflow-y-auto border rounded-md">
-                      {(() => {
-                        // Determine which columns to hide (empty columns)
-                        const emptyColumnIndices = new Set<number>();
-                        execution.data.columns.forEach((_, idx) => {
-                          if (isColumnEmpty(execution.data?.rows || [], idx)) {
-                            emptyColumnIndices.add(idx);
-                          }
-                        });
-                        
-                        return (
-                          <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10">
-                              <TableRow>
-                                {execution.data.columns.map((col, colIdx) => {
-                                  // Skip empty columns
-                                  if (emptyColumnIndices.has(colIdx)) {
-                                    return null;
-                                  }
-                                  
-                                  // Replace lat/lon column headers with "Address" when geocoding
-                                  if (geocodeEnabled && execution.data?.gps) {
-                                    if (col.name === execution.data.gps.latColumn) {
-                                      return (
-                                        <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                          Address
-                                        </TableHead>
-                                      );
+                  {(() => {
+                    const tablePageSize = report.config.table.pageSize || 50;
+                    const totalRows = execution.data!.rows.length;
+                    const totalPages = Math.max(1, Math.ceil(totalRows / tablePageSize));
+                    const safeTablePage = Math.min(tablePage, totalPages);
+                    const startIdx = (safeTablePage - 1) * tablePageSize;
+                    const endIdx = Math.min(startIdx + tablePageSize, totalRows);
+                    const pageRows = execution.data!.rows.slice(startIdx, endIdx);
+                    const showTotals = report.config.table.showTotals === true;
+
+                    const emptyColumnIndices = new Set<number>();
+                    execution.data!.columns.forEach((_, idx) => {
+                      if (isColumnEmpty(execution.data?.rows || [], idx)) {
+                        emptyColumnIndices.add(idx);
+                      }
+                    });
+
+                    const numericTotals: Record<number, number> = {};
+                    if (showTotals) {
+                      execution.data!.columns.forEach((col, idx) => {
+                        if (emptyColumnIndices.has(idx)) return;
+                        const colType = col.type?.toLowerCase() || '';
+                        const isNumeric = ['real', 'double precision', 'numeric', 'integer', 'bigint', 'smallint', 'decimal', 'float', 'int'].some(t => colType.includes(t));
+                        if (isNumeric) {
+                          numericTotals[idx] = execution.data!.rows.reduce((acc, row) => {
+                            const val = row[idx];
+                            return acc + (typeof val === 'number' ? val : parseFloat(String(val)) || 0);
+                          }, 0);
+                        }
+                      });
+                    }
+
+                    return (
+                      <>
+                        <div className="overflow-x-auto">
+                          <div className="max-h-[600px] overflow-y-auto border rounded-md">
+                            <Table>
+                              <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                  {execution.data!.columns.map((col, colIdx) => {
+                                    if (emptyColumnIndices.has(colIdx)) return null;
+                                    if (geocodeEnabled && execution.data?.gps) {
+                                      if (col.name === execution.data.gps.latColumn) {
+                                        return (
+                                          <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                            Address
+                                          </TableHead>
+                                        );
+                                      }
+                                      if (col.name === execution.data.gps.lonColumn) return null;
                                     }
-                                    if (col.name === execution.data.gps.lonColumn) {
-                                      return null; // Hide lon column when geocoding
-                                    }
-                                  }
+                                    return (
+                                      <TableHead key={col.name} className="whitespace-nowrap bg-background">
+                                        {col.name}
+                                      </TableHead>
+                                    );
+                                  }).filter(Boolean)}
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {pageRows.map((row, rowIdx) => {
+                                  const latIdx = execution.data?.gps
+                                    ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
+                                    : -1;
+                                  const lonIdx = execution.data?.gps
+                                    ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
+                                    : -1;
+
                                   return (
-                                    <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                      {col.name}
-                                    </TableHead>
+                                    <TableRow key={startIdx + rowIdx}>
+                                      {row.map((cell, cellIdx) => {
+                                        if (emptyColumnIndices.has(cellIdx)) return null;
+                                        const colName = execution.data?.columns[cellIdx]?.name;
+                                        if (geocodeEnabled && execution.data?.gps) {
+                                          if (colName === execution.data.gps.lonColumn) return null;
+                                          if (colName === execution.data.gps.latColumn) {
+                                            const lat = parseFloat(String(row[latIdx]));
+                                            const lng = parseFloat(String(row[lonIdx]));
+                                            const address = getAddressForCoords(lat, lng);
+                                            return (
+                                              <TableCell key={cellIdx} className="max-w-[400px]">
+                                                {address || (geocoding ? (
+                                                  <span className="text-muted-foreground italic">Loading...</span>
+                                                ) : (
+                                                  <span className="text-muted-foreground">{`${lat.toFixed(6)}, ${lng.toFixed(6)}`}</span>
+                                                ))}
+                                              </TableCell>
+                                            );
+                                          }
+                                        }
+                                        return (
+                                          <TableCell key={cellIdx} className="max-w-[300px] truncate">
+                                            {formatCellValue(cell)}
+                                          </TableCell>
+                                        );
+                                      }).filter(Boolean)}
+                                    </TableRow>
                                   );
-                                }).filter(Boolean)}
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {execution.data.rows.slice(0, 15).map((row, rowIdx) => {
-                                // Get lat/lon indices for geocoding
-                                const latIdx = execution.data?.gps 
-                                  ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
-                                  : -1;
-                                const lonIdx = execution.data?.gps
-                                  ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
-                                  : -1;
-                                
-                                return (
-                                  <TableRow key={rowIdx}>
-                                    {row.map((cell, cellIdx) => {
-                                      // Skip empty columns
-                                      if (emptyColumnIndices.has(cellIdx)) {
-                                        return null;
-                                      }
-                                      
-                                      const colName = execution.data?.columns[cellIdx]?.name;
-                                      
-                                      // Handle geocoding display
+                                })}
+                              </TableBody>
+                              {showTotals && Object.keys(numericTotals).length > 0 && (
+                                <tfoot>
+                                  <TableRow className="border-t-2 font-semibold bg-muted/50">
+                                    {execution.data!.columns.map((col, colIdx) => {
+                                      if (emptyColumnIndices.has(colIdx)) return null;
                                       if (geocodeEnabled && execution.data?.gps) {
-                                        // Skip lon column when geocoding
-                                        if (colName === execution.data.gps.lonColumn) {
-                                          return null;
-                                        }
-                                        
-                                        // Replace lat column with address
-                                        if (colName === execution.data.gps.latColumn) {
-                                          const lat = parseFloat(String(row[latIdx]));
-                                          const lng = parseFloat(String(row[lonIdx]));
-                                          
-                                          const address = getAddressForCoords(lat, lng);
-                                          return (
-                                            <TableCell key={cellIdx} className="max-w-[400px]">
-                                              {address || (geocoding ? (
-                                                <span className="text-muted-foreground italic">Loading...</span>
-                                              ) : (
-                                                <span className="text-muted-foreground">{`${lat.toFixed(6)}, ${lng.toFixed(6)}`}</span>
-                                              ))}
-                                            </TableCell>
-                                          );
-                                        }
+                                        if (col.name === execution.data.gps.lonColumn) return null;
                                       }
-                                      
                                       return (
-                                        <TableCell key={cellIdx} className="max-w-[300px] truncate">
-                                          {formatCellValue(cell)}
+                                        <TableCell key={colIdx} className="font-semibold">
+                                          {colIdx in numericTotals
+                                            ? formatCellValue(numericTotals[colIdx])
+                                            : colIdx === 0 ? 'Total' : ''}
                                         </TableCell>
                                       );
                                     }).filter(Boolean)}
                                   </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        );
-                      })()}
-                    </div>
-                    {execution.data.rows.length > 15 && (
-                      <p className="text-sm text-muted-foreground mt-3 text-center">
-                        Showing first 15 of {execution.data.rows.length} rows. 
-                        Download Excel for complete data.
-                      </p>
-                    )}
-                  </div>
-                  
-                  {/* Download Excel/CSV Button */}
-                  <div className="mt-4">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={exporting === 'excel'}
-                        >
-                          {exporting === 'excel' ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <FileSpreadsheet className="h-4 w-4 mr-2" />
-                          )}
-                          Download
-                          <ChevronDown className="h-3 w-3 ml-1" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
-                          <FileSpreadsheet className="h-4 w-4 mr-2" />
-                          Excel (.xlsx)
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
-                          <FileText className="h-4 w-4 mr-2" />
-                          CSV (.csv)
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                                </tfoot>
+                              )}
+                            </Table>
+                          </div>
+                        </div>
+
+                        {/* Pagination */}
+                        <div className="flex items-center justify-between mt-3 print:hidden">
+                          <div className="flex items-center gap-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" disabled={exporting === 'excel'}>
+                                  {exporting === 'excel' ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                                  )}
+                                  Download
+                                  <ChevronDown className="h-3 w-3 ml-1" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
+                                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                                  Excel (.xlsx)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  CSV (.csv)
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm text-muted-foreground">
+                              {totalRows === 0 ? 'No rows' : `${startIdx + 1}–${endIdx} of ${totalRows} rows`}
+                            </span>
+                            {totalPages > 1 && (
+                              <div className="flex items-center gap-1">
+                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(1)} disabled={safeTablePage === 1} title="First page">
+                                  <ChevronsLeft className="h-4 w-4" />
+                                </Button>
+                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(p => Math.max(1, p - 1))} disabled={safeTablePage === 1} title="Previous page">
+                                  <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <span className="text-sm text-muted-foreground px-2">
+                                  {safeTablePage} / {totalPages}
+                                </span>
+                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(p => Math.min(totalPages, p + 1))} disabled={safeTablePage >= totalPages} title="Next page">
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
+                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(totalPages)} disabled={safeTablePage >= totalPages} title="Last page">
+                                  <ChevronsRight className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </section>
