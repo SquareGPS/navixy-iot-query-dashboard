@@ -489,6 +489,9 @@ class ApiService {
   // ==========================================
 
   async getCompositeReports(): Promise<ApiResponse<any[]>> {
+    if (isDemoMode()) {
+      return demoApiService.getCompositeReports();
+    }
     const response = await this.request('/api/composite-reports');
     if (response.data && (response.data as any).data) {
       return { data: (response.data as any).data };
@@ -497,6 +500,9 @@ class ApiService {
   }
 
   async getCompositeReportById(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.getCompositeReportById(id);
+    }
     const response = await this.request(`/api/composite-reports/${id}`);
     if (response.data && (response.data as any).data) {
       return { data: (response.data as any).data };
@@ -514,6 +520,9 @@ class ApiService {
     config: any;
     report_schema?: any;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.createCompositeReport(data);
+    }
     const response = await this.request('/api/composite-reports', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -534,6 +543,9 @@ class ApiService {
     config?: any;
     report_schema?: any;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.updateCompositeReport(id, data);
+    }
     const response = await this.request(`/api/composite-reports/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -545,6 +557,9 @@ class ApiService {
   }
 
   async deleteCompositeReport(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.deleteCompositeReport(id);
+    }
     return this.request(`/api/composite-reports/${id}`, {
       method: 'DELETE',
     });
@@ -555,6 +570,9 @@ class ApiService {
     pageSize?: number;
     params?: Record<string, unknown>;
   }): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.executeCompositeReport(id, params);
+    }
     const response = await this.request(`/api/composite-reports/${id}/execute`, {
       method: 'POST',
       body: JSON.stringify(params || {}),
@@ -566,6 +584,9 @@ class ApiService {
   }
 
   async detectCompositeReportColumns(id: string): Promise<ApiResponse<any>> {
+    if (isDemoMode()) {
+      return demoApiService.detectCompositeReportColumns(id);
+    }
     const response = await this.request(`/api/composite-reports/${id}/detect-columns`, {
       method: 'POST',
     });
@@ -573,6 +594,26 @@ class ApiService {
       return { data: (response.data as any).data };
     }
     return response;
+  }
+
+  private async getExportBody(id: string, options: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    if (isDemoMode()) {
+      const reportResponse = await demoApiService.getCompositeReportById(id);
+      if (reportResponse.data) {
+        const r = reportResponse.data;
+        return {
+          ...options,
+          report_data: {
+            title: r.title,
+            description: r.description,
+            slug: r.slug,
+            sql_query: r.sql_query,
+            config: r.config,
+          },
+        };
+      }
+    }
+    return options;
   }
 
   async exportCompositeReportExcel(id: string, options?: {
@@ -583,6 +624,7 @@ class ApiService {
     format?: 'xlsx' | 'csv';
   }): Promise<Blob | null> {
     try {
+      const body = await this.getExportBody(id, options);
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/excel`;
       const response = await fetch(url, {
         method: 'POST',
@@ -590,7 +632,7 @@ class ApiService {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(options || {}),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -623,6 +665,7 @@ class ApiService {
     };
   }): Promise<Blob | null> {
     try {
+      const body = await this.getExportBody(id, options);
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/html`;
       const response = await fetch(url, {
         method: 'POST',
@@ -630,7 +673,7 @@ class ApiService {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(options || {}),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -663,6 +706,7 @@ class ApiService {
     };
   }): Promise<Blob | null> {
     try {
+      const body = await this.getExportBody(id, options);
       const url = `${API_BASE_URL}/api/composite-reports/${id}/export/pdf`;
       const response = await fetch(url, {
         method: 'POST',
@@ -670,7 +714,7 @@ class ApiService {
           'Content-Type': 'application/json',
           ...this.getAuthHeaders(),
         },
-        body: JSON.stringify(options || {}),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
