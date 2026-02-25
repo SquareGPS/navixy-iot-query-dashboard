@@ -736,6 +736,239 @@ class DemoApiService {
   }
 
   // ==========================================
+  // Composite Reports (Demo mode uses IndexedDB for metadata, real SQL for execution)
+  // ==========================================
+
+  async getCompositeReports(): Promise<ApiResponse<any[]>> {
+    try {
+      const userId = getDemoUserId();
+      const reports = await demoStorageService.getReports(userId ?? undefined);
+      const compositeReports = reports
+        .filter(r => r.reportSchema?.type === 'composite')
+        .map(r => this.demoReportToComposite(r));
+      return { data: compositeReports };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite reports' }
+      };
+    }
+  }
+
+  async getCompositeReportById(id: string): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      const report = await demoStorageService.getReportById(id, userId ?? undefined);
+      if (!report) {
+        return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
+      }
+      return { data: this.demoReportToComposite(report) };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite report' }
+      };
+    }
+  }
+
+  async createCompositeReport(data: {
+    title: string;
+    description?: string;
+    slug?: string;
+    section_id?: string | null;
+    sort_order?: number;
+    sql_query: string;
+    config: any;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      if (!userId) throw new Error('User not authenticated in demo mode');
+
+      const report = await demoStorageService.createReport({
+        title: data.title,
+        sectionId: data.section_id,
+        slug: data.slug,
+        sortOrder: data.sort_order,
+        reportSchema: {
+          type: 'composite',
+          description: data.description || '',
+          sqlQuery: data.sql_query,
+          config: data.config,
+        },
+        userId,
+      });
+
+      return { data: this.demoReportToComposite(report) };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to create composite report' }
+      };
+    }
+  }
+
+  async updateCompositeReport(id: string, data: {
+    title?: string;
+    description?: string;
+    slug?: string;
+    section_id?: string | null;
+    sort_order?: number;
+    sql_query?: string;
+    config?: any;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      if (!userId) throw new Error('User not authenticated in demo mode');
+
+      const existing = await demoStorageService.getReportById(id, userId);
+      if (!existing) throw new Error('Composite report not found');
+
+      const existingSchema = existing.reportSchema || {};
+      const updatedSchema: any = { ...existingSchema, type: 'composite' };
+      if (data.description !== undefined) updatedSchema.description = data.description;
+      if (data.sql_query !== undefined) updatedSchema.sqlQuery = data.sql_query;
+      if (data.config !== undefined) updatedSchema.config = data.config;
+
+      const report = await demoStorageService.updateReport(id, {
+        title: data.title,
+        sectionId: data.section_id,
+        sortOrder: data.sort_order,
+        reportSchema: updatedSchema,
+        userId,
+      });
+
+      return { data: this.demoReportToComposite(report) };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to update composite report' }
+      };
+    }
+  }
+
+  async deleteCompositeReport(id: string): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      if (!userId) throw new Error('User not authenticated in demo mode');
+      await demoStorageService.deleteReport(id, userId);
+      return { data: { ok: true } };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to delete composite report' }
+      };
+    }
+  }
+
+  async executeCompositeReport(id: string, params?: {
+    page?: number;
+    pageSize?: number;
+    params?: Record<string, unknown>;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      const report = await demoStorageService.getReportById(id, userId ?? undefined);
+      if (!report) {
+        return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
+      }
+
+      const sqlQuery = report.reportSchema?.sqlQuery;
+      if (!sqlQuery) {
+        return { error: { code: 'VALIDATION_ERROR', message: 'Report has no SQL query' } };
+      }
+
+      const maxRows = params?.pageSize || report.reportSchema?.config?.table?.maxRows || 10000;
+      const result = await this.executeSQL({
+        sql: sqlQuery,
+        params: params?.params,
+        row_limit: maxRows,
+      });
+
+      if (result.error) return result;
+
+      const data = result.data!;
+      const gps = this.detectGPSColumns(data.columns);
+
+      return {
+        data: {
+          columns: data.columns,
+          rows: data.rows,
+          stats: data.stats || { rowCount: data.rows.length, elapsedMs: 0 },
+          gps,
+        }
+      };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to execute composite report' }
+      };
+    }
+  }
+
+  async detectCompositeReportColumns(id: string): Promise<ApiResponse<any>> {
+    try {
+      const userId = getDemoUserId();
+      const report = await demoStorageService.getReportById(id, userId ?? undefined);
+      if (!report) {
+        return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
+      }
+
+      const sqlQuery = report.reportSchema?.sqlQuery;
+      if (!sqlQuery) {
+        return { error: { code: 'VALIDATION_ERROR', message: 'Report has no SQL query' } };
+      }
+
+      const result = await this.executeSQL({
+        sql: sqlQuery,
+        row_limit: 1,
+      });
+
+      if (result.error) return result;
+      return { data: { columns: result.data!.columns } };
+    } catch (error: any) {
+      return {
+        error: { code: 'DEMO_ERROR', message: error.message || 'Failed to detect columns' }
+      };
+    }
+  }
+
+  private demoReportToComposite(r: any) {
+    return {
+      id: r.id,
+      title: r.title,
+      description: r.reportSchema?.description || '',
+      slug: r.slug,
+      section_id: r.sectionId ?? r.section_id ?? null,
+      sort_order: r.sortOrder ?? r.sort_order ?? 0,
+      version: r.version,
+      type: 'composite',
+      sql_query: r.reportSchema?.sqlQuery || '',
+      config: r.reportSchema?.config || {},
+      report_schema: r.reportSchema,
+      user_id: r.userId ?? r.user_id,
+      is_deleted: r.isDeleted ?? r.is_deleted ?? false,
+      created_at: (r.createdAt ?? r.created_at) instanceof Date
+        ? r.createdAt.toISOString()
+        : r.created_at ?? new Date().toISOString(),
+      updated_at: (r.updatedAt ?? r.updated_at) instanceof Date
+        ? r.updatedAt.toISOString()
+        : r.updated_at ?? new Date().toISOString(),
+    };
+  }
+
+  private detectGPSColumns(columns: Array<{ name: string; type: string }>) {
+    const latPatterns = ['lat', 'latitude', 'lat_col', 'y'];
+    const lonPatterns = ['lon', 'lng', 'longitude', 'lon_col', 'x'];
+    let latColumn: string | null = null;
+    let lonColumn: string | null = null;
+
+    for (const col of columns) {
+      const lower = col.name.toLowerCase();
+      if (!latColumn && latPatterns.some(p => lower.includes(p))) latColumn = col.name;
+      if (!lonColumn && lonPatterns.some(p => lower.includes(p))) lonColumn = col.name;
+    }
+
+    if (latColumn && lonColumn) {
+      return { latColumn, lonColumn, hasGPS: true };
+    }
+    return null;
+  }
+
+  // ==========================================
   // User Preferences (Demo mode uses IndexedDB)
   // For now, return defaults - could be extended
   // ==========================================
