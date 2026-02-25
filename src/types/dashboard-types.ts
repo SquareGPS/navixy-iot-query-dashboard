@@ -456,6 +456,7 @@ export interface CompositeReportConfig {
 export interface CompositeTableConfig {
   enabled: boolean;
   pageSize: number;
+  maxRows?: number;
   showTotals?: boolean;
 }
 
