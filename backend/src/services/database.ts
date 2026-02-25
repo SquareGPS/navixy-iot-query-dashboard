@@ -1273,7 +1273,7 @@ export class DatabaseService {
       sort_order: report.sort_order,
       sql_query: schema.sqlQuery || '',
       config: schema.config || {
-        table: { enabled: true, pageSize: 50 },
+        table: { enabled: true, pageSize: 50, maxRows: 10000 },
         chart: { enabled: true, type: 'timeseries' },
         map: { enabled: false, autoDetect: true }
       },

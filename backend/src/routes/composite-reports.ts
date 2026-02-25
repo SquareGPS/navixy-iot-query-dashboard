@@ -11,6 +11,13 @@ import { detectGPSColumns, validateGPSData, extractGPSPoints, suggestLabelColumn
 
 const router = Router();
 
+function safeContentDisposition(slug: string, ext: string): string {
+  const ts = Date.now();
+  const asciiName = slug.replace(/[^\x20-\x7E]/g, '').replace(/["/\\]/g, '') || 'composite-report';
+  const utf8Name = encodeURIComponent(`${slug}-${ts}.${ext}`);
+  return `attachment; filename="${asciiName}-${ts}.${ext}"; filename*=UTF-8''${utf8Name}`;
+}
+
 // Helper to extract user info from request
 function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUrl?: string; sessionId?: string } {
   const user = (req as any).user;
@@ -117,7 +124,7 @@ router.post('/composite-reports', requireAdminOrEditor, async (req: Request, res
 
     // Default config if not provided
     const defaultConfig = {
-      table: { enabled: true, pageSize: 50, showTotals: false },
+      table: { enabled: true, pageSize: 50, maxRows: 10000, showTotals: false },
       chart: { enabled: true, type: 'timeseries', xColumn: '', yColumns: [] },
       map: { enabled: false, autoDetect: true },
     };
@@ -126,7 +133,7 @@ router.post('/composite-reports', requireAdminOrEditor, async (req: Request, res
 
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
-    
+
     const compositeReport = await dbService.createCompositeReport({
       title: title.trim(),
       description: description?.trim() || null,
@@ -274,11 +281,12 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     // Execute the SQL query
     let result;
     try {
+      const maxRows = compositeReport.config?.table?.maxRows || 10000;
       result = await dbService.executeParameterizedQuery(
         sqlQuery,
         mergedParams,
         timeoutMs,
-        10000, // max 10000 rows
+        maxRows,
         iotDbUrl,
         { page, pageSize }
       );
@@ -531,7 +539,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, geocodedAddresses, latColumn, lonColumn, format = 'xlsx' } = req.body;
+    const { params = {}, geocodedAddresses, latColumn, lonColumn, format = 'xlsx', report_data } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -546,8 +554,25 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
-    // Get the composite report
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    // Get the composite report from DB, or use report_data from request body (demo mode)
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    if (!compositeReport && report_data?.sql_query) {
+      compositeReport = {
+        id,
+        title: report_data.title || 'Report',
+        description: report_data.description || '',
+        slug: report_data.slug || 'report',
+        sql_query: report_data.sql_query,
+        config: report_data.config || {},
+        section_id: null,
+        sort_order: 0,
+        version: 1,
+        user_id: userId,
+        is_deleted: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+    }
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
     }
@@ -561,11 +586,12 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
 
     // Execute query to get all data (no pagination for export)
+    const exportMaxRows = compositeReport.config?.table?.maxRows || 10000;
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
       exportTimeoutMs,
-      100000, // Allow more rows for export
+      exportMaxRows,
       iotDbUrl
     );
 
@@ -591,9 +617,8 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       // Generate CSV file
       const csvBuffer = exportService.generateCSV(exportOptions);
 
-      const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.csv`;
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', safeContentDisposition(compositeReport.slug || 'composite-report', 'csv'));
       res.setHeader('Content-Length', csvBuffer.length);
 
       res.send(csvBuffer);
@@ -601,9 +626,8 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       // Generate Excel file (default)
       const excelBuffer = await exportService.generateExcel(exportOptions);
 
-      const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.xlsx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', safeContentDisposition(compositeReport.slug || 'composite-report', 'xlsx'));
       res.setHeader('Content-Length', excelBuffer.length);
 
       res.send(excelBuffer);
@@ -623,7 +647,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings, report_data } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -633,8 +657,25 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
-    // Get the composite report
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    // Get the composite report from DB, or use report_data from request body (demo mode)
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    if (!compositeReport && report_data?.sql_query) {
+      compositeReport = {
+        id,
+        title: report_data.title || 'Report',
+        description: report_data.description || '',
+        slug: report_data.slug || 'report',
+        sql_query: report_data.sql_query,
+        config: report_data.config || {},
+        section_id: null,
+        sort_order: 0,
+        version: 1,
+        user_id: userId,
+        is_deleted: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+    }
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
     }
@@ -648,11 +689,12 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
 
     // Execute query
+    const htmlExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
       exportTimeoutMs,
-      10000,
+      htmlExportMaxRows,
       iotDbUrl
     );
 
@@ -684,17 +726,16 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       columns,
       rows,
       config: compositeReport.config,
-      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
+      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null,
       includeChart,
       executedAt: new Date(),
-      chartSettings, // Pass chart settings from frontend
-      mapSettings, // Pass map view state from frontend
+      chartSettings,
+      mapSettings,
     });
 
     // Set response headers
-    const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.html`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', safeContentDisposition(compositeReport.slug || 'composite-report', 'html'));
 
     res.send(html);
   } catch (error) {
@@ -712,7 +753,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings, report_data } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -722,8 +763,25 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
-    // Get the composite report
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    // Get the composite report from DB, or use report_data from request body (demo mode)
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    if (!compositeReport && report_data?.sql_query) {
+      compositeReport = {
+        id,
+        title: report_data.title || 'Report',
+        description: report_data.description || '',
+        slug: report_data.slug || 'report',
+        sql_query: report_data.sql_query,
+        config: report_data.config || {},
+        section_id: null,
+        sort_order: 0,
+        version: 1,
+        user_id: userId,
+        is_deleted: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+    }
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
     }
@@ -737,11 +795,12 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
 
     // Execute query
+    const pdfExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
     const result = await dbService.executeParameterizedQuery(
       compositeReport.sql_query,
       mergedParams,
       exportTimeoutMs,
-      10000,
+      pdfExportMaxRows,
       iotDbUrl
     );
 
@@ -773,11 +832,11 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       columns,
       rows,
       config: compositeReport.config,
-      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null, // Don't show map if geocoded (lat/lon removed)
+      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null,
       includeChart,
       executedAt: new Date(),
-      chartSettings, // Pass chart settings from frontend
-      mapSettings, // Pass map view state from frontend
+      chartSettings,
+      mapSettings,
     });
 
     // Convert HTML to PDF
@@ -786,9 +845,8 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     logger.info('Exported composite report to PDF', { id, userId, size: pdfBuffer.length });
 
     // Set response headers
-    const filename = `${compositeReport.slug || 'composite-report'}-${Date.now()}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', safeContentDisposition(compositeReport.slug || 'composite-report', 'pdf'));
     res.setHeader('Content-Length', pdfBuffer.length);
 
     res.send(pdfBuffer);

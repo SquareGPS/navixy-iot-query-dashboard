@@ -39,7 +39,7 @@ import type {
 } from '@/types/dashboard-types';
 
 const DEFAULT_CONFIG: CompositeReportConfig = {
-  table: { enabled: true, pageSize: 50, showTotals: false },
+  table: { enabled: true, pageSize: 50, maxRows: 10000, showTotals: false },
   chart: { enabled: true, type: 'timeseries', xColumn: '', yColumns: [] },
   map: { enabled: false, autoDetect: true },
 };
@@ -230,8 +230,8 @@ export default function CompositeReportEditor() {
         throw new Error(response.error.message);
       }
 
-      // Invalidate menu tree cache to show new/updated report in sidebar
-      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      // Invalidate menu tree cache and wait for refetch before navigating
+      await queryClient.invalidateQueries({ queryKey: ['menu'] });
 
       toast.success(isNew ? 'Report created' : 'Report updated');
       setHasChanges(false);
@@ -430,7 +430,7 @@ export default function CompositeReportEditor() {
               </CardHeader>
               {config.table.enabled && (
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label>Page Size</Label>
                       <Select
@@ -445,6 +445,24 @@ export default function CompositeReportEditor() {
                           <SelectItem value="50">50 rows</SelectItem>
                           <SelectItem value="100">100 rows</SelectItem>
                           <SelectItem value="200">200 rows</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max Rows</Label>
+                      <Select
+                        value={String(config.table.maxRows || 10000)}
+                        onValueChange={(v) => updateConfig('table', { maxRows: parseInt(v) })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1000">1 000</SelectItem>
+                          <SelectItem value="5000">5 000</SelectItem>
+                          <SelectItem value="10000">10 000</SelectItem>
+                          <SelectItem value="50000">50 000</SelectItem>
+                          <SelectItem value="100000">100 000</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

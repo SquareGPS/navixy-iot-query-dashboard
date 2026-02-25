@@ -627,6 +627,7 @@ export class DemoStorageService {
         name: r.title,
         sortOrder: r.sortOrder,
         version: r.version,
+        type: r.reportSchema?.type === 'composite' ? 'composite' : 'standard',
         parentSectionId: null as null
       }));
 
@@ -640,6 +641,7 @@ export class DemoStorageService {
           name: r.title,
           sortOrder: r.sortOrder,
           version: r.version,
+          type: r.reportSchema?.type === 'composite' ? 'composite' : 'standard',
           parentSectionId: section.id
         }));
     }
