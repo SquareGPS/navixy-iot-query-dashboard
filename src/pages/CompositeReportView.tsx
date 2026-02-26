@@ -287,44 +287,52 @@ export default function CompositeReportView() {
       }));
   }, [execution.data?.gps, rowObjects]);
 
-  // Count of unique geocodable coordinates across ALL rows
+  // All detected GPS column pairs (for geocoding)
+  const gpsPairs = useMemo<Array<{ latColumn: string; lonColumn: string }>>(() => {
+    if (execution.data?.gpsPairs && execution.data.gpsPairs.length > 0) return execution.data.gpsPairs;
+    if (execution.data?.gps) return [{ latColumn: execution.data.gps.latColumn, lonColumn: execution.data.gps.lonColumn }];
+    return [];
+  }, [execution.data?.gpsPairs, execution.data?.gps]);
+
+  // Count of unique geocodable coordinates across ALL rows and ALL GPS pairs
   const geocodableCount = useMemo(() => {
-    if (!execution.data?.gps || !rowObjects.length) return 0;
-    const { latColumn, lonColumn } = execution.data.gps;
+    if (gpsPairs.length === 0 || !rowObjects.length) return 0;
     const seen = new Set<string>();
-    for (const row of rowObjects) {
-      const lat = parseFloat(String(row[latColumn]));
-      const lng = parseFloat(String(row[lonColumn]));
-      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-        seen.add(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+    for (const pair of gpsPairs) {
+      for (const row of rowObjects) {
+        const lat = parseFloat(String(row[pair.latColumn]));
+        const lng = parseFloat(String(row[pair.lonColumn]));
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          seen.add(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+        }
       }
     }
     return seen.size;
-  }, [execution.data?.gps, rowObjects]);
+  }, [gpsPairs, rowObjects]);
 
-  // Geocode ALL coordinates when enabled
+  // Geocode ALL coordinates from ALL GPS pairs when enabled
   useEffect(() => {
-    if (!geocodeEnabled || !execution.data?.gps || !rowObjects.length) {
+    if (!geocodeEnabled || gpsPairs.length === 0 || !rowObjects.length) {
       return;
     }
 
-    const { latColumn, lonColumn } = execution.data.gps;
-    
     const geocodeCoordinates = async () => {
       setGeocoding(true);
       
       const coordsToGeocode: { lat: number; lng: number }[] = [];
       const seen = new Set<string>();
       
-      for (const row of rowObjects) {
-        const lat = parseFloat(String(row[latColumn]));
-        const lng = parseFloat(String(row[lonColumn]));
-        
-        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-          const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-          if (!geocodedAddresses.has(key) && !seen.has(key)) {
-            seen.add(key);
-            coordsToGeocode.push({ lat, lng });
+      for (const pair of gpsPairs) {
+        for (const row of rowObjects) {
+          const lat = parseFloat(String(row[pair.latColumn]));
+          const lng = parseFloat(String(row[pair.lonColumn]));
+          
+          if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+            if (!geocodedAddresses.has(key) && !seen.has(key)) {
+              seen.add(key);
+              coordsToGeocode.push({ lat, lng });
+            }
           }
         }
       }
@@ -358,7 +366,7 @@ export default function CompositeReportView() {
     };
 
     geocodeCoordinates();
-  }, [geocodeEnabled, execution.data?.gps, rowObjects]);
+  }, [geocodeEnabled, gpsPairs, rowObjects]);
 
   // Get address for coordinates
   const getAddressForCoords = useCallback((lat: number, lng: number): string | null => {
@@ -594,22 +602,34 @@ export default function CompositeReportView() {
     }
   };
 
-  // Prepare geocoded addresses for export
+  // Prepare geocoded addresses and cached execution data for export.
+  // We pass the already-fetched rows so the backend doesn't re-execute the query
+  // (which could return different data for relative time windows like "last 24h").
   const getExportGeocodingOptions = () => {
-    if (!geocodeEnabled || geocodedAddresses.size === 0 || !execution.data?.gps) {
-      return {};
+    const base: Record<string, unknown> = {};
+
+    if (execution.data) {
+      base.cachedData = {
+        columns: execution.data.columns,
+        rows: execution.data.rows,
+      };
+    }
+
+    if (!geocodeEnabled || geocodedAddresses.size === 0 || gpsPairs.length === 0) {
+      return base;
     }
     
-    // Convert Map to plain object for JSON serialization
     const addressesObj: Record<string, string> = {};
     geocodedAddresses.forEach((address, key) => {
       addressesObj[key] = address;
     });
     
     return {
+      ...base,
       geocodedAddresses: addressesObj,
-      latColumn: execution.data.gps.latColumn,
-      lonColumn: execution.data.gps.lonColumn,
+      latColumn: gpsPairs[0].latColumn,
+      lonColumn: gpsPairs[0].lonColumn,
+      gpsPairs,
     };
   };
 
@@ -942,8 +962,8 @@ export default function CompositeReportView() {
                       </CardDescription>
                     </div>
                     
-                    {/* Geocode Checkbox - only show if GPS columns detected */}
-                    {execution.data.gps && (
+                    {/* Geocode Checkbox - show if any GPS column pairs detected */}
+                    {gpsPairs.length > 0 && (
                       <div className="flex items-center gap-2 print:hidden" title={!hasSessionId ? 'Geocoding requires a session. Please log in via the Navixy platform.' : undefined}>
                         <Checkbox
                           id="geocode"
@@ -1101,15 +1121,18 @@ export default function CompositeReportView() {
                                 <TableRow>
                                   {execution.data!.columns.map((col, colIdx) => {
                                     if (emptyColumnIndices.has(colIdx)) return null;
-                                    if (geocodeEnabled && execution.data?.gps) {
-                                      if (col.name === execution.data.gps.latColumn) {
+                                    if (geocodeEnabled && gpsPairs.length > 0) {
+                                      const pairAsLat = gpsPairs.find(p => p.latColumn === col.name);
+                                      if (pairAsLat) {
+                                        const prefix = col.name.replace(/[_]?(lat|latitude|y_coord|y_coordinate|y)$/i, '').replace(/_+$/, '');
+                                        const label = prefix ? `${prefix.charAt(0).toUpperCase() + prefix.slice(1)} Address` : 'Address';
                                         return (
                                           <TableHead key={col.name} className="whitespace-nowrap bg-background">
-                                            Address
+                                            {label}
                                           </TableHead>
                                         );
                                       }
-                                      if (col.name === execution.data.gps.lonColumn) return null;
+                                      if (gpsPairs.some(p => p.lonColumn === col.name)) return null;
                                     }
                                     return (
                                       <TableHead key={col.name} className="whitespace-nowrap bg-background">
@@ -1121,21 +1144,17 @@ export default function CompositeReportView() {
                               </TableHeader>
                               <TableBody>
                                 {pageRows.map((row, rowIdx) => {
-                                  const latIdx = execution.data?.gps
-                                    ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.latColumn)
-                                    : -1;
-                                  const lonIdx = execution.data?.gps
-                                    ? execution.data.columns.findIndex(c => c.name === execution.data?.gps?.lonColumn)
-                                    : -1;
-
                                   return (
                                     <TableRow key={startIdx + rowIdx}>
                                       {row.map((cell, cellIdx) => {
                                         if (emptyColumnIndices.has(cellIdx)) return null;
                                         const colName = execution.data?.columns[cellIdx]?.name;
-                                        if (geocodeEnabled && execution.data?.gps) {
-                                          if (colName === execution.data.gps.lonColumn) return null;
-                                          if (colName === execution.data.gps.latColumn) {
+                                        if (geocodeEnabled && gpsPairs.length > 0) {
+                                          if (gpsPairs.some(p => p.lonColumn === colName)) return null;
+                                          const pairForLat = gpsPairs.find(p => p.latColumn === colName);
+                                          if (pairForLat) {
+                                            const latIdx = execution.data!.columns.findIndex(c => c.name === pairForLat.latColumn);
+                                            const lonIdx = execution.data!.columns.findIndex(c => c.name === pairForLat.lonColumn);
                                             const lat = parseFloat(String(row[latIdx]));
                                             const lng = parseFloat(String(row[lonIdx]));
                                             const address = getAddressForCoords(lat, lng);
@@ -1165,8 +1184,8 @@ export default function CompositeReportView() {
                                   <TableRow className="border-t-2 font-semibold bg-muted/50">
                                     {execution.data!.columns.map((col, colIdx) => {
                                       if (emptyColumnIndices.has(colIdx)) return null;
-                                      if (geocodeEnabled && execution.data?.gps) {
-                                        if (col.name === execution.data.gps.lonColumn) return null;
+                                      if (geocodeEnabled && gpsPairs.length > 0) {
+                                        if (gpsPairs.some(p => p.lonColumn === col.name)) return null;
                                       }
                                       return (
                                         <TableCell key={colIdx} className="font-semibold">

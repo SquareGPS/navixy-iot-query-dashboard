@@ -7,7 +7,7 @@ import { ExportService } from '../services/export.js';
 import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
-import { detectGPSColumns, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
 
 const router = Router();
 
@@ -314,14 +314,16 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
       type: col.type,
     }));
 
-    // Auto-detect GPS columns if enabled
+    // Always detect all GPS column pairs for geocoding support
+    const allGpsPairs = detectAllGPSColumnPairs(columnInfo);
+
+    // Auto-detect GPS columns for map if enabled
     let gpsInfo = null;
     const mapConfig = compositeReport.config?.map;
     if (mapConfig?.enabled) {
       if (mapConfig.autoDetect) {
-        const detectedGPS = detectGPSColumns(columnInfo);
+        const detectedGPS = allGpsPairs.length > 0 ? allGpsPairs[0] : null;
         if (detectedGPS) {
-          // Convert row arrays to objects for validation
           const rowObjects = result.rows.map((row: unknown[]) => {
             const obj: Record<string, any> = {};
             result.columns.forEach((col, idx) => {
@@ -358,6 +360,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
         stats: result.stats,
         pagination: result.pagination,
         gps: gpsInfo,
+        gpsPairs: allGpsPairs.length > 0 ? allGpsPairs : undefined,
       },
     });
   } catch (error) {
@@ -404,8 +407,9 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
       type: col.type,
     }));
 
-    // Detect GPS columns
-    const gpsColumns = detectGPSColumns(columnInfo);
+    // Detect all GPS column pairs
+    const allGpsPairs = detectAllGPSColumnPairs(columnInfo);
+    const gpsColumns = allGpsPairs.length > 0 ? allGpsPairs[0] : null;
     const labelColumn = suggestLabelColumn(columnInfo);
 
     // Suggest chart columns (numeric columns for Y, timestamp/date for X)
@@ -422,6 +426,7 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
         columns: columnInfo,
         suggestions: {
           gps: gpsColumns,
+          gpsPairs: allGpsPairs.length > 0 ? allGpsPairs : undefined,
           labelColumn,
           xColumn: timeColumns[0]?.name || columnInfo[0]?.name,
           yColumns: numericColumns.slice(0, 3).map(c => c.name),
@@ -434,97 +439,79 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
 });
 
 /**
- * Helper function to apply geocoded addresses to data
- * Replaces lat/lon columns with a single Address column
+ * Helper function to apply geocoded addresses to data.
+ * Supports multiple GPS column pairs — replaces each lat/lon pair with an Address column.
  */
 function applyGeocodedAddresses(
   columns: { name: string; type: string }[],
   rows: unknown[][],
   geocodedAddresses: Record<string, string> | undefined,
   latColumn: string | undefined,
-  lonColumn: string | undefined
+  lonColumn: string | undefined,
+  gpsPairs?: Array<{ latColumn: string; lonColumn: string }>
 ): { columns: { name: string; type: string }[]; rows: unknown[][] } {
-  if (!geocodedAddresses || !latColumn || !lonColumn || Object.keys(geocodedAddresses).length === 0) {
+  if (!geocodedAddresses || Object.keys(geocodedAddresses).length === 0) {
     return { columns, rows };
   }
 
-  const latIdx = columns.findIndex(c => c.name === latColumn);
-  const lonIdx = columns.findIndex(c => c.name === lonColumn);
+  // Build the list of pairs to process
+  const pairs = gpsPairs && gpsPairs.length > 0
+    ? gpsPairs
+    : (latColumn && lonColumn ? [{ latColumn, lonColumn }] : []);
 
-  if (latIdx === -1 || lonIdx === -1) {
-    logger.warn('applyGeocodedAddresses: columns not found', { latColumn, lonColumn, latIdx, lonIdx, columnNames: columns.map(c => c.name) });
+  if (pairs.length === 0) {
     return { columns, rows };
   }
 
-  const mapKeys = Object.keys(geocodedAddresses);
-  const firstRow = rows[0];
-  const rawLatValue = firstRow?.[latIdx];
-  const rawLngValue = firstRow?.[lonIdx];
-  logger.info('applyGeocodedAddresses debug', {
-    geocodedAddressCount: mapKeys.length,
-    sampleMapKeys: mapKeys.slice(0, 3),
-    sampleMapValues: mapKeys.slice(0, 3).map(k => geocodedAddresses[k]?.substring(0, 40)),
-    latIdx, lonIdx,
-    rawLatValue: String(rawLatValue),
-    rawLatType: typeof rawLatValue,
-    rawLatIsDate: rawLatValue instanceof Date,
-    rawLngValue: String(rawLngValue),
-    rawLngType: typeof rawLngValue,
-    computedKey: firstRow ? `${parseFloat(String(rawLatValue)).toFixed(6)},${parseFloat(String(rawLngValue)).toFixed(6)}` : 'N/A',
-    keyFoundInMap: firstRow ? !!geocodedAddresses[`${parseFloat(String(rawLatValue)).toFixed(6)},${parseFloat(String(rawLngValue)).toFixed(6)}`] : false,
-  });
+  // Resolve column indices for each pair
+  const resolvedPairs = pairs
+    .map(p => ({
+      latIdx: columns.findIndex(c => c.name === p.latColumn),
+      lonIdx: columns.findIndex(c => c.name === p.lonColumn),
+      latName: p.latColumn,
+    }))
+    .filter(p => p.latIdx !== -1 && p.lonIdx !== -1);
 
-  // Create new columns: replace lat column with Address, remove lon column
+  if (resolvedPairs.length === 0) {
+    return { columns, rows };
+  }
+
+  const latIdxSet = new Set(resolvedPairs.map(p => p.latIdx));
+  const lonIdxSet = new Set(resolvedPairs.map(p => p.lonIdx));
+
+  // Derive a human-readable address column name from the lat column name
+  function addressLabel(latName: string): string {
+    const prefix = latName.replace(/[_]?(lat|latitude|y_coord|y_coordinate|y)$/i, '').replace(/_+$/, '');
+    if (!prefix) return 'Address';
+    return prefix.charAt(0).toUpperCase() + prefix.slice(1) + ' Address';
+  }
+
+  // Build new columns: replace each lat column with Address, remove each lon column
   const newColumns = columns
     .map((col, idx) => {
-      if (idx === latIdx) {
-        return { name: 'Address', type: 'text' };
-      }
-      if (idx === lonIdx) {
-        return null; // Remove lon column
-      }
+      const pair = resolvedPairs.find(p => p.latIdx === idx);
+      if (pair) return { name: addressLabel(pair.latName), type: 'text' };
+      if (lonIdxSet.has(idx)) return null;
       return col;
     })
     .filter((col): col is { name: string; type: string } => col !== null);
 
-  let missedCount = 0;
   // Transform rows
-  const newRows = rows.map((row, rowIdx) => {
-    const lat = parseFloat(String(row[latIdx]));
-    const lng = parseFloat(String(row[lonIdx]));
-    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-    const address = geocodedAddresses[key] || `${lat}, ${lng}`;
-    if (!geocodedAddresses[key]) {
-      missedCount++;
-      if (missedCount <= 3) {
-        logger.warn('applyGeocodedAddresses: key not found', {
-          rowIdx,
-          key,
-          rawLat: String(row[latIdx]),
-          rawLng: String(row[lonIdx]),
-          rawLatType: typeof row[latIdx],
-          rawLatIsDate: row[latIdx] instanceof Date,
-          fallback: address,
-        });
-      }
-    }
-
+  const newRows = rows.map(row => {
     return row
       .map((cell, idx) => {
-        if (idx === latIdx) {
-          return address;
+        const pair = resolvedPairs.find(p => p.latIdx === idx);
+        if (pair) {
+          const lat = parseFloat(String(row[pair.latIdx]));
+          const lng = parseFloat(String(row[pair.lonIdx]));
+          const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+          return geocodedAddresses[key] || `${lat}, ${lng}`;
         }
-        if (idx === lonIdx) {
-          return null; // Remove lon value
-        }
+        if (lonIdxSet.has(idx)) return null;
         return cell;
       })
-      .filter((_, idx) => idx !== lonIdx);
+      .filter((_, idx) => !lonIdxSet.has(idx));
   });
-
-  if (missedCount > 0) {
-    logger.warn('applyGeocodedAddresses: total missed keys', { missedCount, totalRows: rows.length });
-  }
 
   return { columns: newColumns, rows: newRows };
 }
@@ -539,7 +526,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, geocodedAddresses, latColumn, lonColumn, format = 'xlsx', report_data } = req.body;
+    const { params = {}, geocodedAddresses, latColumn, lonColumn, gpsPairs, format = 'xlsx', report_data, cachedData } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -577,31 +564,34 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       throw new CustomError('Composite report not found', 404);
     }
 
-    // Get global variables
-    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-    const mergedParams = { ...globalVariables, ...params };
-
-    // Get timeout from global variables (2x for export, min 60s)
-    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
-
-    // Execute query to get all data (no pagination for export)
-    const exportMaxRows = compositeReport.config?.table?.maxRows || 10000;
-    const result = await dbService.executeParameterizedQuery(
-      compositeReport.sql_query,
-      mergedParams,
-      exportTimeoutMs,
-      exportMaxRows,
-      iotDbUrl
-    );
+    // Use cached data from the frontend when available (prevents data drift with relative time queries)
+    let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
+    if (cachedData?.columns && cachedData?.rows) {
+      queryResult = { columns: cachedData.columns, rows: cachedData.rows };
+    } else {
+      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
+      const mergedParams = { ...globalVariables, ...params };
+      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const exportMaxRows = compositeReport.config?.table?.maxRows || 10000;
+      const result = await dbService.executeParameterizedQuery(
+        compositeReport.sql_query,
+        mergedParams,
+        exportTimeoutMs,
+        exportMaxRows,
+        iotDbUrl
+      );
+      queryResult = { columns: result.columns, rows: result.rows };
+    }
 
     // Apply geocoded addresses if provided
     const { columns, rows } = applyGeocodedAddresses(
-      result.columns,
-      result.rows,
+      queryResult.columns,
+      queryResult.rows,
       geocodedAddresses,
       latColumn,
-      lonColumn
+      lonColumn,
+      gpsPairs
     );
 
     const exportService = ExportService.getInstance();
@@ -647,7 +637,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings, report_data } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, gpsPairs, chartSettings, mapSettings, report_data, cachedData } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -680,35 +670,38 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       throw new CustomError('Composite report not found', 404);
     }
 
-    // Get global variables
-    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-    const mergedParams = { ...globalVariables, ...params };
-
-    // Get timeout from global variables (2x for export, min 60s)
-    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
-
-    // Execute query
-    const htmlExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
-    const result = await dbService.executeParameterizedQuery(
-      compositeReport.sql_query,
-      mergedParams,
-      exportTimeoutMs,
-      htmlExportMaxRows,
-      iotDbUrl
-    );
+    // Use cached data from the frontend when available
+    let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
+    if (cachedData?.columns && cachedData?.rows) {
+      queryResult = { columns: cachedData.columns, rows: cachedData.rows };
+    } else {
+      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
+      const mergedParams = { ...globalVariables, ...params };
+      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const htmlExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
+      const result = await dbService.executeParameterizedQuery(
+        compositeReport.sql_query,
+        mergedParams,
+        exportTimeoutMs,
+        htmlExportMaxRows,
+        iotDbUrl
+      );
+      queryResult = { columns: result.columns, rows: result.rows };
+    }
 
     // Apply geocoded addresses if provided
     const { columns, rows } = applyGeocodedAddresses(
-      result.columns,
-      result.rows,
+      queryResult.columns,
+      queryResult.rows,
       geocodedAddresses,
       latColumn,
-      lonColumn
+      lonColumn,
+      gpsPairs
     );
 
     // Detect GPS columns for map (use original columns, not geocoded ones for map functionality)
-    const columnInfo: ColumnInfo[] = result.columns.map(col => ({
+    const columnInfo: ColumnInfo[] = queryResult.columns.map(col => ({
       name: col.name,
       type: col.type,
     }));
@@ -753,7 +746,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, chartSettings, mapSettings, report_data } = req.body;
+    const { params = {}, includeChart = true, includeMap = true, geocodedAddresses, latColumn, lonColumn, gpsPairs, chartSettings, mapSettings, report_data, cachedData } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -786,35 +779,38 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       throw new CustomError('Composite report not found', 404);
     }
 
-    // Get global variables
-    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-    const mergedParams = { ...globalVariables, ...params };
-
-    // Get timeout from global variables (2x for export, min 60s)
-    const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-    const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
-
-    // Execute query
-    const pdfExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
-    const result = await dbService.executeParameterizedQuery(
-      compositeReport.sql_query,
-      mergedParams,
-      exportTimeoutMs,
-      pdfExportMaxRows,
-      iotDbUrl
-    );
+    // Use cached data from the frontend when available
+    let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
+    if (cachedData?.columns && cachedData?.rows) {
+      queryResult = { columns: cachedData.columns, rows: cachedData.rows };
+    } else {
+      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
+      const mergedParams = { ...globalVariables, ...params };
+      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
+      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const pdfExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
+      const result = await dbService.executeParameterizedQuery(
+        compositeReport.sql_query,
+        mergedParams,
+        exportTimeoutMs,
+        pdfExportMaxRows,
+        iotDbUrl
+      );
+      queryResult = { columns: result.columns, rows: result.rows };
+    }
 
     // Apply geocoded addresses if provided
     const { columns, rows } = applyGeocodedAddresses(
-      result.columns,
-      result.rows,
+      queryResult.columns,
+      queryResult.rows,
       geocodedAddresses,
       latColumn,
-      lonColumn
+      lonColumn,
+      gpsPairs
     );
 
     // Detect GPS columns for map (use original columns, not geocoded ones for map functionality)
-    const columnInfo: ColumnInfo[] = result.columns.map(col => ({
+    const columnInfo: ColumnInfo[] = queryResult.columns.map(col => ({
       name: col.name,
       type: col.type,
     }));

@@ -135,21 +135,45 @@ export default function CompositeReportEditor() {
         ['timestamp', 'date', 'time'].some(t => c.type?.includes(t))
       );
 
-      // Detect GPS columns
-      const latPatterns = ['lat', 'latitude', 'y_coord'];
-      const lonPatterns = ['lon', 'lng', 'longitude', 'x_coord'];
-      
-      const latCol = cols.find((c: any) => 
-        latPatterns.some(p => c.name.toLowerCase().includes(p))
-      );
-      const lonCol = cols.find((c: any) =>
-        lonPatterns.some(p => c.name.toLowerCase().includes(p))
-      );
+      // Detect all GPS column pairs by matching stems
+      const latPatterns = ['lat', 'latitude', 'y_coord', 'y_coordinate', 'gps_lat', 'gps_latitude', 'geo_lat', 'y'];
+      const lonPatterns = ['lon', 'lng', 'longitude', 'x_coord', 'x_coordinate', 'gps_lon', 'gps_lng', 'gps_longitude', 'geo_lon', 'geo_lng', 'x'];
+
+      const getStem = (name: string, patterns: string[]): string | null => {
+        const n = name.toLowerCase();
+        const sorted = [...patterns].sort((a, b) => b.length - a.length);
+        for (const p of sorted) {
+          if (n === p) return '';
+          const idx = n.indexOf(p);
+          if (idx !== -1) {
+            const before = n.substring(0, idx);
+            const after = n.substring(idx + p.length);
+            if ((before === '' || before.endsWith('_')) && (after === '' || after.startsWith('_'))) {
+              return (before + after).replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+            }
+          }
+        }
+        return null;
+      };
+
+      const latCols = cols.filter((c: any) => getStem(c.name, latPatterns) !== null);
+      const lonCols = cols.filter((c: any) => getStem(c.name, lonPatterns) !== null);
+      const gpsPairs: Array<{ latColumn: string; lonColumn: string }> = [];
+      const usedLons = new Set<string>();
+      for (const latCol of latCols) {
+        const latStem = getStem(latCol.name, latPatterns);
+        const matchingLon = lonCols.find((c: any) => !usedLons.has(c.name) && getStem(c.name, lonPatterns) === latStem);
+        if (matchingLon) {
+          gpsPairs.push({ latColumn: latCol.name, lonColumn: matchingLon.name });
+          usedLons.add(matchingLon.name);
+        }
+      }
 
       const detectionResult: ColumnDetectionResult = {
         columns: cols.map((c: any) => ({ name: c.name, type: c.type })),
         suggestions: {
-          gps: latCol && lonCol ? { latColumn: latCol.name, lonColumn: lonCol.name } : null,
+          gps: gpsPairs.length > 0 ? gpsPairs[0] : null,
+          gpsPairs: gpsPairs.length > 0 ? gpsPairs : undefined,
           xColumn: timeCols[0]?.name || cols[0]?.name,
           yColumns: numericCols.slice(0, 3).map((c: any) => c.name),
         },
@@ -401,11 +425,11 @@ export default function CompositeReportEditor() {
                       ))}
                     </div>
 
-                    {columns.suggestions.gps && (
-                      <div className="text-sm text-green-600 dark:text-green-400 mt-2">
-                        GPS columns detected: {columns.suggestions.gps.latColumn}, {columns.suggestions.gps.lonColumn}
+                    {(columns.suggestions.gpsPairs && columns.suggestions.gpsPairs.length > 0 ? columns.suggestions.gpsPairs : columns.suggestions.gps ? [columns.suggestions.gps] : []).map((pair, idx) => (
+                      <div key={idx} className="text-sm text-green-600 dark:text-green-400 mt-1">
+                        GPS columns detected: {pair.latColumn}, {pair.lonColumn}
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </CardContent>

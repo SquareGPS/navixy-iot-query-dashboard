@@ -97,43 +97,70 @@ function matchesPatterns(columnName: string, patterns: string[]): boolean {
 }
 
 /**
- * Detect GPS columns from query result columns
- * 
- * @param columns - Array of column info with name and type
- * @returns GPS columns if detected, null otherwise
+ * Extract the "stem" of a column name by removing the matched GPS pattern.
+ * Used to pair lat/lon columns that share the same prefix/suffix.
+ * E.g. "start_lat" with pattern "lat" → stem "start",
+ *      "end_longitude" with pattern "longitude" → stem "end"
+ */
+function getColumnStem(columnName: string, patterns: string[]): string {
+  const name = columnName.toLowerCase().trim();
+  const sorted = [...patterns].sort((a, b) => b.length - a.length);
+
+  for (const pattern of sorted) {
+    if (name === pattern) return '';
+
+    const idx = name.indexOf(pattern);
+    if (idx !== -1) {
+      const before = name.substring(0, idx);
+      const after = name.substring(idx + pattern.length);
+      if ((before === '' || before.endsWith('_')) && (after === '' || after.startsWith('_'))) {
+        return (before + after).replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+      }
+    }
+  }
+  return name;
+}
+
+/**
+ * Detect ALL GPS column pairs from query result columns.
+ * Pairs lat/lon columns by matching their stems (the non-pattern part of the name).
+ * E.g. start_lat + start_lon, end_lat + end_lon, lat + lon
+ */
+export function detectAllGPSColumnPairs(columns: ColumnInfo[]): GPSColumns[] {
+  const numericColumns = columns.filter(col => isNumericType(col.type));
+  if (numericColumns.length < 2) return [];
+
+  const latCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LAT_PATTERNS));
+  const lonCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LON_PATTERNS));
+  if (latCols.length === 0 || lonCols.length === 0) return [];
+
+  const pairs: GPSColumns[] = [];
+  const usedLons = new Set<string>();
+
+  for (const latCol of latCols) {
+    const latStem = getColumnStem(latCol.name, GPS_LAT_PATTERNS);
+
+    const matchingLon = lonCols.find(lonCol => {
+      if (usedLons.has(lonCol.name)) return false;
+      return getColumnStem(lonCol.name, GPS_LON_PATTERNS) === latStem;
+    });
+
+    if (matchingLon) {
+      pairs.push({ latColumn: latCol.name, lonColumn: matchingLon.name });
+      usedLons.add(matchingLon.name);
+    }
+  }
+
+  return pairs;
+}
+
+/**
+ * Detect GPS columns from query result columns (first pair only).
+ * Kept for backward compatibility.
  */
 export function detectGPSColumns(columns: ColumnInfo[]): GPSColumns | null {
-  // Filter to only numeric columns
-  const numericColumns = columns.filter(col => isNumericType(col.type));
-  
-  if (numericColumns.length < 2) {
-    return null;
-  }
-
-  // Find latitude column
-  let latColumn: string | null = null;
-  for (const col of numericColumns) {
-    if (matchesPatterns(col.name, GPS_LAT_PATTERNS)) {
-      latColumn = col.name;
-      break;
-    }
-  }
-
-  // Find longitude column
-  let lonColumn: string | null = null;
-  for (const col of numericColumns) {
-    if (matchesPatterns(col.name, GPS_LON_PATTERNS)) {
-      lonColumn = col.name;
-      break;
-    }
-  }
-
-  // Only return if both columns are found
-  if (latColumn && lonColumn) {
-    return { latColumn, lonColumn };
-  }
-
-  return null;
+  const pairs = detectAllGPSColumnPairs(columns);
+  return pairs[0] ?? null;
 }
 
 /**
