@@ -212,6 +212,10 @@ export default function CompositeReportView() {
         throw new Error(response.error.message);
       }
 
+      if (response.data?.error) {
+        throw new Error(response.data.error);
+      }
+
       setExecution({
         loading: false,
         error: null,
