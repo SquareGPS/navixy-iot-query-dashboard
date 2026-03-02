@@ -1146,9 +1146,10 @@ export default function CompositeReportView() {
                                 {pageRows.map((row, rowIdx) => {
                                   return (
                                     <TableRow key={startIdx + rowIdx}>
-                                      {row.map((cell, cellIdx) => {
+                                      {execution.data!.columns.map((col, cellIdx) => {
                                         if (emptyColumnIndices.has(cellIdx)) return null;
-                                        const colName = execution.data?.columns[cellIdx]?.name;
+                                        const colName = col.name;
+                                        const cell = row[cellIdx];
                                         if (geocodeEnabled && gpsPairs.length > 0) {
                                           if (gpsPairs.some(p => p.lonColumn === colName)) return null;
                                           const pairForLat = gpsPairs.find(p => p.latColumn === colName);

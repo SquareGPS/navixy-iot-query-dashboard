@@ -1686,10 +1686,10 @@ export class DatabaseService {
         }
       }
 
-      // Execute query
+      // Execute query with rowMode: 'array' to preserve column order and handle duplicate column names
       const result = usedParamCount > 0
-        ? await client.query(finalStatement, finalParamValues)
-        : await client.query(finalStatement);
+        ? await client.query({ text: finalStatement, values: finalParamValues, rowMode: 'array' })
+        : await client.query({ text: finalStatement, rowMode: 'array' });
 
       // Convert result to standardized format
       const columns = result.fields.map(field => ({
@@ -1697,11 +1697,9 @@ export class DatabaseService {
         type: this.getPostgresTypeName(field.dataTypeID)
       }));
 
-      // Transform rows
-      const rows = result.rows.map(row => {
-        const rowArray = Object.values(row);
-        return rowArray.map((value) => {
-          // Convert BigInt to string for JSON serialization
+      // Transform rows (already arrays thanks to rowMode: 'array')
+      const rows = (result.rows as unknown[][]).map(row => {
+        return row.map((value) => {
           if (typeof value === 'bigint') {
             return value.toString();
           }
