@@ -719,11 +719,12 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       columns,
       rows,
       config: compositeReport.config,
-      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null,
+      gpsColumns: includeMap ? gpsColumns : null,
       includeChart,
       executedAt: new Date(),
       chartSettings,
       mapSettings,
+      ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
     });
 
     // Set response headers
@@ -828,11 +829,12 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       columns,
       rows,
       config: compositeReport.config,
-      gpsColumns: includeMap && !geocodedAddresses ? gpsColumns : null,
+      gpsColumns: includeMap ? gpsColumns : null,
       includeChart,
       executedAt: new Date(),
       chartSettings,
       mapSettings,
+      ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
     });
 
     // Convert HTML to PDF
