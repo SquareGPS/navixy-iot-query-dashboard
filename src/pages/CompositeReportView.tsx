@@ -1374,10 +1374,13 @@ export default function CompositeReportView() {
                             />
                             <Tooltip 
                               contentStyle={{
-                                backgroundColor: 'hsl(var(--popover))',
-                                border: '1px solid hsl(var(--border))',
+                                backgroundColor: 'var(--surface-1)',
+                                border: '1px solid var(--border)',
                                 borderRadius: '6px',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                               }}
+                              wrapperStyle={{ zIndex: 10 }}
+                              labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
                             />
                             {/* No built-in Legend - using custom clickable legend below */}
                             {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 ? (
