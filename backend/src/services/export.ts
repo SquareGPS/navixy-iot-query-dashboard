@@ -43,6 +43,9 @@ export interface HTMLExportOptions {
     center: [number, number];
     zoom: number;
   };
+  // Original (pre-geocoded) data for map rendering when geocoding is applied
+  mapColumns?: ExportColumn[];
+  mapRows?: unknown[][];
 }
 
 export class ExportService {
@@ -371,7 +374,18 @@ export class ExportService {
     // Generate map HTML if enabled and GPS data available
     let mapHTML = '';
     if (gpsColumns && config.map?.enabled) {
-      mapHTML = this.generateMapHTML(rowObjects, gpsColumns, options.mapSettings);
+      // Use original (pre-geocoded) data for map when geocoding was applied
+      let mapRowObjects = rowObjects;
+      if (options.mapColumns && options.mapRows) {
+        mapRowObjects = options.mapRows.map((row) => {
+          const obj: Record<string, unknown> = {};
+          options.mapColumns!.forEach((col, idx) => {
+            obj[col.name] = row[idx];
+          });
+          return obj;
+        });
+      }
+      mapHTML = this.generateMapHTML(mapRowObjects, gpsColumns, options.mapSettings);
     }
 
     // Build full HTML document

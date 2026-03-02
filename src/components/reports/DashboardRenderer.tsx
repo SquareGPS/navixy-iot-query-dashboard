@@ -1293,7 +1293,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             axisLine={{ stroke: '#ffffff22' }}
             tickFormatter={(value) => {
               if (stacking === 'percent') {
-                return `${value}%`;
+                return `${Math.round(value)}%`;
               }
               return value.toLocaleString();
             }}

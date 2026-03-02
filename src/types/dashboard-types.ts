@@ -503,6 +503,7 @@ export interface ColumnDetectionResult {
   columns: Array<{ name: string; type: string }>;
   suggestions: {
     gps?: { latColumn: string; lonColumn: string } | null;
+    gpsPairs?: Array<{ latColumn: string; lonColumn: string }>;
     labelColumn?: string | null;
     xColumn?: string;
     yColumns?: string[];

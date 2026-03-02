@@ -1640,6 +1640,7 @@ export class DatabaseService {
       let total = 0;
       let finalStatement = processedStatement;
       let finalParamValues = paramValues;
+      let effectivePageSize = pagination?.pageSize;
 
       // Handle pagination if requested
       if (pagination) {
@@ -1649,6 +1650,10 @@ export class DatabaseService {
         if (page < 1 || pageSize < 1 || pageSize > 10000) {
           throw new CustomError('Invalid pagination parameters. Page must be >= 1 and pageSize must be between 1 and 10000', 400);
         }
+
+        // Extract user's LIMIT before stripping so it can be respected
+        const limitMatch = processedStatement.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
+        const userLimit = limitMatch && limitMatch[1] ? parseInt(limitMatch[1], 10) : null;
 
         // Strip any existing LIMIT/OFFSET from the query
         const cleanedStatement = processedStatement.trim().replace(/;$/, '').replace(/\s+LIMIT\s+\d+(?:\s+OFFSET\s+\d+)?$/i, '');
@@ -1663,9 +1668,15 @@ export class DatabaseService {
           ? parseInt(countResult.rows[0].total as string, 10) 
           : 0;
 
-        // Apply pagination with LIMIT/OFFSET
-        const offset = (page - 1) * pageSize;
-        finalStatement = `${cleanedStatement} LIMIT ${pageSize} OFFSET ${offset}`;
+        // If user specified LIMIT, cap the total to respect it
+        if (userLimit !== null) {
+          total = Math.min(total, userLimit);
+        }
+
+        // Use user's LIMIT if it's smaller than pageSize, otherwise use pageSize
+        effectivePageSize = userLimit !== null && userLimit < pageSize ? userLimit : pageSize;
+        const offset = (page - 1) * effectivePageSize;
+        finalStatement = `${cleanedStatement} LIMIT ${effectivePageSize} OFFSET ${offset}`;
       } else {
         // No pagination - check for existing LIMIT clause
         const hasLimitClause = /\bLIMIT\s+\d+/i.test(processedStatement);
@@ -1675,10 +1686,10 @@ export class DatabaseService {
         }
       }
 
-      // Execute query
+      // Execute query with rowMode: 'array' to preserve column order and handle duplicate column names
       const result = usedParamCount > 0
-        ? await client.query(finalStatement, finalParamValues)
-        : await client.query(finalStatement);
+        ? await client.query({ text: finalStatement, values: finalParamValues, rowMode: 'array' })
+        : await client.query({ text: finalStatement, rowMode: 'array' });
 
       // Convert result to standardized format
       const columns = result.fields.map(field => ({
@@ -1686,11 +1697,9 @@ export class DatabaseService {
         type: this.getPostgresTypeName(field.dataTypeID)
       }));
 
-      // Transform rows
-      const rows = result.rows.map(row => {
-        const rowArray = Object.values(row);
-        return rowArray.map((value) => {
-          // Convert BigInt to string for JSON serialization
+      // Transform rows (already arrays thanks to rowMode: 'array')
+      const rows = (result.rows as unknown[][]).map(row => {
+        return row.map((value) => {
           if (typeof value === 'bigint') {
             return value.toString();
           }
@@ -1725,7 +1734,7 @@ export class DatabaseService {
       if (pagination) {
         resultData.pagination = {
           page: pagination.page,
-          pageSize: pagination.pageSize,
+          pageSize: effectivePageSize ?? pagination.pageSize,
           total
         };
       }
