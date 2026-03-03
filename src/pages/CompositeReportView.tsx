@@ -202,11 +202,7 @@ export default function CompositeReportView() {
     setExecution(prev => ({ ...prev, loading: true, error: null }));
     
     try {
-      const maxRows = report?.config.table.maxRows || 10000;
-      const response = await apiService.executeCompositeReport(id, {
-        page: 1,
-        pageSize: maxRows,
-      });
+      const response = await apiService.executeCompositeReport(id);
 
       if (response.error) {
         throw new Error(response.error.message);
@@ -231,7 +227,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id]);
+  }, [id, report?.config.table.maxRows]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {

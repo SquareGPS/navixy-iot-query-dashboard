@@ -235,7 +235,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { page = 1, pageSize = 1000, params = {} } = req.body;
+    const { params = {} } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -251,6 +251,8 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
       throw new CustomError('Composite report not found', 404);
     }
 
+    const maxRows = compositeReport.config?.table?.maxRows || 10000;
+
     // Check if SQL query is valid
     const sqlQuery = compositeReport.sql_query?.trim();
     if (!sqlQuery) {
@@ -261,7 +263,6 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
           columns: [],
           rows: [],
           stats: { rowCount: 0, executionTime: 0 },
-          pagination: { page, pageSize, total: 0, totalPages: 0 },
           gps: null,
           message: 'No SQL query configured for this report',
         },
@@ -278,17 +279,16 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     // Get timeout from global variables (default 30s)
     const timeoutMs = getTimeoutFromGlobalVars(globalVariables);
 
-    // Execute the SQL query
+    // Execute the SQL query — no server-side pagination needed,
+    // composite reports load all data at once and paginate client-side
     let result;
     try {
-      const maxRows = compositeReport.config?.table?.maxRows || 10000;
       result = await dbService.executeParameterizedQuery(
         sqlQuery,
         mergedParams,
         timeoutMs,
         maxRows,
         iotDbUrl,
-        { page, pageSize }
       );
     } catch (queryError: any) {
       // Return empty result with error message for SQL errors
@@ -299,7 +299,6 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
           columns: [],
           rows: [],
           stats: { rowCount: 0, executionTime: 0 },
-          pagination: { page, pageSize, total: 0, totalPages: 0 },
           gps: null,
           error: queryError.message,
           message: 'Query execution failed',
