@@ -1,5 +1,6 @@
 import { LineChartComponent } from '@/components/reports/visualizations/LineChartComponent';
 import type { LineVisual } from '@/types/report-schema';
+import { isLikelyDateString, formatDateLabel } from '@/lib/chartUtils';
 
 const LineChartTestPage = () => {
   // Sample data provided by user
@@ -223,20 +224,9 @@ const LineChartComponentWithData = ({
   // Determine if points should be shown
   const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && data.length <= 50);
 
-  // Format x-axis labels (try to format as dates)
   const formatXAxisLabel = (value: any) => {
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-      const hasTime = value.toString().includes(':') || value.toString().includes('T');
-      if (hasTime) {
-        return date.toLocaleString('en-US', { 
-          month: 'short', 
-          day: 'numeric', 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-      }
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (isLikelyDateString(value)) {
+      return formatDateLabel(value);
     }
     return String(value);
   };

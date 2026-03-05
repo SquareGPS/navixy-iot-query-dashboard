@@ -19,6 +19,7 @@ import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { parseRefreshInterval } from '@/utils/refreshParser';
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
+import { makeCategoryTickFormatter, isDateColumnType, isLikelyDateString, formatDateLabel } from '@/lib/chartUtils';
 import { TablePanel } from './TablePanel';
 import { TextPanel } from './visualizations/TextPanel';
 import { MapPanel, GPSPoint } from './visualizations/MapPanel';
@@ -1279,13 +1280,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             height={80}
             tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
             axisLine={{ stroke: '#ffffff22' }}
-            tickFormatter={(value) => {
-              const date = new Date(value);
-              if (!isNaN(date.getTime())) {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              }
-              return value;
-            }}
+            tickFormatter={makeCategoryTickFormatter(data.columns[categoryColumnIndex]?.type)}
           />
           <YAxis
             domain={valueAxisDomain}
@@ -1444,17 +1439,18 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       chartData.push(dataPoint);
     });
 
-    // Sort data by x value (assuming it's a date/timestamp)
-    chartData.sort((a, b) => {
-      const aVal = a[columns[0]?.name || 'x'];
-      const bVal = b[columns[0]?.name || 'x'];
-      const aDate = new Date(aVal);
-      const bDate = new Date(bVal);
-      if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-        return aDate.getTime() - bDate.getTime();
-      }
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    });
+    if (isDateColumnType(columns[0]?.type)) {
+      chartData.sort((a, b) => {
+        const aVal = a[columns[0]?.name || 'x'];
+        const bVal = b[columns[0]?.name || 'x'];
+        const aDate = new Date(aVal);
+        const bDate = new Date(bVal);
+        if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
+          return aDate.getTime() - bDate.getTime();
+        }
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      });
+    }
 
     // Get series names (all keys except the x-axis key)
     const xKey = columns[0]?.name || 'x';
@@ -1496,23 +1492,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Determine if points should be shown
     const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && chartData.length <= 50);
 
-    // Format x-axis labels (try to format as dates)
-    const formatXAxisLabel = (value: any) => {
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) {
-        const hasTime = value.toString().includes(':') || value.toString().includes('T');
-        if (hasTime) {
-          return date.toLocaleString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          });
-        }
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      }
-      return String(value);
-    };
+    const formatXAxisLabel = makeCategoryTickFormatter(columns[0]?.type);
 
     const ChartComponent = fillArea !== 'none' ? ComposedChart : LineChart;
 

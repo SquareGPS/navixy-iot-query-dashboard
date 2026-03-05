@@ -6,6 +6,7 @@ import { apiService } from '@/services/api';
 import { Pencil } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import type { BarVisual } from '@/types/report-schema';
+import { isLikelyDateString, formatDateLabel } from '@/lib/chartUtils';
 
 interface BarChartComponentProps {
   visual: BarVisual;
@@ -159,10 +160,8 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
                       tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
                       axisLine={{ stroke: '#ffffff22' }}
                       tickFormatter={(value) => {
-                        // Try to format as date if it looks like one
-                        const date = new Date(value);
-                        if (!isNaN(date.getTime())) {
-                          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit' });
+                        if (isLikelyDateString(value)) {
+                          return formatDateLabel(value);
                         }
                         return value;
                       }}
