@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { parse, isValid, format } from 'date-fns';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -1280,11 +1281,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
             axisLine={{ stroke: '#ffffff22' }}
             tickFormatter={(value) => {
-              const date = new Date(value);
-              if (!isNaN(date.getTime())) {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const parsedDate = parse(value, 'yyyy-MM-dd', new Date());
+
+              if (!isValid(parsedDate) || format(parsedDate, 'yyyy-MM-dd') !== value) {
+                return value;
               }
-              return value;
+
+              return format(parsedDate, 'MMM d');
             }}
           />
           <YAxis
@@ -1498,19 +1501,18 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Format x-axis labels (try to format as dates)
     const formatXAxisLabel = (value: any) => {
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) {
-        const hasTime = value.toString().includes(':') || value.toString().includes('T');
+      const parsedDate = parse(String(value), 'yyyy-MM-dd', new Date());
+
+      if (isValid(parsedDate) && format(parsedDate, 'yyyy-MM-dd') === String(value)) {
+        const hasTime = String(value).includes(':') || String(value).includes('T');
+
         if (hasTime) {
-          return date.toLocaleString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          });
+          return format(parsedDate, 'MMM d, HH:mm');
         }
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+        return format(parsedDate, 'MMM d');
       }
+
       return String(value);
     };
 
