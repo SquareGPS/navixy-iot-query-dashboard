@@ -150,7 +150,7 @@ export interface DashboardParameter {
 }
 
 export interface Panel {
-  id?: number;
+  id?: string | number;
   type: PanelType;
   title: string;
   description?: string;
@@ -219,7 +219,7 @@ export interface Panel {
   pluginVersion?: string;
 }
 
-export type PanelType = 
+export type PanelType =
   | 'stat'           // Stat panel (KPI-like)
   | 'bargauge'       // Bar gauge panel
   | 'timeseries'     // Time series panel
@@ -291,16 +291,16 @@ export interface NavixyParam {
   description?: string;
 }
 
-export type NavixyColumnType = 
-  | 'string' 
-  | 'number' 
-  | 'integer' 
-  | 'boolean' 
-  | 'timestamp' 
-  | 'timestamptz' 
-  | 'date' 
-  | 'uuid' 
-  | 'numeric' 
+export type NavixyColumnType =
+  | 'string'
+  | 'number'
+  | 'integer'
+  | 'boolean'
+  | 'timestamp'
+  | 'timestamptz'
+  | 'date'
+  | 'uuid'
+  | 'numeric'
   | 'decimal';
 
 export interface TimeRange {
@@ -421,7 +421,7 @@ export interface PieChartPanelOptions {
 // ==========================================
 
 /**
- * Composite Report - A report that combines SQL query results into 
+ * Composite Report - A report that combines SQL query results into
  * Table, Chart, and Map visualizations in a linear, print-friendly layout
  */
 export interface CompositeReport {

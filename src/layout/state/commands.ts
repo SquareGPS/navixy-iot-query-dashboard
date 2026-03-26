@@ -26,7 +26,7 @@ import type { Dashboard, Panel } from '@/types/dashboard-types';
  * Command to move a panel
  * Updates the dashboard in the store and pushes to undo history
  */
-export function cmdMovePanel(panelId: number, x: number, y: number): void {
+export function cmdMovePanel(panelId: string | number, x: number, y: number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -57,14 +57,14 @@ export function getDashboard(): Dashboard | null {
 /**
  * Get the selected panel ID
  */
-export function getSelectedPanelId(): number | null {
+export function getSelectedPanelId(): string | number | null {
   return useEditorStore.getState().selectedPanelId;
 }
 
 /**
  * Set the selected panel
  */
-export function setSelectedPanel(panelId: number | null): void {
+export function setSelectedPanel(panelId: string | number | null): void {
   useEditorStore.getState().setSelectedPanel(panelId);
 }
 
@@ -98,7 +98,7 @@ export function toggleLayoutEditing(): void {
  * - Band height is stored in `options.rowBandHeight` (custom extension)
  */
 export function cmdResizeRowHeight(
-  rowId: number,
+  rowId: string | number,
   deltaY: number
 ): void {
   const store = useEditorStore.getState();
@@ -156,7 +156,7 @@ export function cmdResizeRowHeight(
  * Updates the dashboard in the store and pushes to undo history
  */
 export function cmdResizePanel(
-  panelId: number,
+  panelId: string | number,
   handle: ResizeHandle,
   delta: ResizeDelta,
   containerWidth: number
@@ -200,7 +200,7 @@ export function cmdAddRow(insertY: number, title: string = 'New row'): void {
 /**
  * Command to toggle row collapsed state
  */
-export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
+export function cmdToggleRowCollapsed(rowId: string | number, collapsed: boolean): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -223,7 +223,7 @@ export function cmdToggleRowCollapsed(rowId: number, collapsed: boolean): void {
  * Command to move a panel to a row (or top-level if targetRowId is null)
  * Ensures the target row is expanded if in edit mode
  */
-export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, positionHint?: { x: number; y: number }): void {
+export function cmdMovePanelToRow(panelId: string | number, targetRowId: string | number | null, positionHint?: { x: number; y: number }): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -255,7 +255,7 @@ export function cmdMovePanelToRow(panelId: number, targetRowId: number | null, p
 /**
  * Command to reorder rows
  */
-export function cmdReorderRows(newRowIdOrder: number[]): void {
+export function cmdReorderRows(newRowIdOrder: Array<string | number>): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -272,7 +272,7 @@ export function cmdReorderRows(newRowIdOrder: number[]): void {
 /**
  * Command to move a row to a new Y position
  */
-export function cmdMoveRow(rowId: number, newY: number): void {
+export function cmdMoveRow(rowId: string | number, newY: number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -291,7 +291,7 @@ export function cmdMoveRow(rowId: number, newY: number): void {
 /**
  * Command to delete a row
  */
-export function cmdDeleteRow(rowId: number): void {
+export function cmdDeleteRow(rowId: string | number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -323,7 +323,7 @@ export function cmdDeleteRow(rowId: number): void {
 /**
  * Command to pack a row (auto-pack within row scope)
  */
-export function cmdPackRow(rowId: number): void {
+export function cmdPackRow(rowId: string | number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -340,7 +340,7 @@ export function cmdPackRow(rowId: number): void {
 /**
  * Command to rename a row
  */
-export function cmdRenameRow(rowId: number, newTitle: string): void {
+export function cmdRenameRow(rowId: string | number, newTitle: string): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -387,8 +387,8 @@ export function cmdAddPanel(spec: {
   type: string;
   title?: string;
   size?: { w: number; h: number };
-  target?: 'top' | { rowId: number; state: 'collapsed' | 'expanded' };
-  hint?: { nearPanelId?: number; position?: { x: number; y: number } };
+  target?: 'top' | { rowId: string | number; state: 'collapsed' | 'expanded' };
+  hint?: { nearPanelId?: string | number; position?: { x: number; y: number } };
 }): void {
   const store = useEditorStore.getState();
   
@@ -408,7 +408,7 @@ export function cmdAddPanel(spec: {
  * Creates a new panel with the same type/options/fieldConfig, positioned near the original
  * Handles both top-level panels and panels inside rows
  */
-export function cmdDuplicatePanel(panelId: number): void {
+export function cmdDuplicatePanel(panelId: string | number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -418,7 +418,7 @@ export function cmdDuplicatePanel(panelId: number): void {
 
   // Find the panel - check both top-level and inside rows
   let panel: Panel | undefined = store.dashboard.panels.find((p) => p.id === panelId);
-  let panelInRowId: number | null = null;
+  let panelInRowId: string | number | null = null;
   
   // If not found at top level, check inside rows
   if (!panel) {
@@ -516,7 +516,7 @@ export function cmdTidyUp(): void {
  * Command to delete a panel from the dashboard
  * Handles both top-level panels and panels inside rows
  */
-export function cmdDeletePanel(panelId: number): void {
+export function cmdDeletePanel(panelId: string | number): void {
   const store = useEditorStore.getState();
   
   if (!store.dashboard) {
@@ -530,7 +530,7 @@ export function cmdDeletePanel(panelId: number): void {
   const panelIndex = currentDashboard.panels.findIndex((p) => p.id === panelId);
   
   // Also check if panel is inside a row
-  let panelInRowId: number | null = null;
+  let panelInRowId: string | number | null = null;
   if (panelIndex === -1) {
     // Panel not at top level - check inside rows
     for (const panel of currentDashboard.panels) {

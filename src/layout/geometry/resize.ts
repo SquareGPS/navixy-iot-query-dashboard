@@ -223,9 +223,9 @@ export function resizeRectFromHandle(
  * Similar to resolveCollisionsPushDown but specifically for resize operations
  */
 export function resolveCollisionsAfterResize(
-  resizedPanel: { id: number; gridPos: GridPos },
-  panels: Array<{ id: number; gridPos: GridPos }>
-): Array<{ id: number; gridPos: GridPos }> {
+  resizedPanel: { id: string | number; gridPos: GridPos },
+  panels: Array<{ id: string | number; gridPos: GridPos }>
+): Array<{ id: string | number; gridPos: GridPos }> {
   return resolveCollisionsPushDown(resizedPanel, panels);
 }
 
@@ -235,7 +235,7 @@ export function resolveCollisionsAfterResize(
  */
 export function applyResize(
   dashboard: GrafanaDashboard,
-  panelId: number,
+  panelId: string | number,
   handle: ResizeHandle,
   delta: ResizeDelta,
   containerWidth: number

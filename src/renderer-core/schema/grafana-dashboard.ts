@@ -9,7 +9,7 @@ export interface GrafanaDashboard {
 }
 
 export interface Dashboard {
-  id?: number;
+  id?: string | number;
   uid: string;
   title: string;
   description?: string;
@@ -60,7 +60,7 @@ export interface VariableOption {
 }
 
 export interface Panel {
-  id: number;
+  id: string | number;
   title: string;
   type: PanelType;
   gridPos: GridPosition;

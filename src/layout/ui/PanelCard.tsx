@@ -17,7 +17,7 @@ interface PanelCardProps {
   gridUnitHeight?: number;
   isSelected?: boolean;
   isEditingLayout?: boolean;
-  onSelect?: (panelId: number) => void;
+  onSelect?: (panelId: string | number) => void;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
   onEditPanel?: (panel: GrafanaPanel) => void;
   renderContent: (panel: GrafanaPanel) => React.ReactNode;
@@ -50,17 +50,17 @@ export const PanelCard: React.FC<PanelCardProps> = ({
 
   const panelWidth = (panel.gridPos.w / 24) * containerWidth;
   const panelHeight = panel.gridPos.h * gridUnitHeight;
-  
+
   // Grafana-style spacing: add margins for visual spacing
   // Panels remain back-to-back in grid coordinates, but CSS positioning creates visual gaps
   const PANEL_SPACING = 8; // px - matches Grafana's visual spacing (~8-10px)
   // Adjust width/height to account for spacing (half spacing on each side)
   const adjustedWidth = panelWidth - PANEL_SPACING;
   const adjustedHeight = panelHeight - PANEL_SPACING;
-  
+
   // Use custom top if provided (for panels inside rows), otherwise use calculated position with spacing
-  const topPosition = customTop !== undefined 
-    ? customTop 
+  const topPosition = customTop !== undefined
+    ? customTop
     : panelPos.y + PANEL_SPACING / 2;
 
   // Debug logging removed to prevent excessive console output
@@ -106,7 +106,7 @@ export const PanelCard: React.FC<PanelCardProps> = ({
           onMouseLeave={() => setIsHovered(false)}
         >
           <div className="flex-1 overflow-auto p-4">{renderContent(panel)}</div>
-          
+
           {/* Edit button - shown on hover in edit mode, always in same position */}
           {isEditingLayout && onEditPanel && (
             <div className="absolute top-2 right-2 flex gap-1 z-10">
@@ -124,7 +124,7 @@ export const PanelCard: React.FC<PanelCardProps> = ({
               </button>
             </div>
           )}
-          
+
           {/* Selected panel controls - duplicate and delete buttons */}
           {isEditingLayout && isSelected && (
             <>
