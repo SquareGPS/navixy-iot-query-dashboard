@@ -56,13 +56,13 @@ export const Canvas: React.FC<CanvasProps> = ({
   const isDark = theme === 'dark';
   
   // Row resize state
-  const [resizeRowId, setResizeRowId] = useState<number | null>(null);
+  const [resizeRowId, setResizeRowId] = useState<string | number | null>(null);
   const [resizeRowStartPos, setResizeRowStartPos] = useState<{ y: number } | null>(null);
   const resizeRowStartRef = useRef<{ y: number } | null>(null);
 
   // Resize state
   const [resizeHandle, setResizeHandle] = useState<ResizeHandle | null>(null);
-  const [resizePanelId, setResizePanelId] = useState<number | null>(null);
+  const [resizePanelId, setResizePanelId] = useState<string | number | null>(null);
   const [resizeStartPos, setResizeStartPos] = useState<{ x: number; y: number; gridPos: { x: number; y: number; w: number; h: number } } | null>(null);
   const [resizePreview, setResizePreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const resizeStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -241,8 +241,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     
     // Check if it's a row header
     if (activeIdStr.startsWith('row-')) {
-      const rowId = parseInt(activeIdStr.replace('row-', ''));
-      const row = dashboard?.panels.find((p) => isRowPanel(p) && p.id === rowId);
+      const rowId = activeIdStr.replace('row-', '');
+      const row = dashboard?.panels.find((p) => isRowPanel(p) && String(p.id) === rowId);
       if (row && containerRef.current) {
         setDragStartPos({ x: row.gridPos.x, y: row.gridPos.y });
         setDragPreview({
@@ -268,8 +268,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
     
     // Regular panel drag
-    const panelId = parseInt(activeIdStr.replace('panel-', ''));
-    const panel = dashboard?.panels.find((p) => p.id === panelId);
+    const panelId = activeIdStr.replace('panel-', '');
+    const panel = dashboard?.panels.find((p) => String(p.id) === panelId);
     
     if (panel && containerRef.current) {
       // Store initial panel grid position
@@ -307,8 +307,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     
     // Handle row dragging
     if (activeIdStr.startsWith('row-')) {
-      const rowId = parseInt(activeIdStr.replace('row-', ''));
-      const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId);
+      const rowId = activeIdStr.replace('row-', '');
+      const row = dashboard.panels.find((p) => isRowPanel(p) && String(p.id) === rowId);
       if (!row) return;
 
       const handleMouseMove = (e: MouseEvent) => {
@@ -339,8 +339,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     // Handle panel dragging
-    const panelId = parseInt(activeIdStr.replace('panel-', ''));
-    const panel = dashboard.panels.find((p) => p.id === panelId);
+    const panelId = activeIdStr.replace('panel-', '');
+    const panel = dashboard.panels.find((p) => String(p.id) === panelId);
     if (!panel) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -400,8 +400,8 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
-        const draggedRowId = parseInt(activeIdStr.replace('row-', ''));
-        const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === draggedRowId);
+        const draggedRowId = activeIdStr.replace('row-', '');
+        const row = dashboard.panels.find((p) => isRowPanel(p) && String(p.id) === draggedRowId);
         
         // Ignore drop pockets - only check for actual row headers
         const overId = event.over?.id.toString();
@@ -409,12 +409,12 @@ export const Canvas: React.FC<CanvasProps> = ({
         
         if (isOverRow) {
           // Dropped on another row header - reorder
-          const targetRowId = parseInt(overId.replace('row-', ''));
+          const targetRowId = overId.replace('row-', '');
           if (draggedRowId !== targetRowId) {
             const rows = getRowHeaders(dashboard.panels);
             const currentOrder = rows.map((r) => r.id!);
-            const draggedIndex = currentOrder.indexOf(draggedRowId);
-            const targetIndex = currentOrder.indexOf(targetRowId);
+            const draggedIndex = currentOrder.map(String).indexOf(draggedRowId);
+            const targetIndex = currentOrder.map(String).indexOf(targetRowId);
             
             if (draggedIndex !== -1 && targetIndex !== -1) {
               const newOrder = [...currentOrder];
@@ -450,8 +450,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
-      const panelId = parseInt(activeIdStr.replace('panel-', ''));
-      const panel = dashboard.panels.find((p) => p.id === panelId);
+      const panelId = activeIdStr.replace('panel-', '');
+      const panel = dashboard.panels.find((p) => String(p.id) === panelId);
 
       if (!panel) {
         console.error('Panel not found!', panelId, 'Available panels:', dashboard.panels.map(p => p.id));
@@ -471,7 +471,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       const rows = getRowHeaders(dashboard.panels);
 
       // Helper function to check if drop position is within a row's valid area
-      const isDropPositionInRow = (rowId: number, dropY: number): boolean => {
+      const isDropPositionInRow = (rowId: string | number, dropY: number): boolean => {
         const row = rows.find((r) => r.id === rowId);
         if (!row) return false;
         
@@ -577,10 +577,10 @@ export const Canvas: React.FC<CanvasProps> = ({
         } else if (overId.startsWith('row-pocket-')) {
           // Explicitly dropped on row pocket - prioritize this target row
           // Trust the drop target over position validation for adjacent rows
-          const targetRowId = parseInt(overId.replace('row-pocket-', ''));
+          const targetRowId = overId.replace('row-pocket-', '');
           
           // If explicitly dropped on a different row's pocket, move to that row
-          if (targetRowId !== currentRowId) {
+          if (targetRowId !== String(currentRowId)) {
             cmdMovePanelToRow(panelId, targetRowId);
           } else {
             // Same row - update position using movePanelToRow to handle row-scoped panels correctly
@@ -594,10 +594,10 @@ export const Canvas: React.FC<CanvasProps> = ({
         } else if (overId.startsWith('row-') && !overId.startsWith('row-pocket-')) {
           // Dropped on row header (not pocket) - prioritize this target row
           // Trust the drop target over position validation for adjacent rows
-          const targetRowId = parseInt(overId.replace('row-', ''));
+          const targetRowId = overId.replace('row-', '');
           
           // If explicitly dropped on a different row's header, move to that row
-          if (targetRowId !== currentRowId) {
+          if (targetRowId !== String(currentRowId)) {
             cmdMovePanelToRow(panelId, targetRowId);
           } else {
             // Same row - update position
@@ -646,7 +646,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   // Handle row resize start
   const handleRowResizeStart = useCallback(
-    (rowId: number, e: React.PointerEvent) => {
+    (rowId: string | number, e: React.PointerEvent) => {
       // Don't allow resize if we're dragging
       if (activeId !== null) {
         return;
@@ -727,7 +727,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   // Handle resize start
   const handleResizeStart = useCallback(
-    (panelId: number, handle: ResizeHandle, e: React.PointerEvent) => {
+    (panelId: string | number, handle: ResizeHandle, e: React.PointerEvent) => {
       // Don't allow resize if we're dragging
       if (activeId !== null) {
         return;
@@ -844,7 +844,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const bands = computeBands(dashboard.panels);
   
   // Get top-level panels (excluding nested children of collapsed rows)
-  const collapsedRowChildIds = new Set<number>();
+  const collapsedRowChildIds = new Set<string | number>();
   rows.forEach((row) => {
     if (row.collapsed === true && row.panels) {
       row.panels.forEach((p) => {
@@ -1139,7 +1139,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         {/* Top-level Panels - Group by row bands */}
         {containerWidth > 0 && (() => {
           // Separate panels into bands and top-level
-          const bandPanels = new Map<number, Panel[]>();
+          const bandPanels = new Map<string | number, Panel[]>();
           const topLevelOnlyPanels: Panel[] = [];
           
           topLevelPanels

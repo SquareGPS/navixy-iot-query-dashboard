@@ -9,20 +9,20 @@ import { isRowPanel, toggleRowCollapsed } from '../geometry/rows';
 
 export interface EditorState {
   dashboard: GrafanaDashboard | null;
-  selectedPanelId: number | null;
+  selectedPanelId: string | number | null;
   isEditingLayout: boolean;
   undoStack: GrafanaDashboard[];
   redoStack: GrafanaDashboard[];
   maxUndoHistory: number;
   // Track original collapsed states of rows before entering edit mode
-  originalCollapsedStates: Map<number, boolean>;
+  originalCollapsedStates: Map<string | number, boolean>;
 }
 
 export interface EditorActions {
   setDashboard: (dashboard: GrafanaDashboard) => void;
-  setSelectedPanel: (panelId: number | null) => void;
+  setSelectedPanel: (panelId: string | number | null) => void;
   setIsEditingLayout: (isEditing: boolean) => void;
-  setOriginalCollapsedStates: (states: Map<number, boolean>) => void;
+  setOriginalCollapsedStates: (states: Map<string | number, boolean>) => void;
   clearOriginalCollapsedStates: () => void;
   pushToHistory: (previousDashboard: GrafanaDashboard) => void;
   undo: () => void;
@@ -57,7 +57,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     });
   },
 
-  setSelectedPanel: (panelId: number | null) => {
+  setSelectedPanel: (panelId: string | number | null) => {
     set({ selectedPanelId: panelId });
   },
 
@@ -66,7 +66,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     
     if (isEditing && !state.isEditingLayout && state.dashboard) {
       // Entering edit mode: save collapsed states and expand all rows
-      const collapsedStates = new Map<number, boolean>();
+      const collapsedStates = new Map<string | number, boolean>();
       let expandedDashboard = state.dashboard;
       
       state.dashboard.panels.forEach((panel) => {
@@ -108,7 +108,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }
   },
 
-  setOriginalCollapsedStates: (states: Map<number, boolean>) => {
+  setOriginalCollapsedStates: (states: Map<string | number, boolean>) => {
     set({ originalCollapsedStates: states });
   },
 

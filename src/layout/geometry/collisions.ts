@@ -21,7 +21,7 @@ export function rectOverlap(a: Rect, b: Rect): boolean {
 /**
  * Check if a rectangle overlaps with any panel in the list
  */
-export function anyOverlap(rect: Rect, panels: Array<{ id: number; gridPos: GridPos }>, excludeId?: number): boolean {
+export function anyOverlap(rect: Rect, panels: Array<{ id: string | number; gridPos: GridPos }>, excludeId?: string | number): boolean {
   return panels.some(
     (panel) =>
       panel.id !== excludeId &&
@@ -34,9 +34,9 @@ export function anyOverlap(rect: Rect, panels: Array<{ id: number; gridPos: Grid
  */
 export function findOverlappingPanels(
   rect: Rect,
-  panels: Array<{ id: number; gridPos: GridPos }>,
-  excludeId?: number
-): Array<{ id: number; gridPos: GridPos }> {
+  panels: Array<{ id: string | number; gridPos: GridPos }>,
+  excludeId?: string | number
+): Array<{ id: string | number; gridPos: GridPos }> {
   return panels.filter(
     (panel) =>
       panel.id !== excludeId &&
@@ -50,9 +50,9 @@ export function findOverlappingPanels(
  * Returns new array with updated positions
  */
 export function resolveCollisionsPushDown(
-  moved: { id: number; gridPos: GridPos },
-  panels: Array<{ id: number; gridPos: GridPos }>
-): Array<{ id: number; gridPos: GridPos }> {
+  moved: { id: string | number; gridPos: GridPos },
+  panels: Array<{ id: string | number; gridPos: GridPos }>
+): Array<{ id: string | number; gridPos: GridPos }> {
   const result = panels.map((p) => ({
     id: p.id,
     gridPos: { ...p.gridPos },
@@ -74,7 +74,7 @@ export function resolveCollisionsPushDown(
     if (a.gridPos.x !== b.gridPos.x) {
       return a.gridPos.x - b.gridPos.x;
     }
-    return a.id - b.id;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
 
   let changed = true;

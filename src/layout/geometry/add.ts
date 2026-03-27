@@ -51,9 +51,9 @@ export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
  * Get the next available panel ID
  * Returns 1 + max(id) across all panels (top-level + any row.panels)
  */
-export function nextId(dashboard: GrafanaDashboard): number {
-  const allIds = new Set<number>();
-  
+export function nextId(dashboard: GrafanaDashboard): string | number {
+  const allIds = new Set<string | number>();
+
   function collectIds(panel: GrafanaPanel) {
     if (panel.id !== undefined && panel.id !== null) {
       allIds.add(panel.id);
@@ -62,10 +62,11 @@ export function nextId(dashboard: GrafanaDashboard): number {
       panel.panels.forEach(collectIds);
     }
   }
-  
+
   dashboard.panels.forEach(collectIds);
-  
-  const maxId = Math.max(...Array.from(allIds), 0);
+
+  const numericIds = Array.from(allIds).filter((id): id is number => typeof id === 'number');
+  const maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
   return maxId + 1;
 }
 
@@ -77,11 +78,11 @@ export function nextId(dashboard: GrafanaDashboard): number {
  */
 export function collectScopePanels(
   dashboard: GrafanaDashboard,
-  target: 'top' | { rowId: number; state: 'collapsed' | 'expanded' }
-): Array<{ id: number; gridPos: GridPos }> {
+  target: 'top' | { rowId: string | number; state: 'collapsed' | 'expanded' }
+): Array<{ id: string | number; gridPos: GridPos }> {
   if (target === 'top') {
     // Top-level: all panels excluding nested children of collapsed rows
-    const collapsedRowChildIds = new Set<number>();
+    const collapsedRowChildIds = new Set<string | number>();
     for (const panel of dashboard.panels) {
       if (isRowPanel(panel) && panel.collapsed === true && panel.panels) {
         panel.panels.forEach((p) => {
@@ -98,7 +99,7 @@ export function collectScopePanels(
 
   const { rowId, state } = target;
   const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId) as RowPanel | undefined;
-  
+
   if (!row) return [];
 
   if (state === 'collapsed') {
@@ -122,7 +123,7 @@ export function collectScopePanels(
  * Scans left→right, top→down for the first non-overlapping rectangle of {w,h}
  */
 export function firstFit(
-  scopePanels: Array<{ id: number; gridPos: GridPos }>,
+  scopePanels: Array<{ id: string | number; gridPos: GridPos }>,
   size: { w: number; h: number },
   minY: number = 0
 ): { x: number; y: number } {
@@ -156,17 +157,17 @@ export function placeNewPanel(
     type: string;
     title?: string;
     size?: { w: number; h: number };
-    target?: 'top' | { rowId: number; state: 'collapsed' | 'expanded' };
-    hint?: { nearPanelId?: number; position?: { x: number; y: number } };
+    target?: 'top' | { rowId: string | number; state: 'collapsed' | 'expanded' };
+    hint?: { nearPanelId?: string | number; position?: { x: number; y: number } };
   }
 ): GrafanaDashboard {
   const target = spec.target || 'top';
   const panelType = spec.type;
-  
+
   // Get default size for type
   const defaultSize = DEFAULT_SIZE_BY_TYPE[panelType] || DEFAULT_SIZE_BY_TYPE.stat;
   const size = spec.size || defaultSize;
-  
+
   // Ensure size is valid
   const clampedSize = {
     w: Math.max(1, Math.min(size.w, GRID_COLUMNS)),
@@ -181,7 +182,7 @@ export function placeNewPanel(
 
   // Determine initial position
   let initialPos: { x: number; y: number };
-  
+
   if (spec.hint?.nearPanelId) {
     // Try to place near the specified panel
     const nearPanel = dashboard.panels.find((p) => p.id === spec.hint!.nearPanelId);
@@ -247,7 +248,7 @@ export function placeNewPanel(
   } else {
     const { rowId, state } = target;
     const row = newDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId) as RowPanel | undefined;
-    
+
     if (!row) {
       // Row not found, fallback to top-level
       newDashboard.panels.push(newPanel);

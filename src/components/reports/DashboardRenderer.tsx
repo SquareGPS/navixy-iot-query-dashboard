@@ -1,11 +1,31 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { v4 as uuidv4 } from 'uuid';
+import { parse, isValid, format } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, BarChart3, PieChart, Table, Activity, TrendingUp, Pencil, Info, RefreshCw, MapPin, Download, FileSpreadsheet, FileText } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
+import {
+  Loader2,
+  AlertCircle,
+  BarChart3,
+  PieChart,
+  Table,
+  Activity,
+  TrendingUp,
+  Pencil,
+  Info,
+  RefreshCw,
+  MapPin,
+  Download,
+  FileSpreadsheet,
+  FileText,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import type { VisualizationConfig } from '@/types/dashboard-types';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
@@ -17,12 +37,29 @@ import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
 import { parseRefreshInterval } from '@/utils/refreshParser';
-import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, LabelList, LineChart, Line, ComposedChart, Area } from 'recharts';
+import {
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Sector,
+  BarChart as RechartsBarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend,
+  LabelList,
+  LineChart,
+  Line,
+  ComposedChart,
+  Area,
+} from 'recharts';
 import { chartColors } from '@/lib/chartColors';
 import { TablePanel } from './TablePanel';
 import { TextPanel } from './visualizations/TextPanel';
 import { MapPanel, GPSPoint } from './visualizations/MapPanel';
-import type { VisualizationConfig } from '@/types/dashboard-types';
 
 interface DashboardRendererProps {
   dashboard: Dashboard;
@@ -37,7 +74,7 @@ interface DashboardRendererProps {
 }
 
 export interface DashboardRendererRef {
-  refreshPanel: (panelId: number, dashboard?: Dashboard) => Promise<void>;
+  refreshPanel: (panelId: string | number, dashboard?: Dashboard) => Promise<void>;
 }
 
 interface PanelData {
@@ -59,7 +96,7 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   }
 
   const total = data.rows.reduce((sum, row) => sum + (Number(row[1]) || 0), 0);
-  
+
   // Process data for pie chart
   let chartData = data.rows
     .map((row, index) => ({
@@ -81,10 +118,10 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   // Anchor angle: 240° positions largest slice in top-left quadrant
   // Increase to rotate clockwise further, decrease to rotate counter-clockwise
   const anchorDeg = 240; // Top-left quadrant
-  const firstSliceAngle = chartData.length > 0 && total > 0 
-    ? (chartData[0].value / total) * 360 
+  const firstSliceAngle = chartData.length > 0 && total > 0
+    ? (chartData[0].value / total) * 360
     : 0;
-  
+
   // Center the largest slice at anchorDeg
   // Center = startAngle + firstSliceAngle/2, so: startAngle = anchorDeg - firstSliceAngle/2
   // To rotate clockwise: endAngle = startAngle - 360
@@ -92,8 +129,8 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   const endAngle = startAngle - 360;
 
   // Assign colors: use neutral for "Other", otherwise use palette colors
-  const colors = chartData.map((entry, index) => 
-    entry.name === 'Other' ? chartColors.neutral : chartColors.getColor(index)
+  const colors = chartData.map((entry, index) =>
+    entry.name === 'Other' ? chartColors.neutral : chartColors.getColor(index),
   );
 
   // Active shape for hover effect
@@ -110,13 +147,13 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
     const enlargedOuterRadius = outerRadius * 1.05;
     return (
       <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius}
-        outerRadius={enlargedOuterRadius}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
+        cx={ cx }
+        cy={ cy }
+        innerRadius={ innerRadius }
+        outerRadius={ enlargedOuterRadius }
+        startAngle={ startAngle }
+        endAngle={ endAngle }
+        fill={ fill }
       />
     );
   };
@@ -126,12 +163,12 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
     if (!props.active || !props.payload || props.payload.length === 0) {
       return null;
     }
-    
+
     const data = props.payload[0];
     const value = data.value;
     const name = data.name;
     const percent = ((value / total) * 100).toFixed(1);
-    
+
     // Get tooltip coordinates from Recharts
     // The coordinate object contains x, y (tooltip position) and cx, cy (chart center)
     const coordinate = props.coordinate || {};
@@ -139,17 +176,17 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
     const chartCenterY = coordinate.cy ?? 0;
     const tooltipX = coordinate.x ?? 0;
     const tooltipY = coordinate.y ?? 0;
-    
+
     // Calculate distance from center
     const dx = tooltipX - chartCenterX;
     const dy = tooltipY - chartCenterY;
     const distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
-    
+
     // If tooltip is too close to center (within ~80px radius), offset it outward
     const centerRadius = 80; // Increased radius to better avoid center area
     let offsetX = 0;
     let offsetY = 0;
-    
+
     if (distanceFromCenter < centerRadius && distanceFromCenter > 0) {
       // Calculate direction vector and normalize
       const directionX = dx / distanceFromCenter;
@@ -158,23 +195,23 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
       offsetX = directionX * (centerRadius - distanceFromCenter + 50);
       offsetY = directionY * (centerRadius - distanceFromCenter + 50);
     }
-    
+
     return (
       <div
         className="bg-surface-1 border border-border rounded-md shadow-lg px-3 py-2"
-        style={{
+        style={ {
           backgroundColor: 'var(--surface-1)',
           borderColor: 'var(--border)',
           color: 'var(--text-primary)',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-          transform: `translate(${offsetX}px, ${offsetY}px)`,
+          transform: `translate(${ offsetX }px, ${ offsetY }px)`,
           zIndex: 1000, // Ensure tooltip appears above center label
           position: 'relative',
-        }}
+        } }
       >
-        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{name}</div>
-        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          {value.toFixed(1)} ({percent}%)
+        <div className="text-sm font-medium" style={ { color: 'var(--text-primary)' } }>{ name }</div>
+        <div className="text-xs" style={ { color: 'var(--text-muted)' } }>
+          { value.toFixed(1) } ({ percent }%)
         </div>
       </div>
     );
@@ -184,116 +221,116 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   const renderLegend = () => {
     return (
       <div className="flex flex-col gap-3 ml-6 pr-2">
-        {chartData.map((entry, index) => {
+        { chartData.map((entry, index) => {
           const percent = ((entry.value / total) * 100).toFixed(1);
           return (
-            <div key={`legend-${index}`} className="flex items-start gap-2">
+            <div key={ `legend-${ index }` } className="flex items-start gap-2">
               <div
                 className="w-4 h-4 rounded-sm mt-0.5 flex-shrink-0"
-                style={{ backgroundColor: colors[index] }}
+                style={ { backgroundColor: colors[index] } }
               />
               <div className="flex flex-col">
                 <span className="font-semibold text-sm text-text-primary">
-                  {entry.name}
+                  { entry.name }
                 </span>
                 <span className="text-xs text-text-muted">
-                  {entry.value.toFixed(1)} ({percent}%)
+                  { entry.value.toFixed(1) } ({ percent }%)
                 </span>
               </div>
             </div>
           );
-        })}
+        }) }
       </div>
     );
   };
 
   return (
     <div className="flex items-center gap-4 md:gap-6 h-full w-full overflow-hidden">
-      <div className="relative flex-shrink-0" style={{ 
-        width: 'clamp(200px, 50%, 400px)', 
+      <div className="relative flex-shrink-0" style={ {
+        width: 'clamp(200px, 50%, 400px)',
         aspectRatio: '1',
         height: '100%',
-        maxHeight: '100%'
-      }}>
+        maxHeight: '100%',
+      } }>
         <ResponsiveContainer width="100%" height="100%">
           <RechartsPieChart>
             <Pie
-              data={chartData}
+              data={ chartData }
               cx="50%"
               cy="50%"
-              labelLine={false}
-              label={false}
+              labelLine={ false }
+              label={ false }
               outerRadius="80%"
               innerRadius="44%"
               fill="#8884d8"
               dataKey="value"
-              paddingAngle={2}
-              startAngle={startAngle}
-              endAngle={endAngle}
-              activeIndex={activeIndex}
-              activeShape={renderActiveShape}
-              onMouseEnter={(_, index) => setActiveIndex(index)}
-              onMouseLeave={() => setActiveIndex(undefined)}
-              isAnimationActive={true}
-              animationBegin={0}
-              animationDuration={250}
+              paddingAngle={ 2 }
+              startAngle={ startAngle }
+              endAngle={ endAngle }
+              activeIndex={ activeIndex }
+              activeShape={ renderActiveShape }
+              onMouseEnter={ (_, index) => setActiveIndex(index) }
+              onMouseLeave={ () => setActiveIndex(undefined) }
+              isAnimationActive={ true }
+              animationBegin={ 0 }
+              animationDuration={ 250 }
               animationEasing="ease-out"
             >
-              {chartData.map((entry, index) => (
-                <Cell 
-                  key={`cell-${index}`} 
-                  fill={colors[index]}
-                  style={{
+              { chartData.map((entry, index) => (
+                <Cell
+                  key={ `cell-${ index }` }
+                  fill={ colors[index] }
+                  style={ {
                     filter: activeIndex === index ? 'brightness(1.1)' : 'none',
                     transition: 'filter 0.2s ease-out',
-                  }}
+                  } }
                 />
-              ))}
+              )) }
             </Pie>
-            <Tooltip 
-              content={renderTooltipContent}
-              wrapperStyle={{ zIndex: 1000 }}
+            <Tooltip
+              content={ renderTooltipContent }
+              wrapperStyle={ { zIndex: 1000 } }
             />
           </RechartsPieChart>
         </ResponsiveContainer>
-        {/* Center label showing Total */}
-        <div 
+        {/* Center label showing Total */ }
+        <div
           className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-          style={{ 
-            left: '50%', 
-            top: '50%', 
+          style={ {
+            left: '50%',
+            top: '50%',
             transform: 'translate(-50%, -50%)',
-            zIndex: 1 // Lower z-index than tooltip
-          }}
+            zIndex: 1, // Lower z-index than tooltip
+          } }
         >
           <div className="text-sm font-semibold text-text-primary">Total</div>
           <div className="text-lg font-bold text-text-muted mt-1">
-            {total.toLocaleString()}
+            { total.toLocaleString() }
           </div>
         </div>
       </div>
-      {/* Legend on the right */}
-      <div 
-        className="flex-1 min-w-0 self-center relative" 
-        style={{ 
-          minWidth: '200px', 
+      {/* Legend on the right */ }
+      <div
+        className="flex-1 min-w-0 self-center relative"
+        style={ {
+          minWidth: '200px',
           maxWidth: 'calc(50% - 1rem)',
           width: 'fit-content',
           height: 'clamp(200px, 55%, 400px)',
           maxHeight: 'clamp(200px, 55%, 400px)',
           paddingTop: '2rem',
           paddingBottom: '2rem',
-          boxSizing: 'border-box'
-        }}
+          boxSizing: 'border-box',
+        } }
       >
-        <div 
+        <div
           className="h-full overflow-y-auto overflow-x-hidden"
-          style={{
+          style={ {
             scrollPaddingTop: '2rem',
-            scrollPaddingBottom: '2rem'
-          }}
+            scrollPaddingBottom: '2rem',
+          } }
         >
-          {renderLegend()}
+          { renderLegend() }
         </div>
       </div>
     </div>
@@ -301,13 +338,16 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
 };
 
 export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRendererProps>(({
-  dashboard,
-  timeRange = { from: 'now-24h', to: 'now' },
-  editMode = false,
-  onEditPanel,
-  onSave,
-  globalVariables = []
-}, ref) => {
+                                                                                             dashboard,
+                                                                                             timeRange = {
+                                                                                               from: 'now-24h',
+                                                                                               to: 'now',
+                                                                                             },
+                                                                                             editMode = false,
+                                                                                             onEditPanel,
+                                                                                             onSave,
+                                                                                             globalVariables = [],
+                                                                                           }, ref) => {
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -316,26 +356,26 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
-  
+
   // Keep ref in sync with state
   useEffect(() => {
     panelDataRef.current = panelData;
   }, [panelData]);
-  
+
   // Initialize editor store with dashboard
   const setDashboard = useEditorStore((state) => state.setDashboard);
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const setSelectedPanel = useEditorStore((state) => state.setSelectedPanel);
   const storeDashboard = useEditorStore((state) => state.dashboard);
-  
+
   // Use store dashboard if available (for layout editing), otherwise use prop dashboard
   const activeDashboard = storeDashboard || dashboard;
-  
+
   // Track if dashboard was initialized to prevent re-initialization during layout editing
   const dashboardInitializedRef = useRef(false);
   const prevIsEditingLayoutRef = useRef(isEditingLayout);
-  
+
   useEffect(() => {
     console.log('DashboardRenderer: useEffect triggered', {
       isEditingLayout,
@@ -344,7 +384,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       dashboardPanelsCount: dashboard?.panels?.length,
       storeDashboardPanelsCount: storeDashboard?.panels?.length,
     });
-    
+
     // Reset initialization flag when exiting layout editing mode
     // This ensures we re-initialize with the updated dashboard prop
     if (prevIsEditingLayoutRef.current && !isEditingLayout) {
@@ -354,7 +394,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       prevDashboardRef.current = null;
     }
     prevIsEditingLayoutRef.current = isEditingLayout;
-    
+
     // Only initialize dashboard when not in layout editing mode
     // or when dashboard hasn't been initialized yet
     // IMPORTANT: When in editing mode, don't overwrite the store with prop changes
@@ -363,7 +403,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       console.log('DashboardRenderer: Skipping store update - in edit mode and already initialized');
       return; // Early return to prevent overwriting store during editing
     }
-    
+
     // Only update if we're not in edit mode, or if we haven't initialized yet
     console.log('DashboardRenderer: Initializing dashboard in store');
     // Canonicalize rows to ensure expanded rows have children in main panels array
@@ -373,20 +413,34 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // When in editing mode and already initialized, ignore prop changes
     // The store is the source of truth during editing
   }, [dashboard, setDashboard, isEditingLayout]);
-  
+
   // Use canonicalized dashboard for rendering
   const displayDashboard = React.useMemo(() => {
     // Use store dashboard if available (it gets updated when collapsing/expanding rows)
     // Otherwise use the prop dashboard
     const dashboardToUse = storeDashboard || dashboard;
-    
-    if (isEditingLayout) {
-      return dashboardToUse;
-    }
-    // Canonicalize the dashboard for view mode
-    return canonicalizeRows(dashboardToUse);
+
+    // Canonicalize the dashboard
+    const canonicalized = canonicalizeRows(dashboardToUse);
+
+    // Ensure every panel has a unique ID (as string or number)
+    // This is critical because we use panel.id as a key for data fetching
+    // and storing results in panelData state.
+    const ensureIds = (panels: Panel[]) => {
+      panels.forEach(panel => {
+        if (panel.id === undefined || panel.id === null) {
+          panel.id = uuidv4();
+        }
+        if (panel.panels) {
+          ensureIds(panel.panels);
+        }
+      });
+    };
+
+    ensureIds(canonicalized.panels);
+    return canonicalized;
   }, [dashboard, storeDashboard, isEditingLayout]);
-  
+
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
 
@@ -397,19 +451,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const resolveParameterBindings = useCallback((
     bindings: Record<string, string> | undefined,
     dashboard: Dashboard,
-    timeRange: { from: string; to: string }
+    timeRange: { from: string; to: string },
   ): Record<string, any> => {
     const resolved: Record<string, any> = {};
-    
+
     if (!bindings) return resolved;
-    
+
     // Helper to resolve a binding expression
     const resolveBinding = (binding: string): any => {
       // Handle ${var_name} syntax
       const varMatch = binding.match(/^\$\{([^}]+)\}$/);
       if (varMatch) {
         const varName = varMatch[1];
-        
+
         // Handle special time variables (convert to Date then ISO string)
         if (varName === '__from') {
           const date = parseTimeExpression(timeRange.from);
@@ -419,7 +473,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           const date = parseTimeExpression(timeRange.to);
           return formatDateToISO(date);
         }
-        
+
         // Handle dashboard variables
         if (dashboard.templating?.list) {
           const variable = dashboard.templating.list.find(v => v.name === varName);
@@ -427,24 +481,24 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             return variable.current.value;
           }
         }
-        
+
         // Try dashboard-level bindings from x-navixy (recursive resolution)
         if (dashboard['x-navixy']?.parameters?.bindings?.[varName]) {
           return resolveBinding(dashboard['x-navixy'].parameters.bindings[varName]);
         }
-        
+
         return binding; // Return as-is if not resolved
       }
-      
+
       // Direct value (no ${})
       return binding;
     };
-    
+
     // Resolve all bindings
     Object.entries(bindings).forEach(([key, value]) => {
       resolved[key] = resolveBinding(value);
     });
-    
+
     return resolved;
   }, []);
 
@@ -453,22 +507,22 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
    */
   const executePanelQuery = useCallback(async (
     panel: Panel,
-    dashboard: Dashboard
+    dashboard: Dashboard,
   ): Promise<QueryResult | null> => {
     const navixyConfig = panel['x-navixy'];
-    
+
     // Skip text panels - they don't need SQL queries
     if (panel.type === 'text') {
       return null;
     }
-    
+
     if (!navixyConfig?.sql?.statement || !navixyConfig.sql.statement.trim()) {
       return null;
     }
 
     // Prepare parameters - start with ParameterBar values (highest priority)
     const params: Record<string, any> = {};
-    
+
     // Use parameter values from ParameterBar (user-selected values)
     Object.entries(parameterValues).forEach(([key, value]) => {
       // Convert Date objects to ISO strings for binding
@@ -492,7 +546,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const panelBindings = resolveParameterBindings(
       navixyConfig.sql.bindings,
       dashboard,
-      timeRange
+      timeRange,
     );
     // Only add if not already set from ParameterBar
     Object.entries(panelBindings).forEach(([key, value]) => {
@@ -505,7 +559,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const dashboardBindings = resolveParameterBindings(
       dashboard['x-navixy']?.parameters?.bindings,
       dashboard,
-      timeRange
+      timeRange,
     );
     // Only add if not already set from ParameterBar
     Object.entries(dashboardBindings).forEach(([key, value]) => {
@@ -556,15 +610,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // For table panels, fetch more rows (up to 10000) to allow client-side pagination
     // This ensures users can see all their data even if verify.max_rows is set low
     const isTablePanel = panel.type === 'table';
-    const rowLimit = isTablePanel 
+    const rowLimit = isTablePanel
       ? Math.max(navixyConfig.verify?.max_rows || 0, 10000) // At least 10000 for tables
       : (navixyConfig.verify?.max_rows || 1000); // Default 1000 for other panels
-    
+
     const result = await apiService.executeSQL({
       sql: navixyConfig.sql.statement,
       params: filteredParams,
       timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
-      row_limit: rowLimit
+      row_limit: rowLimit,
     });
 
     if (result.error) {
@@ -575,14 +629,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return {
       columns: result.data?.columns || [],
       rows: result.data?.rows || [],
-      stats: result.data?.stats
+      stats: result.data?.stats,
     };
   }, [parameterValues, resolveParameterBindings, timeRange]);
 
   /**
    * Refresh a single panel by executing its query
    */
-  const refreshPanel = useCallback(async (panelId: number, dashboardOverride?: Dashboard) => {
+  const refreshPanel = useCallback(async (panelId: string | number, dashboardOverride?: Dashboard) => {
     const dashboardToUse = dashboardOverride || displayDashboard;
     const panel = dashboardToUse.panels.find(p => p.id === panelId);
     if (!panel) {
@@ -591,55 +645,60 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     const navixyConfig = panel['x-navixy'];
     const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
+    const panelIdStr = String(panel.id);
 
     // Set loading state for this panel
     setPanelData(prev => ({
       ...prev,
-      [panel.title]: {
-        ...prev[panel.title],
+      [panelIdStr]: {
+        ...prev[panelIdStr],
         loading: hasSql && panel.type !== 'text',
-        error: null
-      }
+        error: null,
+      },
     }));
 
     try {
       if (panel.type === 'text' || !hasSql) {
         setPanelData(prev => ({
           ...prev,
-          [panel.title]: {
+          [panelIdStr]: {
             data: null,
             loading: false,
-            error: null
-          }
+            refreshing: false,
+            error: null,
+          },
         }));
         return;
       }
 
       const data = await executePanelQuery(panel, dashboardToUse);
-      
+
       setPanelData(prev => ({
         ...prev,
-        [panel.title]: {
+        [panelIdStr]: {
           data,
           loading: false,
-          error: null
-        }
+          refreshing: false,
+          error: null,
+          lastUpdated: Date.now(),
+        },
       }));
     } catch (err: any) {
       setPanelData(prev => ({
         ...prev,
-        [panel.title]: {
+        [panelIdStr]: {
           data: null,
           loading: false,
-          error: err.message || 'Query execution failed'
-        }
+          refreshing: false,
+          error: err.message || 'Query execution failed',
+        },
       }));
     }
   }, [displayDashboard, executePanelQuery]);
 
   // Expose refreshPanel via ref
   useImperativeHandle(ref, () => ({
-    refreshPanel
+    refreshPanel,
   }), [refreshPanel]);
 
   // Execute SQL queries for all panels
@@ -648,13 +707,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (isEditingLayout) {
       return;
     }
-    
+
     // Create a stable cache key that includes ALL panels regardless of collapse state
     // This prevents query re-execution when only collapse/expand state changes
     const createStableCacheKey = (dash: Dashboard): string => {
       // Collect all panels: top-level panels + panels from collapsed rows
       const allPanels: Panel[] = [];
-      
+
       dash.panels.forEach(panel => {
         if (panel.type === 'row' && panel.collapsed === true && panel.panels) {
           // For collapsed rows, include panels from row.panels[]
@@ -664,7 +723,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           allPanels.push(panel);
         }
       });
-      
+
       // Create a stable representation: sort by ID and include only relevant properties for cache
       const stablePanels = allPanels
         .map(panel => ({
@@ -680,8 +739,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             } : undefined,
           } : undefined,
         }))
-        .sort((a, b) => (a.id || 0) - (b.id || 0));
-      
+        .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+
       const cacheData = {
         panels: stablePanels,
         templating: dash.templating,
@@ -689,7 +748,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           parameters: dash['x-navixy'].parameters,
         } : undefined,
       };
-      
+
       // Include parameterValues in cache key so queries re-execute when parameters change
       // Convert Date objects to ISO strings for consistent serialization
       const serializedParams: Record<string, unknown> = {};
@@ -700,75 +759,76 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           serializedParams[key] = value;
         }
       });
-      
+
       // Include refreshTrigger to force re-execution when Refresh is clicked
-      return `${JSON.stringify(cacheData)}:${JSON.stringify(timeRange)}:${JSON.stringify(serializedParams)}:${refreshTrigger}`;
+      return `${ JSON.stringify(cacheData) }:${ JSON.stringify(timeRange) }:${ JSON.stringify(serializedParams) }:${ refreshTrigger }`;
     };
-    
+
     const cacheKey = createStableCacheKey(displayDashboard);
-    
+
     if (prevDashboardRef.current === cacheKey) {
       // Dashboard content (excluding collapse state and layout) hasn't changed, skip query execution
       return;
     }
-    
+
     prevDashboardRef.current = cacheKey;
-    
+
     const executeQueries = async () => {
       const isAutoRefresh = isAutoRefreshRef.current;
       isAutoRefreshRef.current = false; // Reset flag
-      
+
       // Only set global loading for initial load, not auto-refresh
       if (!isAutoRefresh) {
         setLoading(true);
       }
       setError(null);
-      
+
       const newPanelData: PanelData = {};
       const LOADING_THRESHOLD_MS = 500; // Show loading spinner if refresh takes longer than this
-      
+
       // Initialize panel data - preserve old data during auto-refresh
       displayDashboard.panels.forEach(panel => {
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
-        const existingData = panelDataRef.current[panel.title];
-        
+        const panelIdStr = String(panel.id);
+        const existingData = panelDataRef.current[panelIdStr];
+
         // For text panels or panels without SQL, don't set loading state
         if (panel.type === 'text' || !hasSql) {
-          newPanelData[panel.title] = {
+          newPanelData[panelIdStr] = {
             data: existingData?.data || null,
             loading: false,
             refreshing: false, // Always clear refreshing for non-SQL panels
             error: null,
-            lastUpdated: existingData?.lastUpdated
+            lastUpdated: existingData?.lastUpdated,
           };
           // Make sure to clear any refresh tracking for these panels
-          delete refreshStartTimesRef.current[panel.title];
+          delete refreshStartTimesRef.current[panelIdStr];
         } else {
           // During refresh (auto or manual), preserve old data and set refreshing flag if data exists
           // During initial load (no existing data), clear data and set loading flag
           if (existingData?.data) {
             // There's existing data - preserve it and show refresh indicator
-            newPanelData[panel.title] = {
+            newPanelData[panelIdStr] = {
               data: existingData.data, // Preserve old data
               loading: false, // Don't show full loading spinner
               refreshing: true, // Show subtle refresh indicator
               error: null,
-              lastUpdated: existingData.lastUpdated
+              lastUpdated: existingData.lastUpdated,
             };
             // Track when refresh started for timeout mechanism
-            refreshStartTimesRef.current[panel.title] = Date.now();
+            refreshStartTimesRef.current[panelIdStr] = Date.now();
           } else {
             // No existing data - initial load, show loading spinner
-            newPanelData[panel.title] = {
+            newPanelData[panelIdStr] = {
               data: existingData?.data || null,
               loading: true, // Show full loading spinner for initial load
               refreshing: false,
               error: null,
-              lastUpdated: existingData?.lastUpdated
+              lastUpdated: existingData?.lastUpdated,
             };
             // Clear refresh tracking for initial loads
-            delete refreshStartTimesRef.current[panel.title];
+            delete refreshStartTimesRef.current[panelIdStr];
           }
         }
       });
@@ -776,68 +836,68 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
       // Execute queries for each panel
       for (const panel of displayDashboard.panels) {
-        const panelTitle = panel.title;
+        const panelIdStr = String(panel.id);
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
-        
+
         // Skip text panels and panels without SQL - they don't need queries
         if (panel.type === 'text' || !hasSql) {
           // Ensure refreshing is cleared for these panels immediately
-          if (newPanelData[panelTitle]?.refreshing) {
-            newPanelData[panelTitle] = {
-              ...newPanelData[panelTitle],
-              refreshing: false
+          if (newPanelData[panelIdStr]?.refreshing) {
+            newPanelData[panelIdStr] = {
+              ...newPanelData[panelIdStr],
+              refreshing: false,
             };
             // Update state immediately to clear refresh indicator
             setPanelData(prev => ({
               ...prev,
-              [panelTitle]: newPanelData[panelTitle]
+              [panelIdStr]: newPanelData[panelIdStr],
             }));
           }
           continue;
         }
-        
+
         const startTime = Date.now();
-        
+
         try {
           const data = await executePanelQuery(panel, displayDashboard);
           const duration = Date.now() - startTime;
-          
+
           // Update data and clear refresh/loading states
-          newPanelData[panelTitle] = {
+          newPanelData[panelIdStr] = {
             data: data || null,
             loading: false,
             refreshing: false, // Always clear refreshing when data arrives
             error: null,
-            lastUpdated: Date.now()
+            lastUpdated: Date.now(),
           };
-          
+
           // Clear refresh start time
-          delete refreshStartTimesRef.current[panelTitle];
-          
+          delete refreshStartTimesRef.current[panelIdStr];
+
           // Update state immediately after each query completes to clear refresh indicator promptly
           setPanelData(prev => ({
             ...prev,
-            [panelTitle]: newPanelData[panelTitle]
+            [panelIdStr]: newPanelData[panelIdStr],
           }));
         } catch (err: any) {
-          console.error(`Error executing query for panel ${panelTitle}:`, err);
-          const existingData = panelDataRef.current[panelTitle];
-          newPanelData[panelTitle] = {
+          console.error(`Error executing query for panel ${ panel.title } (${panelIdStr}):`, err);
+          const existingData = panelDataRef.current[panelIdStr];
+          newPanelData[panelIdStr] = {
             data: existingData?.data || null, // Preserve old data on error during refresh
             loading: false,
             refreshing: false, // Always clear refreshing even on error
             error: err.message || 'Query execution failed',
-            lastUpdated: existingData?.lastUpdated
+            lastUpdated: existingData?.lastUpdated,
           };
-          
+
           // Clear refresh start time
-          delete refreshStartTimesRef.current[panelTitle];
-          
+          delete refreshStartTimesRef.current[panelIdStr];
+
           // Update state immediately even on error to clear refresh indicator
           setPanelData(prev => ({
             ...prev,
-            [panelTitle]: newPanelData[panelTitle]
+            [panelIdStr]: newPanelData[panelIdStr],
           }));
         }
       }
@@ -845,7 +905,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       // Final state update to ensure consistency (though individual updates above should handle it)
       setPanelData(newPanelData);
       setLoading(false);
-      
+
       // Safety timeout: Clear any stuck refreshing states after a reasonable time
       // This prevents refreshing indicators from getting stuck forever
       const SAFETY_TIMEOUT_MS = 10000; // 10 seconds max
@@ -853,51 +913,51 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         setPanelData(prev => {
           let updated = false;
           const updatedData: PanelData = {};
-          
-          Object.entries(prev).forEach(([title, state]) => {
+
+          Object.entries(prev).forEach(([panelIdStr, state]) => {
             // If refreshing has been true for too long, clear it
-            if (state.refreshing && refreshStartTimesRef.current[title]) {
-              const elapsed = Date.now() - refreshStartTimesRef.current[title];
+            if (state.refreshing && refreshStartTimesRef.current[panelIdStr]) {
+              const elapsed = Date.now() - refreshStartTimesRef.current[panelIdStr];
               if (elapsed > SAFETY_TIMEOUT_MS) {
-                updatedData[title] = {
+                updatedData[panelIdStr] = {
                   ...state,
                   refreshing: false,
-                  loading: false
+                  loading: false,
                 };
-                delete refreshStartTimesRef.current[title];
+                delete refreshStartTimesRef.current[panelIdStr];
                 updated = true;
               }
             }
           });
-          
+
           return updated ? { ...prev, ...updatedData } : prev;
         });
       }, SAFETY_TIMEOUT_MS);
-      
+
       // Set up timeout to show loading if refresh takes too long
       // This handles the case where refresh is slow but we want to show feedback
       // Only check panels that are still in the ref (haven't completed yet)
       const stillRefreshing = Object.keys(refreshStartTimesRef.current);
-      stillRefreshing.forEach((title) => {
-        const startTime = refreshStartTimesRef.current[title];
+      stillRefreshing.forEach((panelIdStr) => {
+        const startTime = refreshStartTimesRef.current[panelIdStr];
         if (!startTime) return; // Already cleared
-        
+
         const elapsed = Date.now() - startTime;
         const remaining = LOADING_THRESHOLD_MS - elapsed;
-        
+
         if (remaining > 0) {
           setTimeout(() => {
             setPanelData(prev => {
-              const panelState = prev[title];
+              const panelState = prev[panelIdStr];
               // Only show loading if still refreshing and not already loading
               // Also check if it's still in the ref (hasn't completed)
-              if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[title]) {
+              if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[panelIdStr]) {
                 return {
                   ...prev,
-                  [title]: {
+                  [panelIdStr]: {
                     ...panelState,
-                    loading: true // Show loading spinner if refresh takes too long
-                  }
+                    loading: true, // Show loading spinner if refresh takes too long
+                  },
                 };
               }
               return prev;
@@ -906,14 +966,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         } else {
           // Already exceeded threshold, show loading immediately
           setPanelData(prev => {
-            const panelState = prev[title];
-            if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[title]) {
+            const panelState = prev[panelIdStr];
+            if (panelState?.refreshing && !panelState.loading && refreshStartTimesRef.current[panelIdStr]) {
               return {
                 ...prev,
-                [title]: {
+                [panelIdStr]: {
                   ...panelState,
-                  loading: true
-                }
+                  loading: true,
+                },
               };
             }
             return prev;
@@ -934,7 +994,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Parse refresh interval from dashboard
     const refreshIntervalMs = parseRefreshInterval(dashboard.refresh);
-    
+
     // If no valid refresh interval, don't set up auto-refresh
     if (!refreshIntervalMs) {
       return;
@@ -987,8 +1047,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const value = data.rows[0][0]; // First column, first row
     return (
       <div className="text-center">
-        <div className="text-3xl font-bold text-blue-600">{value}</div>
-        <div className="text-sm text-gray-500 mt-1">{panel.title}</div>
+        <div className="text-3xl font-bold text-blue-600">{ value }</div>
+        <div className="text-sm text-gray-500 mt-1">{ panel.title }</div>
       </div>
     );
   };
@@ -1008,7 +1068,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
-    
+
     // Get visualization settings with defaults
     // Force vertical for now - horizontal bars need more work
     const orientation = 'vertical'; // visualization?.orientation || 'vertical';
@@ -1035,24 +1095,24 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Only treat as multiple series if column 2 has repeated values (actual grouping)
     const hasMultipleSeries = data.columns.length > 2;
     let seriesColumnIndex: number | null = null;
-    
+
     if (hasMultipleSeries) {
       // Check if column 2 has repeated values (indicating it's a series grouping)
       const seriesValues = data.rows.map(row => String(row[2]));
       const uniqueSeriesCount = new Set(seriesValues).size;
       const totalRows = data.rows.length;
-      
+
       // If unique series count is close to total rows, it's probably not a series grouping
       // (e.g., IDs or unique identifiers). Use a threshold: if >80% unique, treat as simple 2-column
       const isLikelySeriesGrouping = uniqueSeriesCount < totalRows * 0.8;
-      
+
       console.log('[BarChart] Series detection logic', {
         totalRows,
         uniqueSeriesCount,
         isLikelySeriesGrouping,
         threshold: totalRows * 0.8,
       });
-      
+
       if (isLikelySeriesGrouping) {
         seriesColumnIndex = 2;
       } else {
@@ -1060,7 +1120,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         console.log('[BarChart] Third column appears to be IDs/unique values, treating as 2-column chart');
       }
     }
-    
+
     const categoryColumnIndex = 0;
     const valueColumnIndex = 1;
 
@@ -1082,17 +1142,17 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Process data
     let chartData: any[] = [];
     let seriesNames: string[] = [];
-    
+
     if (seriesColumnIndex !== null) {
       console.log('[BarChart] Processing multiple series format');
       // Group data by category and series
       const groupedData: Record<string, Record<string, number>> = {};
-      
+
       data.rows.forEach((row) => {
         const category = String(row[categoryColumnIndex]);
         const series = String(row[seriesColumnIndex]);
         const value = Number(row[valueColumnIndex]) || 0;
-        
+
         if (!groupedData[category]) {
           groupedData[category] = {};
         }
@@ -1101,7 +1161,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
       // Get all unique series names
       seriesNames = Array.from(new Set(
-        data.rows.map(row => String(row[seriesColumnIndex]))
+        data.rows.map(row => String(row[seriesColumnIndex])),
       ));
 
       console.log('[BarChart] Multiple series detected', {
@@ -1170,13 +1230,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (sortOrder !== 'none') {
       const hasMultipleSeries = seriesColumnIndex !== null;
       chartData.sort((a, b) => {
-        const aVal = hasMultipleSeries 
+        const aVal = hasMultipleSeries
           ? Object.values(a).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
           : a.value;
         const bVal = hasMultipleSeries
           ? Object.values(b).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
           : b.value;
-        
+
         if (sortOrder === 'asc') {
           return aVal > bVal ? 1 : -1;
         } else {
@@ -1224,14 +1284,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       } else {
         const values = seriesColumnIndex === null
           ? chartData.map(d => d.value)
-          : chartData.flatMap(d => 
-              seriesNames.map(series => Number(d[series]) || 0)
-            );
+          : chartData.flatMap(d =>
+            seriesNames.map(series => Number(d[series]) || 0),
+          );
         const maxVal = Math.max(...values);
         // Add 5% padding above max value - matching working test configuration
         const paddedMax = Math.ceil(maxVal * 1.05);
         valueAxisDomain = [0, paddedMax];
-        
+
         console.log('[BarChart] Calculated value axis domain:', {
           maxVal,
           paddedMax,
@@ -1264,83 +1324,85 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       showLegend,
       legendPosition,
     });
-          
-          return (
-      <ResponsiveContainer width="100%" height={400}>
+
+    return (
+      <ResponsiveContainer width="100%" height={ 400 }>
         <RechartsBarChart
-          data={chartData}
-          margin={{ top: 20, right: 30, left: 60, bottom: 80 }}
+          data={ chartData }
+          margin={ { top: 20, right: 30, left: 60, bottom: 80 } }
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
           <XAxis
             dataKey="category"
-            angle={-45}
+            angle={ -45 }
             textAnchor="end"
-            height={80}
-            tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-            axisLine={{ stroke: '#ffffff22' }}
-            tickFormatter={(value) => {
-              const date = new Date(value);
-              if (!isNaN(date.getTime())) {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            height={ 80 }
+            tick={ { fill: 'var(--text-secondary)', fontSize: 12 } }
+            axisLine={ { stroke: '#ffffff22' } }
+            tickFormatter={ (value) => {
+              const parsedDate = parse(value, 'yyyy-MM-dd', new Date());
+
+              if (!isValid(parsedDate) || format(parsedDate, 'yyyy-MM-dd') !== value) {
+                return value;
               }
-              return value;
-            }}
+
+              return format(parsedDate, 'MMM d');
+            } }
           />
           <YAxis
-            domain={valueAxisDomain}
-            tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-            axisLine={{ stroke: '#ffffff22' }}
-            tickFormatter={(value) => {
+            domain={ valueAxisDomain }
+            tick={ { fill: 'var(--text-secondary)', fontSize: 12 } }
+            axisLine={ { stroke: '#ffffff22' } }
+            tickFormatter={ (value) => {
               if (stacking === 'percent') {
-                return `${Math.round(value)}%`;
+                return `${ Math.round(value) }%`;
               }
               return value.toLocaleString();
-            }}
+            } }
           />
           <Tooltip
-            contentStyle={{
+            contentStyle={ {
               backgroundColor: 'var(--surface-1)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               color: 'var(--text-primary)',
-            }}
-            formatter={(value: any, name: string) => {
+            } }
+            formatter={ (value: any, name: string) => {
               if (stacking === 'percent') {
-                return [`${Number(value).toFixed(1)}%`, name];
+                return [`${ Number(value).toFixed(1) }%`, name];
               }
               return [value.toLocaleString(), name];
-            }}
+            } }
           />
-          {showLegend && seriesColumnIndex !== null && (
+          { showLegend && seriesColumnIndex !== null && (
             <Legend
-              wrapperStyle={getLegendWrapperStyle()}
-              verticalAlign={legendPosition === 'top' || legendPosition === 'bottom' ? legendPosition : 'middle'}
-              align={legendPosition === 'left' || legendPosition === 'right' ? legendPosition : 'center'}
+              wrapperStyle={ getLegendWrapperStyle() }
+              verticalAlign={ legendPosition === 'top' || legendPosition === 'bottom' ? legendPosition : 'middle' }
+              align={ legendPosition === 'left' || legendPosition === 'right' ? legendPosition : 'center' }
             />
-          )}
-          {seriesColumnIndex !== null ? (
+          ) }
+          { seriesColumnIndex !== null ? (
             // Multiple series - render multiple Bar components
             seriesNames.map((seriesName, index) => (
               <Bar
-                key={seriesName}
-                dataKey={seriesName}
-                name={seriesName}
-                stackId={stacking !== 'none' ? 'stack' : undefined}
-                fill={colors[index % colors.length]}
+                key={ seriesName }
+                dataKey={ seriesName }
+                name={ seriesName }
+                stackId={ stacking !== 'none' ? 'stack' : undefined }
+                fill={ colors[index % colors.length] }
               >
-                {showValues && (
+                { showValues && (
                   <LabelList
                     position="top"
-                    formatter={(value: any) => {
+                    formatter={ (value: any) => {
                       if (stacking === 'percent') {
-                        return `${Number(value).toFixed(1)}%`;
+                        return `${ Number(value).toFixed(1) }%`;
                       }
                       return value.toLocaleString();
-                    }}
-                    style={{ fill: 'var(--text-primary)', fontSize: 12 }}
+                    } }
+                    style={ { fill: 'var(--text-primary)', fontSize: 12 } }
                   />
-                )}
+                ) }
               </Bar>
             ))
           ) : (
@@ -1356,35 +1418,35 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               return (
                 <Bar
                   dataKey="value"
-                  name={panel.title}
-                  fill={colors[0]}
+                  name={ panel.title }
+                  fill={ colors[0] }
                 >
-                  {showValues && (
+                  { showValues && (
                     <LabelList
                       position="top"
-                      formatter={(value: any) => {
+                      formatter={ (value: any) => {
                         console.log('[BarChart] LabelList formatter called with value:', value, typeof value);
                         return value.toLocaleString();
-                      }}
-                      style={{ fill: 'var(--text-primary)', fontSize: 12 }}
+                      } }
+                      style={ { fill: 'var(--text-primary)', fontSize: 12 } }
                     />
-                  )}
+                  ) }
                 </Bar>
               );
             })()
-          )}
+          ) }
         </RechartsBarChart>
       </ResponsiveContainer>
     );
   };
 
   const renderPieChartPanel = (panel: Panel, data: QueryResult) => {
-    return <PieChartPanel data={data} />;
+    return <PieChartPanel data={ data } />;
   };
 
   const renderTablePanel = (panel: Panel, data: QueryResult) => {
     const visualization = panel['x-navixy']?.visualization;
-    return <TablePanel data={data} visualization={visualization} />;
+    return <TablePanel data={ data } visualization={ visualization } />;
   };
 
   const renderLineChartPanel = (panel: Panel, data: QueryResult) => {
@@ -1394,7 +1456,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Get visualization options from Navixy config
     const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
-    
+
     // Extract options with defaults
     const lineStyle = visualization?.lineStyle || 'solid';
     const lineWidth = visualization?.lineWidth ?? 2;
@@ -1414,10 +1476,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // First column is typically timestamp/category, remaining columns are values
     const columns = data.columns || [];
     const chartData: any[] = [];
-    
+
     data.rows.forEach((row: any[]) => {
       const dataPoint: any = {};
-      
+
       // First column is x-axis (timestamp/category)
       if (columns.length > 0) {
         const xColumnName = columns[0]?.name || 'x';
@@ -1425,22 +1487,22 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       } else {
         dataPoint.x = row[0];
       }
-      
+
       // Remaining columns are series values
       for (let i = 1; i < row.length && i < columns.length; i++) {
-        const colName = columns[i]?.name || `series${i}`;
+        const colName = columns[i]?.name || `series${ i }`;
         const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
         dataPoint[colName] = isNaN(value) || !isFinite(value) ? null : value;
       }
-      
+
       // If no column names, use default names
       if (columns.length === 0) {
         for (let i = 1; i < row.length; i++) {
           const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
-          dataPoint[`value${i}`] = isNaN(value) || !isFinite(value) ? null : value;
+          dataPoint[`value${ i }`] = isNaN(value) || !isFinite(value) ? null : value;
         }
       }
-      
+
       chartData.push(dataPoint);
     });
 
@@ -1458,7 +1520,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Get series names (all keys except the x-axis key)
     const xKey = columns[0]?.name || 'x';
-    const seriesNames = chartData.length > 0 
+    const seriesNames = chartData.length > 0
       ? Object.keys(chartData[0] || {}).filter(key => key !== xKey)
       : [];
 
@@ -1498,19 +1560,18 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Format x-axis labels (try to format as dates)
     const formatXAxisLabel = (value: any) => {
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) {
-        const hasTime = value.toString().includes(':') || value.toString().includes('T');
+      const parsedDate = parse(String(value), 'yyyy-MM-dd', new Date());
+
+      if (isValid(parsedDate) && format(parsedDate, 'yyyy-MM-dd') === String(value)) {
+        const hasTime = String(value).includes(':') || String(value).includes('T');
+
         if (hasTime) {
-          return date.toLocaleString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          });
+          return format(parsedDate, 'MMM d, HH:mm');
         }
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+        return format(parsedDate, 'MMM d');
       }
+
       return String(value);
     };
 
@@ -1518,89 +1579,89 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     return (
       <div className="h-full">
-        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+        <ResponsiveContainer width="100%" height="100%" minHeight={ 300 }>
           <ChartComponent
-            data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+            data={ chartData }
+            margin={ { top: 20, right: 30, left: 20, bottom: 60 } }
           >
-            {showGrid && (
-              <CartesianGrid 
-                strokeDasharray="3 3" 
-                stroke="var(--border)" 
-                opacity={0.3}
+            { showGrid && (
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--border)"
+                opacity={ 0.3 }
               />
-            )}
+            ) }
             <XAxis
-              dataKey={xKey}
-              angle={-45}
+              dataKey={ xKey }
+              angle={ -45 }
               textAnchor="end"
-              height={80}
-              interval={0}
-              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-              axisLine={{ stroke: 'var(--border)' }}
-              tickFormatter={formatXAxisLabel}
+              height={ 80 }
+              interval={ 0 }
+              tick={ { fill: 'var(--text-secondary)', fontSize: 12 } }
+              axisLine={ { stroke: 'var(--border)' } }
+              tickFormatter={ formatXAxisLabel }
             />
             <YAxis
-              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-              axisLine={{ stroke: 'var(--border)' }}
-              tickFormatter={(value) => value.toLocaleString()}
+              tick={ { fill: 'var(--text-secondary)', fontSize: 12 } }
+              axisLine={ { stroke: 'var(--border)' } }
+              tickFormatter={ (value) => value.toLocaleString() }
             />
             <Tooltip
-              contentStyle={{
+              contentStyle={ {
                 backgroundColor: 'var(--surface-1)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
                 color: 'var(--text-primary)',
-              }}
-              labelFormatter={(value) => formatXAxisLabel(value)}
-              formatter={(value: any, name: string) => [
+              } }
+              labelFormatter={ (value) => formatXAxisLabel(value) }
+              formatter={ (value: any, name: string) => [
                 value?.toLocaleString() || '0',
                 name,
-              ]}
+              ] }
             />
-            {showLegend && legendPosition !== 'none' && (
+            { showLegend && legendPosition !== 'none' && (
               <Legend
-                verticalAlign={legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle'}
-                align={legendPosition === 'left' ? 'left' : 'center'}
-                wrapperStyle={{ paddingTop: '20px' }}
+                verticalAlign={ legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle' }
+                align={ legendPosition === 'left' ? 'left' : 'center' }
+                wrapperStyle={ { paddingTop: '20px' } }
               />
-            )}
-            
-            {/* Render area fill if needed */}
-            {fillArea !== 'none' && seriesNames.map((seriesName, index) => (
-              <Area
-                key={`area-${seriesName}`}
-                type={getCurveType()}
-                dataKey={seriesName}
-                stroke="none"
-                fill={colors[index % colors.length]}
-                fillOpacity={0.1}
-                isAnimationActive={false}
-              />
-            ))}
+            ) }
 
-            {/* Render lines */}
-            {seriesNames.map((seriesName, index) => (
+            {/* Render area fill if needed */ }
+            { fillArea !== 'none' && seriesNames.map((seriesName, index) => (
+              <Area
+                key={ `area-${ seriesName }` }
+                type={ getCurveType() }
+                dataKey={ seriesName }
+                stroke="none"
+                fill={ colors[index % colors.length] }
+                fillOpacity={ 0.1 }
+                isAnimationActive={ false }
+              />
+            )) }
+
+            {/* Render lines */ }
+            { seriesNames.map((seriesName, index) => (
               <Line
-                key={`line-${seriesName}`}
-                type={getCurveType()}
-                dataKey={seriesName}
-                name={seriesName}
-                stroke={colors[index % colors.length]}
-                strokeWidth={lineWidth}
-                strokeDasharray={getStrokeDasharray()}
-                dot={shouldShowPoints ? {
+                key={ `line-${ seriesName }` }
+                type={ getCurveType() }
+                dataKey={ seriesName }
+                name={ seriesName }
+                stroke={ colors[index % colors.length] }
+                strokeWidth={ lineWidth }
+                strokeDasharray={ getStrokeDasharray() }
+                dot={ shouldShowPoints ? {
                   r: pointSize,
                   fill: colors[index % colors.length],
                   strokeWidth: 2,
                   stroke: 'var(--surface-1)',
-                } : false}
-                activeDot={{ r: pointSize + 2 }}
-                isAnimationActive={true}
-                animationDuration={300}
+                } : false }
+                activeDot={ { r: pointSize + 2 } }
+                isAnimationActive={ true }
+                animationDuration={ 300 }
                 animationEasing="ease-out"
               />
-            ))}
+            )) }
           </ChartComponent>
         </ResponsiveContainer>
       </div>
@@ -1608,23 +1669,26 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   const renderTextPanel = (panel: Panel) => {
-    return <TextPanel panel={panel} />;
+    return <TextPanel panel={ panel } />;
   };
 
   /**
    * Detect GPS columns from query result columns
    * Looks for common patterns like lat/lon, latitude/longitude
    */
-  const detectGPSColumns = (columns: { name: string; type: string }[]): { latColumn: string; lonColumn: string } | null => {
+  const detectGPSColumns = (columns: { name: string; type: string }[]): {
+    latColumn: string;
+    lonColumn: string
+  } | null => {
     const latPatterns = ['lat', 'latitude', 'lat_column', 'y'];
     const lonPatterns = ['lon', 'lng', 'longitude', 'lon_column', 'long', 'x'];
-    
+
     let latColumn: string | null = null;
     let lonColumn: string | null = null;
-    
+
     for (const col of columns) {
       const lowerName = col.name.toLowerCase();
-      
+
       // Check for latitude column
       if (!latColumn) {
         for (const pattern of latPatterns) {
@@ -1634,7 +1698,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           }
         }
       }
-      
+
       // Check for longitude column
       if (!lonColumn) {
         for (const pattern of lonPatterns) {
@@ -1644,10 +1708,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           }
         }
       }
-      
+
       if (latColumn && lonColumn) break;
     }
-    
+
     return latColumn && lonColumn ? { latColumn, lonColumn } : null;
   };
 
@@ -1656,21 +1720,21 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
    */
   const extractGPSPoints = (
     data: QueryResult,
-    gpsColumns: { latColumn: string; lonColumn: string }
+    gpsColumns: { latColumn: string; lonColumn: string },
   ): GPSPoint[] => {
     if (!data.rows || !data.columns) return [];
-    
+
     const latIdx = data.columns.findIndex(c => c.name === gpsColumns.latColumn);
     const lonIdx = data.columns.findIndex(c => c.name === gpsColumns.lonColumn);
-    
+
     if (latIdx === -1 || lonIdx === -1) return [];
-    
+
     // Find a label column (first text column that's not lat/lon)
     const labelIdx = data.columns.findIndex(
-      (c, idx) => idx !== latIdx && idx !== lonIdx && 
-        (c.type === 'text' || c.type === 'varchar' || c.type === 'character varying')
+      (c, idx) => idx !== latIdx && idx !== lonIdx &&
+        (c.type === 'text' || c.type === 'varchar' || c.type === 'character varying'),
     );
-    
+
     return data.rows
       .filter(row => {
         const lat = parseFloat(String(row[latIdx]));
@@ -1683,7 +1747,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         data.columns.forEach((col, idx) => {
           rowData[col.name] = row[idx];
         });
-        
+
         return {
           lat: parseFloat(String(row[latIdx])),
           lon: parseFloat(String(row[lonIdx])),
@@ -1697,10 +1761,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (!data.rows || data.rows.length === 0 || !data.columns) {
       return <div className="text-gray-500">No data</div>;
     }
-    
+
     // Detect GPS columns
     const gpsColumns = detectGPSColumns(data.columns);
-    
+
     if (!gpsColumns) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -1710,10 +1774,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         </div>
       );
     }
-    
+
     // Extract GPS points
     const gpsPoints = extractGPSPoints(data, gpsColumns);
-    
+
     if (gpsPoints.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
@@ -1723,14 +1787,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         </div>
       );
     }
-    
+
     return (
       <MapPanel
-        points={gpsPoints}
+        points={ gpsPoints }
         height="100%"
         className="h-full"
-        showLocationCount={false}
-        zoomAfterFit={false}
+        showLocationCount={ false }
+        zoomAfterFit={ false }
       />
     );
   };
@@ -1738,20 +1802,21 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   // Subtle refresh indicator component - just icon, positioned next to title
   const RefreshIndicator = ({ isRefreshing }: { isRefreshing: boolean }) => {
     if (!isRefreshing) return null;
-    
+
     return (
-      <RefreshCw 
-        className="h-3.5 w-3.5 text-muted-foreground/60" 
-        style={{
-          animation: 'spin 3s linear infinite'
-        }}
+      <RefreshCw
+        className="h-3.5 w-3.5 text-muted-foreground/60"
+        style={ {
+          animation: 'spin 3s linear infinite',
+        } }
       />
     );
   };
 
   // Export panel data
   const handleExportPanel = async (panel: Panel, format: 'xlsx' | 'csv') => {
-    const panelState = panelData[panel.title];
+    const panelIdStr = String(panel.id);
+    const panelState = panelData[panelIdStr];
     if (!panelState?.data?.rows || !panelState?.data?.columns) {
       toast.error('No data to export');
       return;
@@ -1769,47 +1834,48 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${panel.title.replace(/[^a-zA-Z0-9]/g, '-')}.${format}`;
+        a.download = `${ panel.title.replace(/[^a-zA-Z0-9]/g, '-') }.${ format }`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success(`${format.toUpperCase()} exported successfully`);
+        toast.success(`${ format.toUpperCase() } exported successfully`);
       } else {
         throw new Error('Export failed');
       }
     } catch (error: any) {
-      toast.error(`Export failed: ${error.message}`);
+      toast.error(`Export failed: ${ error.message }`);
     }
   };
 
   // Export button component - appears on hover
   const PanelExportButton = ({ panel }: { panel: Panel }) => {
-    const panelState = panelData[panel.title];
+    const panelIdStr = String(panel.id);
+    const panelState = panelData[panelIdStr];
     const hasData = panelState?.data?.rows && panelState.data.rows.length > 0;
-    
+
     if (!hasData) return null;
-    
+
     const isTablePanel = panel.type === 'table';
-    
+
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             className="p-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-md shadow-sm hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
-            onClick={(e) => e.stopPropagation()}
+            onClick={ (e) => e.stopPropagation() }
           >
             <Download className="h-4 w-4 text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-40">
-          {isTablePanel && (
-            <DropdownMenuItem onClick={() => handleExportPanel(panel, 'xlsx')}>
+          { isTablePanel && (
+            <DropdownMenuItem onClick={ () => handleExportPanel(panel, 'xlsx') }>
               <FileSpreadsheet className="h-4 w-4 mr-2" />
               Export Excel
             </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onClick={() => handleExportPanel(panel, 'csv')}>
+          ) }
+          <DropdownMenuItem onClick={ () => handleExportPanel(panel, 'csv') }>
             <FileText className="h-4 w-4 mr-2" />
             Export CSV
           </DropdownMenuItem>
@@ -1819,15 +1885,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   const renderPanel = (panel: Panel) => {
-    const panelState = panelData[panel.title];
+    const panelIdStr = String(panel.id);
+    const panelState = panelData[panelIdStr];
     const navixyConfig = panel['x-navixy'];
     const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
-    
+
     // For text panels, they don't need SQL - render them directly
     if (panel.type === 'text') {
       return renderTextPanel(panel);
     }
-    
+
     // Handle case where panel data hasn't been loaded yet
     if (!panelState) {
       // If panel doesn't have SQL configured, show placeholder instead of loading
@@ -1846,7 +1913,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         </div>
       );
     }
-    
+
     // If panel has SQL configured but is loading, show spinner
     if (panelState.loading) {
       return (
@@ -1855,7 +1922,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         </div>
       );
     }
-    
+
     // If no SQL configured and not loading, show placeholder
     if (!hasSql && !panelState.loading) {
       return (
@@ -1870,7 +1937,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{panelState.error}</AlertDescription>
+          <AlertDescription>{ panelState.error }</AlertDescription>
         </Alert>
       );
     }
@@ -1907,7 +1974,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         panelContent = renderMapPanel(panel, panelState.data);
         break;
       default:
-        panelContent = <div className="text-gray-500">Unsupported panel type: {panel.type}</div>;
+        panelContent = <div className="text-gray-500">Unsupported panel type: { panel.type }</div>;
     }
 
     // Return panel content directly (refresh indicator is shown in title)
@@ -1926,7 +1993,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
-        <AlertDescription>{error}</AlertDescription>
+        <AlertDescription>{ error }</AlertDescription>
       </Alert>
     );
   }
@@ -1936,24 +2003,24 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return (
       <div className="space-y-4">
         <Canvas
-          renderPanelContent={(panel) => (
+          renderPanelContent={ (panel) => (
             <div className="h-full flex flex-col group">
               <div className="pb-3 relative flex-shrink-0">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                  {getPanelIcon(panel.type)}
-                  <span>{panel.title}</span>
+                  { getPanelIcon(panel.type) }
+                  <span>{ panel.title }</span>
                 </h3>
                 <div className="absolute top-0 right-0 flex items-center gap-1">
-                  <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
-                  <PanelExportButton panel={panel} />
+                  <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
+                  <PanelExportButton panel={ panel } />
                 </div>
               </div>
               <div className="flex-1 overflow-auto relative">
-                {renderPanel(panel)}
+                { renderPanel(panel) }
               </div>
             </div>
-          )}
-          onDashboardChange={async (updatedDashboard) => {
+          ) }
+          onDashboardChange={ async (updatedDashboard) => {
             // Dashboard updated through layout editor
             // The store is already updated
             // Skip auto-save if we're in the middle of a panel save operation
@@ -1961,7 +2028,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               console.log('Skipping auto-save - panel save in progress');
               return;
             }
-            
+
             if (updatedDashboard && onSave) {
               try {
                 await onSave(updatedDashboard);
@@ -1969,8 +2036,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                 console.error('Error saving dashboard changes:', error);
               }
             }
-          }}
-          onEditPanel={onEditPanel}
+          } }
+          onEditPanel={ onEditPanel }
         />
       </div>
     );
@@ -1978,61 +2045,61 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   return (
     <div className="space-y-6">
-      {/* Parameter Bar - Show if dashboard has params or time range */}
-      {(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0) || 
-       (dashboard.time && dashboard.time.from && dashboard.time.to) ? (
+      {/* Parameter Bar - Show if dashboard has params or time range */ }
+      { (dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0) ||
+      (dashboard.time && dashboard.time.from && dashboard.time.to) ? (
         <ParameterBar
-          dashboard={dashboard}
-          values={parameterValues}
-          onChange={(newValues) => {
+          dashboard={ dashboard }
+          values={ parameterValues }
+          onChange={ (newValues) => {
             setParameterValues(newValues);
             // Increment refresh trigger to force query re-execution
             setRefreshTrigger(prev => prev + 1);
-          }}
-          globalVariables={globalVariables}
+          } }
+          globalVariables={ globalVariables }
         />
-      ) : null}
+      ) : null }
 
-      {/* Panels Grid - uses same 24-column system as edit mode */}
+      {/* Panels Grid - uses same 24-column system as edit mode */ }
       <PanelGrid
-        panels={displayDashboard.panels}
-        renderPanel={(panel) => {
+        panels={ displayDashboard.panels }
+        renderPanel={ (panel) => {
           // Add panel title and icon
           return (
             <>
               <div className="pb-3 flex-shrink-0 relative">
                 <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                  {getPanelIcon(panel.type)}
-                  <span>{panel.title}</span>
+                  { getPanelIcon(panel.type) }
+                  <span>{ panel.title }</span>
                 </h3>
                 <div className="absolute top-0 right-0 flex items-center gap-1">
-                  <RefreshIndicator isRefreshing={panelData[panel.title]?.refreshing || false} />
-                  <PanelExportButton panel={panel} />
-                  {/* Edit Button */}
-                  {editMode && onEditPanel && (
+                  <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
+                  <PanelExportButton panel={ panel } />
+                  {/* Edit Button */ }
+                  { editMode && onEditPanel && (
                     <button
-                      onClick={(e) => {
+                      onClick={ (e) => {
                         e.stopPropagation();
                         onEditPanel(panel);
-                      }}
+                      } }
                       className="p-1.5 bg-primary text-primary-foreground rounded-md shadow-sm hover:bg-primary/90 transition-all opacity-0 group-hover:opacity-100"
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
-                  )}
+                  ) }
                 </div>
               </div>
               <div className="flex-1 overflow-auto relative">
-                {renderPanel(panel)}
+                { renderPanel(panel) }
               </div>
             </>
           );
-        }}
-        enableDrag={false}
-        selectedPanelId={selectedPanelId}
-        onSelectPanel={setSelectedPanel}
-        editMode={editMode}
-        onEditPanel={onEditPanel}
+        } }
+        enableDrag={ false }
+        selectedPanelId={ selectedPanelId }
+        onSelectPanel={ setSelectedPanel }
+        editMode={ editMode }
+        onEditPanel={ onEditPanel }
       />
     </div>
   );

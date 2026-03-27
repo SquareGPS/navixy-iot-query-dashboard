@@ -10,7 +10,7 @@ import { rectOverlap } from './collisions';
  * Auto-pack panels by sliding them upward while avoiding overlaps
  * Panels are processed in order (y, x, id) and each slides up until blocked
  */
-export function autoPack(panels: Array<{ id: number; gridPos: GridPos }>): Array<{ id: number; gridPos: GridPos }> {
+export function autoPack(panels: Array<{ id: string | number; gridPos: GridPos }>): Array<{ id: string | number; gridPos: GridPos }> {
   const result = panels.map((p) => ({
     id: p.id,
     gridPos: { ...p.gridPos },
@@ -24,7 +24,7 @@ export function autoPack(panels: Array<{ id: number; gridPos: GridPos }>): Array
     if (a.gridPos.x !== b.gridPos.x) {
       return a.gridPos.x - b.gridPos.x;
     }
-    return a.id - b.id;
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
 
   // For each panel, try to slide it upward
