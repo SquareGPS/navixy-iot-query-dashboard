@@ -124,9 +124,25 @@ export class DatabaseService {
       const urlObj = new URL(url);
       const sslmode = urlObj.searchParams.get('sslmode');
 
-      const decodedUser = decodeURIComponent(urlObj.username || '');
-      const decodedPassword = decodeURIComponent(urlObj.password || '');
-      
+      const rawUser = urlObj.username || '';
+      const rawPassword = urlObj.password || '';
+      const decodedUser = decodeURIComponent(rawUser);
+      const decodedPassword = decodeURIComponent(rawPassword);
+
+      logger.info('parsePostgresUrl: parsed components', {
+        rawUser,
+        decodedUser,
+        rawPasswordLength: rawPassword.length,
+        decodedPasswordLength: decodedPassword.length,
+        passwordFirst3: decodedPassword.substring(0, 3),
+        passwordLast3: decodedPassword.substring(decodedPassword.length - 3),
+        hostname: urlObj.hostname,
+        port: urlObj.port,
+        pathname: urlObj.pathname,
+        sslmode,
+        searchParams: urlObj.search,
+      });
+
       if (!urlObj.hostname) {
         throw new Error('Database URL must include a hostname');
       }
@@ -180,13 +196,27 @@ export class DatabaseService {
     const poolKey = `settings:${config.user}@${config.hostname}:${config.port}/${config.database}`;
     
     if (!this.clientSettingsPools.has(poolKey)) {
+      const sslConfig = config.ssl ? { rejectUnauthorized: false } : false;
+      logger.info('Creating client settings pool', {
+        poolKey,
+        user: config.user,
+        host: config.hostname,
+        port: config.port,
+        database: config.database,
+        ssl: config.ssl,
+        sslConfig: JSON.stringify(sslConfig),
+        passwordLength: config.password.length,
+        passwordFirst3: config.password.substring(0, 3),
+        passwordLast3: config.password.substring(config.password.length - 3),
+      });
+
       const pool = new Pool({
         user: config.user,
         password: config.password,
         database: config.database,
         host: config.hostname,
         port: config.port,
-        ssl: config.ssl ? { rejectUnauthorized: false } : false,
+        ssl: sslConfig,
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 5000,
@@ -199,6 +229,8 @@ export class DatabaseService {
       this.wrapPool(pool, poolKey);
       this.clientSettingsPools.set(poolKey, pool);
       logger.info('Created new client settings pool', { poolKey });
+    } else {
+      logger.info('Reusing existing client settings pool', { poolKey });
     }
 
     return this.clientSettingsPools.get(poolKey)!;

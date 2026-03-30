@@ -48,6 +48,13 @@ export interface HTMLExportOptions {
   mapRows?: unknown[][];
 }
 
+const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
+
+function isDateColumn(columns: ExportColumn[], columnName: string): boolean {
+  const col = columns.find(c => c.name === columnName);
+  return !!col && DATE_COLUMN_TYPES.some(t => col.type.includes(t));
+}
+
 export class ExportService {
   private static instance: ExportService;
 
@@ -643,14 +650,16 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
-    // Prepare chart data with short date format
+    const xIsDate = isDateColumn(columns, xColumn);
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
-      if (val instanceof Date) return this.formatShortDateTime(val);
-      if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-        return this.formatShortDateTime(new Date(val));
+      if (xIsDate) {
+        if (val instanceof Date) return this.formatShortDateTime(val);
+        if (typeof val === 'string' && !isNaN(Date.parse(val))) {
+          return this.formatShortDateTime(new Date(val));
+        }
       }
-      return String(val || '');
+      return String(val ?? '');
     });
 
     const datasets = yColumns.map((yCol, idx) => {
@@ -754,15 +763,19 @@ export class ExportService {
       return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
     }).slice(0, 500); // Limit for performance
 
-    // Get unique X values (labels) with short date format
+    const xIsDate = isDateColumn(columns, xColumn);
     const xValuesSet = new Set<string>();
     sortedRows.forEach(row => {
       const val = row[xColumn];
       if (val !== null && val !== undefined) {
-        if (val instanceof Date) {
-          xValuesSet.add(this.formatShortDateTime(val));
-        } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-          xValuesSet.add(this.formatShortDateTime(new Date(val)));
+        if (xIsDate) {
+          if (val instanceof Date) {
+            xValuesSet.add(this.formatShortDateTime(val));
+          } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
+            xValuesSet.add(this.formatShortDateTime(new Date(val)));
+          } else {
+            xValuesSet.add(String(val));
+          }
         } else {
           xValuesSet.add(String(val));
         }
@@ -781,12 +794,12 @@ export class ExportService {
       groupRows.forEach(row => {
         const xVal = row[xColumn];
         let label: string;
-        if (xVal instanceof Date) {
+        if (xIsDate && xVal instanceof Date) {
           label = this.formatShortDateTime(xVal);
-        } else if (typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
+        } else if (xIsDate && typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
           label = this.formatShortDateTime(new Date(xVal));
         } else {
-          label = String(xVal || '');
+          label = String(xVal ?? '');
         }
         const yVal = row[yColumn];
         const numVal = typeof yVal === 'number' ? yVal : parseFloat(String(yVal)) || 0;
