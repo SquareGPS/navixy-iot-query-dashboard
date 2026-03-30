@@ -30,11 +30,16 @@ router.post('/auth/login', async (req, res, next) => {
     const isDemoMode = demo === true || demo === 'true';
     // Accept session_id as string or convert to string if provided
     const sessionId = session_id !== undefined && session_id !== null ? String(session_id) : undefined;
+
+    // Mask password in URL for logging: show scheme, user, host, db but mask password
+    const maskedUserDbUrl = userDbUrl?.replace(/:([^@]+)@/, ':<MASKED>@') ?? 'undefined';
     logger.info('Login attempt (passwordless)', { 
       email, 
       role, 
       demo: isDemoMode,
       session_id: sessionId ?? 'not provided',
+      userDbUrl: maskedUserDbUrl,
+      userDbUrlLength: userDbUrl?.length,
     });
 
     const dbService = DatabaseService.getInstance();
