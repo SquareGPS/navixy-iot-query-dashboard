@@ -1,0 +1,417 @@
+{
+  "id": null,
+  "uid": "hello-world",
+  "tags": [
+    "example",
+    "getting-started"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-72h"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Leasing Dashboard",
+  "panels": [
+    {
+      "id": 11,
+      "type": "piechart",
+      "title": "Drivers with nearest expiry dates",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT CASE WHEN (DATE(e.driver_license_valid_till) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' ELSE 'Others' END AS category, COUNT(*) AS value FROM raw_business_data.employees e WHERE e.driver_license_valid_till IS NOT NULL GROUP BY category ORDER BY category"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "piechart",
+      "title": "Vehicles with nearest expiry dates",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH expiry_data AS (SELECT CASE WHEN v.free_insurance_valid_till_date IS NOT NULL AND (v.liability_insurance_valid_till IS NULL OR v.free_insurance_valid_till_date <= v.liability_insurance_valid_till) THEN v.free_insurance_valid_till_date WHEN v.liability_insurance_valid_till IS NOT NULL THEN v.liability_insurance_valid_till ELSE NULL END AS nearest_expiry_date FROM raw_business_data.vehicles v), categorized_data AS (SELECT CASE WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER >= 0 AND (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 30 THEN 'Expires within 30 days' ELSE 'Others' END AS category FROM expiry_data WHERE nearest_expiry_date IS NOT NULL) SELECT category, COUNT(*) AS value FROM categorized_data GROUP BY category ORDER BY CASE category WHEN 'Expired' THEN 1 WHEN 'Expires within 30 days' THEN 2 WHEN 'Others' THEN 3 END"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Harsh Braking Events",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core WHERE 1=1), decels AS (SELECT device_id, device_time, (prev_kmh - kmh) / NULLIF(dt_sec, 0) AS decel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(d.device_time) AS category, CASE WHEN d.decel_kmh_per_sec >= 80 THEN 'Critical' WHEN d.decel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM decels d WHERE d.decel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "series": {
+              "type": "string"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        },
+        "visualization": {
+          "sortOrder": "none",
+          "colorPalette": "vibrant"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Total Harsh Events",
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "-- =============================================================================\r\n-- Report: Harsh acceleration & braking events (unified)\r\n-- =============================================================================\r\n-- Detects tracking points where acceleration or deceleration exceeds threshold;\r\n-- returns one row per event with event type (determined by data), unit, date/time,\r\n-- and location. Parameters: :date_from, :date_to (optional, default last 30 days)\r\n-- =============================================================================\r\n\r\nWITH params AS (\r\n    SELECT\r\n         CURRENT_DATE - INTERVAL '30 days' AS date_from,\r\n        CURRENT_TIMESTAMP AS date_to\r\n),\r\nspd AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        speed / 100.0 AS kmh,\r\n        LAG(speed / 100.0) OVER (\r\n            PARTITION BY device_id\r\n            ORDER BY device_time\r\n        ) AS prev_kmh,\r\n        EXTRACT(\r\n            EPOCH FROM (\r\n                device_time\r\n                - LAG(device_time) OVER (\r\n                    PARTITION BY device_id\r\n                    ORDER BY device_time\r\n                )\r\n            )\r\n        ) AS dt_sec\r\n    FROM raw_telematics_data.tracking_data_core c\r\n    CROSS JOIN params p\r\n    WHERE c.device_time >= p.date_from\r\n      AND c.device_time <= p.date_to\r\n      AND c.speed IS NOT NULL\r\n      AND c.latitude IS NOT NULL\r\n      AND c.longitude IS NOT NULL\r\n      AND c.latitude <> 0\r\n      AND c.longitude <> 0\r\n),\r\nrates AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec,\r\n        (prev_kmh - kmh) / NULLIF(dt_sec, 0) AS decel_kmh_per_sec\r\n    FROM spd\r\n    WHERE prev_kmh IS NOT NULL\r\n),\r\nevents_with_severity AS (\r\n    SELECT\r\n        r.device_id,\r\n        r.device_time,\r\n        r.accel_kmh_per_sec,\r\n        r.decel_kmh_per_sec,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 60 THEN 'Harsh Acceleration'\r\n            WHEN r.decel_kmh_per_sec >= 60 THEN 'Harsh Braking'\r\n        END AS event_type,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 80 OR r.decel_kmh_per_sec >= 80 THEN 'Critical'\r\n            WHEN r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60 THEN 'Warning'\r\n            ELSE 'Normal'\r\n        END AS series\r\n    FROM rates r\r\n    WHERE r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60\r\n),\r\nevents_with_place AS (\r\n    SELECT\r\n        e.device_id,\r\n        e.device_time,\r\n        e.event_type,\r\n        e.series,\r\n        CASE WHEN e.event_type = 'Harsh Acceleration' THEN e.accel_kmh_per_sec ELSE e.decel_kmh_per_sec END AS rate_kmh_per_sec,\r\n        c.latitude / 1e7 AS latitude,\r\n        c.longitude / 1e7 AS longitude,\r\n        zg.place_zone,\r\n        zg.place_address\r\n    FROM events_with_severity e\r\n    JOIN raw_telematics_data.tracking_data_core c\r\n        ON c.device_id = e.device_id AND c.device_time = e.device_time\r\n    LEFT JOIN LATERAL (\r\n        SELECT\r\n            zg.zone_label AS place_zone,\r\n            zg.address AS place_address\r\n        FROM business_data.zones_geom zg\r\n        WHERE ST_Within(\r\n            ST_SetSRID(ST_MakePoint(c.longitude / 1e7, c.latitude / 1e7), 4326),\r\n            zg.zone_geom::geometry\r\n        )\r\n        LIMIT 1\r\n    ) zg ON true\r\n)\r\nSELECT\r\n    ep.event_type,\r\n    o.object_label AS unit,\r\n    ep.device_time AS event_datetime,\r\n    DATE(ep.device_time) AS event_date,\r\n    ep.device_time::time AS event_time,\r\n    ROUND(ep.latitude::numeric, 6) AS latitude,\r\n    ROUND(ep.longitude::numeric, 6) AS longitude,\r\n    COALESCE(ep.place_zone, ep.place_address, ep.latitude::text || ', ' || ep.longitude::text) AS place,\r\n    ep.series AS severity,\r\n    ROUND(ep.rate_kmh_per_sec::numeric, 2) AS rate_kmh_per_sec\r\nFROM events_with_place ep\r\nJOIN raw_business_data.objects o ON o.device_id = ep.device_id AND o.is_deleted IS NOT TRUE\r\nORDER BY ep.device_time DESC;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "barchart",
+      "title": "Sudden Turns / Cornering",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH pts AS (SELECT device_id, device_time, latitude/1e7::numeric AS lat, longitude/1e7::numeric AS lon, LAG(latitude/1e7::numeric) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_lat, LAG(longitude/1e7::numeric) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_lon, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh FROM raw_telematics_data.tracking_data_core), bearing AS (SELECT *, atan2(sin(radians(lon-prev_lon))*cos(radians(lat)), cos(radians(prev_lat))*sin(radians(lat)) - sin(radians(prev_lat))*cos(radians(lat))*cos(radians(lon-prev_lon))) * 180/pi() AS heading_change FROM pts WHERE prev_lat IS NOT NULL AND prev_lon IS NOT NULL), events_with_severity AS (SELECT DATE(b.device_time) AS category, CASE WHEN ABS(b.heading_change) >= 50 AND b.kmh >= 30 THEN 'Critical' WHEN ABS(b.heading_change) >= 30 AND b.kmh >= 30 THEN 'Warning' ELSE 'Normal' END AS series FROM bearing b) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY category, series"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "series": {
+              "type": "string"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        },
+        "visualization": {
+          "stacking": "percent",
+          "colorPalette": "classic"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Total Idle Events",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 51
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ign AS (SELECT device_id, device_time, value::int AS ign_on FROM raw_telematics_data.states WHERE state_name = 'ignition'), spd AS (SELECT device_id, device_time, speed/100.0 AS kmh FROM raw_telematics_data.tracking_data_core), merged AS (SELECT i.device_id, i.device_time, i.ign_on, s.kmh, LEAD(i.device_time) OVER (PARTITION BY i.device_id ORDER BY i.device_time) AS next_time FROM ign i LEFT JOIN spd s ON s.device_id = i.device_id AND s.device_time = i.device_time) SELECT COUNT(*) AS value FROM merged m WHERE m.ign_on = 1 AND (m.kmh IS NULL OR m.kmh < 5) AND m.next_time IS NOT NULL AND EXTRACT(EPOCH FROM (m.next_time - m.device_time))/60 >= 5"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "Total Idle Time",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 51
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ign AS (SELECT device_id, device_time, value::int AS ign_on FROM raw_telematics_data.states WHERE state_name = 'ignition'), spd AS (SELECT device_id, device_time, speed/100 AS kmh FROM raw_telematics_data.tracking_data_core), merged AS (SELECT i.device_id, i.device_time, i.ign_on, s.kmh, LEAD(i.device_time) OVER (PARTITION BY i.device_id ORDER BY i.device_time) AS next_time FROM ign i LEFT JOIN spd s ON s.device_id = i.device_id AND s.device_time = i.device_time) SELECT round(COALESCE(SUM(EXTRACT(EPOCH FROM (m.next_time - m.device_time))/60), 0), 0) AS value FROM merged m WHERE m.ign_on = 1 AND (m.kmh IS NULL OR m.kmh < 5) AND m.next_time IS NOT NULL AND EXTRACT(EPOCH FROM (m.next_time - m.device_time))/60 >= 5"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Average Idle Duration",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 51
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ign AS (SELECT device_id, device_time, value::int AS ign_on FROM raw_telematics_data.states WHERE state_name = 'ignition'), spd AS (SELECT device_id, device_time, speed/100.0 AS kmh FROM raw_telematics_data.tracking_data_core), merged AS (SELECT i.device_id, i.device_time, i.ign_on, s.kmh, LEAD(i.device_time) OVER (PARTITION BY i.device_id ORDER BY i.device_time) AS next_time FROM ign i LEFT JOIN spd s ON s.device_id = i.device_id AND s.device_time = i.device_time) SELECT round(COALESCE(AVG(EXTRACT(EPOCH FROM (m.next_time - m.device_time))/60), 0),0) AS value FROM merged m WHERE m.ign_on = 1 AND (m.kmh IS NULL OR m.kmh < 5) AND m.next_time IS NOT NULL AND EXTRACT(EPOCH FROM (m.next_time - m.device_time))/60 >= 5"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "barchart",
+      "title": "Harsh Acceleration Events",
+      "gridPos": {
+        "h": 15,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core), accels AS (SELECT device_id, device_time, (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(a.device_time) AS category, CASE WHEN a.accel_kmh_per_sec >= 80 THEN 'Critical' WHEN a.accel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM accels a WHERE a.accel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "series": {
+              "type": "string"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
+        }
+      }
+    }
+  ],
+  "refresh": "30s",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 1000,
+      "read_only": true,
+      "timeout_ms": 5000,
+      "allowed_schemas": [
+        "demo_data"
+      ]
+    },
+    "parameters": {
+      "bindings": {
+        "to": "NULL",
+        "from": "NULL",
+        "tenant_id": "NULL"
+      }
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "var_tenant",
+        "type": "constant",
+        "label": "Tenant",
+        "query": "demo-tenant-id",
+        "current": {
+          "text": "Demo Tenant",
+          "value": "demo-tenant-id"
+        },
+        "options": [
+          {
+            "text": "Demo Tenant",
+            "value": "demo-tenant-id",
+            "selected": true
+          }
+        ]
+      }
+    ],
+    "enable": true
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h"
+    ],
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "target": {
+          "tags": [],
+          "type": "dashboard",
+          "limit": 100,
+          "matchAny": false
+        },
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "datasource": {
+          "uid": "-- Dashboard --",
+          "type": "dashboard"
+        }
+      }
+    ]
+  },
+  "description": "Leasing dashboard",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

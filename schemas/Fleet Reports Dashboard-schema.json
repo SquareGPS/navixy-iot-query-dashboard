@@ -1,0 +1,447 @@
+{
+  "id": null,
+  "uid": "fleet-reports-dashboard",
+  "tags": [
+    "fleet",
+    "telematics",
+    "reports"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-30d"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Fleet Reports Dashboard",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Online Units",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT o.device_id, CASE WHEN lm.last_device_time IS NULL THEN 'offline' WHEN lm.last_device_time >= (NOW() - INTERVAL '24 hours') THEN 'online' ELSE 'offline' END AS connection_status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT COUNT(*) AS value FROM classified WHERE connection_status = 'online'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Offline Units",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT o.device_id, CASE WHEN lm.last_device_time IS NULL THEN 'offline' WHEN lm.last_device_time >= (NOW() - INTERVAL '24 hours') THEN 'online' ELSE 'offline' END AS connection_status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT COUNT(*) AS value FROM classified WHERE connection_status = 'offline'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Units Inactive >5 Days",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_activity AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), inactive AS (SELECT o.device_id FROM raw_business_data.objects o LEFT JOIN last_activity la ON la.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE AND (la.last_device_time IS NULL OR la.last_device_time < NOW() - INTERVAL '5 days')) SELECT COUNT(*) AS value FROM inactive"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "kpi",
+      "title": "Speeding Violations (30d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT CURRENT_DATE - INTERVAL '30 days' AS date_from, CURRENT_TIMESTAMP AS date_to, 120 AS speed_limit_kmh), core_with_speed_kmh AS (SELECT c.device_id, c.speed / 100.0 AS speed_kmh, COALESCE(v.max_speed, p.speed_limit_kmh) AS speed_limit_kmh FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id CROSS JOIN params p WHERE c.device_time >= p.date_from AND c.device_time <= p.date_to AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0), violations AS (SELECT 1 AS n FROM core_with_speed_kmh WHERE speed_kmh > speed_limit_kmh) SELECT COUNT(*) AS value FROM violations"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "piechart",
+      "title": "Units Online / Offline",
+      "gridPos": {
+        "h": 13,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT o.device_id, CASE WHEN lm.last_device_time IS NULL THEN 'offline' WHEN lm.last_device_time >= (NOW() - INTERVAL '24 hours') THEN 'online' ELSE 'offline' END AS connection_status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT connection_status AS category, COUNT(*) AS value FROM classified GROUP BY connection_status ORDER BY connection_status"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Kilometers by Zone (last month)",
+      "gridPos": {
+        "h": 13,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH track_with_zone AS (SELECT DISTINCT ON (t.device_id, t.track_start_time) t.device_id, t.track_start_time, t.track_distance_meters, zg.zone_label FROM business_data.tracks t LEFT JOIN business_data.zones_geom zg ON ST_DWithin(ST_SetSRID(ST_MakePoint(t.longitude_start, t.latitude_start), 4326)::geography, zg.zone_geom, 0) WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE ORDER BY t.device_id, t.track_start_time, zg.zone_id NULLS LAST) SELECT COALESCE(zone_label, 'Unknown') AS category, ROUND(SUM(track_distance_meters) / 1000.0, 2) AS value FROM track_with_zone GROUP BY COALESCE(zone_label, 'Unknown') ORDER BY value DESC"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Supply Voltage by Unit (last 1 hour)",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "options": {
+        "legend": {
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT s.device_id, COALESCE(s.object_label, 'device_' || s.device_id) AS unit, ROUND(AVG(s.value_avg)::numeric, 2) AS avg_v, ROUND(MIN(s.value_min)::numeric, 2) AS min_v, ROUND(MAX(s.value_max)::numeric, 2) AS max_v, MAX(s.hour_bucket) AS last_seen FROM business_data.sensors_data_by_hours s JOIN raw_business_data.sensor_description sd ON sd.device_id = s.device_id AND sd.input_label = s.sensor_name WHERE sd.sensor_type = 'power' AND sd.units_type = 24 AND s.hour_bucket >= date_trunc('hour', NOW()) - INTERVAL '1 hour' GROUP BY s.device_id, s.object_label ORDER BY avg_v ASC NULLS LAST"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "unit": {
+              "type": "string"
+            },
+            "avg_v": {
+              "type": "number"
+            },
+            "max_v": {
+              "type": "number"
+            },
+            "min_v": {
+              "type": "number"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "last_seen": {
+              "type": "timestamptz"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Speeding Violations (last 30 days)",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT CURRENT_DATE - INTERVAL '30 days' AS date_from, CURRENT_TIMESTAMP AS date_to, 120 AS speed_limit_kmh), core_with_speed_kmh AS (SELECT c.device_id, c.device_time, c.latitude / 1e7 AS latitude, c.longitude / 1e7 AS longitude, c.speed / 100.0 AS speed_kmh, o.object_label, COALESCE(v.max_speed, p.speed_limit_kmh) AS speed_limit_kmh FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id CROSS JOIN params p WHERE c.device_time >= p.date_from AND c.device_time <= p.date_to AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0), violations AS (SELECT device_id, object_label, device_time AS violation_time, latitude, longitude, speed_kmh, speed_limit_kmh, speed_kmh - speed_limit_kmh AS excess_kmh FROM core_with_speed_kmh WHERE speed_kmh > speed_limit_kmh) SELECT device_id, object_label, violation_time, ROUND(latitude::numeric, 6) AS latitude, ROUND(longitude::numeric, 6) AS longitude, ROUND(speed_kmh::numeric, 2) AS speed_kmh, ROUND(speed_limit_kmh::numeric, 2) AS speed_limit_kmh, ROUND(excess_kmh::numeric, 2) AS excess_kmh FROM violations ORDER BY violation_time DESC LIMIT 500"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Units Inactive More Than 1 Days",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_activity AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), inactive_units AS (SELECT o.device_id, o.object_id, o.object_label, o.client_id, o.group_id, la.last_device_time, EXTRACT(DAY FROM (NOW() - la.last_device_time)) AS days_inactive FROM raw_business_data.objects o LEFT JOIN last_activity la ON la.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE AND (la.last_device_time IS NULL OR la.last_device_time < NOW() - INTERVAL '1 days')) SELECT device_id, object_id, object_label, client_id, group_id, last_device_time, COALESCE(days_inactive::int, 999) AS days_inactive FROM inactive_units ORDER BY last_device_time ASC NULLS LAST LIMIT 500"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "group_id": {
+              "type": "integer"
+            },
+            "client_id": {
+              "type": "integer"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "object_id": {
+              "type": "integer"
+            },
+            "object_label": {
+              "type": "string"
+            },
+            "days_inactive": {
+              "type": "integer"
+            },
+            "last_device_time": {
+              "type": "timestamptz"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Average Mileage by Unit (last 30 days)",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT CURRENT_DATE - INTERVAL '30 days' AS date_from, CURRENT_DATE AS date_to), mileage_per_unit AS (SELECT t.device_id, o.object_label, o.object_id, COUNT(*) AS trip_count, SUM(t.track_distance_meters) AS total_distance_meters FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE CROSS JOIN params p WHERE t.track_start_time >= p.date_from AND t.track_start_time < p.date_to + INTERVAL '1 day' GROUP BY t.device_id, o.object_label, o.object_id) SELECT device_id, object_id, object_label, trip_count, ROUND(total_distance_meters / 1000.0, 2) AS total_km, ROUND((total_distance_meters / 1000.0) / NULLIF(trip_count, 0), 2) AS avg_mileage_per_trip_km FROM mileage_per_unit ORDER BY total_distance_meters DESC LIMIT 500"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "geomap",
+      "title": "Last known location",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "options": {},
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT c.latitude / 1e7 AS lat, c.longitude / 1e7 AS lon, c.device_id, o.object_label, c.device_time AS last_seen FROM (SELECT DISTINCT ON (device_id) device_id, device_time, latitude, longitude FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) AND latitude <> 0 AND longitude <> 0 ORDER BY device_id, device_time DESC) c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE ORDER BY c.device_id"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    }
+  ],
+  "refresh": "1m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 30000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Dashboard based on sql_scripts/reports: speeding, inactive units, kilometers by zone, supply voltage, online/offline, average mileage.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}
