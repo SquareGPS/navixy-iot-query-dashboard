@@ -64,8 +64,8 @@ export interface UserRole {
 
 export class DatabaseService {
   private static instance: DatabaseService;
-  private clientSettingsPools: Map<string, Pool> = new Map();
-  private externalPools: Map<string, Pool> = new Map();
+  private clientSettingsPools: Map<string, { pool: Pool; password: string }> = new Map();
+  private externalPools: Map<string, { pool: Pool; password: string }> = new Map();
 
   constructor() {
     logger.info('Database service initialized (client settings mode)');
@@ -195,6 +195,19 @@ export class DatabaseService {
     const config = this.parsePostgresUrl(userDbUrl);
     const poolKey = `settings:${config.user}@${config.hostname}:${config.port}/${config.database}`;
     
+    const existing = this.clientSettingsPools.get(poolKey);
+    if (existing && existing.password !== config.password) {
+      logger.info('Password changed for client settings pool, recreating', {
+        poolKey,
+        oldPasswordFirst3: existing.password.substring(0, 3),
+        newPasswordFirst3: config.password.substring(0, 3),
+      });
+      existing.pool.end().catch(err => {
+        logger.error('Error closing stale client settings pool', { poolKey, error: err.message });
+      });
+      this.clientSettingsPools.delete(poolKey);
+    }
+
     if (!this.clientSettingsPools.has(poolKey)) {
       const sslConfig = config.ssl ? { rejectUnauthorized: false } : false;
       logger.info('Creating client settings pool', {
@@ -227,13 +240,13 @@ export class DatabaseService {
       });
 
       this.wrapPool(pool, poolKey);
-      this.clientSettingsPools.set(poolKey, pool);
+      this.clientSettingsPools.set(poolKey, { pool, password: config.password });
       logger.info('Created new client settings pool', { poolKey });
     } else {
       logger.info('Reusing existing client settings pool', { poolKey });
     }
 
-    return this.clientSettingsPools.get(poolKey)!;
+    return this.clientSettingsPools.get(poolKey)!.pool;
   }
 
   /**
@@ -375,8 +388,8 @@ export class DatabaseService {
       // 28000: Invalid authorization specification
       if (errorCode === '28P01' || errorCode === '28000') {
         throw new CustomError(
-          'Dashboard settings schema is not configured for this database. Please contact your administrator to set up the dashboard_studio_meta_data schema.',
-          403
+          `Authentication failed for the dashboard settings database user. The password may have been rotated. Please try again or contact your administrator.`,
+          401
         );
       }
       
@@ -883,8 +896,17 @@ export class DatabaseService {
   }
 
   private async getExternalPool(config: DatabaseConfig): Promise<Pool> {
-    const configKey = `${config.hostname}:${config.port}/${config.database}`;
+    const configKey = `${config.user}@${config.hostname}:${config.port}/${config.database}`;
     
+    const existing = this.externalPools.get(configKey);
+    if (existing && existing.password !== config.password) {
+      logger.info('Password changed for external pool, recreating', { configKey });
+      existing.pool.end().catch(err => {
+        logger.error('Error closing stale external pool', { configKey, error: err.message });
+      });
+      this.externalPools.delete(configKey);
+    }
+
     if (!this.externalPools.has(configKey)) {
       const pool = new Pool({
         user: config.user,
@@ -903,10 +925,10 @@ export class DatabaseService {
       });
 
       this.wrapPool(pool, configKey);
-      this.externalPools.set(configKey, pool);
+      this.externalPools.set(configKey, { pool, password: config.password });
     }
 
-    return this.externalPools.get(configKey)!;
+    return this.externalPools.get(configKey)!.pool;
   }
 
   // ==========================================
@@ -1578,14 +1600,14 @@ export class DatabaseService {
 
   async closeAllConnections(): Promise<void> {
     // Close all client settings pools
-    for (const [key, pool] of this.clientSettingsPools) {
+    for (const [key, { pool }] of this.clientSettingsPools) {
       await pool.end();
       logger.info(`Closed client settings pool: ${key}`);
     }
     this.clientSettingsPools.clear();
 
     // Close all external pools
-    for (const [key, pool] of this.externalPools) {
+    for (const [key, { pool }] of this.externalPools) {
       await pool.end();
       logger.info(`Closed external database pool: ${key}`);
     }
