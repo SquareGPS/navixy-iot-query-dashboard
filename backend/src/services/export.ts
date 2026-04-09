@@ -11,12 +11,20 @@ export interface ExportColumn {
   type: string;
 }
 
+export interface ExcelHeaderConfig {
+  enabled: boolean;
+  title?: string;
+  description?: string;
+  column?: string;
+}
+
 export interface ExcelExportOptions {
   title: string;
   description?: string | null;
   columns: ExportColumn[];
   rows: unknown[][];
   executedAt: Date;
+  excelHeader?: ExcelHeaderConfig;
 }
 
 export interface HTMLExportOptions {
@@ -69,7 +77,11 @@ export class ExportService {
    * Generate Excel file from composite report data
    */
   async generateExcel(options: ExcelExportOptions): Promise<Buffer> {
-    const { title, description, columns, rows, executedAt } = options;
+    const { title, description, columns, rows, executedAt, excelHeader } = options;
+
+    const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
+    const rowOffset = headerActive ? 2 : 0;
+    const colHeaderRowNum = 1 + rowOffset;
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Dashboard Studio';
@@ -91,15 +103,42 @@ export class ExportService {
     // Create data sheet
     const dataSheet = workbook.addWorksheet('Data');
 
-    // Add header row
+    // Set column widths (keys only, headers added manually below)
     dataSheet.columns = visibleColumns.map(col => ({
-      header: col.name,
       key: col.name,
       width: Math.max(col.name.length + 2, 15),
     }));
 
-    // Style header row
-    const headerRow = dataSheet.getRow(1);
+    // Insert report header (title/description) if enabled
+    if (headerActive) {
+      const colLetter = excelHeader!.column?.match(/^[A-Z]$/) ? excelHeader!.column! : 'A';
+      const lastDataColLetter = String.fromCharCode('A'.charCodeAt(0) + visibleColumns.length - 1);
+      const canMerge = visibleColumns.length > 1 && colLetter <= lastDataColLetter;
+
+      if (excelHeader!.title) {
+        const titleCell = dataSheet.getCell(`${colLetter}1`);
+        titleCell.value = excelHeader!.title;
+        titleCell.font = { bold: true, size: 14 };
+        if (canMerge) {
+          dataSheet.mergeCells(`${colLetter}1:${lastDataColLetter}1`);
+        }
+      }
+
+      if (excelHeader!.description) {
+        const descCell = dataSheet.getCell(`${colLetter}2`);
+        descCell.value = excelHeader!.description;
+        descCell.font = { italic: true, size: 11, color: { argb: 'FF666666' } };
+        if (canMerge) {
+          dataSheet.mergeCells(`${colLetter}2:${lastDataColLetter}2`);
+        }
+      }
+    }
+
+    // Add column header row
+    const headerRow = dataSheet.getRow(colHeaderRowNum);
+    visibleColumns.forEach((col, idx) => {
+      headerRow.getCell(idx + 1).value = col.name;
+    });
     headerRow.font = { bold: true };
     headerRow.fill = {
       type: 'pattern',
@@ -107,33 +146,36 @@ export class ExportService {
       fgColor: { argb: 'FFE0E0E0' },
     };
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.commit();
 
     // Add data rows
-    rows.forEach((row) => {
+    rows.forEach((row, rowIdx) => {
       const rowData: Record<string, unknown> = {};
       columns.forEach((col, idx) => {
-        // Skip empty columns
         if (emptyColumnIndices.has(idx)) {
           return;
         }
         
         let value = row[idx];
         
-        // Convert values based on type
         if (value === null || value === undefined) {
           rowData[col.name] = '';
         } else if (col.type.includes('timestamp') || col.type.includes('date')) {
-          // Handle date/timestamp values
           const dateValue = new Date(value as string);
           rowData[col.name] = isNaN(dateValue.getTime()) ? value : dateValue;
         } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
-          // Handle numeric values - parseFloat automatically removes trailing zeros
           rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
         } else {
           rowData[col.name] = value;
         }
       });
-      dataSheet.addRow(rowData);
+
+      const dataRowNum = colHeaderRowNum + 1 + rowIdx;
+      const dataRow = dataSheet.getRow(dataRowNum);
+      visibleColumns.forEach((col, colIdx) => {
+        dataRow.getCell(colIdx + 1).value = rowData[col.name] as ExcelJS.CellValue;
+      });
+      dataRow.commit();
     });
 
     // Auto-fit columns and apply date formatting
@@ -149,11 +191,10 @@ export class ExportService {
         column.width = Math.min(Math.max(maxLength + 2, 10), 50);
       }
       
-      // Apply short date format to date/timestamp columns
       const col = visibleColumns[colIdx];
       if (col && (col.type.includes('timestamp') || col.type.includes('date'))) {
-        // Apply date format to all cells in this column (skip header row)
-        for (let rowNum = 2; rowNum <= rows.length + 1; rowNum++) {
+        const firstDataRow = colHeaderRowNum + 1;
+        for (let rowNum = firstDataRow; rowNum < firstDataRow + rows.length; rowNum++) {
           const cell = dataSheet.getCell(rowNum, colIdx + 1);
           if (cell.value instanceof Date) {
             cell.numFmt = 'dd/mm/yy hh:mm';
@@ -162,8 +203,8 @@ export class ExportService {
       }
     });
 
-    // Add freeze pane for header
-    dataSheet.views = [{ state: 'frozen', ySplit: 1 }];
+    // Freeze column headers (and report header rows when present)
+    dataSheet.views = [{ state: 'frozen', ySplit: colHeaderRowNum }];
 
     // Create info sheet
     const infoSheet = workbook.addWorksheet('Report Info');
@@ -196,7 +237,8 @@ export class ExportService {
     logger.info('Generated Excel export', { 
       title, 
       rowCount: rows.length, 
-      columnCount: columns.length 
+      columnCount: columns.length,
+      headerEnabled: headerActive,
     });
 
     return Buffer.from(buffer);

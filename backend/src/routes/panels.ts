@@ -16,7 +16,7 @@ const router = Router();
  */
 router.post('/panels/export', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { title, columns, rows, format = 'csv' } = req.body;
+    const { title, columns, rows, format = 'csv', excelHeader } = req.body;
 
     if (!columns || !Array.isArray(columns)) {
       throw new CustomError('columns is required and must be an array', 400);
@@ -37,6 +37,7 @@ router.post('/panels/export', async (req: Request, res: Response, next: NextFunc
       columns: columns as { name: string; type: string }[],
       rows: rows as unknown[][],
       executedAt: new Date(),
+      ...(excelHeader && { excelHeader }),
     };
 
     if (format === 'csv') {

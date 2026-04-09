@@ -25,8 +25,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import type { VisualizationConfig } from '@/types/dashboard-types';
+import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
+import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
@@ -353,6 +354,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const [error, setError] = useState<string | null>(null);
   const [parameterValues, setParameterValues] = useState<ParameterValues>({});
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportDialogFormat, setExportDialogFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [exportDialogPanel, setExportDialogPanel] = useState<Panel | null>(null);
   const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
@@ -1814,7 +1818,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   // Export panel data
-  const handleExportPanel = async (panel: Panel, format: 'xlsx' | 'csv') => {
+  const openPanelExportDialog = (panel: Panel, format: 'xlsx' | 'csv') => {
+    setExportDialogPanel(panel);
+    setExportDialogFormat(format);
+    setExportDialogOpen(true);
+  };
+
+  const handleExportPanel = async (panel: Panel, format: 'xlsx' | 'csv', excelHeader?: ExcelHeaderConfig) => {
     const panelIdStr = String(panel.id);
     const panelState = panelData[panelIdStr];
     if (!panelState?.data?.rows || !panelState?.data?.columns) {
@@ -1828,6 +1838,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         columns: panelState.data.columns,
         rows: panelState.data.rows,
         format,
+        ...(excelHeader && { excelHeader }),
       });
 
       if (blob) {
@@ -1846,6 +1857,32 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     } catch (error: any) {
       toast.error(`Export failed: ${ error.message }`);
     }
+  };
+
+  const handlePanelExportDialogSubmit = async (options: {
+    format: 'xlsx' | 'csv';
+    excelHeader?: ExcelHeaderConfig;
+    saveAsDefault?: boolean;
+  }) => {
+    const panel = exportDialogPanel;
+    setExportDialogOpen(false);
+    if (!panel) return;
+
+    if (options.saveAsDefault && options.excelHeader && onSave) {
+      try {
+        const updatedPanels = (dashboard.panels || []).map((p) =>
+          String(p.id) === String(panel.id)
+            ? { ...p, exportConfig: { ...p.exportConfig, excelHeader: options.excelHeader } }
+            : p
+        );
+        await onSave({ ...dashboard, panels: updatedPanels });
+        toast.success('Export header settings saved');
+      } catch {
+        toast.error('Failed to save export header settings');
+      }
+    }
+
+    await handleExportPanel(panel, options.format, options.excelHeader);
   };
 
   // Export button component - appears on hover
@@ -1870,12 +1907,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-40">
           { isTablePanel && (
-            <DropdownMenuItem onClick={ () => handleExportPanel(panel, 'xlsx') }>
+            <DropdownMenuItem onClick={ () => openPanelExportDialog(panel, 'xlsx') }>
               <FileSpreadsheet className="h-4 w-4 mr-2" />
               Export Excel
             </DropdownMenuItem>
           ) }
-          <DropdownMenuItem onClick={ () => handleExportPanel(panel, 'csv') }>
+          <DropdownMenuItem onClick={ () => openPanelExportDialog(panel, 'csv') }>
             <FileText className="h-4 w-4 mr-2" />
             Export CSV
           </DropdownMenuItem>
@@ -2100,6 +2137,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         onSelectPanel={ setSelectedPanel }
         editMode={ editMode }
         onEditPanel={ onEditPanel }
+      />
+      <ExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        format={exportDialogFormat}
+        defaultTitle={exportDialogPanel?.title || ''}
+        defaultDescription={exportDialogPanel?.description || ''}
+        savedConfig={exportDialogPanel?.exportConfig?.excelHeader}
+        onExport={handlePanelExportDialogSubmit}
       />
     </div>
   );
