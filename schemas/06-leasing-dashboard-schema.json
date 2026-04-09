@@ -124,13 +124,13 @@
     },
     {
       "id": 14,
-      "type": "barchart",
-      "title": "Harsh Acceleration Events",
+      "type": "table",
+      "title": "Total Harsh Events",
       "gridPos": {
-        "h": 17,
+        "h": 20,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 56
       },
       "options": {
         "orientation": "vertical"
@@ -138,24 +138,14 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core), accels AS (SELECT device_id, device_time, (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(a.device_time) AS category, CASE WHEN a.accel_kmh_per_sec >= 80 THEN 'Critical' WHEN a.accel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM accels a WHERE a.accel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+          "statement": "-- =============================================================================\r\n-- Report: Harsh acceleration & braking events (unified)\r\n-- =============================================================================\r\n-- Detects tracking points where acceleration or deceleration exceeds threshold;\r\n-- returns one row per event with event type (determined by data), unit, date/time,\r\n-- and location. Parameters: :date_from, :date_to (optional, default last 30 days)\r\n-- =============================================================================\r\n\r\nWITH params AS (\r\n    SELECT\r\n         CURRENT_DATE - INTERVAL '30 days' AS date_from,\r\n        CURRENT_TIMESTAMP AS date_to\r\n),\r\nspd AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        speed / 100.0 AS kmh,\r\n        LAG(speed / 100.0) OVER (\r\n            PARTITION BY device_id\r\n            ORDER BY device_time\r\n        ) AS prev_kmh,\r\n        EXTRACT(\r\n            EPOCH FROM (\r\n                device_time\r\n                - LAG(device_time) OVER (\r\n                    PARTITION BY device_id\r\n                    ORDER BY device_time\r\n                )\r\n            )\r\n        ) AS dt_sec\r\n    FROM raw_telematics_data.tracking_data_core c\r\n    CROSS JOIN params p\r\n    WHERE c.device_time >= p.date_from\r\n      AND c.device_time <= p.date_to\r\n      AND c.speed IS NOT NULL\r\n      AND c.latitude IS NOT NULL\r\n      AND c.longitude IS NOT NULL\r\n      AND c.latitude <> 0\r\n      AND c.longitude <> 0\r\n),\r\nrates AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec,\r\n        (prev_kmh - kmh) / NULLIF(dt_sec, 0) AS decel_kmh_per_sec\r\n    FROM spd\r\n    WHERE prev_kmh IS NOT NULL\r\n),\r\nevents_with_severity AS (\r\n    SELECT\r\n        r.device_id,\r\n        r.device_time,\r\n        r.accel_kmh_per_sec,\r\n        r.decel_kmh_per_sec,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 60 THEN 'Harsh Acceleration'\r\n            WHEN r.decel_kmh_per_sec >= 60 THEN 'Harsh Braking'\r\n        END AS event_type,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 80 OR r.decel_kmh_per_sec >= 80 THEN 'Critical'\r\n            WHEN r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60 THEN 'Warning'\r\n            ELSE 'Normal'\r\n        END AS series\r\n    FROM rates r\r\n    WHERE r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60\r\n),\r\nevents_with_place AS (\r\n    SELECT\r\n        e.device_id,\r\n        e.device_time,\r\n        e.event_type,\r\n        e.series,\r\n        CASE WHEN e.event_type = 'Harsh Acceleration' THEN e.accel_kmh_per_sec ELSE e.decel_kmh_per_sec END AS rate_kmh_per_sec,\r\n        c.latitude / 1e7 AS latitude,\r\n        c.longitude / 1e7 AS longitude,\r\n        zg.place_zone,\r\n        zg.place_address\r\n    FROM events_with_severity e\r\n    JOIN raw_telematics_data.tracking_data_core c\r\n        ON c.device_id = e.device_id AND c.device_time = e.device_time\r\n    LEFT JOIN LATERAL (\r\n        SELECT\r\n            zg.zone_label AS place_zone,\r\n            zg.address AS place_address\r\n        FROM business_data.zones_geom zg\r\n        WHERE ST_Within(\r\n            ST_SetSRID(ST_MakePoint(c.longitude / 1e7, c.latitude / 1e7), 4326),\r\n            zg.zone_geom::geometry\r\n        )\r\n        LIMIT 1\r\n    ) zg ON true\r\n)\r\nSELECT\r\n    ep.event_type,\r\n    o.object_label AS unit,\r\n    ep.device_time AS event_datetime,\r\n    DATE(ep.device_time) AS event_date,\r\n    ep.device_time::time AS event_time,\r\n    ROUND(ep.latitude::numeric, 6) AS latitude,\r\n    ROUND(ep.longitude::numeric, 6) AS longitude,\r\n    COALESCE(ep.place_zone, ep.place_address, ep.latitude::text || ', ' || ep.longitude::text) AS place,\r\n    ep.series AS severity,\r\n    ROUND(ep.rate_kmh_per_sec::numeric, 2) AS rate_kmh_per_sec\r\nFROM events_with_place ep\r\nJOIN raw_business_data.objects o ON o.device_id = ep.device_id AND o.is_deleted IS NOT TRUE\r\nORDER BY ep.device_time DESC;"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
-          "shape": "category_value",
-          "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "series": {
-              "type": "string"
-            },
-            "category": {
-              "type": "date"
-            }
-          }
+          "shape": "table",
+          "columns": {}
         },
         "visualization": {
           "colorPalette": "vibrant"
@@ -211,7 +201,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 36
+        "y": 51
       },
       "options": {
         "textMode": "auto"
@@ -238,7 +228,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 36
+        "y": 51
       },
       "options": {
         "textMode": "auto"
@@ -269,7 +259,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 36
+        "y": 51
       },
       "options": {
         "textMode": "auto"
@@ -285,6 +275,46 @@
         "dataset": {
           "shape": "kpi",
           "columns": {}
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "barchart",
+      "title": "Harsh Acceleration Events",
+      "gridPos": {
+        "h": 15,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core), accels AS (SELECT device_id, device_time, (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(a.device_time) AS category, CASE WHEN a.accel_kmh_per_sec >= 80 THEN 'Critical' WHEN a.accel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM accels a WHERE a.accel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "series": {
+              "type": "string"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
         }
       }
     }
@@ -381,7 +411,7 @@
       }
     ]
   },
-  "description": "Simple getting started example dashboard",
+  "description": "Leasing dashboard",
   "graphTooltip": 1,
   "schemaVersion": 38
 }

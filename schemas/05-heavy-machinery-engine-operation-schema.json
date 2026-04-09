@@ -193,7 +193,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH rpm_bounds AS (\r\n    SELECT\r\n        800::int  AS light_lo,\r\n        1100::int AS light_hi,\r\n        1101::int AS med_lo,\r\n        1650::int AS med_hi,\r\n        1651::int AS heavy_lo,\r\n        2200::int AS heavy_hi\r\n),\r\n\r\npoints AS (\r\n    SELECT\r\n        i.device_id,\r\n        i.device_time,\r\n        COALESCE(\r\n            (i.value::FLOAT / NULLIF(sd.divider, 0)) * sd.multiplier,\r\n            i.value::FLOAT\r\n        ) AS rpm\r\n    FROM raw_telematics_data.inputs i\r\n    JOIN raw_business_data.sensor_description sd\r\n        ON i.device_id = sd.device_id\r\n       AND i.sensor_name = sd.input_label\r\n    WHERE sd.sensor_id IS NOT NULL\r\n      AND (\r\n            sd.sensor_type = 'rpm'\r\n         OR LOWER(COALESCE(sd.sensor_units, '')) LIKE '%rpm%'\r\n      )\r\n      AND i.device_time >= NOW() - INTERVAL '7 days'\r\n),\r\n\r\nclassified AS (\r\n    SELECT\r\n        p.device_id,\r\n        CASE\r\n            WHEN p.rpm BETWEEN b.light_lo AND b.light_hi THEN 'LIGHT'\r\n            WHEN p.rpm BETWEEN b.med_lo AND b.med_hi THEN 'MEDIUM'\r\n            WHEN p.rpm BETWEEN b.heavy_lo AND b.heavy_hi THEN 'HEAVY'\r\n            ELSE 'OTHER'\r\n        END AS load_band\r\n    FROM points p\r\n    CROSS JOIN rpm_bounds b\r\n),\r\n\r\nby_object_band AS (\r\n    SELECT\r\n        o.object_label,\r\n        c.load_band,\r\n        COUNT(*) * 5.0 / 60.0 AS hours_est\r\n    FROM classified c\r\n    JOIN raw_business_data.objects o\r\n        ON o.device_id = c.device_id\r\n       AND o.is_deleted IS NOT TRUE\r\n        AND o.object_label IN (\r\n          'Volvo EC750E' \r\n          ,'Xingtai XT-504С'\r\n          ,'Lovol TB-504'\r\n          ,'DEVELON DX220LC-7M'\r\n          )   \r\n    GROUP BY\r\n        o.object_label,\r\n        c.load_band\r\n)\r\n\r\nSELECT\r\n    COALESCE(object_label, 'Unknown') AS category,\r\n    ROUND(SUM(hours_est)::numeric, 2) AS value,\r\n    load_band AS series\r\nFROM by_object_band\r\nGROUP BY\r\n    object_label,\r\n    load_band\r\nORDER BY\r\n    category,\r\n    series\r\nLIMIT 500;"
+          "statement": "WITH rpm_bounds AS (\r\n    SELECT\r\n        800::int  AS light_lo,\r\n        1100::int AS light_hi,\r\n        1101::int AS med_lo,\r\n        1650::int AS med_hi,\r\n        1651::int AS heavy_lo,\r\n        2200::int AS heavy_hi\r\n),\r\n\r\npoints AS (\r\n    SELECT\r\n        i.device_id,\r\n        i.device_time,\r\n        COALESCE(\r\n            (i.value::FLOAT / NULLIF(sd.divider, 0)) * sd.multiplier,\r\n            i.value::FLOAT\r\n        ) AS rpm\r\n    FROM raw_telematics_data.inputs i\r\n    JOIN raw_business_data.sensor_description sd\r\n        ON i.device_id = sd.device_id\r\n       AND i.sensor_name = sd.input_label\r\n    WHERE sd.sensor_id IS NOT NULL\r\n      AND (\r\n            sd.sensor_type = 'rpm'\r\n         OR LOWER(COALESCE(sd.sensor_units, '')) LIKE '%rpm%'\r\n      )\r\n      AND i.device_time >= NOW() - INTERVAL '7 days'\r\n),\r\n\r\nclassified AS (\r\n    SELECT\r\n        p.device_id,\r\n        CASE\r\n            WHEN p.rpm BETWEEN b.light_lo AND b.light_hi THEN 'LIGHT'\r\n            WHEN p.rpm BETWEEN b.med_lo AND b.med_hi THEN 'MEDIUM'\r\n            WHEN p.rpm BETWEEN b.heavy_lo AND b.heavy_hi THEN 'HEAVY'\r\n            ELSE 'OTHER'\r\n        END AS load_band\r\n    FROM points p\r\n    CROSS JOIN rpm_bounds b\r\n),\r\n\r\nby_object_band AS (\r\n    SELECT\r\n        o.object_label,\r\n        c.load_band,\r\n        COUNT(*) * 5.0 / 60.0 AS hours_est\r\n    FROM classified c\r\n    JOIN raw_business_data.objects o\r\n        ON o.device_id = c.device_id\r\n       AND o.is_deleted IS NOT TRUE\r\n    GROUP BY\r\n        o.object_label,\r\n        c.load_band\r\n)\r\n\r\nSELECT\r\n    COALESCE(object_label, 'Unknown') AS category,\r\n    ROUND(SUM(hours_est)::numeric, 2) AS value,\r\n    load_band AS series\r\nFROM by_object_band\r\nGROUP BY\r\n    object_label,\r\n    load_band\r\nORDER BY\r\n    category,\r\n    series\r\nLIMIT 500;"
         },
         "verify": {
           "max_rows": 500
@@ -254,7 +254,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT o.object_label AS category,  COUNT(*)::bigint AS value, 'trips' AS series  \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\n        AND o.object_label IN (\r\n          'Volvo EC750E' \r\n          ,'Xingtai XT-504С'\r\n          ,'Lovol TB-504'\r\n          ,'DEVELON DX220LC-7M'\r\n          )   \r\nGROUP BY o.object_label ORDER BY value DESC LIMIT 50"
+          "statement": "SELECT o.object_label AS category,  COUNT(*)::bigint AS value, 'trips' AS series  \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\nGROUP BY o.object_label ORDER BY value DESC LIMIT 50"
         },
         "verify": {
           "max_rows": 50
@@ -281,7 +281,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT o.object_label AS category, ROUND(SUM(t.track_distance_meters)/1000.0, 1)::numeric AS value,  'km' AS series \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\n        AND o.object_label IN (\r\n          'Volvo EC750E' \r\n          ,'Xingtai XT-504С'\r\n          ,'Lovol TB-504'\r\n          ,'DEVELON DX220LC-7M'\r\n          )   \r\nGROUP BY o.object_label ORDER BY value DESC NULLS LAST LIMIT 50"
+          "statement": "SELECT o.object_label AS category, ROUND(SUM(t.track_distance_meters)/1000.0, 1)::numeric AS value,  'km' AS series \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\nGROUP BY o.object_label ORDER BY value DESC NULLS LAST LIMIT 50"
         },
         "verify": {
           "max_rows": 50
@@ -308,10 +308,33 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT o.object_label, zg.zone_label, zv.enter_time, zv.exit_time, trim(leading '0' from to_char(interval '0' + zv.duration, 'HH24:MI:SS')) AS duration \r\nFROM business_data.zone_visits zv \r\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN business_data.zones_geom zg ON zg.zone_id = zv.zone_id \r\nWHERE zv.enter_time >= now() - interval '7 days' \r\n        AND o.object_label IN (\r\n          'Volvo EC750E' \r\n          ,'Xingtai XT-504С'\r\n          ,'Lovol TB-504'\r\n          ,'DEVELON DX220LC-7M'\r\n          )   \r\nORDER BY zv.enter_time DESC LIMIT 20"
+          "statement": "SELECT o.object_label, zg.zone_label, zv.enter_time, zv.exit_time, trim(leading '0' from to_char(interval '0' + zv.duration, 'HH24:MI:SS')) AS duration \r\nFROM business_data.zone_visits zv \r\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN business_data.zones_geom zg ON zg.zone_id = zv.zone_id \r\nWHERE zv.enter_time >= now() - interval '7 days'  \r\nORDER BY zv.enter_time DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "New barchart",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "statement": ""
         },
         "dataset": {
           "shape": "table",
