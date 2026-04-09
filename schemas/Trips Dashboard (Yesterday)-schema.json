@@ -1,0 +1,801 @@
+{
+  "id": null,
+  "uid": "trips-dashboard-yesterday",
+  "tags": [
+    "trips",
+    "fleet",
+    "telematics",
+    "yesterday"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-1d"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Trips Dashboard (Yesterday)",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Trips",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Distance (km)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total Drive Time (hours)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Vehicles",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(DISTINCT COALESCE(v.vehicle_id::text, o.object_id::text, t.device_id::text)) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Average Trip Distance (km)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(AVG(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Average Speed (km/h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(SUM(t.avg_speed * t.track_duration_seconds) / NULLIF(SUM(t.track_duration_seconds),0), 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE AND COALESCE(t.track_duration_seconds,0) > 0;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Peak Speed Observed (km/h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT MAX(t.max_speed) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Zone Retention Rate (%)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(100.0 * SUM(CASE WHEN t.start_zone IS NOT NULL AND t.start_zone = t.end_zone THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Trips Over Time",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Distance Over Time (km)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "Drive Time Over Time (hours)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "barchart",
+      "title": "Trips by Hour of Day",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT LPAD(EXTRACT(HOUR FROM t.track_start_time)::text, 2, '0') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Trip Distance Bands",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.track_distance_meters,0) < 5000 THEN '<5 km'\r\n            WHEN t.track_distance_meters < 20000 THEN '5-20 km'\r\n            WHEN t.track_distance_meters < 50000 THEN '20-50 km'\r\n            WHEN t.track_distance_meters < 100000 THEN '50-100 km'\r\n            ELSE '100+ km'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<5 km' THEN 1\r\n        WHEN '5-20 km' THEN 2\r\n        WHEN '20-50 km' THEN 3\r\n        WHEN '50-100 km' THEN 4\r\n        ELSE 5\r\n    END;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "barchart",
+      "title": "Trip Duration Bands",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.track_duration_seconds,0) < 900 THEN '<15 min'\r\n            WHEN t.track_duration_seconds < 1800 THEN '15-30 min'\r\n            WHEN t.track_duration_seconds < 3600 THEN '30-60 min'\r\n            WHEN t.track_duration_seconds < 7200 THEN '1-2 h'\r\n            ELSE '2+ h'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<15 min' THEN 1\r\n        WHEN '15-30 min' THEN 2\r\n        WHEN '30-60 min' THEN 3\r\n        WHEN '1-2 h' THEN 4\r\n        ELSE 5\r\n    END;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "barchart",
+      "title": "Top 10 Vehicles by Distance",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 10;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "barchart",
+      "title": "Top 10 Vehicles by Trips",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 10;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "barchart",
+      "title": "Distance by Group",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(g.group_label, 'Unassigned') AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "barchart",
+      "title": "Start Zone Distribution",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 66
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 15;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "barchart",
+      "title": "End Zone Distribution",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 80
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(t.end_zone, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 15;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "piechart",
+      "title": "Speed Compliance Mix",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 80
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.max_speed, 0) < 50 THEN '<50'\r\n            WHEN t.max_speed < 80 THEN '50-79'\r\n            WHEN t.max_speed < 100 THEN '80-99'\r\n            WHEN t.max_speed < 120 THEN '100-119'\r\n            ELSE '120+'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<50' THEN 1\r\n        WHEN '50-79' THEN 2\r\n        WHEN '80-99' THEN 3\r\n        WHEN '100-119' THEN 4\r\n        ELSE 5\r\n    END;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Top Origin-Destination Pairs",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS start_zone, COALESCE(t.end_zone, 'Unknown') AS end_zone, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS distance_km FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY trips DESC LIMIT 20;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Vehicle Utilization Table",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 108
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS asset_name, COALESCE(g.group_label, 'Unassigned') AS group_name, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS distance_km, ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS drive_hours, ROUND(AVG(t.avg_speed), 2) AS avg_speed_kmh, MAX(t.max_speed) AS max_speed_kmh FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY distance_km DESC;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 1000,
+      "read_only": true,
+      "timeout_ms": 5000,
+      "allowed_schemas": [
+        "business_data",
+        "raw_business_data"
+      ]
+    },
+    "parameters": {
+      "bindings": {
+        "to": "NULL",
+        "from": "NULL",
+        "tenant_id": "NULL"
+      }
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": true
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d"
+    ],
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "target": {
+          "tags": [],
+          "type": "dashboard",
+          "limit": 100,
+          "matchAny": false
+        },
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "datasource": {
+          "uid": "-- Dashboard --",
+          "type": "dashboard"
+        }
+      }
+    ]
+  },
+  "description": "Trips dashboard based on business_data.tracks for yesterday with indicators on top and maximum two bar charts per row",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}
