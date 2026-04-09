@@ -525,7 +525,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {}, geocodedAddresses, latColumn, lonColumn, gpsPairs, format = 'xlsx', report_data, cachedData } = req.body;
+    const { params = {}, geocodedAddresses, latColumn, lonColumn, gpsPairs, format = 'xlsx', report_data, cachedData, excelHeader } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
 
     if (!iotDbUrl) {
@@ -600,6 +600,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       columns,
       rows,
       executedAt: new Date(),
+      ...(excelHeader && { excelHeader }),
     };
 
     if (format === 'csv') {

@@ -622,6 +622,12 @@ class ApiService {
     latColumn?: string;
     lonColumn?: string;
     format?: 'xlsx' | 'csv';
+    excelHeader?: {
+      enabled: boolean;
+      title?: string;
+      description?: string;
+      column?: string;
+    };
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -745,6 +751,12 @@ class ApiService {
     columns: { name: string; type: string }[];
     rows: unknown[][];
     format: 'xlsx' | 'csv';
+    excelHeader?: {
+      enabled: boolean;
+      title?: string;
+      description?: string;
+      column?: string;
+    };
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/panels/export`;

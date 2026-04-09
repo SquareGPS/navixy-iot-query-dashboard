@@ -53,7 +53,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { CompositeReport, CompositeReportExecutionResult, GPSPoint } from '@/types/dashboard-types';
+import type { CompositeReport, CompositeReportExecutionResult, GPSPoint, ExcelHeaderConfig } from '@/types/dashboard-types';
+import { ExportDialog } from '@/components/export/ExportDialog';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
   Table,
@@ -122,6 +123,8 @@ export default function CompositeReportView() {
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [exporting, setExporting] = useState<'excel' | 'html' | 'pdf' | null>(null);
   const [excelFormat, setExcelFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportDialogFormat, setExportDialogFormat] = useState<'xlsx' | 'csv'>('xlsx');
   const [editableSql, setEditableSql] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
@@ -630,7 +633,15 @@ export default function CompositeReportView() {
   };
 
   // Export handlers
-  const handleExportExcel = async (format: 'xlsx' | 'csv' = excelFormat) => {
+  const openExportDialog = (format: 'xlsx' | 'csv') => {
+    setExportDialogFormat(format);
+    setExportDialogOpen(true);
+  };
+
+  const handleExportExcel = async (
+    format: 'xlsx' | 'csv' = excelFormat,
+    excelHeader?: ExcelHeaderConfig
+  ) => {
     if (!id) return;
     
     setExporting('excel');
@@ -638,6 +649,7 @@ export default function CompositeReportView() {
       const blob = await apiService.exportCompositeReportExcel(id, {
         ...getExportGeocodingOptions(),
         format,
+        ...(excelHeader && { excelHeader }),
       });
       if (blob) {
         const extension = format === 'csv' ? 'csv' : 'xlsx';
@@ -651,6 +663,38 @@ export default function CompositeReportView() {
     } finally {
       setExporting(null);
     }
+  };
+
+  const handleExportDialogSubmit = async (options: {
+    format: 'xlsx' | 'csv';
+    excelHeader?: ExcelHeaderConfig;
+    saveAsDefault?: boolean;
+  }) => {
+    setExportDialogOpen(false);
+
+    if (options.saveAsDefault && options.excelHeader && id && report) {
+      try {
+        const updatedConfig = {
+          ...report.config,
+          excelHeader: options.excelHeader,
+        };
+        await apiService.updateCompositeReport(id, {
+          title: report.title,
+          description: report.description,
+          slug: report.slug,
+          section_id: report.section_id,
+          sort_order: report.sort_order,
+          sql_query: report.sql_query,
+          config: updatedConfig,
+        });
+        setReport({ ...report, config: updatedConfig });
+        toast.success('Export header settings saved');
+      } catch {
+        toast.error('Failed to save export header settings');
+      }
+    }
+
+    await handleExportExcel(options.format, options.excelHeader);
   };
 
   const handleExportHTML = async () => {
@@ -785,11 +829,11 @@ export default function CompositeReportView() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
+                <DropdownMenuItem onClick={() => openExportDialog('xlsx')}>
                   <FileSpreadsheet className="h-4 w-4 mr-2" />
                   Excel (.xlsx)
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
+                <DropdownMenuItem onClick={() => openExportDialog('csv')}>
                   <FileText className="h-4 w-4 mr-2" />
                   CSV (.csv)
                 </DropdownMenuItem>
@@ -1215,11 +1259,11 @@ export default function CompositeReportView() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start">
-                                <DropdownMenuItem onClick={() => handleExportExcel('xlsx')}>
+                                <DropdownMenuItem onClick={() => openExportDialog('xlsx')}>
                                   <FileSpreadsheet className="h-4 w-4 mr-2" />
                                   Excel (.xlsx)
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleExportExcel('csv')}>
+                                <DropdownMenuItem onClick={() => openExportDialog('csv')}>
                                   <FileText className="h-4 w-4 mr-2" />
                                   CSV (.csv)
                                 </DropdownMenuItem>
@@ -1545,6 +1589,17 @@ export default function CompositeReportView() {
         </div>
       )}
       </div>
+
+      <ExportDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        format={exportDialogFormat}
+        defaultTitle={report?.title || ''}
+        defaultDescription={report?.description || ''}
+        savedConfig={report?.config?.excelHeader}
+        onExport={handleExportDialogSubmit}
+        exporting={exporting === 'excel'}
+      />
     </AppLayout>
   );
 }

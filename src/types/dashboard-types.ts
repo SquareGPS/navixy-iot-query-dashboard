@@ -149,11 +149,21 @@ export interface DashboardParameter {
   allowCustom?: boolean;
 }
 
+export interface ExcelHeaderConfig {
+  enabled: boolean;
+  title?: string;
+  description?: string;
+  column?: string;
+}
+
 export interface Panel {
   id?: string | number;
   type: PanelType;
   title: string;
   description?: string;
+  exportConfig?: {
+    excelHeader?: ExcelHeaderConfig;
+  };
   gridPos: {
     x: number;
     y: number;
@@ -451,6 +461,7 @@ export interface CompositeReportConfig {
   table: CompositeTableConfig;
   chart: CompositeChartConfig;
   map: CompositeMapConfig;
+  excelHeader?: ExcelHeaderConfig;
 }
 
 export interface CompositeTableConfig {
