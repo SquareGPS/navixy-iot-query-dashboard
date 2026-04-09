@@ -1,0 +1,402 @@
+{
+  "id": null,
+  "uid": "heavy-machinery-dashboard",
+  "tags": [
+    "heavy-machinery",
+    "engine",
+    "workload",
+    "operator"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-7d"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Heavy Machinery – Actual engine operation",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Total engine hours (1d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH rpm_bounds AS (SELECT 800::int AS light_lo, 1100::int AS light_hi, 1101::int AS med_lo, 1650::int AS med_hi, 1651::int AS heavy_lo, 2200::int AS heavy_hi), points AS (SELECT i.device_id FROM raw_telematics_data.inputs i JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label WHERE sd.sensor_id IS NOT NULL AND (sd.sensor_type = 'rpm' OR LOWER(COALESCE(sd.sensor_units,'')) LIKE '%rpm%') AND i.device_time >= now() - interval '1 day'), classified AS (SELECT p.device_id FROM points p CROSS JOIN rpm_bounds b) SELECT ROUND((COUNT(*) * 5.0/60.0)::numeric, 1) AS value FROM classified c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Zone visits (1d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::bigint AS value FROM business_data.zone_visits WHERE enter_time >= now() - interval '1 day'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Units with temp >95°C (1d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH inputs AS (\r\n  SELECT\r\n    i.device_id,\r\n    i.device_time,\r\n    i.sensor_name,\r\n    i.value::float AS val\r\n  FROM raw_telematics_data.inputs i\r\n  WHERE i.device_time >= now() - interval '1 day'\r\n),\r\ntemp_readings AS (\r\n  SELECT\r\n    i.device_id,\r\n    (i.val / NULLIF(sd.divider, 0)) * sd.multiplier AS temp_c\r\n  FROM inputs i\r\n  JOIN raw_business_data.sensor_description sd\r\n    ON i.device_id = sd.device_id\r\n   AND i.sensor_name = sd.input_label\r\n  WHERE sd.sensor_type = 'temperature'\r\n     OR LOWER(COALESCE(sd.input_label, '')) LIKE '%temp%'\r\n),\r\nby_object AS (\r\n  SELECT o.object_id\r\n  FROM temp_readings t\r\n  JOIN raw_business_data.objects o\r\n    ON o.device_id = t.device_id\r\n   AND o.is_deleted IS NOT TRUE\r\n  GROUP BY o.object_id\r\n  HAVING MAX(t.temp_c) > 95\r\n)\r\nSELECT COUNT(*) AS value\r\nFROM by_object;"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "kpi",
+      "title": "Unauthorized km (1d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH time_classified_tracks AS (SELECT t.track_distance_meters, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 18 THEN 'authorized' ELSE 'unauthorized' END AS time_category FROM business_data.tracks t WHERE t.track_start_time >= now() - interval '1 day') SELECT COALESCE(ROUND(SUM(track_distance_meters)/1000.0, 0), 0)::bigint AS value FROM time_classified_tracks WHERE time_category = 'unauthorized'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "piechart",
+      "title": "Usage by time category (30d)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH time_classified_tracks AS (SELECT t.device_id, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend_usage' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 18 THEN 'authorized_work_time' ELSE 'unauthorized_non_work_time' END AS time_category, t.track_distance_meters FROM business_data.tracks t WHERE t.track_start_time >= now() - interval '30 days') SELECT time_category AS category, ROUND(SUM(track_distance_meters)/1000.0, 0) AS value FROM time_classified_tracks GROUP BY time_category ORDER BY time_category"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Workload by band (7d)",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH rpm_bounds AS (\r\n    SELECT\r\n        800::int  AS light_lo,\r\n        1100::int AS light_hi,\r\n        1101::int AS med_lo,\r\n        1650::int AS med_hi,\r\n        1651::int AS heavy_lo,\r\n        2200::int AS heavy_hi\r\n),\r\n\r\npoints AS (\r\n    SELECT\r\n        i.device_id,\r\n        i.device_time,\r\n        COALESCE(\r\n            (i.value::FLOAT / NULLIF(sd.divider, 0)) * sd.multiplier,\r\n            i.value::FLOAT\r\n        ) AS rpm\r\n    FROM raw_telematics_data.inputs i\r\n    JOIN raw_business_data.sensor_description sd\r\n        ON i.device_id = sd.device_id\r\n       AND i.sensor_name = sd.input_label\r\n    WHERE sd.sensor_id IS NOT NULL\r\n      AND (\r\n            sd.sensor_type = 'rpm'\r\n         OR LOWER(COALESCE(sd.sensor_units, '')) LIKE '%rpm%'\r\n      )\r\n      AND i.device_time >= NOW() - INTERVAL '7 days'\r\n),\r\n\r\nclassified AS (\r\n    SELECT\r\n        p.device_id,\r\n        CASE\r\n            WHEN p.rpm BETWEEN b.light_lo AND b.light_hi THEN 'LIGHT'\r\n            WHEN p.rpm BETWEEN b.med_lo AND b.med_hi THEN 'MEDIUM'\r\n            WHEN p.rpm BETWEEN b.heavy_lo AND b.heavy_hi THEN 'HEAVY'\r\n            ELSE 'OTHER'\r\n        END AS load_band\r\n    FROM points p\r\n    CROSS JOIN rpm_bounds b\r\n),\r\n\r\nby_object_band AS (\r\n    SELECT\r\n        o.object_label,\r\n        c.load_band,\r\n        COUNT(*) * 5.0 / 60.0 AS hours_est\r\n    FROM classified c\r\n    JOIN raw_business_data.objects o\r\n        ON o.device_id = c.device_id\r\n       AND o.is_deleted IS NOT TRUE\r\n    GROUP BY\r\n        o.object_label,\r\n        c.load_band\r\n)\r\n\r\nSELECT\r\n    COALESCE(object_label, 'Unknown') AS category,\r\n    ROUND(SUM(hours_est)::numeric, 2) AS value,\r\n    load_band AS series\r\nFROM by_object_band\r\nGROUP BY\r\n    object_label,\r\n    load_band\r\nORDER BY\r\n    category,\r\n    series\r\nLIMIT 500;"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Zone visits by zone (7d)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(zg.zone_label, 'Unknown') AS category, COUNT(*)::bigint AS value FROM business_data.zone_visits zv LEFT JOIN business_data.zones_geom zg ON zg.zone_id = zv.zone_id WHERE zv.enter_time >= now() - interval '7 days' GROUP BY zg.zone_label ORDER BY value DESC LIMIT 15"
+        },
+        "verify": {
+          "max_rows": 15
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "barchart",
+      "title": "Trips by unit (1d)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT o.object_label AS category,  COUNT(*)::bigint AS value, 'trips' AS series  \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\nGROUP BY o.object_label ORDER BY value DESC LIMIT 50"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Distance km by unit (1d)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT o.object_label AS category, ROUND(SUM(t.track_distance_meters)/1000.0, 1)::numeric AS value,  'km' AS series \r\nFROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE \r\nWHERE t.track_start_time >= now() - interval '1 day' \r\nGROUP BY o.object_label ORDER BY value DESC NULLS LAST LIMIT 50"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Recent zone visits",
+      "gridPos": {
+        "h": 21,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT o.object_label, zg.zone_label, zv.enter_time, zv.exit_time, trim(leading '0' from to_char(interval '0' + zv.duration, 'HH24:MI:SS')) AS duration \r\nFROM business_data.zone_visits zv \r\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN business_data.zones_geom zg ON zg.zone_id = zv.zone_id \r\nWHERE zv.enter_time >= now() - interval '7 days'  \r\nORDER BY zv.enter_time DESC LIMIT 20"
+        },
+        "verify": {
+          "max_rows": 20
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "New barchart",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "statement": ""
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 30000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Workload, usage by time, zone visits, overheating, operator scoring. Idle (ignition ON, engine OFF) excluded — no data in current dataset.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

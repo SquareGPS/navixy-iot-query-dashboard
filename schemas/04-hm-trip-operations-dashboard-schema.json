@@ -1,0 +1,900 @@
+{
+  "id": null,
+  "uid": "hm-trip-operations-dashboard",
+  "tags": [
+    "hm",
+    "fleet",
+    "trips",
+    "operations",
+    "dashboard"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-7d"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "HM Trip Operations Dashboard",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Trips Yesterday (08:00–19:00)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND t.track_start_time::time >= time '08:00:00'\n  AND t.track_start_time::time < time '19:00:00'\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Trips Yesterday (19:00–08:00)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND (\n    t.track_start_time::time >= time '19:00:00'\n    OR t.track_start_time::time < time '08:00:00'\n  )\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Trips Last 7d (08:00–19:00)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.track_start_time::time >= time '08:00:00'\n  AND t.track_start_time::time < time '19:00:00'\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "kpi",
+      "title": "Trips Last 7d (19:00–08:00)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND (\n    t.track_start_time::time >= time '19:00:00'\n    OR t.track_start_time::time < time '08:00:00'\n  )\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "kpi",
+      "title": "Avg Trip Duration Yesterday (min)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 11
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT ROUND(AVG(t.track_duration_seconds) / 60.0, 2) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND t.track_duration_seconds IS NOT NULL\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "Avg Trip Distance Yesterday (km)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 11
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT ROUND(AVG(t.track_distance_meters) / 1000.0, 2) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND t.track_distance_meters IS NOT NULL\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "kpi",
+      "title": "Avg Trip Duration Last 7d (min)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 11
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT ROUND(AVG(t.track_duration_seconds) / 60.0, 2) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.track_duration_seconds IS NOT NULL\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "kpi",
+      "title": "Avg Trip Distance Last 7d (km)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 11
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT ROUND(AVG(t.track_distance_meters) / 1000.0, 2) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.track_distance_meters IS NOT NULL\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "kpi",
+      "title": "Short Trips Yesterday (<5 min)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND COALESCE(t.track_duration_seconds, 0) < 300\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "kpi",
+      "title": "Short Trips Last 7d (<5 min)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND COALESCE(t.track_duration_seconds, 0) < 300\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "kpi",
+      "title": "Long Trips Yesterday (>8 h)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND COALESCE(t.track_duration_seconds, 0) > 8 * 3600\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "kpi",
+      "title": "Long Trips Last 7d (>8 h)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND COALESCE(t.track_duration_seconds, 0) > 8 * 3600\n"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Trips per Day — Last 7 Days",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT\n  t.track_start_time::date AS category,\n  COUNT(*) AS value\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\nGROUP BY 1\nORDER BY 1\n"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "barchart",
+      "title": "Active Driving Ratio by Day — Last 7 Days (%)",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\n, all_objects AS (\n  SELECT COUNT(DISTINCT object_id) AS total_objects\n  FROM asset_scope\n),\ndaily_active AS (\n  SELECT\n    t.track_start_time::date AS trip_day,\n    COUNT(DISTINCT t.object_id) AS active_objects\n  FROM tracks_enriched t\n  CROSS JOIN params p\n  WHERE t.track_start_time >= p.last_7d_start\n    AND t.track_start_time < p.today_start\n    AND t.object_id IS NOT NULL\n  GROUP BY 1\n)\nSELECT\n  d.trip_day AS category,\n  ROUND(100.0 * d.active_objects / NULLIF(a.total_objects, 0), 2) AS value\nFROM daily_active d\nCROSS JOIN all_objects a\nORDER BY d.trip_day\n"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "piechart",
+      "title": "Active vs Inactive Objects — Last 7 Days",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\n, all_objects AS (\n  SELECT COUNT(DISTINCT object_id) AS total_objects\n  FROM asset_scope\n),\nactive_objects AS (\n  SELECT COUNT(DISTINCT t.object_id) AS active_objects\n  FROM tracks_enriched t\n  CROSS JOIN params p\n  WHERE t.track_start_time >= p.last_7d_start\n    AND t.track_start_time < p.today_start\n    AND t.object_id IS NOT NULL\n)\nSELECT 'Active objects' AS category, active_objects AS value\nFROM active_objects\nUNION ALL\nSELECT 'Inactive objects' AS category, (a.total_objects - x.active_objects) AS value\nFROM all_objects a\nCROSS JOIN active_objects x\n"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "piechart",
+      "title": "Active vs Inactive Objects — Yesterday",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\n, all_objects AS (\n  SELECT COUNT(DISTINCT object_id) AS total_objects\n  FROM asset_scope\n),\nactive_objects AS (\n  SELECT COUNT(DISTINCT t.object_id) AS active_objects\n  FROM tracks_enriched t\n  CROSS JOIN params p\n  WHERE t.track_start_time >= p.yesterday_start\n    AND t.track_start_time < p.today_start\n    AND t.object_id IS NOT NULL\n)\nSELECT 'Active objects' AS category, active_objects AS value\nFROM active_objects\nUNION ALL\nSELECT 'Inactive objects' AS category, (a.total_objects - x.active_objects) AS value\nFROM all_objects a\nCROSS JOIN active_objects x\n"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "value": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "barchart",
+      "title": "Top 5 Vehicles by Avg Trips per Active Day — Last 7 Days",
+      "gridPos": {
+        "h": 15,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\n, daily_counts AS (\n  SELECT\n    t.vehicle_id,\n    t.asset_label,\n    t.track_start_time::date AS trip_day,\n    COUNT(*) AS trips_per_day\n  FROM tracks_enriched t\n  CROSS JOIN params p\n  WHERE t.track_start_time >= p.last_7d_start\n    AND t.track_start_time < p.today_start\n  GROUP BY 1,2,3\n)\nSELECT\n  COALESCE(asset_label, vehicle_id::text, 'Unmapped') AS category,\n  ROUND(AVG(trips_per_day), 2) AS value\nFROM daily_counts\nGROUP BY 1\nORDER BY value DESC, category\nLIMIT 5\n"
+        },
+        "verify": {
+          "max_rows": 20
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "value": {
+              "type": "number"
+            },
+            "category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Top 5 Longest Trips — Yesterday",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT\n  t.vehicle_id,\n  t.asset_label,\n  t.object_id,\n  t.device_id,\n  t.track_id,\n  t.track_start_time,\n  t.track_end_time,\n  ROUND(t.track_duration_seconds / 3600.0, 2) AS trip_duration_hours,\n  ROUND(t.track_distance_meters / 1000.0, 2) AS trip_distance_km\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\nORDER BY t.track_duration_seconds DESC NULLS LAST, t.track_id\nLIMIT 5\n"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "track_id": {
+              "type": "integer"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "object_id": {
+              "type": "integer"
+            },
+            "vehicle_id": {
+              "type": "integer"
+            },
+            "asset_label": {
+              "type": "string"
+            },
+            "track_end_time": {
+              "type": "timestamptz"
+            },
+            "track_start_time": {
+              "type": "timestamptz"
+            },
+            "trip_distance_km": {
+              "type": "number"
+            },
+            "trip_duration_hours": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Top 5 Longest Trips — Last 7 Days",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "\nWITH asset_scope AS (\n  SELECT\n    o.object_id,\n    o.device_id,\n    o.object_label,\n    v.vehicle_id,\n    v.vehicle_label,\n    v.registration_number,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, o.device_id::text) AS asset_label\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n  WHERE COALESCE(o.is_deleted, false) = false\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    t.min_speed,\n    s.object_id,\n    s.vehicle_id,\n    s.object_label,\n    s.vehicle_label,\n    s.registration_number,\n    s.asset_label\n  FROM business_data.tracks t\n  LEFT JOIN asset_scope s\n    ON s.device_id = t.device_id\n),\nparams AS (\n  SELECT\n    date_trunc('day', now()) AS today_start,\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start\n)\n\nSELECT\n  t.vehicle_id,\n  t.asset_label,\n  t.object_id,\n  t.device_id,\n  t.track_id,\n  t.track_start_time,\n  t.track_end_time,\n  ROUND(t.track_duration_seconds / 3600.0, 2) AS trip_duration_hours,\n  ROUND(t.track_distance_meters / 1000.0, 2) AS trip_distance_km\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\nORDER BY t.track_duration_seconds DESC NULLS LAST, t.track_id\nLIMIT 5\n"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "track_id": {
+              "type": "integer"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "object_id": {
+              "type": "integer"
+            },
+            "vehicle_id": {
+              "type": "integer"
+            },
+            "asset_label": {
+              "type": "string"
+            },
+            "track_end_time": {
+              "type": "timestamptz"
+            },
+            "track_start_time": {
+              "type": "timestamptz"
+            },
+            "trip_distance_km": {
+              "type": "number"
+            },
+            "trip_duration_hours": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Trips with MAX speed 120+ (yesterday)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 83
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) AS today_start\n)\nSELECT\n  COUNT(*) AS trips_max_speed_gt_120_yesterday\nFROM business_data.tracks t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND t.max_speed > 120;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "kpi",
+      "title": "Trips with MAX speed 120+ (7days)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 83
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start,\n    date_trunc('day', now()) AS today_start\n)\nSELECT\n  COUNT(*) AS trips_max_speed_gt_120_last_7d\nFROM business_data.tracks t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.max_speed > 120;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "linechart",
+      "title": "Average speed and max speed for the last 7 days",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 105
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start,\n    date_trunc('day', now()) AS today_start\n)\nSELECT\n  t.track_start_time::date AS trip_day,\n  ROUND(AVG(t.avg_speed)::numeric, 2) AS avg_speed_daily,\n  ROUND(AVG(t.max_speed)::numeric, 2) AS max_speed_daily_avg,\n  ROUND(MAX(t.max_speed)::numeric, 2) AS max_speed_daily_peak\nFROM business_data.tracks t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\nGROUP BY 1\nORDER BY 1;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "kpi",
+      "title": "Trips with speed AVG 80km/h+ (yesterday)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 83
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '1 day' AS yesterday_start,\n    date_trunc('day', now()) AS today_start\n)\nSELECT\n  COUNT(*) AS trips_avg_speed_gt_80_yesterday\nFROM business_data.tracks t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.yesterday_start\n  AND t.track_start_time < p.today_start\n  AND t.avg_speed > 80;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "kpi",
+      "title": "Trips with speed AVG 80km/h+ (7 days)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 83
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start,\n    date_trunc('day', now()) AS today_start\n)\nSELECT\n  COUNT(*) AS trips_avg_speed_gt_80_last_7d\nFROM business_data.tracks t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.avg_speed > 80;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Top 5 trips by max speed with vehicle label for the last 7 days",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 89
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (\n  SELECT\n    date_trunc('day', now()) - interval '7 day' AS last_7d_start,\n    date_trunc('day', now()) AS today_start\n),\ntracks_enriched AS (\n  SELECT\n    t.track_id,\n    t.device_id,\n    t.track_start_time,\n    t.track_end_time,\n    t.track_duration_seconds,\n    t.track_distance_meters,\n    t.avg_speed,\n    t.max_speed,\n    o.object_id,\n    v.vehicle_id,\n    COALESCE(v.vehicle_label, v.registration_number, o.object_label, t.device_id::text) AS vehicle_name\n  FROM business_data.tracks t\n  LEFT JOIN raw_business_data.objects o\n    ON o.device_id = t.device_id\n   AND COALESCE(o.is_deleted, false) = false\n  LEFT JOIN raw_business_data.vehicles v\n    ON v.object_id = o.object_id\n)\nSELECT\n  vehicle_id,\n  vehicle_name,\n  track_id,\n  track_start_time,\n  track_end_time,\n  ROUND(avg_speed::numeric, 2) AS avg_speed,\n  ROUND(max_speed::numeric, 2) AS max_speed,\n  ROUND(track_duration_seconds / 60.0, 2) AS trip_duration_minutes,\n  ROUND(track_distance_meters / 1000.0, 2) AS trip_distance_km\nFROM tracks_enriched t\nCROSS JOIN params p\nWHERE t.track_start_time >= p.last_7d_start\n  AND t.track_start_time < p.today_start\n  AND t.max_speed IS NOT NULL\nORDER BY t.max_speed DESC, t.track_start_time DESC\nLIMIT 5;"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 30000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "1d",
+      "7d",
+      "14d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Dashboard generated from the trip metrics list and the provided example JSON. It uses business_data.tracks enriched with raw_business_data.objects and raw_business_data.vehicles so charts and tables show human-readable asset labels where available.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

@@ -1,0 +1,272 @@
+{
+  "id": 1,
+  "uid": "vehicle-mileage",
+  "tags": [
+    "example",
+    "getting-started"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-72h"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Vehicle Mileage Dashboard",
+  "panels": [
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Mileage Distribution",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH time_classified_tracks AS (SELECT t.track_distance_meters, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE) SELECT time_category AS category, round(SUM(track_distance_meters) / 1000.0, 0) AS value FROM time_classified_tracks GROUP BY time_category ORDER BY time_category"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Mileage Distribution By Weeks, km",
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "valueMode": "color",
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH time_classified_tracks AS (SELECT t.track_distance_meters, DATE_TRUNC('week', t.track_start_time)::DATE AS week_start_date, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE) SELECT week_start_date AS category, ROUND(SUM(track_distance_meters) / 1000.0, 0) AS value, time_category AS series FROM time_classified_tracks GROUP BY week_start_date, time_category ORDER BY week_start_date, time_category"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {}
+        },
+        "visualization": {
+          "stacking": "stacked",
+          "orientation": "vertical",
+          "colorPalette": "modern"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "Mileage per Vehicle, km",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH vehicle_mileage AS (SELECT t.device_id, SUM(t.track_distance_meters) / 1000.0 AS total_km FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE GROUP BY t.device_id) SELECT ROUND(AVG(total_km), 0) AS value FROM vehicle_mileage"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Total Mileage, km",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT ROUND(SUM(t.track_distance_meters) / 1000.0, 0) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Messages Over Time",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "placement": "bottom",
+          "showLegend": true,
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH daily_mileage_by_department AS (SELECT DATE(t.track_start_time) AS track_date, COALESCE(d.department_label, 'Unknown') AS department_label, SUM(t.track_distance_meters) / 1000.0 AS distance_km FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON t.device_id = o.device_id LEFT JOIN raw_business_data.employees e ON o.object_id = e.object_id LEFT JOIN raw_business_data.departments d ON d.department_id = e.department_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE GROUP BY DATE(t.track_start_time), d.department_label) SELECT track_date AS timestamp, ROUND(SUM(CASE WHEN department_label = 'Drivers' THEN distance_km ELSE 0 END), 0) AS \"Drivers\", ROUND(SUM(CASE WHEN department_label = 'Logistics' THEN distance_km ELSE 0 END), 0) AS \"Logistics\", ROUND(SUM(CASE WHEN department_label = 'Sales' THEN distance_km ELSE 0 END), 0) AS \"Sales\" FROM daily_mileage_by_department GROUP BY track_date ORDER BY track_date"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {}
+        },
+        "visualization": {
+          "lineStyle": "solid",
+          "colorPalette": "modern",
+          "interpolation": "linear",
+          "legendPosition": "top"
+        }
+      }
+    }
+  ],
+  "refresh": "30s",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 1000,
+      "read_only": true,
+      "timeout_ms": 5000,
+      "allowed_schemas": [
+        "demo_data"
+      ]
+    },
+    "parameters": {
+      "bindings": {
+        "to": "NULL",
+        "from": "NULL",
+        "tenant_id": "NULL"
+      }
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "var_tenant",
+        "type": "constant",
+        "label": "Tenant",
+        "query": "demo-tenant-id",
+        "current": {
+          "text": "Demo Tenant",
+          "value": "demo-tenant-id"
+        },
+        "options": [
+          {
+            "text": "Demo Tenant",
+            "value": "demo-tenant-id",
+            "selected": true
+          }
+        ]
+      }
+    ],
+    "enable": true
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h"
+    ],
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "vehicle-mileage",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}
