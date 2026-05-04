@@ -427,22 +427,20 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Canonicalize the dashboard
     const canonicalized = canonicalizeRows(dashboardToUse);
 
-    // Ensure every panel has a unique ID (as string or number)
-    // This is critical because we use panel.id as a key for data fetching
-    // and storing results in panelData state.
-    const ensureIds = (panels: Panel[]) => {
-      panels.forEach(panel => {
-        if (panel.id === undefined || panel.id === null) {
-          panel.id = uuidv4();
-        }
-        if (panel.panels) {
-          ensureIds(panel.panels);
-        }
+    // Ensure every panel has a unique ID — return new objects instead of mutating
+    const withIds = (panels: Panel[]): Panel[] =>
+      panels.map(panel => {
+        const needsId = panel.id === undefined || panel.id === null;
+        const childPanels = panel.panels ? withIds(panel.panels) : panel.panels;
+        if (!needsId && childPanels === panel.panels) return panel;
+        return {
+          ...panel,
+          id: needsId ? uuidv4() : panel.id,
+          panels: childPanels,
+        };
       });
-    };
 
-    ensureIds(canonicalized.panels);
-    return canonicalized;
+    return { ...canonicalized, panels: withIds(canonicalized.panels) };
   }, [dashboard, storeDashboard, isEditingLayout]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions

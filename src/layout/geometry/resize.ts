@@ -7,6 +7,7 @@ import { clampToBounds, GRID_COLUMNS } from './grid';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import { idEq } from './idUtils';
 
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -241,7 +242,7 @@ export function applyResize(
   containerWidth: number
 ): GrafanaDashboard {
   // Find the panel to resize
-  const panelIndex = dashboard.panels.findIndex((p) => p.id === panelId);
+  const panelIndex = dashboard.panels.findIndex((p) => idEq(p.id, panelId));
   if (panelIndex === -1) {
     return dashboard; // Panel not found
   }
@@ -259,7 +260,7 @@ export function applyResize(
 
   // Create updated panels array
   const updatedPanels = dashboard.panels.map((p) =>
-    p.id === panelId
+    idEq(p.id, panelId)
       ? {
           ...p,
           gridPos: resizedRect,
@@ -267,15 +268,15 @@ export function applyResize(
       : { ...p }
   );
 
-  // Resolve collisions
+  // Resolve collisions — use panel's stored id to keep type consistent
   const afterCollisions = resolveCollisionsAfterResize(
-    { id: panelId, gridPos: resizedRect },
+    { id: panel.id!, gridPos: resizedRect },
     updatedPanels.map((p) => ({ id: p.id!, gridPos: p.gridPos }))
   );
 
   // Apply resolved positions back to panels
   const resultPanels = dashboard.panels.map((p) => {
-    const resolved = afterCollisions.find((resolved) => resolved.id === p.id);
+    const resolved = afterCollisions.find((r) => idEq(r.id, p.id));
     if (resolved) {
       return {
         ...p,

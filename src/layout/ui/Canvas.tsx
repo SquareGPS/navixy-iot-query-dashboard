@@ -29,6 +29,7 @@ import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
 import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } from '../geometry/rows';
+import { idEq } from '../geometry/idUtils';
 import { Card } from '@/components/ui/card';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { PanelGallery } from './PanelGallery';
@@ -472,16 +473,14 @@ export const Canvas: React.FC<CanvasProps> = ({
 
       // Helper function to check if drop position is within a row's valid area
       const isDropPositionInRow = (rowId: string | number, dropY: number): boolean => {
-        const row = rows.find((r) => r.id === rowId);
+        const row = rows.find((r) => idEq(r.id, rowId));
         if (!row) return false;
         
         if (row.collapsed === true) {
-          // For collapsed rows, only accept drops very close to the header (within 2 grid units)
           const headerBottom = row.gridPos.y + row.gridPos.h;
           return dropY >= row.gridPos.y && dropY <= headerBottom + 2;
         } else {
-          // For expanded rows, check if drop is within the band
-          const band = bands.find((b) => b.rowId === rowId);
+          const band = bands.find((b) => idEq(b.rowId, rowId));
           if (!band) return false;
           return dropY >= band.top && dropY < band.bottom;
         }
@@ -493,16 +492,16 @@ export const Canvas: React.FC<CanvasProps> = ({
       // CRITICAL: If dragging from a row, check if drop position is still within that row's band
       // If so, prioritize staying in the current row even if another row's drop zone was hovered
       if (currentScope !== 'top-level' && currentRowId !== null) {
-        const currentBand = bands.find((b) => b.rowId === currentRowId);
+        const currentBand = bands.find((b) => idEq(b.rowId, currentRowId));
         if (currentBand && dropY >= currentBand.top && dropY < currentBand.bottom) {
           // Still within current row's band - stay in this row regardless of what was hovered
           const overId = event.over?.id.toString();
           
           // Only move to another row if explicitly dropped on a different row AND position is clearly outside current row
           if (overId && overId.startsWith('row-pocket-')) {
-            const targetRowId = parseInt(overId.replace('row-pocket-', ''));
-            if (targetRowId !== currentRowId) {
-              const targetBand = bands.find((b) => b.rowId === targetRowId);
+            const targetRowId = overId.replace('row-pocket-', '');
+            if (String(targetRowId) !== String(currentRowId)) {
+              const targetBand = bands.find((b) => String(b.rowId) === targetRowId);
               // Only move if drop position is actually within target row's band
               if (targetBand && dropY >= targetBand.top && dropY < targetBand.bottom) {
                 cmdMovePanelToRow(panelId, targetRowId);
@@ -533,7 +532,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         // Find the bottom-most row by comparing band bottoms
         let bottomMostBandBottom = -Infinity;
         for (const row of rows) {
-          const band = bands.find((b) => b.rowId === row.id);
+          const band = bands.find((b) => idEq(b.rowId, row.id));
           if (band) {
             if (band.bottom === Infinity) {
               // If band extends to infinity, it's the last row - check against row header
@@ -622,7 +621,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         
         // Check if drop position is still within the current row's band
         if (currentScope !== 'top-level' && currentRowId !== null) {
-          const band = bands.find((b) => b.rowId === currentRowId);
+          const band = bands.find((b) => idEq(b.rowId, currentRowId));
           if (band && dropY >= band.top && dropY < band.bottom) {
             // Still in the same row - update position within row
             cmdMovePanelToRow(panelId, currentRowId, { x: dragPreview.x, y: dragPreview.y });
@@ -736,7 +735,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       e.stopPropagation();
       e.preventDefault();
 
-      const panel = dashboard?.panels.find((p) => p.id === panelId);
+      const panel = dashboard?.panels.find((p) => idEq(p.id, panelId));
       if (!panel || !containerRef.current) {
         return;
       }
@@ -768,7 +767,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    const panel = dashboard.panels.find((p) => p.id === resizePanelId);
+    const panel = dashboard.panels.find((p) => idEq(p.id, resizePanelId));
     if (!panel) return;
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -876,7 +875,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Calculate bottom row band bottom position - find the actual bottom of all panels in the row
   let bottomRowBandBottom = 0;
   if (bottomRow) {
-    const bottomBand = bands.find((b) => b.rowId === bottomRow.id);
+    const bottomBand = bands.find((b) => idEq(b.rowId, bottomRow.id));
     if (bottomBand) {
       if (bottomBand.bottom === Infinity) {
         // Band extends to infinity - find the actual bottom of panels in this row
@@ -991,7 +990,7 @@ export const Canvas: React.FC<CanvasProps> = ({
             
             {/* Drop zones inside rows */}
             {bands.map((band) => {
-              const row = rows.find((r) => r.id === band.rowId);
+              const row = rows.find((r) => idEq(r.id, band.rowId));
               if (!row) return null;
               
               const bandTop = band.top * GRID_UNIT_HEIGHT;
@@ -999,9 +998,9 @@ export const Canvas: React.FC<CanvasProps> = ({
               // Check if we're dragging a panel from this row - if so, disable the drop zone
               let isDraggingPanelFromThisRow = false;
               if (activeId && activeId.toString().startsWith('panel-')) {
-                const draggedPanelId = parseInt(activeId.toString().replace('panel-', ''));
+                const draggedPanelId = activeId.toString().replace('panel-', '');
                 const draggedPanelScope = scopeOf(draggedPanelId, dashboard);
-                if (draggedPanelScope !== 'top-level' && draggedPanelScope.rowId === band.rowId) {
+                if (draggedPanelScope !== 'top-level' && String(draggedPanelScope.rowId) === String(band.rowId)) {
                   isDraggingPanelFromThisRow = true;
                 }
               }
@@ -1059,7 +1058,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
         {/* Row Resize Handles */}
         {containerWidth > 0 && isEditingLayout && bands.map((band) => {
-          const row = rows.find((r) => r.id === band.rowId);
+          const row = rows.find((r) => idEq(r.id, band.rowId));
           if (!row) {
             return null;
           }
@@ -1125,7 +1124,7 @@ export const Canvas: React.FC<CanvasProps> = ({
               <RowHeader
                 row={row}
                 containerWidth={adjustedWidth}
-                isSelected={selectedPanelId === row.id}
+                isSelected={idEq(selectedPanelId, row.id)}
                 onSelect={setSelectedPanel}
                 enableDrag={isEditingLayout}
                 enableEditControls={isEditingLayout}
@@ -1164,8 +1163,8 @@ export const Canvas: React.FC<CanvasProps> = ({
             <>
               {/* Render panels within bands */}
               {Array.from(bandPanels.entries()).map(([rowId, bandPanelsList]) => {
-                const row = rows.find((r) => r.id === rowId);
-                const band = bands.find((b) => b.rowId === rowId);
+                const row = rows.find((r) => idEq(r.id, rowId));
+                const band = bands.find((b) => idEq(b.rowId, rowId));
                 if (!row || !band) return null;
                 
                 return (
@@ -1198,7 +1197,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                             panel={panel}
                             containerWidth={containerWidth}
                             gridUnitHeight={GRID_UNIT_HEIGHT}
-                            isSelected={selectedPanelId === panel.id}
+                            isSelected={idEq(selectedPanelId, panel.id)}
                             isEditingLayout={isEditingLayout}
                             onSelect={setSelectedPanel}
                             onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}
@@ -1226,7 +1225,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                     panel={panel}
                     containerWidth={containerWidth}
                     gridUnitHeight={GRID_UNIT_HEIGHT}
-                    isSelected={selectedPanelId === panel.id}
+                    isSelected={idEq(selectedPanelId, panel.id)}
                     isEditingLayout={isEditingLayout}
                     onSelect={setSelectedPanel}
                     onResizeStart={(handle, e) => handleResizeStart(panel.id!, handle, e)}

@@ -9,28 +9,29 @@
 import type { Dashboard } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
 import { isRowPanel } from './rows';
+import { idEq, type PanelId } from './idUtils';
 
 /**
  * Group panels by their Y position (row)
  * Panels are considered on the same row if their Y positions overlap
  */
 function groupPanelsByRow(
-  panels: Array<{ id: number; gridPos: GridPos }>
-): Array<Array<{ id: number; gridPos: GridPos }>> {
-  const rows: Array<Array<{ id: number; gridPos: GridPos }>> = [];
-  const processed = new Set<number>();
+  panels: Array<{ id: PanelId; gridPos: GridPos }>
+): Array<Array<{ id: PanelId; gridPos: GridPos }>> {
+  const rows: Array<Array<{ id: PanelId; gridPos: GridPos }>> = [];
+  const processed = new Set<string>();
 
   for (const panel of panels) {
-    if (processed.has(panel.id)) {
+    if (processed.has(String(panel.id))) {
       continue;
     }
 
     // Find all panels that overlap vertically with this panel
-    const rowPanels: Array<{ id: number; gridPos: GridPos }> = [panel];
-    processed.add(panel.id);
+    const rowPanels: Array<{ id: PanelId; gridPos: GridPos }> = [panel];
+    processed.add(String(panel.id));
 
     for (const other of panels) {
-      if (processed.has(other.id)) {
+      if (processed.has(String(other.id))) {
         continue;
       }
 
@@ -41,7 +42,7 @@ function groupPanelsByRow(
 
       if (verticalOverlap) {
         rowPanels.push(other);
-        processed.add(other.id);
+        processed.add(String(other.id));
       }
     }
 
@@ -61,7 +62,7 @@ function groupPanelsByRow(
 /**
  * Calculate the bottom Y position of a row (maximum y + h of all panels in the row)
  */
-function getRowBottom(rowPanels: Array<{ id: number; gridPos: GridPos }>): number {
+function getRowBottom(rowPanels: Array<{ id: PanelId; gridPos: GridPos }>): number {
   if (rowPanels.length === 0) {
     return 0;
   }
@@ -71,7 +72,7 @@ function getRowBottom(rowPanels: Array<{ id: number; gridPos: GridPos }>): numbe
 /**
  * Calculate the top Y position of a row (minimum y of all panels in the row)
  */
-function getRowTop(rowPanels: Array<{ id: number; gridPos: GridPos }>): number {
+function getRowTop(rowPanels: Array<{ id: PanelId; gridPos: GridPos }>): number {
   if (rowPanels.length === 0) {
     return 0;
   }
@@ -88,14 +89,14 @@ function getRowTop(rowPanels: Array<{ id: number; gridPos: GridPos }>): number {
  * 4. Apply offsets to move rows up and remove empty vertical spaces
  */
 function removeEmptyVerticalSpaces(
-  panels: Array<{ id: number; gridPos: GridPos }>
-): Array<{ id: number; gridPos: GridPos }> {
+  panels: Array<{ id: PanelId; gridPos: GridPos }>
+): Array<{ id: PanelId; gridPos: GridPos }> {
   if (panels.length === 0) {
     return panels;
   }
 
   // Create a map for quick lookup with copies of panels
-  const panelMap = new Map(panels.map((p) => [p.id, { ...p, gridPos: { ...p.gridPos } }]));
+  const panelMap = new Map(panels.map((p) => [String(p.id), { ...p, gridPos: { ...p.gridPos } }]));
   const result = Array.from(panelMap.values());
 
   // Group panels into rows based on original positions
@@ -141,7 +142,7 @@ function removeEmptyVerticalSpaces(
 
     if (offset !== 0) {
       for (const panel of row) {
-        const updatedPanel = panelMap.get(panel.id);
+        const updatedPanel = panelMap.get(String(panel.id));
         if (updatedPanel) {
           updatedPanel.gridPos = {
             ...updatedPanel.gridPos,
@@ -179,14 +180,14 @@ export function tidyUp(dashboard: Dashboard): Dashboard {
   const tidiedPanels = removeEmptyVerticalSpaces(nonRowPanels);
 
   // Create updated dashboard with new positions
-  const panelMap = new Map(tidiedPanels.map((p) => [p.id, p.gridPos]));
+  const panelMap = new Map(tidiedPanels.map((p) => [String(p.id), p.gridPos]));
 
   const updatedPanels = dashboard.panels.map((panel) => {
     if (isRowPanel(panel) || panel.id === undefined) {
       return panel;
     }
 
-    const newPos = panelMap.get(panel.id);
+    const newPos = panelMap.get(String(panel.id));
     if (newPos) {
       return {
         ...panel,
