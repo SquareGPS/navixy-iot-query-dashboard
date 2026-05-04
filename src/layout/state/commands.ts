@@ -20,6 +20,7 @@ import {
 } from '../geometry/rows';
 import { placeNewPanel } from '../geometry/add';
 import { tidyUp } from '../geometry/tidyUp';
+import { idEq } from '../geometry/idUtils';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 
 /**
@@ -111,7 +112,7 @@ export function cmdResizeRowHeight(
   const currentDashboard = store.dashboard;
 
   // Find the row
-  const rowIndex = store.dashboard.panels.findIndex((p) => p.id === rowId && p.type === 'row');
+  const rowIndex = store.dashboard.panels.findIndex((p) => idEq(p.id, rowId) && p.type === 'row');
   if (rowIndex === -1) {
     return;
   }
@@ -238,7 +239,7 @@ export function cmdMovePanelToRow(panelId: string | number, targetRowId: string 
   // If in edit mode and targetRowId is provided, ensure the row is expanded
   if (store.isEditingLayout && targetRowId !== null) {
     const targetRow = dashboardToUse.panels.find(
-      (p) => isRowPanel(p) && p.id === targetRowId
+      (p) => isRowPanel(p) && idEq(p.id, targetRowId)
     );
     if (targetRow && targetRow.collapsed === true) {
       // Expand the row first
@@ -303,8 +304,8 @@ export function cmdDeleteRow(rowId: string | number): void {
   const newDashboard = deleteRow(store.dashboard, rowId);
   
   // Check if row was actually deleted by comparing panel counts
-  const oldRowCount = currentDashboard.panels.filter((p) => isRowPanel(p) && p.id === rowId).length;
-  const newRowCount = newDashboard.panels.filter((p) => isRowPanel(p) && p.id === rowId).length;
+  const oldRowCount = currentDashboard.panels.filter((p) => isRowPanel(p) && idEq(p.id, rowId)).length;
+  const newRowCount = newDashboard.panels.filter((p) => isRowPanel(p) && idEq(p.id, rowId)).length;
   
   if (oldRowCount === 0) {
     console.warn('cmdDeleteRow: Row not found');
@@ -348,7 +349,7 @@ export function cmdRenameRow(rowId: string | number, newTitle: string): void {
   }
 
   const currentDashboard = store.dashboard;
-  const rowIndex = currentDashboard.panels.findIndex((p) => isRowPanel(p) && p.id === rowId);
+  const rowIndex = currentDashboard.panels.findIndex((p) => isRowPanel(p) && idEq(p.id, rowId));
   
   if (rowIndex === -1) {
     return;
@@ -417,14 +418,14 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   }
 
   // Find the panel - check both top-level and inside rows
-  let panel: Panel | undefined = store.dashboard.panels.find((p) => p.id === panelId);
+  let panel: Panel | undefined = store.dashboard.panels.find((p) => idEq(p.id, panelId));
   let panelInRowId: string | number | null = null;
   
   // If not found at top level, check inside rows
   if (!panel) {
     for (const p of store.dashboard.panels) {
       if (isRowPanel(p) && p.panels) {
-        const rowPanel = p.panels.find((rp) => rp.id === panelId);
+        const rowPanel = p.panels.find((rp) => idEq(rp.id, panelId));
         if (rowPanel && p.id) {
           panel = rowPanel;
           panelInRowId = p.id;
@@ -473,11 +474,11 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   let newPanel: Panel | undefined;
   
   if (target === 'top') {
-    newPanel = newDashboard.panels.find((p) => p.id === newId);
+    newPanel = newDashboard.panels.find((p) => idEq(p.id, newId));
   } else {
-    const row = newDashboard.panels.find((p) => p.type === 'row' && p.id === target.rowId) as any;
+    const row = newDashboard.panels.find((p) => p.type === 'row' && idEq(p.id, target.rowId)) as any;
     if (row && row.panels) {
-      newPanel = row.panels.find((p: Panel) => p.id === newId);
+      newPanel = row.panels.find((p: Panel) => idEq(p.id, newId));
     }
   }
 
@@ -527,7 +528,7 @@ export function cmdDeletePanel(panelId: string | number): void {
   const currentDashboard = store.dashboard;
   
   // Check if panel exists
-  const panelIndex = currentDashboard.panels.findIndex((p) => p.id === panelId);
+  const panelIndex = currentDashboard.panels.findIndex((p) => idEq(p.id, panelId));
   
   // Also check if panel is inside a row
   let panelInRowId: string | number | null = null;
@@ -535,7 +536,7 @@ export function cmdDeletePanel(panelId: string | number): void {
     // Panel not at top level - check inside rows
     for (const panel of currentDashboard.panels) {
       if (isRowPanel(panel) && panel.panels) {
-        const rowPanelIndex = panel.panels.findIndex((p) => p.id === panelId);
+        const rowPanelIndex = panel.panels.findIndex((p) => idEq(p.id, panelId));
         if (rowPanelIndex !== -1 && panel.id) {
           panelInRowId = panel.id;
           break;
@@ -555,17 +556,17 @@ export function cmdDeletePanel(panelId: string | number): void {
     // Panel is at top level - remove directly
     newDashboard = {
       ...currentDashboard,
-      panels: currentDashboard.panels.filter((p) => p.id !== panelId),
+      panels: currentDashboard.panels.filter((p) => !idEq(p.id, panelId)),
     };
   } else {
     // Panel is inside a row - remove from row's panels array
     newDashboard = {
       ...currentDashboard,
       panels: currentDashboard.panels.map((p) => {
-        if (isRowPanel(p) && p.id === panelInRowId && p.panels) {
+        if (isRowPanel(p) && idEq(p.id, panelInRowId) && p.panels) {
           return {
             ...p,
-            panels: p.panels.filter((rp) => rp.id !== panelId),
+            panels: p.panels.filter((rp) => !idEq(rp.id, panelId)),
           };
         }
         return p;
@@ -574,7 +575,7 @@ export function cmdDeletePanel(panelId: string | number): void {
   }
   
   // Clear selection if the deleted panel was selected
-  if (store.selectedPanelId === panelId) {
+  if (idEq(store.selectedPanelId, panelId)) {
     store.setSelectedPanel(null);
   }
   

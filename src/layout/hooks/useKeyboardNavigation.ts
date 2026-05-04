@@ -9,6 +9,7 @@ import { cmdMovePanel, cmdResizePanel, cmdToggleRowCollapsed, cmdPackRow, cmdReo
 import type { ResizeHandle } from '../geometry/resize';
 import { GRID_UNIT_HEIGHT, GRID_COLUMNS } from '../geometry/grid';
 import { getRowHeaders, isRowPanel } from '../geometry/rows';
+import { idEq } from '../geometry/idUtils';
 
 export function useKeyboardNavigation() {
   const dashboard = useEditorStore((state) => state.dashboard);
@@ -39,7 +40,7 @@ export function useKeyboardNavigation() {
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const panel = dashboard.panels.find((p) => p.id === selectedPanelId);
+      const panel = dashboard.panels.find((p) => idEq(p.id, selectedPanelId));
       if (!panel) {
         return;
       }

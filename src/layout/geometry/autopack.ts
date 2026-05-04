@@ -5,6 +5,7 @@
 
 import type { GridPos } from './grid';
 import { rectOverlap } from './collisions';
+import { idEq, naturalIdCompare } from './idUtils';
 
 /**
  * Auto-pack panels by sliding them upward while avoiding overlaps
@@ -24,7 +25,7 @@ export function autoPack(panels: Array<{ id: string | number; gridPos: GridPos }
     if (a.gridPos.x !== b.gridPos.x) {
       return a.gridPos.x - b.gridPos.x;
     }
-    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    return naturalIdCompare(a.id, b.id);
   });
 
   // For each panel, try to slide it upward
@@ -43,7 +44,7 @@ export function autoPack(panels: Array<{ id: string | number; gridPos: GridPos }
       // Check if this position would overlap with any other panel
       const wouldOverlap = sortedPanels.some(
         (other) =>
-          other.id !== panel.id &&
+          !idEq(other.id, panel.id) &&
           rectOverlap(testPos, other.gridPos)
       );
 

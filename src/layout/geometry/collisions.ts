@@ -3,6 +3,7 @@
  */
 
 import type { GridPos } from './grid';
+import { idEq, naturalIdCompare } from './idUtils';
 
 export interface Rect extends GridPos {}
 
@@ -24,7 +25,7 @@ export function rectOverlap(a: Rect, b: Rect): boolean {
 export function anyOverlap(rect: Rect, panels: Array<{ id: string | number; gridPos: GridPos }>, excludeId?: string | number): boolean {
   return panels.some(
     (panel) =>
-      panel.id !== excludeId &&
+      !idEq(panel.id, excludeId) &&
       rectOverlap(rect, panel.gridPos)
   );
 }
@@ -39,7 +40,7 @@ export function findOverlappingPanels(
 ): Array<{ id: string | number; gridPos: GridPos }> {
   return panels.filter(
     (panel) =>
-      panel.id !== excludeId &&
+      !idEq(panel.id, excludeId) &&
       rectOverlap(rect, panel.gridPos)
   );
 }
@@ -59,7 +60,7 @@ export function resolveCollisionsPushDown(
   }));
 
   // Find the moved panel and update its position
-  const movedIndex = result.findIndex((p) => p.id === moved.id);
+  const movedIndex = result.findIndex((p) => idEq(p.id, moved.id));
   if (movedIndex === -1) {
     return result;
   }
@@ -74,7 +75,7 @@ export function resolveCollisionsPushDown(
     if (a.gridPos.x !== b.gridPos.x) {
       return a.gridPos.x - b.gridPos.x;
     }
-    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    return naturalIdCompare(a.id, b.id);
   });
 
   let changed = true;
@@ -87,7 +88,7 @@ export function resolveCollisionsPushDown(
     iterations++;
 
     for (const panel of sortedPanels) {
-      if (panel.id === moved.id) {
+      if (idEq(panel.id, moved.id)) {
         continue; // Skip the moved panel itself
       }
 

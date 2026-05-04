@@ -8,6 +8,7 @@ import type { GridPos } from './grid';
 import { GRID_COLUMNS, clampToBounds } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import { getRowHeaders, computeBands, isRowPanel, type RowPanel } from './rows';
+import { idEq, idIncludes } from './idUtils';
 
 /**
  * Visual defaults for panel types (safe seeds; extend later)
@@ -98,22 +99,20 @@ export function collectScopePanels(
   }
 
   const { rowId, state } = target;
-  const row = dashboard.panels.find((p) => isRowPanel(p) && p.id === rowId) as RowPanel | undefined;
+  const row = dashboard.panels.find((p) => isRowPanel(p) && idEq(p.id, rowId)) as RowPanel | undefined;
 
   if (!row) return [];
 
   if (state === 'collapsed') {
-    // Return panels from row.panels[]
     return (row.panels || [])
       .filter((p) => p.id !== undefined && p.id !== null)
       .map((p) => ({ id: p.id!, gridPos: p.gridPos }));
   } else {
-    // Return panels from top-level within the band
     const bands = computeBands(dashboard.panels);
-    const band = bands.find((b) => b.rowId === rowId);
+    const band = bands.find((b) => idEq(b.rowId, rowId));
     if (!band) return [];
     return dashboard.panels
-      .filter((p) => p.id !== undefined && p.id !== null && band.childIds.includes(p.id))
+      .filter((p) => p.id !== undefined && p.id !== null && idIncludes(band.childIds, p.id))
       .map((p) => ({ id: p.id!, gridPos: p.gridPos }));
   }
 }
@@ -185,7 +184,7 @@ export function placeNewPanel(
 
   if (spec.hint?.nearPanelId) {
     // Try to place near the specified panel
-    const nearPanel = dashboard.panels.find((p) => p.id === spec.hint!.nearPanelId);
+    const nearPanel = dashboard.panels.find((p) => idEq(p.id, spec.hint!.nearPanelId));
     if (nearPanel) {
       // Try to the right first
       const rightX = nearPanel.gridPos.x + nearPanel.gridPos.w;
@@ -208,7 +207,7 @@ export function placeNewPanel(
     if (target !== 'top' && target.state === 'expanded') {
       // For expanded rows, start from the band top
       const bands = computeBands(dashboard.panels);
-      const band = bands.find((b) => b.rowId === target.rowId);
+      const band = bands.find((b) => idEq(b.rowId, target.rowId));
       if (band) {
         minY = band.top;
       }
@@ -247,7 +246,7 @@ export function placeNewPanel(
     newDashboard.panels.push(newPanel);
   } else {
     const { rowId, state } = target;
-    const row = newDashboard.panels.find((p) => isRowPanel(p) && p.id === rowId) as RowPanel | undefined;
+    const row = newDashboard.panels.find((p) => isRowPanel(p) && idEq(p.id, rowId)) as RowPanel | undefined;
 
     if (!row) {
       // Row not found, fallback to top-level
@@ -275,17 +274,17 @@ export function placeNewPanel(
   if (target === 'top' || (target !== 'top' && target.state === 'expanded')) {
     // Update top-level panels
     afterCollisions.forEach((resolved) => {
-      const idx = newDashboard.panels.findIndex((p) => p.id === resolved.id);
+      const idx = newDashboard.panels.findIndex((p) => idEq(p.id, resolved.id));
       if (idx !== -1) {
         newDashboard.panels[idx].gridPos = resolved.gridPos;
       }
     });
   } else {
     // Update collapsed row's panels
-    const row = newDashboard.panels.find((p) => isRowPanel(p) && p.id === target.rowId) as RowPanel | undefined;
+    const row = newDashboard.panels.find((p) => isRowPanel(p) && idEq(p.id, target.rowId)) as RowPanel | undefined;
     if (row && row.panels) {
       afterCollisions.forEach((resolved) => {
-        const panel = row.panels!.find((p) => p.id === resolved.id);
+        const panel = row.panels!.find((p) => idEq(p.id, resolved.id));
         if (panel) {
           panel.gridPos = resolved.gridPos;
         }

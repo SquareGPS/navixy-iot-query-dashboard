@@ -6,6 +6,7 @@ import type { Dashboard, Panel } from '@/types/dashboard-types';
 import { clampToBounds } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import { autoPack } from './autopack';
+import { idEq } from './idUtils';
 
 /**
  * Move a panel to a new position
@@ -20,12 +21,12 @@ import { autoPack } from './autopack';
  */
 export function movePanel(
   dashboard: Dashboard,
-  panelId: number,
+  panelId: string | number,
   to: { x: number; y: number },
   skipAutoPack: boolean = false
 ): Dashboard {
   // Find the panel to move
-  const panelIndex = dashboard.panels.findIndex((p) => p.id === panelId);
+  const panelIndex = dashboard.panels.findIndex((p) => idEq(p.id, panelId));
   if (panelIndex === -1) {
     return dashboard; // Panel not found, return unchanged
   }
@@ -64,9 +65,9 @@ export function movePanel(
       : { ...p }
   );
 
-  // Step 4: Resolve collisions
+  // Step 4: Resolve collisions — use the panel's stored id to keep type consistent
   const afterCollisions = resolveCollisionsPushDown(
-    { id: panelId, gridPos: snappedPos },
+    { id: panel.id!, gridPos: snappedPos },
     updatedPanels.map((p) => ({ id: p.id!, gridPos: p.gridPos }))
   );
   
@@ -79,7 +80,7 @@ export function movePanel(
 
   // Step 6: Create new dashboard with updated panels
   const resultPanels = dashboard.panels.map((p) => {
-    const packed = finalPositions.find((packed) => packed.id === p.id);
+    const packed = finalPositions.find((fp) => idEq(fp.id, p.id));
     if (packed) {
       return {
         ...p,
