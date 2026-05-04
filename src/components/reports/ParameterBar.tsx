@@ -21,7 +21,7 @@ import { CalendarIcon, RotateCcw, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
-import { extractParameterNames } from '@/utils/sqlParameterExtractor';
+import { extractParameterNames, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 
 // Simple date formatter (avoiding date-fns dependency)
@@ -589,8 +589,8 @@ function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
   useEffect(() => {
     const params = new Map<string, DashboardParameter>();
 
-    // Scan all panels for SQL with parameters
-    dashboard.panels.forEach(panel => {
+    // Scan all panels (including row children) for SQL with parameters
+    walkSqlPanels(dashboard.panels, (panel) => {
       const sql = panel['x-navixy']?.sql?.statement;
       if (!sql) return;
 

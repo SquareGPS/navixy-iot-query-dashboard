@@ -29,7 +29,7 @@ import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-t
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
-import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
@@ -444,6 +444,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     ensureIds(canonicalized.panels);
     return canonicalized;
   }, [dashboard, storeDashboard, isEditingLayout]);
+
+  const showParameterBar = React.useMemo(() => {
+    const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
+    const hasTimeRange = !!(dashboard.time && dashboard.time.from && dashboard.time.to);
+    const hasInferredParams = dashboardPanelsHaveTemplateParameters(dashboard.panels);
+    return hasExplicitParams || hasTimeRange || hasInferredParams;
+  }, [dashboard]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -2038,7 +2045,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   // If layout editing is enabled, use Canvas component
   if (isEditingLayout && editMode) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
+        { showParameterBar ? (
+          <ParameterBar
+            dashboard={ dashboard }
+            values={ parameterValues }
+            onChange={ (newValues) => {
+              setParameterValues(newValues);
+              setRefreshTrigger(prev => prev + 1);
+            } }
+            globalVariables={ globalVariables }
+          />
+        ) : null }
+        <div className="space-y-4">
         <Canvas
           renderPanelContent={ (panel) => (
             <div className="h-full flex flex-col group">
@@ -2076,15 +2095,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           } }
           onEditPanel={ onEditPanel }
         />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Parameter Bar - Show if dashboard has params or time range */ }
-      { (dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0) ||
-      (dashboard.time && dashboard.time.from && dashboard.time.to) ? (
+      { showParameterBar ? (
         <ParameterBar
           dashboard={ dashboard }
           values={ parameterValues }
