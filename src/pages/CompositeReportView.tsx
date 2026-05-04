@@ -22,7 +22,8 @@ import {
   AlertCircle,
   Table as TableIcon,
   LineChart,
-  Map as MapIcon
+  Map as MapIcon,
+  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +31,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -54,6 +56,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint, ExcelHeaderConfig } from '@/types/dashboard-types';
+import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -130,6 +133,9 @@ export default function CompositeReportView() {
   const [savingChartConfig, setSavingChartConfig] = useState(false);
   const [savingTableConfig, setSavingTableConfig] = useState(false);
   const [tableSettingsExpanded, setTableSettingsExpanded] = useState(false);
+  const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
+  const [globalVariables, setGlobalVariables] = useState<Array<{ label: string; value: string }>>([]);
+  const [pendingExecute, setPendingExecute] = useState(false);
 
   // Editable table settings (local state, saved explicitly)
   const [editPageSize, setEditPageSize] = useState(50);
@@ -161,6 +167,11 @@ export default function CompositeReportView() {
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Filter by specific group values
 
+  const templateParamNames = useMemo(
+    () => (report?.sql_query ? extractParameterNames(report.sql_query) : []),
+    [report?.sql_query],
+  );
+
   // Load report
   useEffect(() => {
     async function loadReport() {
@@ -168,12 +179,31 @@ export default function CompositeReportView() {
       
       setLoading(true);
       try {
-        const response = await apiService.getCompositeReportById(id);
+        const [response, globalVarsResponse] = await Promise.all([
+          apiService.getCompositeReportById(id),
+          apiService.getGlobalVariables().catch(() => ({ data: [] as { label: string; value: string }[] })),
+        ]);
         if (response.error) {
           throw new Error(response.error.message);
         }
+        const globalsList: Array<{ label: string; value: string }> = [];
+        if (globalVarsResponse.data && Array.isArray(globalVarsResponse.data)) {
+          for (const g of globalVarsResponse.data as { label: string; value: string }[]) {
+            globalsList.push({ label: g.label, value: String(g.value ?? '') });
+          }
+          setGlobalVariables(globalsList);
+        }
+        const sql = response.data.sql_query || '';
+        const names = extractParameterNames(sql);
+        const initialParams: Record<string, string> = {};
+        for (const name of names) {
+          const gv = globalsList.find((g) => g.label === name && g.value);
+          if (gv) initialParams[name] = gv.value;
+        }
+        setParameterValues(initialParams);
+
         setReport(response.data);
-        setEditableSql(response.data.sql_query || '');
+        setEditableSql(sql);
         const tableConfig = response.data.config?.table;
         if (tableConfig) {
           setEditPageSize(tableConfig.pageSize || 50);
@@ -196,16 +226,29 @@ export default function CompositeReportView() {
     if (report) {
       executeQuery();
     }
+    // Intentionally only when report identity changes — parameters are applied via Refresh / Apply
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.id]);
 
   // Execute the SQL query
+  const sqlQuery = report?.sql_query ?? '';
   const executeQuery = useCallback(async () => {
-    if (!id) return;
+    if (!id || !sqlQuery) return;
 
     setExecution(prev => ({ ...prev, loading: true, error: null }));
     
     try {
-      const response = await apiService.executeCompositeReport(id);
+      const merged: Record<string, unknown> = {};
+      const filtered = filterUsedParameters(sqlQuery, parameterValues);
+      Object.entries(filtered).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          merged[k] = v;
+        }
+      });
+
+      const response = await apiService.executeCompositeReport(id, {
+        params: merged,
+      });
 
       if (response.error) {
         throw new Error(response.error.message);
@@ -230,7 +273,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, report?.config.table.maxRows]);
+  }, [id, sqlQuery, parameterValues]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
@@ -488,6 +531,20 @@ export default function CompositeReportView() {
       // Update both report and editableSql to match
       setReport(response.data);
       setEditableSql(response.data.sql_query || editableSql);
+      const sqlSaved = response.data.sql_query || '';
+      const newNames = extractParameterNames(sqlSaved);
+      setParameterValues((prev) => {
+        const next: Record<string, string> = {};
+        for (const n of newNames) {
+          if (prev[n] !== undefined && prev[n] !== '') {
+            next[n] = prev[n];
+          } else {
+            const gv = globalVariables.find((g) => g.label === n && g.value);
+            next[n] = gv ? gv.value : '';
+          }
+        }
+        return next;
+      });
       toast.success('SQL query saved');
       return true;
     } catch (error: any) {
@@ -498,11 +555,19 @@ export default function CompositeReportView() {
     }
   };
 
+  // Trigger execution after state settles (used by Save & Run)
+  useEffect(() => {
+    if (pendingExecute && report) {
+      executeQuery();
+      setPendingExecute(false);
+    }
+  }, [pendingExecute, report, executeQuery]);
+
   // Save and execute SQL query
   const handleSaveAndExecute = async () => {
     const saved = await handleSaveSql();
     if (saved) {
-      executeQuery();
+      setPendingExecute(true);
     }
   };
 
@@ -890,6 +955,53 @@ export default function CompositeReportView() {
           </div>
         )}
       </header>
+
+      {/* SQL template variables (${name}) — same idea as dashboard Parameters */}
+      {templateParamNames.length > 0 && (
+        <Card className="mb-6 print:hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Parameters</CardTitle>
+            <CardDescription>
+              Values for placeholders such as <code className="text-xs">{'${from}'}</code> in the <strong>saved</strong> SQL (Save SQL if you edited the query below). Use Refresh or Apply after changing values.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-4">
+              {templateParamNames.map((name) => (
+                <div key={name} className="flex flex-col gap-1.5 min-w-[200px]">
+                  <Label htmlFor={`param-${name}`} className="text-xs font-medium">
+                    {name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                    <span className="text-muted-foreground font-normal font-mono text-xs">
+                      {' ('}
+                      {'$' + '{' + name + '}'}
+                      {')'}
+                    </span>
+                  </Label>
+                  <Input
+                    id={`param-${name}`}
+                    className="h-9 text-sm font-mono"
+                    value={parameterValues[name] ?? ''}
+                    placeholder={globalVariables.find((g) => g.label === name)?.value || `Enter ${name}`}
+                    onChange={(e) =>
+                      setParameterValues((prev) => ({ ...prev, [name]: e.target.value }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2 border-t">
+              <Button type="button" variant="default" size="sm" onClick={() => executeQuery()} disabled={execution.loading}>
+                {execution.loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4 mr-1" />
+                )}
+                Apply and run query
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* SQL Query (collapsible) */}
       <Collapsible open={sqlExpanded} onOpenChange={setSqlExpanded} className="mb-6 print:hidden">
