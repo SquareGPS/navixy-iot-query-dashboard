@@ -256,10 +256,6 @@ export default function CompositeReportView() {
         throw new Error(interpretSqlError(response.error));
       }
 
-      if (response.data?.error) {
-        throw new Error(interpretSqlError(response.data.error));
-      }
-
       setExecution({
         loading: false,
         error: null,
@@ -671,6 +667,15 @@ export default function CompositeReportView() {
   const handleToggleMapEnabled = async (enabled: boolean) => {
     if (!id || !report) return;
 
+    const previousReport = report;
+    setReport({
+      ...report,
+      config: {
+        ...report.config,
+        map: { ...report.config.map, enabled },
+      },
+    });
+
     setSavingMapConfig(true);
     try {
       const updatedConfig = {
@@ -698,6 +703,7 @@ export default function CompositeReportView() {
       setReport(response.data);
       toast.success(`Map ${enabled ? 'enabled' : 'disabled'}`);
     } catch (error: any) {
+      setReport(previousReport);
       toast.error(`Failed to update map setting: ${error.message}`);
     } finally {
       setSavingMapConfig(false);
@@ -1184,7 +1190,7 @@ export default function CompositeReportView() {
                           htmlFor="geocode"
                           className={`text-sm font-medium leading-none flex items-center gap-1 ${!hasSessionId ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                         >
-                          {!hasSessionId ? <Lock className="h-3 w-3" /> : <Circle className="h-3 w-3 fill-current" />}
+                          {!hasSessionId ? <Lock className="h-3 w-3" /> : <Circle className="h-3 w-3 fill-current" aria-label="Map" />}
                           Geocode to address
                           {geocoding && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
                         </label>

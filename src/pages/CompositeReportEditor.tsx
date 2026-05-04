@@ -250,7 +250,7 @@ export default function CompositeReportEditor() {
         title: title.trim(),
         description: description.trim() || undefined,
         sql_query: sqlQuery.trim(),
-        config: normalizeCompositeConfig(config),
+        config,
       };
 
       if (isNew) {

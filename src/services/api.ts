@@ -151,8 +151,10 @@ class ApiService {
 
     // Backend can return HTTP 200 with { error: ... } payload.
     // Normalize it into ApiResponse.error so UI can render explicit error state.
+    // We require the embedded error to be an object with a `message` property to
+    // avoid misinterpreting valid data that happens to contain a truthy `error` key.
     const embeddedError = (response.data as any)?.error;
-    if (embeddedError) {
+    if (embeddedError && typeof embeddedError === 'object' && embeddedError.message) {
       return {
         error: {
           code: embeddedError.code || 'EXECUTION_ERROR',

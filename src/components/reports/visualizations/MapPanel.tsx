@@ -10,7 +10,7 @@ import 'leaflet/dist/leaflet.css';
 
 const dotMarkerIcon = L.divIcon({
   className: 'map-dot-marker',
-  html: '<span style="display:block;width:8px;height:8px;border-radius:9999px;background:#3b82f6;border:1px solid rgba(255,255,255,0.9);box-shadow:0 0 0 1px rgba(59,130,246,0.28);"></span>',
+  html: '<span style="display:block;width:8px;height:8px;border-radius:9999px;background:var(--map-marker-color, #3b82f6);border:1px solid rgba(255,255,255,0.9);box-shadow:0 0 0 1px rgba(59,130,246,0.28);"></span>',
   iconSize: [8, 8],
   iconAnchor: [4, 4],
 });
