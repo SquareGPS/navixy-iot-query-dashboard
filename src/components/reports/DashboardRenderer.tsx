@@ -13,7 +13,7 @@ import {
   Pencil,
   Info,
   RefreshCw,
-  MapPin,
+  Circle,
   Download,
   FileSpreadsheet,
   FileText,
@@ -1042,7 +1042,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       case 'text':
         return <Info className="h-4 w-4" />;
       case 'geomap':
-        return <MapPin className="h-4 w-4" />;
+        return <Circle className="h-3 w-3 fill-current" />;
       default:
         return <Activity className="h-4 w-4" />;
     }
@@ -1777,7 +1777,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (!gpsColumns) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-          <MapPin className="h-8 w-8 mb-2 opacity-50" />
+          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" />
           <div className="text-sm font-medium">No GPS coordinates detected</div>
           <div className="text-xs mt-1">Query should include lat/lon or latitude/longitude columns</div>
         </div>
@@ -1790,7 +1790,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (gpsPoints.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-          <MapPin className="h-8 w-8 mb-2 opacity-50" />
+          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" />
           <div className="text-sm font-medium">No valid coordinates found</div>
           <div className="text-xs mt-1">Check that lat/lon values are valid numbers</div>
         </div>

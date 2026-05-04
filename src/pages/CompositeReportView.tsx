@@ -40,7 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Save, Play, MapPin, FileText, Lock, Settings } from 'lucide-react';
+import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -132,6 +133,7 @@ export default function CompositeReportView() {
   const [savingSql, setSavingSql] = useState(false);
   const [savingChartConfig, setSavingChartConfig] = useState(false);
   const [savingTableConfig, setSavingTableConfig] = useState(false);
+  const [savingMapConfig, setSavingMapConfig] = useState(false);
   const [tableSettingsExpanded, setTableSettingsExpanded] = useState(false);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const [globalVariables, setGlobalVariables] = useState<Array<{ label: string; value: string }>>([]);
@@ -251,11 +253,11 @@ export default function CompositeReportView() {
       });
 
       if (response.error) {
-        throw new Error(response.error.message);
+        throw new Error(interpretSqlError(response.error));
       }
 
       if (response.data?.error) {
-        throw new Error(response.data.error);
+        throw new Error(interpretSqlError(response.data.error));
       }
 
       setExecution({
@@ -666,6 +668,42 @@ export default function CompositeReportView() {
     }
   };
 
+  const handleToggleMapEnabled = async (enabled: boolean) => {
+    if (!id || !report) return;
+
+    setSavingMapConfig(true);
+    try {
+      const updatedConfig = {
+        ...report.config,
+        map: {
+          ...report.config.map,
+          enabled,
+        },
+      };
+
+      const response = await apiService.updateCompositeReport(id, {
+        title: report.title,
+        description: report.description,
+        slug: report.slug,
+        section_id: report.section_id,
+        sort_order: report.sort_order,
+        sql_query: report.sql_query,
+        config: updatedConfig,
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      setReport(response.data);
+      toast.success(`Map ${enabled ? 'enabled' : 'disabled'}`);
+    } catch (error: any) {
+      toast.error(`Failed to update map setting: ${error.message}`);
+    } finally {
+      setSavingMapConfig(false);
+    }
+  };
+
   // Prepare geocoded addresses and cached execution data for export.
   // We pass the already-fetched rows so the backend doesn't re-execute the query
   // (which could return different data for relative time windows like "last 24h").
@@ -867,6 +905,18 @@ export default function CompositeReportView() {
           
           {/* Actions */}
           <div className="flex items-center gap-2 print:hidden">
+            <div className="h-9 inline-flex items-center gap-1.5 px-1 text-sm">
+              <Label htmlFor="map-enabled-toggle" className="text-sm font-medium text-muted-foreground leading-none cursor-pointer">
+                Map
+              </Label>
+              <Switch
+                id="map-enabled-toggle"
+                checked={report.config.map.enabled}
+                disabled={savingMapConfig}
+                onCheckedChange={handleToggleMapEnabled}
+                className="scale-75 data-[state=checked]:bg-primary transition-all"
+              />
+            </div>
             <Button 
               variant="outline" 
               size="sm"
@@ -1134,7 +1184,7 @@ export default function CompositeReportView() {
                           htmlFor="geocode"
                           className={`text-sm font-medium leading-none flex items-center gap-1 ${!hasSessionId ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                         >
-                          {!hasSessionId ? <Lock className="h-3 w-3" /> : <MapPin className="h-4 w-4" />}
+                          {!hasSessionId ? <Lock className="h-3 w-3" /> : <Circle className="h-3 w-3 fill-current" />}
                           Geocode to address
                           {geocoding && <Loader2 className="h-3 w-3 animate-spin ml-1" />}
                         </label>

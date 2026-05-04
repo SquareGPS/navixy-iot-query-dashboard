@@ -8,17 +8,11 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix default marker icons in Leaflet (common issue with bundlers)
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
-// @ts-ignore
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
+const dotMarkerIcon = L.divIcon({
+  className: 'map-dot-marker',
+  html: '<span style="display:block;width:8px;height:8px;border-radius:9999px;background:#3b82f6;border:1px solid rgba(255,255,255,0.9);box-shadow:0 0 0 1px rgba(59,130,246,0.28);"></span>',
+  iconSize: [8, 8],
+  iconAnchor: [4, 4],
 });
 
 export interface GPSPoint {
@@ -215,6 +209,7 @@ function ClickableMarker({
     <Marker 
       key={`marker-${index}-${point.lat}-${point.lon}`}
       position={[point.lat, point.lon]}
+      icon={dotMarkerIcon}
       eventHandlers={{
         click: handleClick
       }}
