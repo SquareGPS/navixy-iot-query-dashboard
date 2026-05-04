@@ -450,7 +450,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const hasTimeRange = !!(dashboard.time && dashboard.time.from && dashboard.time.to);
     const hasInferredParams = dashboardPanelsHaveTemplateParameters(dashboard.panels);
     return hasExplicitParams || hasTimeRange || hasInferredParams;
-  }, [dashboard]);
+  }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -2058,43 +2058,40 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           />
         ) : null }
         <div className="space-y-4">
-        <Canvas
-          renderPanelContent={ (panel) => (
-            <div className="h-full flex flex-col group">
-              <div className="pb-3 relative flex-shrink-0">
-                <h3 className="flex items-center space-x-2 text-lg font-semibold">
-                  { getPanelIcon(panel.type) }
-                  <span>{ panel.title }</span>
-                </h3>
-                <div className="absolute top-0 right-0 flex items-center gap-1">
-                  <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
-                  <PanelExportButton panel={ panel } />
+          <Canvas
+            renderPanelContent={ (panel) => (
+              <div className="h-full flex flex-col group">
+                <div className="pb-3 relative flex-shrink-0">
+                  <h3 className="flex items-center space-x-2 text-lg font-semibold">
+                    { getPanelIcon(panel.type) }
+                    <span>{ panel.title }</span>
+                  </h3>
+                  <div className="absolute top-0 right-0 flex items-center gap-1">
+                    <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
+                    <PanelExportButton panel={ panel } />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto relative">
+                  { renderPanel(panel) }
                 </div>
               </div>
-              <div className="flex-1 overflow-auto relative">
-                { renderPanel(panel) }
-              </div>
-            </div>
-          ) }
-          onDashboardChange={ async (updatedDashboard) => {
-            // Dashboard updated through layout editor
-            // The store is already updated
-            // Skip auto-save if we're in the middle of a panel save operation
-            if ((window as any).__skipDashboardAutoSave) {
-              console.log('Skipping auto-save - panel save in progress');
-              return;
-            }
-
-            if (updatedDashboard && onSave) {
-              try {
-                await onSave(updatedDashboard);
-              } catch (error) {
-                console.error('Error saving dashboard changes:', error);
+            ) }
+            onDashboardChange={ async (updatedDashboard) => {
+              if ((window as any).__skipDashboardAutoSave) {
+                console.log('Skipping auto-save - panel save in progress');
+                return;
               }
-            }
-          } }
-          onEditPanel={ onEditPanel }
-        />
+
+              if (updatedDashboard && onSave) {
+                try {
+                  await onSave(updatedDashboard);
+                } catch (error) {
+                  console.error('Error saving dashboard changes:', error);
+                }
+              }
+            } }
+            onEditPanel={ onEditPanel }
+          />
         </div>
       </div>
     );

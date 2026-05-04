@@ -135,6 +135,7 @@ export default function CompositeReportView() {
   const [tableSettingsExpanded, setTableSettingsExpanded] = useState(false);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const [globalVariables, setGlobalVariables] = useState<Array<{ label: string; value: string }>>([]);
+  const [pendingExecute, setPendingExecute] = useState(false);
 
   // Editable table settings (local state, saved explicitly)
   const [editPageSize, setEditPageSize] = useState(50);
@@ -230,14 +231,15 @@ export default function CompositeReportView() {
   }, [report?.id]);
 
   // Execute the SQL query
+  const sqlQuery = report?.sql_query ?? '';
   const executeQuery = useCallback(async () => {
-    if (!id || !report) return;
+    if (!id || !sqlQuery) return;
 
     setExecution(prev => ({ ...prev, loading: true, error: null }));
     
     try {
       const merged: Record<string, unknown> = {};
-      const filtered = filterUsedParameters(report.sql_query || '', { ...parameterValues } as Record<string, unknown>);
+      const filtered = filterUsedParameters(sqlQuery, parameterValues);
       Object.entries(filtered).forEach(([k, v]) => {
         if (v !== undefined && v !== null && String(v).trim() !== '') {
           merged[k] = v;
@@ -271,7 +273,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, report?.id, report?.sql_query, report?.config?.table?.maxRows, parameterValues]);
+  }, [id, sqlQuery, parameterValues]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
@@ -532,11 +534,14 @@ export default function CompositeReportView() {
       const sqlSaved = response.data.sql_query || '';
       const newNames = extractParameterNames(sqlSaved);
       setParameterValues((prev) => {
-        const next = { ...prev };
+        const next: Record<string, string> = {};
         for (const n of newNames) {
-          if (next[n] !== undefined && next[n] !== '') continue;
-          const gv = globalVariables.find((g) => g.label === n && g.value);
-          next[n] = gv ? gv.value : (next[n] ?? '');
+          if (prev[n] !== undefined && prev[n] !== '') {
+            next[n] = prev[n];
+          } else {
+            const gv = globalVariables.find((g) => g.label === n && g.value);
+            next[n] = gv ? gv.value : '';
+          }
         }
         return next;
       });
@@ -550,13 +555,19 @@ export default function CompositeReportView() {
     }
   };
 
+  // Trigger execution after state settles (used by Save & Run)
+  useEffect(() => {
+    if (pendingExecute && report) {
+      executeQuery();
+      setPendingExecute(false);
+    }
+  }, [pendingExecute, report, executeQuery]);
+
   // Save and execute SQL query
   const handleSaveAndExecute = async () => {
     const saved = await handleSaveSql();
     if (saved) {
-      queueMicrotask(() => {
-        executeQuery();
-      });
+      setPendingExecute(true);
     }
   };
 

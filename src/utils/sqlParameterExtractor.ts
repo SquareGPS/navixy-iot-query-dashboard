@@ -4,19 +4,29 @@
  * Uses ${variable_name} syntax (Grafana-style template variables)
  */
 
-/** Minimal panel shape for walking Grafana row trees */
+/**
+ * Minimal panel shape for walking Grafana row trees.
+ * Structurally compatible with the full Panel type so callers can pass
+ * `dashboard.panels` directly without an explicit cast.
+ */
 export type SqlPanelLike = {
   'x-navixy'?: { sql?: { statement?: string } };
   panels?: SqlPanelLike[];
+  [key: string]: unknown;
 };
 
-export function walkSqlPanels(panels: SqlPanelLike[], visitor: (panel: SqlPanelLike) => void): void {
+/**
+ * Walk all panels (including nested row children).
+ * Return `false` from the visitor to abort the walk early.
+ */
+export function walkSqlPanels(panels: SqlPanelLike[], visitor: (panel: SqlPanelLike) => void | false): boolean {
   for (const panel of panels) {
-    visitor(panel);
+    if (visitor(panel) === false) return false;
     if (panel.panels?.length) {
-      walkSqlPanels(panel.panels, visitor);
+      if (!walkSqlPanels(panel.panels, visitor)) return false;
     }
   }
+  return true;
 }
 
 export function dashboardPanelsHaveTemplateParameters(panels: SqlPanelLike[]): boolean {
@@ -25,6 +35,7 @@ export function dashboardPanelsHaveTemplateParameters(panels: SqlPanelLike[]): b
     const sql = panel['x-navixy']?.sql?.statement;
     if (sql && extractParameterNames(sql).length > 0) {
       found = true;
+      return false;
     }
   });
   return found;

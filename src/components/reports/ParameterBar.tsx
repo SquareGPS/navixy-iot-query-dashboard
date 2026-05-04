@@ -166,17 +166,6 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       const paramName = globalVar.label;
       const paramExists = allParams.some(p => p.name === paramName);
       
-      // Debug logging
-      if (paramName === '__client_id') {
-        console.log('[ParameterBar] Checking __client_id:', {
-          paramName,
-          paramExists,
-          globalVarValue: globalVar.value,
-          allParams: allParams.map(p => ({ name: p.name, type: p.type })),
-          globalVariables: globalVariables.map(gv => ({ label: gv.label, value: gv.value }))
-        });
-      }
-      
       // Only set if parameter exists and has a value
       if (paramExists && globalVar.value !== null && globalVar.value !== undefined && globalVar.value !== '') {
         // Try to parse the value based on parameter type
@@ -202,13 +191,7 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
             }
           }
           
-          // Global variables override parameter defaults (set after defaults are set)
           defaults[paramName] = parsedValue;
-          
-          // Debug logging
-          if (paramName === '__client_id') {
-            console.log('[ParameterBar] Set default value for __client_id:', parsedValue);
-          }
         }
       }
     });
@@ -595,17 +578,6 @@ function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
       if (!sql) return;
 
       const paramNames = extractParameterNames(sql);
-      
-      // Debug logging for __client_id
-      if (paramNames.includes('__client_id')) {
-        console.log('[useInferredParameters] Found __client_id in panel:', {
-          panelId: panel.id,
-          panelTitle: panel.title,
-          paramNames,
-          sql: sql.substring(0, 200) + '...'
-        });
-      }
-      
       paramNames.forEach(name => {
         // Skip if already declared
         if (dashboard['x-navixy']?.params?.some(p => p.name === name)) {
@@ -618,30 +590,14 @@ function useInferredParameters(dashboard: Dashboard): DashboardParameter[] {
           const isTimeParam = name === '__from' || name === '__to';
           params.set(name, {
             name,
-            type: isTimeParam ? 'time' : 'text', // Mark __from/__to as time type
+            type: isTimeParam ? 'time' : 'text',
             label: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
           });
-          
-          // Debug logging for __client_id
-          if (name === '__client_id') {
-            console.log('[useInferredParameters] Created parameter:', {
-              name,
-              type: isTimeParam ? 'time' : 'text',
-              label: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-            });
-          }
         }
       });
     });
 
-    const inferredArray = Array.from(params.values());
-    
-    // Debug logging
-    if (inferredArray.some(p => p.name === '__client_id')) {
-      console.log('[useInferredParameters] Final inferred parameters:', inferredArray.map(p => ({ name: p.name, type: p.type, label: p.label })));
-    }
-    
-    setInferred(inferredArray);
+    setInferred(Array.from(params.values()));
   }, [dashboard]);
 
   return inferred;
