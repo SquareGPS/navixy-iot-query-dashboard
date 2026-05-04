@@ -44,6 +44,24 @@ const DEFAULT_CONFIG: CompositeReportConfig = {
   map: { enabled: false, autoDetect: true },
 };
 
+function normalizeCompositeConfig(config?: Partial<CompositeReportConfig> | null): CompositeReportConfig {
+  return {
+    table: {
+      ...DEFAULT_CONFIG.table,
+      ...(config?.table || {}),
+    },
+    chart: {
+      ...DEFAULT_CONFIG.chart,
+      ...(config?.chart || {}),
+      yColumns: config?.chart?.yColumns || DEFAULT_CONFIG.chart.yColumns,
+    },
+    map: {
+      ...DEFAULT_CONFIG.map,
+      ...(config?.map || {}),
+    },
+  };
+}
+
 export default function CompositeReportEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -60,7 +78,7 @@ export default function CompositeReportEditor() {
   const [title, setTitle] = useState(initialTitle || '');
   const [description, setDescription] = useState('');
   const [sqlQuery, setSqlQuery] = useState('');
-  const [config, setConfig] = useState<CompositeReportConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<CompositeReportConfig>(normalizeCompositeConfig(DEFAULT_CONFIG));
 
   // UI state
   const [loading, setLoading] = useState(!isNew);
@@ -86,7 +104,7 @@ export default function CompositeReportEditor() {
         setTitle(report.title);
         setDescription(report.description || '');
         setSqlQuery(report.sql_query);
-        setConfig(report.config);
+        setConfig(normalizeCompositeConfig(report.config));
       } catch (error: any) {
         toast.error(`Failed to load report: ${error.message}`);
         navigate('/');

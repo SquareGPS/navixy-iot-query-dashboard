@@ -68,6 +68,7 @@ header {
 /* Panels are positioned back-to-back in grid coordinates, but CSS margins add visual spacing */
 :root {
   --panel-spacing: 8px; /* Visual gap between panels (matching Grafana's ~8-10px) */
+  --map-marker-color: #3b82f6;
 }
 
 /* Animated pulsing border for row drop pocket */
@@ -82,4 +83,10 @@ header {
 
 [data-state="active"] .border-dashed {
   animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+/* Leaflet map dot markers — override default icon wrapper styles */
+.map-dot-marker {
+  background: none !important;
+  border: none !important;
 }
