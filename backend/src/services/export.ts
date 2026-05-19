@@ -25,6 +25,11 @@ export interface ExcelExportOptions {
   rows: unknown[][];
   executedAt: Date;
   excelHeader?: ExcelHeaderConfig;
+  // IANA identifier (e.g. "Europe/Belgrade"). When set, date cells and the
+  // Report Info "Executed At" entry are rendered with wall-clock times in
+  // this zone so they match what the Data Table shows on screen. The caller
+  // is expected to validate the identifier before passing it in.
+  timeZone?: string;
 }
 
 export interface HTMLExportOptions {
@@ -54,6 +59,9 @@ export interface HTMLExportOptions {
   // Original (pre-geocoded) data for map rendering when geocoding is applied
   mapColumns?: ExportColumn[];
   mapRows?: unknown[][];
+  // IANA identifier; when set, dates in the table, chart labels and the
+  // "Generated on" meta header are rendered in this zone.
+  timeZone?: string;
 }
 
 const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
@@ -61,6 +69,72 @@ const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
 function isDateColumn(columns: ExportColumn[], columnName: string): boolean {
   const col = columns.find(c => c.name === columnName);
   return !!col && DATE_COLUMN_TYPES.some(t => col.type.includes(t));
+}
+
+interface ZoneDateComponents {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+// `new Intl.DateTimeFormat` is not cheap; large exports format many thousands
+// of rows, so we keep one formatter per zone for the lifetime of the process.
+const zoneFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZoneFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = zoneFormatterCache.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  zoneFormatterCache.set(timeZone, formatter);
+  return formatter;
+}
+
+function getDateComponentsInZone(date: Date, timeZone: string): ZoneDateComponents | null {
+  try {
+    const parts = getZoneFormatter(timeZone).formatToParts(date);
+    const map: Record<string, string> = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') map[part.type] = part.value;
+    }
+    // Some ICU builds return "24" for midnight under hour12:false; normalise it.
+    const hourStr = map.hour === '24' ? '00' : map.hour;
+    return {
+      year: Number(map.year),
+      month: Number(map.month),
+      day: Number(map.day),
+      hour: Number(hourStr),
+      minute: Number(map.minute),
+      second: Number(map.second),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Excel stores dates as plain serial numbers without any timezone awareness:
+ * when a cell is rendered as `dd/mm/yy hh:mm` the integer/fractional parts of
+ * the serial are unpacked verbatim. To make Excel display the wall-clock time
+ * of `utcDate` in `timeZone`, we synthesise a Date whose UTC components match
+ * the wall-clock components in the target zone. ExcelJS then turns that into a
+ * serial via `getTime() / 86400000`, which unpacks back to the same numbers.
+ */
+function shiftDateToZone(utcDate: Date, timeZone: string): Date {
+  const c = getDateComponentsInZone(utcDate, timeZone);
+  if (!c) return utcDate;
+  return new Date(Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, c.second));
 }
 
 export class ExportService {
@@ -77,7 +151,7 @@ export class ExportService {
    * Generate Excel file from composite report data
    */
   async generateExcel(options: ExcelExportOptions): Promise<Buffer> {
-    const { title, description, columns, rows, executedAt, excelHeader } = options;
+    const { title, description, columns, rows, executedAt, excelHeader, timeZone } = options;
 
     const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
     const rowOffset = headerActive ? 2 : 0;
@@ -162,7 +236,13 @@ export class ExportService {
           rowData[col.name] = '';
         } else if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
-          rowData[col.name] = isNaN(dateValue.getTime()) ? value : dateValue;
+          if (isNaN(dateValue.getTime())) {
+            rowData[col.name] = value;
+          } else {
+            // Excel cells are TZ-agnostic serials, so shift the Date so that its
+            // UTC components carry the user-zone wall clock — see shiftDateToZone.
+            rowData[col.name] = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
+          }
         } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
           rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
         } else {
@@ -227,7 +307,13 @@ export class ExportService {
     if (description) {
       infoSheet.addRow({ property: 'Description', value: description });
     }
-    infoSheet.addRow({ property: 'Executed At', value: executedAt.toISOString() });
+    infoSheet.addRow({
+      property: 'Executed At',
+      value: timeZone ? this.formatShortDateTime(executedAt, timeZone) : executedAt.toISOString(),
+    });
+    if (timeZone) {
+      infoSheet.addRow({ property: 'Timezone', value: timeZone });
+    }
     infoSheet.addRow({ property: 'Total Rows', value: rows.length });
     infoSheet.addRow({ property: 'Total Columns', value: columns.length });
 
@@ -248,7 +334,7 @@ export class ExportService {
    * Generate CSV file from composite report data
    */
   generateCSV(options: ExcelExportOptions): Buffer {
-    const { columns, rows } = options;
+    const { columns, rows, timeZone } = options;
     
     // Filter out empty columns
     const emptyColumnIndices = new Set<number>();
@@ -288,7 +374,7 @@ export class ExportService {
         if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (!isNaN(dateValue.getTime())) {
-            csvRow.push(this.escapeCSVField(this.formatShortDateTime(dateValue)));
+            csvRow.push(this.escapeCSVField(this.formatShortDateTime(dateValue, timeZone)));
             return;
           }
         }
@@ -337,15 +423,30 @@ export class ExportService {
 
   /**
    * Format date/time in short format (e.g., "02/02/26 22:00")
-   * Uses manual formatting to avoid Node.js locale issues in Docker/Alpine
+   * Uses manual formatting to avoid Node.js locale issues in Docker/Alpine.
+   * When `timeZone` is provided, components are taken in that IANA zone via
+   * Intl.DateTimeFormat; otherwise the server's local Date getters are used.
    */
-  private formatShortDateTime(date: Date): string {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    
+  private formatShortDateTime(date: Date, timeZone?: string): string {
+    let day: string, month: string, year: string, hours: string, minutes: string;
+    if (timeZone) {
+      const c = getDateComponentsInZone(date, timeZone);
+      if (c) {
+        day = String(c.day).padStart(2, '0');
+        month = String(c.month).padStart(2, '0');
+        year = String(c.year).slice(-2);
+        hours = String(c.hour).padStart(2, '0');
+        minutes = String(c.minute).padStart(2, '0');
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
+      }
+      // Fall through to server-local on Intl failure (unknown TZ at format time)
+    }
+    day = String(date.getDate()).padStart(2, '0');
+    month = String(date.getMonth() + 1).padStart(2, '0');
+    year = String(date.getFullYear()).slice(-2);
+    hours = String(date.getHours()).padStart(2, '0');
+    minutes = String(date.getMinutes()).padStart(2, '0');
+
     return `${day}/${month}/${year} ${hours}:${minutes}`;
   }
 
@@ -378,7 +479,7 @@ export class ExportService {
    * Generate self-contained HTML from composite report data
    */
   async generateHTML(options: HTMLExportOptions): Promise<string> {
-    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt, chartSettings } = options;
+    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt, chartSettings, timeZone } = options;
 
     // Convert rows to objects for easier template processing
     const rowObjects = rows.map((row) => {
@@ -390,7 +491,7 @@ export class ExportService {
     });
 
     // Generate table HTML
-    const tableHTML = this.generateTableHTML(columns, rowObjects);
+    const tableHTML = this.generateTableHTML(columns, rowObjects, timeZone);
 
     // Generate chart HTML/JS if enabled
     // Use chartSettings from frontend if provided, otherwise fall back to config
@@ -407,7 +508,7 @@ export class ExportService {
           xColumn: effectiveXColumn,
           yColumn: effectiveYColumns[0],
           groupColumn: effectiveGroupColumn,
-        });
+        }, timeZone);
       } else {
         const chartConfigForGeneration: { type?: string; xColumn?: string; yColumns?: string[] } = {
           xColumn: effectiveXColumn,
@@ -416,7 +517,7 @@ export class ExportService {
         if (config.chart?.type) {
           chartConfigForGeneration.type = config.chart.type;
         }
-        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration);
+        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration, timeZone);
       }
     }
 
@@ -588,7 +689,7 @@ export class ExportService {
   <header>
     <h1>${this.escapeHTML(title)}</h1>
     ${description ? `<p class="description">${this.escapeHTML(description)}</p>` : ''}
-    <p class="meta">Generated on ${executedAt.toLocaleString()} | ${rows.length} rows</p>
+    <p class="meta">Generated on ${this.escapeHTML(this.formatShortDateTime(executedAt, timeZone))}${timeZone ? ` (${this.escapeHTML(timeZone)})` : ''} | ${rows.length} rows</p>
   </header>
 
   <main>
@@ -636,7 +737,7 @@ export class ExportService {
   /**
    * Generate HTML table from data
    */
-  private generateTableHTML(columns: ExportColumn[], rows: Record<string, unknown>[]): string {
+  private generateTableHTML(columns: ExportColumn[], rows: Record<string, unknown>[], timeZone?: string): string {
     // Filter out empty columns
     const visibleColumns = this.filterEmptyColumns(columns, rows);
     
@@ -649,7 +750,7 @@ export class ExportService {
         if (value === null || value === undefined) {
           value = '';
         } else if (value instanceof Date) {
-          value = this.formatShortDateTime(value);
+          value = this.formatShortDateTime(value, timeZone);
         } else if (typeof value === 'number') {
           value = this.formatNumericValue(value);
         } else if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
@@ -660,7 +761,7 @@ export class ExportService {
         } else if (isDateColumn && typeof value === 'string' && !isNaN(Date.parse(value))) {
           const date = new Date(value);
           if (!isNaN(date.getTime())) {
-            value = this.formatShortDateTime(date);
+            value = this.formatShortDateTime(date, timeZone);
           }
         } else if (typeof value === 'object') {
           value = JSON.stringify(value);
@@ -687,7 +788,8 @@ export class ExportService {
   private generateChartHTML(
     columns: ExportColumn[], 
     rows: Record<string, unknown>[],
-    chartConfig: { type?: string; xColumn?: string; yColumns?: string[] }
+    chartConfig: { type?: string; xColumn?: string; yColumns?: string[] },
+    timeZone?: string
   ): string {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
@@ -696,9 +798,9 @@ export class ExportService {
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
       if (xIsDate) {
-        if (val instanceof Date) return this.formatShortDateTime(val);
+        if (val instanceof Date) return this.formatShortDateTime(val, timeZone);
         if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-          return this.formatShortDateTime(new Date(val));
+          return this.formatShortDateTime(new Date(val), timeZone);
         }
       }
       return String(val ?? '');
@@ -781,7 +883,8 @@ export class ExportService {
   private generateGroupedChartHTML(
     columns: ExportColumn[], 
     rows: Record<string, unknown>[],
-    chartConfig: { xColumn: string; yColumn: string; groupColumn: string }
+    chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
+    timeZone?: string
   ): string {
     const { xColumn, yColumn, groupColumn } = chartConfig;
     if (!xColumn || !yColumn || !groupColumn) return '';
@@ -812,9 +915,9 @@ export class ExportService {
       if (val !== null && val !== undefined) {
         if (xIsDate) {
           if (val instanceof Date) {
-            xValuesSet.add(this.formatShortDateTime(val));
+            xValuesSet.add(this.formatShortDateTime(val, timeZone));
           } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-            xValuesSet.add(this.formatShortDateTime(new Date(val)));
+            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone));
           } else {
             xValuesSet.add(String(val));
           }
@@ -837,9 +940,9 @@ export class ExportService {
         const xVal = row[xColumn];
         let label: string;
         if (xIsDate && xVal instanceof Date) {
-          label = this.formatShortDateTime(xVal);
+          label = this.formatShortDateTime(xVal, timeZone);
         } else if (xIsDate && typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
-          label = this.formatShortDateTime(new Date(xVal));
+          label = this.formatShortDateTime(new Date(xVal), timeZone);
         } else {
           label = String(xVal ?? '');
         }

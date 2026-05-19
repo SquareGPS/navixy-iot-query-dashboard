@@ -48,6 +48,60 @@ function getTimeoutFromGlobalVars(globalVars: Record<string, string>, defaultTim
   return defaultTimeout;
 }
 
+// Resolve the caller's preferred IANA timezone from user metadata so that
+// export formatters can render wall-clock times consistently with the on-screen
+// Data Table. Reads the same `raw_user_meta_data.preferences.timezone` field
+// that `GET /api/user/preferences` exposes, via the auth middleware's
+// settingsPool. Uses the explicit `connect()/release()` pattern — the codebase
+// convention; the `pool.query()` shortcut stalls in this project's pool wiring.
+// On any failure (missing pool/user, DB error, invalid identifier) undefined
+// is returned so the export gracefully falls back to server-local formatting
+// instead of erroring out.
+interface PgPoolLike {
+  connect: () => Promise<{
+    query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ raw_user_meta_data: unknown }> }>;
+    release: () => void;
+  }>;
+}
+
+async function getUserTimezone(req: Request): Promise<string | undefined> {
+  const settingsPool = (req as unknown as { settingsPool?: PgPoolLike }).settingsPool;
+  const userId = (req as unknown as { user?: { userId?: string } }).user?.userId;
+  if (!settingsPool || !userId) {
+    return undefined;
+  }
+
+  try {
+    const client = await settingsPool.connect();
+    try {
+      const result = await client.query(
+        'SELECT raw_user_meta_data FROM dashboard_studio_meta_data.users WHERE id = $1',
+        [userId]
+      );
+      const raw = result.rows[0]?.raw_user_meta_data;
+      const metaData = (typeof raw === 'string' ? JSON.parse(raw) : raw) ?? {};
+      const prefs = (metaData && typeof metaData === 'object' ? (metaData as { preferences?: unknown }).preferences : null) as { timezone?: unknown } | null;
+      const tz = prefs && typeof prefs.timezone === 'string' ? prefs.timezone.trim() : '';
+      if (!tz) return undefined;
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: tz });
+      } catch {
+        logger.warn('Ignoring invalid user timezone preference', { userId, timezone: tz });
+        return undefined;
+      }
+      return tz;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    logger.error('Failed to read user timezone preference', {
+      userId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
 // All routes require authentication
 router.use(authenticateToken);
 
@@ -594,6 +648,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     );
 
     const exportService = ExportService.getInstance();
+    const timeZone = await getUserTimezone(req);
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
@@ -601,6 +656,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       rows,
       executedAt: new Date(),
       ...(excelHeader && { excelHeader }),
+      ...(timeZone && { timeZone }),
     };
 
     if (format === 'csv') {
@@ -713,6 +769,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
 
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
+    const timeZone = await getUserTimezone(req);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -725,6 +782,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       chartSettings,
       mapSettings,
       ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
+      ...(timeZone && { timeZone }),
     });
 
     // Set response headers
@@ -823,6 +881,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
 
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
+    const timeZone = await getUserTimezone(req);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -835,6 +894,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       chartSettings,
       mapSettings,
       ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
+      ...(timeZone && { timeZone }),
     });
 
     // Convert HTML to PDF
