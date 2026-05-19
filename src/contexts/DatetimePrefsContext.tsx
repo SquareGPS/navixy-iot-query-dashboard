@@ -1,9 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   DatetimePrefs,
   detectDefaultPrefs,
 } from '@/utils/datetime';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiService } from '@/services/api';
 
 const STORAGE_KEY = 'navixy.datetimePrefs.v1';
 
@@ -70,6 +72,41 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   const resetPrefs = useCallback(() => {
     setPrefsState(detectDefaultPrefs());
   }, []);
+
+  // Sync the server-side `timezone` preference once per authenticated
+  // session. The backend is the source of truth for this field because
+  // the same account can be used from multiple browsers; local storage
+  // only acts as a warm cache for first render.
+  const { user } = useAuth();
+  const lastSyncedUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      lastSyncedUserId.current = null;
+      return;
+    }
+    if (lastSyncedUserId.current === user.id) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiService.getUserPreferences();
+        if (cancelled) return;
+        const tz = res?.data?.timezone;
+        if (typeof tz === 'string' && tz.trim().length > 0) {
+          setPrefsState((prev) =>
+            prev.timeZone === tz ? prev : { ...prev, timeZone: tz },
+          );
+        }
+        lastSyncedUserId.current = user.id;
+      } catch {
+        // Network / auth error: silently keep current prefs.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const value = useMemo<DatetimePrefsContextValue>(
     () => ({ prefs, setPrefs, resetPrefs }),

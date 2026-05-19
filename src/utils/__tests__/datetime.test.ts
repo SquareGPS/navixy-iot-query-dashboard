@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectDefaultPrefs,
+  formatLocalInputInZone,
   formatTimestamp,
   isDateLikeParam,
   isTimestampLike,
   normaliseParamForApi,
   parseServerTimestamp,
   toUtcIso,
+  toUtcIsoInZone,
 } from '../datetime';
 
 const prefsBerlin = {
@@ -163,6 +165,115 @@ describe('normaliseParamForApi', () => {
     expect(normaliseParamForApi('date_from', '')).toBe('');
     expect(normaliseParamForApi('date_from', null)).toBeNull();
     expect(normaliseParamForApi('date_from', undefined)).toBeUndefined();
+  });
+});
+
+describe('toUtcIsoInZone', () => {
+  it('interprets naive string as wall-clock in the given zone', () => {
+    // 05:00 in Asia/Tokyo (UTC+9, no DST) → previous day 20:00 UTC.
+    expect(toUtcIsoInZone('2026-05-12T05:00', 'Asia/Tokyo')).toBe(
+      '2026-05-11T20:00:00.000Z',
+    );
+  });
+
+  it('handles a DST-active zone (Europe/Belgrade in May is UTC+2)', () => {
+    expect(toUtcIsoInZone('2026-05-12T05:00', 'Europe/Belgrade')).toBe(
+      '2026-05-12T03:00:00.000Z',
+    );
+  });
+
+  it('handles a DST winter date (Europe/Belgrade in January is UTC+1)', () => {
+    expect(toUtcIsoInZone('2026-01-15T05:00', 'Europe/Belgrade')).toBe(
+      '2026-01-15T04:00:00.000Z',
+    );
+  });
+
+  it('supports zones west of UTC (America/New_York summer is UTC-4)', () => {
+    expect(toUtcIsoInZone('2026-05-12T05:00', 'America/New_York')).toBe(
+      '2026-05-12T09:00:00.000Z',
+    );
+  });
+
+  it('accepts seconds and milliseconds', () => {
+    expect(toUtcIsoInZone('2026-05-12T05:30:15.250', 'Asia/Tokyo')).toBe(
+      '2026-05-11T20:30:15.250Z',
+    );
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(toUtcIsoInZone('', 'Asia/Tokyo')).toBe('');
+  });
+
+  it('falls back to system parsing when timeZone is "auto" or omitted', () => {
+    // We can't assert an exact value (depends on host TZ), only the shape.
+    expect(toUtcIsoInZone('2026-05-12T05:00', 'auto')).toMatch(
+      /^2026-05-1[12]T\d{2}:\d{2}:00\.000Z$/,
+    );
+    expect(toUtcIsoInZone('2026-05-12T05:00')).toMatch(
+      /^2026-05-1[12]T\d{2}:\d{2}:00\.000Z$/,
+    );
+  });
+
+  it('round-trips with formatLocalInputInZone for arbitrary zones', () => {
+    const naive = '2026-05-12T05:00';
+    for (const tz of ['Asia/Tokyo', 'Europe/Belgrade', 'America/New_York']) {
+      const utc = toUtcIsoInZone(naive, tz);
+      const back = formatLocalInputInZone(new Date(utc), tz);
+      expect(back).toBe(naive);
+    }
+  });
+});
+
+describe('formatLocalInputInZone', () => {
+  const utcInstant = new Date('2026-05-12T03:00:00Z');
+
+  it('formats UTC instant as wall-clock in Tokyo', () => {
+    expect(formatLocalInputInZone(utcInstant, 'Asia/Tokyo')).toBe(
+      '2026-05-12T12:00',
+    );
+  });
+
+  it('formats UTC instant as wall-clock in Belgrade (DST active)', () => {
+    expect(formatLocalInputInZone(utcInstant, 'Europe/Belgrade')).toBe(
+      '2026-05-12T05:00',
+    );
+  });
+
+  it('falls back to host wall-clock when zone is "auto"', () => {
+    // Result depends on host TZ — only assert shape.
+    expect(formatLocalInputInZone(utcInstant, 'auto')).toMatch(
+      /^2026-05-1[12]T\d{2}:\d{2}$/,
+    );
+  });
+
+  it('returns empty for invalid Date', () => {
+    expect(formatLocalInputInZone(new Date('invalid'), 'Asia/Tokyo')).toBe('');
+  });
+});
+
+describe('normaliseParamForApi with explicit timeZone', () => {
+  it('uses the supplied zone for naive datetime-local strings', () => {
+    expect(
+      normaliseParamForApi('date_from', '2026-05-12T05:00', {
+        timeZone: 'Asia/Tokyo',
+      }),
+    ).toBe('2026-05-11T20:00:00.000Z');
+  });
+
+  it('ignores zone for non-date params', () => {
+    expect(
+      normaliseParamForApi('vehicle_label', '2026-05-12T05:00', {
+        timeZone: 'Asia/Tokyo',
+      }),
+    ).toBe('2026-05-12T05:00');
+  });
+
+  it('ignores zone for values with an explicit suffix', () => {
+    expect(
+      normaliseParamForApi('date_from', '2026-05-12T05:00:00Z', {
+        timeZone: 'Asia/Tokyo',
+      }),
+    ).toBe('2026-05-12T05:00:00.000Z');
   });
 });
 

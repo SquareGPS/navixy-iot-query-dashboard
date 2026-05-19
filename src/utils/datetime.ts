@@ -175,15 +175,131 @@ function timeStyleOptions(
 }
 
 /**
+ * Compute the offset (in minutes) of the given UTC instant as observed
+ * in `timeZone`. Positive numbers mean the zone is ahead of UTC.
+ *
+ * Implemented by reconstructing the wall-clock representation of `date`
+ * in the target zone via Intl.DateTimeFormat, then comparing against
+ * the input as if it were UTC.
+ */
+function getZoneOffsetMinutes(date: Date, timeZone: string): number {
+  // `Intl.DateTimeFormat.formatToParts` returns only second precision —
+  // there is no `fractionalSecondDigits` option that yields a usable
+  // value here. Align the input to whole seconds before computing the
+  // delta so callers that iterate the offset (for DST boundary
+  // refinement) don't accumulate sub-second drift.
+  const aligned = new Date(date.getTime() - date.getMilliseconds());
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const lookup: Record<string, string> = {};
+  for (const part of fmt.formatToParts(aligned)) lookup[part.type] = part.value;
+  const wallClockAsUtc = Date.UTC(
+    Number(lookup.year),
+    Number(lookup.month) - 1,
+    Number(lookup.day),
+    Number(lookup.hour) === 24 ? 0 : Number(lookup.hour),
+    Number(lookup.minute),
+    Number(lookup.second),
+  );
+  return (wallClockAsUtc - aligned.getTime()) / 60_000;
+}
+
+const NAIVE_TS_RE =
+  /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+/**
+ * Convert a naive local wall-clock string (e.g. "2026-05-12T05:00") to
+ * a UTC ISO-8601 string, interpreting the wall-clock as belonging to
+ * the given IANA timezone (e.g. "Asia/Tokyo").
+ *
+ * When `timeZone` is falsy or "auto", the input is interpreted in the
+ * system timezone via the regular `Date` constructor (legacy behaviour).
+ */
+export function toUtcIsoInZone(naive: string, timeZone?: string): string {
+  if (typeof naive !== 'string' || naive.length === 0) return '';
+  const trimmed = naive.trim();
+  if (!timeZone || timeZone === 'auto') {
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+  }
+  const m = NAIVE_TS_RE.exec(trimmed);
+  if (!m) {
+    const fallback = new Date(trimmed);
+    return Number.isNaN(fallback.getTime()) ? '' : fallback.toISOString();
+  }
+  const [, y, mo, d, h, mi, s, ms] = m;
+  const asIfUtcMs = Date.UTC(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    s ? Number(s) : 0,
+    ms ? Number((ms + '000').slice(0, 3)) : 0,
+  );
+  // First-pass offset assumes the naive moment is already the wall
+  // clock for the zone; refine once because DST boundaries can move
+  // the actual offset by up to an hour.
+  const offset1 = getZoneOffsetMinutes(new Date(asIfUtcMs), timeZone);
+  const offset2 = getZoneOffsetMinutes(new Date(asIfUtcMs - offset1 * 60_000), timeZone);
+  return new Date(asIfUtcMs - offset2 * 60_000).toISOString();
+}
+
+/**
+ * Format a Date as a "YYYY-MM-DDTHH:mm" string showing the wall-clock
+ * in `timeZone`, suitable for the `value` of <input type="datetime-local">.
+ *
+ * When `timeZone` is falsy or "auto", falls back to the host's local
+ * wall-clock (i.e. the browser's reported zone).
+ */
+export function formatLocalInputInZone(date: Date, timeZone?: string): string {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  if (!timeZone || timeZone === 'auto') {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return (
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+      `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+    );
+  }
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const lookup: Record<string, string> = {};
+  for (const part of fmt.formatToParts(date)) lookup[part.type] = part.value;
+  const hour = lookup.hour === '24' ? '00' : lookup.hour;
+  return `${lookup.year}-${lookup.month}-${lookup.day}T${hour}:${lookup.minute}`;
+}
+
+/**
  * Sanitise an arbitrary parameter value before sending to the API.
  *
  * - If the value looks like a date AND the parameter name is date-like,
  *   convert it to a UTC ISO string.
  * - Otherwise return the value unchanged.
  *
- * Used by report execution flows that send `params` to the backend.
+ * `options.timeZone` controls how naive wall-clock strings (no TZ
+ * suffix, e.g. from a datetime-local input) are interpreted before
+ * being converted to UTC. When omitted, the system timezone is used.
  */
-export function normaliseParamForApi(name: string, value: unknown): unknown {
+export function normaliseParamForApi(
+  name: string,
+  value: unknown,
+  options: { timeZone?: string } = {},
+): unknown {
   if (value == null) return value;
   if (!isDateLikeParam(name)) return value;
 
@@ -194,8 +310,8 @@ export function normaliseParamForApi(name: string, value: unknown): unknown {
       const d = new Date(value);
       return Number.isNaN(d.getTime()) ? value : d.toISOString();
     }
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? value : d.toISOString();
+    const converted = toUtcIsoInZone(value, options.timeZone);
+    return converted || value;
   }
   return value;
 }

@@ -193,6 +193,111 @@ router.post('/auth/test-iot-connection', async (req, res, next) => {
 });
 
 // ==========================================
+// User Preferences Routes
+// ==========================================
+//
+// The preference value (currently just `timezone`) is stored inside the
+// existing `raw_user_meta_data` JSONB column on the users table under
+// the `preferences` sub-key. This avoids a new migration and keeps the
+// account-level metadata together. Shape on disk:
+//   raw_user_meta_data = { iotDbUrl: "...", ..., preferences: { timezone: "Europe/Belgrade" } }
+
+router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.user?.userId) {
+      throw new CustomError('User ID not found', 400);
+    }
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
+    try {
+      const result = await client.query(
+        'SELECT raw_user_meta_data FROM dashboard_studio_meta_data.users WHERE id = $1',
+        [req.user.userId]
+      );
+
+      const raw = result.rows[0]?.raw_user_meta_data;
+      const metaData = (typeof raw === 'string' ? JSON.parse(raw) : raw) ?? {};
+      const prefs = (metaData && typeof metaData === 'object' && metaData.preferences) || {};
+      const timezone = typeof prefs.timezone === 'string' ? prefs.timezone : '';
+
+      res.json({ timezone });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { timezone } = req.body ?? {};
+
+    if (typeof timezone !== 'string' || timezone.trim().length === 0) {
+      throw new CustomError('`timezone` is required and must be a non-empty string', 400);
+    }
+
+    // Validate against the host's ICU timezone database. `Intl.DateTimeFormat`
+    // throws RangeError for unknown identifiers, which is exactly what we want.
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone });
+    } catch {
+      throw new CustomError(`Invalid timezone identifier: ${timezone}`, 400);
+    }
+
+    if (!req.user?.userId) {
+      throw new CustomError('User ID not found', 400);
+    }
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const client = await req.settingsPool.connect();
+    try {
+      // Merge `{ preferences: { timezone } }` into the existing JSONB
+      // without touching siblings (e.g. `iotDbUrl`). We can't use a
+      // single `jsonb_set('{preferences,timezone}', ...)` because that
+      // function only creates the leaf key, not intermediate keys —
+      // when `preferences` doesn't yet exist on the user, jsonb_set
+      // silently leaves the row untouched. The `||` merge below
+      // handles all cases (missing column, missing key, key exists).
+      const updateResult = await client.query(
+        `UPDATE dashboard_studio_meta_data.users
+         SET raw_user_meta_data =
+           COALESCE(raw_user_meta_data, '{}'::jsonb)
+           || jsonb_build_object(
+                'preferences',
+                COALESCE(raw_user_meta_data->'preferences', '{}'::jsonb)
+                || jsonb_build_object('timezone', $1::text)
+              )
+         WHERE id = $2
+         RETURNING raw_user_meta_data->'preferences'->>'timezone' AS timezone`,
+        [timezone, req.user.userId]
+      );
+
+      const savedTimezone = updateResult.rows[0]?.timezone ?? null;
+      if (savedTimezone == null) {
+        // Row not found - the JWT references a user that no longer
+        // exists in the metadata DB. Surface this explicitly instead
+        // of silently returning success.
+        throw new CustomError('User record not found', 404);
+      }
+
+      logger.info(`User preferences updated by ${req.user.email}: timezone=${savedTimezone}`);
+
+      res.json({ timezone: savedTimezone });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
 // Global Variables Routes
 // ==========================================
 

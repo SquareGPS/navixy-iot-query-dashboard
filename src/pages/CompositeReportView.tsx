@@ -61,6 +61,7 @@ import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import {
   DatetimePrefs,
   detectDefaultPrefs,
+  formatLocalInputInZone,
   formatTimestamp,
   isDateLikeParam,
   isTimestampLike,
@@ -68,7 +69,6 @@ import {
   parseServerTimestamp,
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
-import { formatDateToLocalInput } from '@/utils/timeParser';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -254,10 +254,12 @@ export default function CompositeReportView() {
     try {
       const merged: Record<string, unknown> = {};
       const filtered = filterUsedParameters(sqlQuery, parameterValues);
+      const paramTimeZone =
+        datetimePrefs.timeZone === 'auto' ? undefined : datetimePrefs.timeZone;
       Object.entries(filtered).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
         if (typeof v === 'string' && v.trim() === '') return;
-        merged[k] = normaliseParamForApi(k, v);
+        merged[k] = normaliseParamForApi(k, v, { timeZone: paramTimeZone });
       });
 
       const response = await apiService.executeCompositeReport(id, {
@@ -283,7 +285,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, sqlQuery, parameterValues]);
+  }, [id, sqlQuery, parameterValues, datetimePrefs.timeZone]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
@@ -1045,14 +1047,20 @@ export default function CompositeReportView() {
                 if (isDate) {
                   // datetime-local inputs carry NAIVE local time ("YYYY-MM-DDTHH:mm");
                   // server timestamps come UTC-suffixed ("...Z" or "...+02:00").
-                  // Only the latter needs conversion to local for display — otherwise
-                  // we'd shift the value by the TZ offset on every re-render.
+                  // Only the latter needs conversion to wall-clock for display —
+                  // otherwise we'd shift the value by the TZ offset on every re-render.
+                  // The user's preferred timezone (from Settings) is used so the
+                  // input matches the timezone the table/chart are rendered in.
                   const hasTzSuffix = /(Z|[+-]\d{2}:?\d{2})$/.test(stored.trim());
+                  const inputTimeZone =
+                    datetimePrefs.timeZone === 'auto'
+                      ? undefined
+                      : datetimePrefs.timeZone;
                   let localValue = stored;
                   if (hasTzSuffix) {
                     const parsed = parseServerTimestamp(stored);
                     if (parsed && !Number.isNaN(parsed.getTime())) {
-                      localValue = formatDateToLocalInput(parsed);
+                      localValue = formatLocalInputInZone(parsed, inputTimeZone);
                     }
                   } else if (stored.length > 16) {
                     // Trim any seconds/milliseconds so the datetime-local input accepts it.
@@ -1080,6 +1088,9 @@ export default function CompositeReportView() {
                           }))
                         }
                       />
+                      <span className="text-[10px] text-muted-foreground leading-none">
+                        {inputTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+                      </span>
                     </div>
                   );
                 }
