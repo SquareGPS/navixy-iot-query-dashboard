@@ -58,6 +58,17 @@ import {
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
+import {
+  DatetimePrefs,
+  detectDefaultPrefs,
+  formatTimestamp,
+  isDateLikeParam,
+  isTimestampLike,
+  normaliseParamForApi,
+  parseServerTimestamp,
+} from '@/utils/datetime';
+import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { formatDateToLocalInput } from '@/utils/timeParser';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
@@ -114,6 +125,7 @@ export default function CompositeReportView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { prefs: datetimePrefs } = useDatetimePrefs();
 
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
@@ -243,9 +255,9 @@ export default function CompositeReportView() {
       const merged: Record<string, unknown> = {};
       const filtered = filterUsedParameters(sqlQuery, parameterValues);
       Object.entries(filtered).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && String(v).trim() !== '') {
-          merged[k] = v;
-        }
+        if (v === undefined || v === null) return;
+        if (typeof v === 'string' && v.trim() === '') return;
+        merged[k] = normaliseParamForApi(k, v);
       });
 
       const response = await apiService.executeCompositeReport(id, {
@@ -466,7 +478,7 @@ export default function CompositeReportView() {
       
       for (const row of sortedRows) {
         const xRaw = row[chartXColumn];
-        const xFormatted = formatChartLabel(xRaw, true); // Include time
+        const xFormatted = formatChartLabel(xRaw, true, datetimePrefs);
         const groupVal = String(row[chartColorColumn] ?? 'Unknown');
         const yVal = row[chartYColumn];
         const yNumeric = typeof yVal === 'number' ? yVal : parseFloat(String(yVal)) || 0;
@@ -495,7 +507,7 @@ export default function CompositeReportView() {
       // No grouping - single series
       return rowObjects.slice(0, 200).map(row => {
         const point: Record<string, unknown> = {
-          [chartXColumn]: formatChartLabel(row[chartXColumn], true),
+          [chartXColumn]: formatChartLabel(row[chartXColumn], true, datetimePrefs),
         };
         
         const val = row[chartYColumn];
@@ -995,7 +1007,7 @@ export default function CompositeReportView() {
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <Clock className="h-4 w-4" />
-              Last updated: {execution.lastExecuted.toLocaleString()}
+              Last updated: {formatTimestamp(execution.lastExecuted, datetimePrefs)}
             </span>
             {execution.data?.stats && (
               <>
@@ -1023,27 +1035,83 @@ export default function CompositeReportView() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-4">
-              {templateParamNames.map((name) => (
-                <div key={name} className="flex flex-col gap-1.5 min-w-[200px]">
-                  <Label htmlFor={`param-${name}`} className="text-xs font-medium">
-                    {name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-                    <span className="text-muted-foreground font-normal font-mono text-xs">
-                      {' ('}
-                      {'$' + '{' + name + '}'}
-                      {')'}
-                    </span>
-                  </Label>
-                  <Input
-                    id={`param-${name}`}
-                    className="h-9 text-sm font-mono"
-                    value={parameterValues[name] ?? ''}
-                    placeholder={globalVariables.find((g) => g.label === name)?.value || `Enter ${name}`}
-                    onChange={(e) =>
-                      setParameterValues((prev) => ({ ...prev, [name]: e.target.value }))
+              {templateParamNames.map((name) => {
+                const labelText = name
+                  .replace(/_/g, ' ')
+                  .replace(/\b\w/g, (l) => l.toUpperCase());
+                const stored = parameterValues[name] ?? '';
+                const isDate = isDateLikeParam(name);
+
+                if (isDate) {
+                  // datetime-local inputs carry NAIVE local time ("YYYY-MM-DDTHH:mm");
+                  // server timestamps come UTC-suffixed ("...Z" or "...+02:00").
+                  // Only the latter needs conversion to local for display — otherwise
+                  // we'd shift the value by the TZ offset on every re-render.
+                  const hasTzSuffix = /(Z|[+-]\d{2}:?\d{2})$/.test(stored.trim());
+                  let localValue = stored;
+                  if (hasTzSuffix) {
+                    const parsed = parseServerTimestamp(stored);
+                    if (parsed && !Number.isNaN(parsed.getTime())) {
+                      localValue = formatDateToLocalInput(parsed);
                     }
-                  />
-                </div>
-              ))}
+                  } else if (stored.length > 16) {
+                    // Trim any seconds/milliseconds so the datetime-local input accepts it.
+                    localValue = stored.slice(0, 16);
+                  }
+                  return (
+                    <div key={name} className="flex flex-col gap-1.5 min-w-[200px]">
+                      <Label htmlFor={`param-${name}`} className="text-xs font-medium">
+                        {labelText}
+                        <span className="text-muted-foreground font-normal font-mono text-xs">
+                          {' ('}
+                          {'$' + '{' + name + '}'}
+                          {')'}
+                        </span>
+                      </Label>
+                      <Input
+                        id={`param-${name}`}
+                        type="datetime-local"
+                        className="relative h-9 text-sm pr-8 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-3 [&::-webkit-calendar-picker-indicator]:top-1/2 [&::-webkit-calendar-picker-indicator]:-translate-y-1/2"
+                        value={localValue}
+                        onChange={(e) =>
+                          setParameterValues((prev) => ({
+                            ...prev,
+                            [name]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={name} className="flex flex-col gap-1.5 min-w-[200px]">
+                    <Label htmlFor={`param-${name}`} className="text-xs font-medium">
+                      {labelText}
+                      <span className="text-muted-foreground font-normal font-mono text-xs">
+                        {' ('}
+                        {'$' + '{' + name + '}'}
+                        {')'}
+                      </span>
+                    </Label>
+                    <Input
+                      id={`param-${name}`}
+                      className="h-9 text-sm font-mono"
+                      value={stored}
+                      placeholder={
+                        globalVariables.find((g) => g.label === name)?.value ||
+                        `Enter ${name}`
+                      }
+                      onChange={(e) =>
+                        setParameterValues((prev) => ({
+                          ...prev,
+                          [name]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                );
+              })}
             </div>
             <div className="flex justify-end pt-2 border-t">
               <Button type="button" variant="default" size="sm" onClick={() => executeQuery()} disabled={execution.loading}>
@@ -1380,7 +1448,7 @@ export default function CompositeReportView() {
                                         }
                                         return (
                                           <TableCell key={cellIdx} className="max-w-[300px] truncate">
-                                            {formatCellValue(cell)}
+                                            {formatCellValue(cell, datetimePrefs)}
                                           </TableCell>
                                         );
                                       }).filter(Boolean)}
@@ -1399,7 +1467,7 @@ export default function CompositeReportView() {
                                       return (
                                         <TableCell key={colIdx} className="font-semibold">
                                           {colIdx in numericTotals
-                                            ? formatCellValue(numericTotals[colIdx])
+                                            ? formatCellValue(numericTotals[colIdx], datetimePrefs)
                                             : colIdx === 0 ? 'Total' : ''}
                                         </TableCell>
                                       );
@@ -1774,7 +1842,10 @@ export default function CompositeReportView() {
 
 // Helper functions
 
-function formatCellValue(value: unknown): string {
+function formatCellValue(
+  value: unknown,
+  prefs: DatetimePrefs = detectDefaultPrefs(),
+): string {
   if (value === null || value === undefined) {
     return '-';
   }
@@ -1782,49 +1853,27 @@ function formatCellValue(value: unknown): string {
     return value ? 'Yes' : 'No';
   }
   if (typeof value === 'number') {
-    // Trim trailing zeros for numbers (especially coordinates)
-    // Use parseFloat(toFixed) to remove trailing zeros while keeping precision
     const str = value.toString();
-    // Check if it's a coordinate-like number (has many decimal places)
     if (str.includes('.') && str.split('.')[1]?.length > 6) {
-      // Remove trailing zeros
       return parseFloat(value.toPrecision(15)).toString();
     }
     return str;
   }
+  if (value instanceof Date) {
+    return formatTimestamp(value, prefs);
+  }
   if (typeof value === 'object') {
-    if (value instanceof Date) {
-      // Short locale format for Date objects
-      return value.toLocaleString(undefined, {
-        day: 'numeric',
-        month: 'numeric',
-        year: '2-digit',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
-    }
     return JSON.stringify(value);
   }
-  // Check if string looks like a number with trailing zeros (from DB)
   if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
     const num = parseFloat(value);
     if (!isNaN(num)) {
       return num.toString();
     }
   }
-  // Check if string looks like an ISO date/timestamp
-  if (typeof value === 'string' && value.includes('-') && !isNaN(Date.parse(value))) {
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-      // Short locale format for date strings
-      return date.toLocaleString(undefined, {
-        day: 'numeric',
-        month: 'numeric',
-        year: '2-digit',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
-    }
+  if (isTimestampLike(value)) {
+    const formatted = formatTimestamp(value, prefs);
+    if (formatted) return formatted;
   }
   return String(value);
 }
@@ -1837,31 +1886,17 @@ function isColumnEmpty(rows: unknown[][], colIdx: number): boolean {
   });
 }
 
-function formatChartLabel(value: unknown, includeTime: boolean = false): string {
+function formatChartLabel(
+  value: unknown,
+  includeTime: boolean = false,
+  prefs: DatetimePrefs = detectDefaultPrefs(),
+): string {
   if (value === null || value === undefined) {
     return '';
   }
-  if (typeof value === 'string') {
-    // Try to format as date if it looks like a timestamp
-    const date = new Date(value);
-    if (!isNaN(date.getTime()) && value.includes('-')) {
-      if (includeTime) {
-        // Short locale format: "2/2/26, 10:00 PM" or "02.02.26, 22:00"
-        return date.toLocaleString(undefined, { 
-          day: 'numeric',
-          month: 'numeric',
-          year: '2-digit',
-          hour: 'numeric',
-          minute: '2-digit',
-        });
-      }
-      // Short date only: "2/2/26" or "02.02.26"
-      return date.toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'numeric', 
-        year: '2-digit',
-      });
-    }
+  if (isTimestampLike(value)) {
+    const formatted = formatTimestamp(value, prefs, { includeTime });
+    if (formatted) return formatted;
   }
   return String(value);
 }

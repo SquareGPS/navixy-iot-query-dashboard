@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { DatetimePrefsProvider } from "@/contexts/DatetimePrefsContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import AppPage from "./pages/App";
@@ -31,7 +32,8 @@ const App = () => (
           }}
         >
           <AuthProvider>
-            <Routes>
+            <DatetimePrefsProvider>
+              <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/app" element={<AppPage />} />
@@ -44,6 +46,7 @@ const App = () => (
               <Route path="/test/line-chart" element={<LineChartTest />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </DatetimePrefsProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
