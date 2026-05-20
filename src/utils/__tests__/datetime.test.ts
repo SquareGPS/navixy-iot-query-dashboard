@@ -7,7 +7,6 @@ import {
   isTimestampLike,
   normaliseParamForApi,
   parseServerTimestamp,
-  toUtcIso,
   toUtcIsoInZone,
 } from '../datetime';
 
@@ -50,28 +49,6 @@ describe('isDateLikeParam', () => {
       expect(isDateLikeParam(name)).toBe(false);
     },
   );
-});
-
-describe('toUtcIso', () => {
-  it('converts a Date to ISO UTC', () => {
-    expect(toUtcIso(new Date('2026-05-12T03:00:00Z'))).toBe(
-      '2026-05-12T03:00:00.000Z',
-    );
-  });
-
-  it('treats a datetime-local string as local wall-clock time', () => {
-    // The result depends on host TZ — we just assert it parses to a valid ISO.
-    const out = toUtcIso('2026-05-12T05:00');
-    expect(out).toMatch(/^2026-05-1[12]T\d{2}:\d{2}:00\.000Z$/);
-  });
-
-  it('preserves explicit Z timestamps', () => {
-    expect(toUtcIso('2026-05-12T05:00:00Z')).toBe('2026-05-12T05:00:00.000Z');
-  });
-
-  it('returns empty string for empty input', () => {
-    expect(toUtcIso('')).toBe('');
-  });
 });
 
 describe('parseServerTimestamp', () => {

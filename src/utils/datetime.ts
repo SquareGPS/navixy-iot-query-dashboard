@@ -68,25 +68,6 @@ export function isDateLikeParam(name: string): boolean {
 }
 
 /**
- * Convert a Date or a datetime-local input string (e.g. "2026-05-12T05:00")
- * into a UTC ISO-8601 string (e.g. "2026-05-12T03:00:00.000Z").
- *
- * The input is interpreted as the user's **local** wall-clock time.
- */
-export function toUtcIso(input: Date | string): string {
-  if (input instanceof Date) {
-    return input.toISOString();
-  }
-  if (typeof input !== 'string' || input.length === 0) {
-    return '';
-  }
-  if (TIMEZONE_SUFFIX_RE.test(input)) {
-    return new Date(input).toISOString();
-  }
-  return new Date(input).toISOString();
-}
-
-/**
  * Parse a server-returned timestamp into a Date object.
  *
  * Backend convention: timestamps without an explicit timezone suffix are
