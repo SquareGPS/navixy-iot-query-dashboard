@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { DatabaseService } from '../services/database.js';
+import { readUserPreferences, writeUserTimezone } from '../services/userPreferences.js';
 import { authenticateToken, requireAdmin, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
@@ -187,6 +188,64 @@ router.post('/auth/test-iot-connection', async (req, res, next) => {
         400
       );
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================
+// User Preferences Routes
+// ==========================================
+// Storage shape and merge semantics live in services/userPreferences.ts.
+
+router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.user?.userId) {
+      throw new CustomError('User ID not found', 400);
+    }
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const prefs = await readUserPreferences(req.settingsPool, req.user.userId);
+    res.json(prefs);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { timezone } = req.body ?? {};
+
+    if (typeof timezone !== 'string' || timezone.trim().length === 0) {
+      throw new CustomError('`timezone` is required and must be a non-empty string', 400);
+    }
+
+    // Validate against the host's ICU timezone database. `Intl.DateTimeFormat`
+    // throws RangeError for unknown identifiers, which is exactly what we want.
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone });
+    } catch {
+      throw new CustomError(`Invalid timezone identifier: ${timezone}`, 400);
+    }
+
+    if (!req.user?.userId) {
+      throw new CustomError('User ID not found', 400);
+    }
+    if (!req.settingsPool) {
+      throw new CustomError('Settings pool not available', 500);
+    }
+
+    const savedTimezone = await writeUserTimezone(req.settingsPool, req.user.userId, timezone);
+    if (savedTimezone == null) {
+      // Row not found - the JWT references a user that no longer exists in
+      // the metadata DB. Surface explicitly instead of silently 200ing.
+      throw new CustomError('User record not found', 404);
+    }
+
+    logger.info(`User preferences updated by ${req.user.email}: timezone=${savedTimezone}`);
+    res.json({ timezone: savedTimezone });
   } catch (error) {
     next(error);
   }

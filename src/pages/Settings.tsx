@@ -11,12 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
 import { apiService } from '@/services/api';
+import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable, FlaskConical, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const Settings = () => {
   const { user, loading, demoMode, reseedDemoData } = useAuth();
+  const { setPrefs: setDatetimePrefs } = useDatetimePrefs();
   const navigate = useNavigate();
   
   // Global Variables state
@@ -31,7 +33,7 @@ const Settings = () => {
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
-  const [browserTimezone, setBrowserTimezone] = useState<string | null>(() => {
+  const [browserTimezone] = useState<string | null>(() => {
     // Detect browser timezone immediately on component mount
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -39,7 +41,6 @@ const Settings = () => {
       return null;
     }
   });
-  const [showBrowserTimezonePrompt, setShowBrowserTimezonePrompt] = useState(false);
   
   // Demo mode state
   const [resettingDemo, setResettingDemo] = useState(false);
@@ -190,11 +191,6 @@ const Settings = () => {
           // No saved preference - use browser timezone as default
           setUserTimezone(browserTimezone || 'UTC');
         }
-        
-        // Show prompt if user has no saved preference and browser timezone is detected
-        if (!savedTimezone && browserTimezone && browserTimezone !== 'UTC') {
-          setShowBrowserTimezonePrompt(true);
-        }
       }
     } catch (error) {
       console.error('Error fetching user preferences:', error);
@@ -214,10 +210,12 @@ const Settings = () => {
       if (response.error) {
         toast.error(response.error.message || 'Failed to save preferences');
       } else {
+        // PUT returns the saved timezone via RETURNING; trust it as the
+        // source of truth and skip the otherwise redundant GET.
+        const savedTimezone = response.data?.timezone ?? userTimezone;
+        setUserTimezone(savedTimezone);
+        setDatetimePrefs({ timeZone: savedTimezone });
         toast.success('Preferences saved successfully');
-        await fetchUserPreferences();
-        // Hide prompt after saving
-        setShowBrowserTimezonePrompt(false);
       }
     } catch (error: any) {
       console.error('Error saving preferences:', error);
@@ -225,32 +223,6 @@ const Settings = () => {
     } finally {
       setSavingPreferences(false);
     }
-  };
-
-  const handleUseBrowserTimezone = async () => {
-    if (!browserTimezone) return;
-    
-    setUserTimezone(browserTimezone);
-    setSavingPreferences(true);
-    try {
-      const response = await apiService.updateUserPreferences({ timezone: browserTimezone });
-      if (response.error) {
-        toast.error(response.error.message || 'Failed to save preferences');
-      } else {
-        toast.success(`Timezone set to ${browserTimezone}`);
-        setShowBrowserTimezonePrompt(false);
-        await fetchUserPreferences();
-      }
-    } catch (error: any) {
-      console.error('Error saving browser timezone:', error);
-      toast.error(error.message || 'Failed to save preferences');
-    } finally {
-      setSavingPreferences(false);
-    }
-  };
-
-  const handleDismissBrowserPrompt = () => {
-    setShowBrowserTimezonePrompt(false);
   };
 
   // Demo mode handlers
@@ -326,53 +298,12 @@ const Settings = () => {
                     </p>
                   </div>
 
-                  {/* Browser Timezone Prompt */}
-                  {showBrowserTimezonePrompt && browserTimezone && (
-                    <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800">
-                      <AlertDescription className="space-y-3">
-                        <div>
-                          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                            We detected your browser's timezone
-                          </p>
-                          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                            Your browser reports the timezone as <strong>{browserTimezone}</strong>. 
-                            Would you like to use this timezone, or choose a different one?
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={handleUseBrowserTimezone}
-                            disabled={savingPreferences}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                          >
-                            Use Browser Timezone
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleDismissBrowserPrompt}
-                            disabled={savingPreferences}
-                          >
-                            Choose Different
-                          </Button>
-                        </div>
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="timezone" className="text-sm font-medium">Timezone</Label>
                       <TimezoneCombobox
                         value={userTimezone}
-                        onValueChange={(value) => {
-                          setUserTimezone(value);
-                          // Hide prompt when user manually selects
-                          if (showBrowserTimezonePrompt) {
-                            setShowBrowserTimezonePrompt(false);
-                          }
-                        }}
+                        onValueChange={setUserTimezone}
                         disabled={loadingPreferences || savingPreferences}
                         browserTimezone={browserTimezone}
                       />
