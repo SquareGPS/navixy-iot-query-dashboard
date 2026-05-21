@@ -1,6 +1,14 @@
 import { Router } from 'express';
 import { DatabaseService } from '../services/database.js';
-import { readUserPreferences, writeUserTimezone } from '../services/userPreferences.js';
+import {
+  DATE_FORMAT_VALUES,
+  TIME_FORMAT_VALUES,
+  readUserPreferences,
+  writeUserPreferences,
+  type DateFormat,
+  type TimeFormat,
+  type UserPreferences,
+} from '../services/userPreferences.js';
 import { authenticateToken, requireAdmin, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
@@ -216,18 +224,49 @@ router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequ
 
 router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const { timezone } = req.body ?? {};
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: Partial<UserPreferences> = {};
 
-    if (typeof timezone !== 'string' || timezone.trim().length === 0) {
-      throw new CustomError('`timezone` is required and must be a non-empty string', 400);
+    if (body.timezone !== undefined) {
+      const tz = body.timezone;
+      if (typeof tz !== 'string' || tz.trim().length === 0) {
+        throw new CustomError('`timezone` must be a non-empty string', 400);
+      }
+      // Validate against the host's ICU timezone database. `Intl.DateTimeFormat`
+      // throws RangeError for unknown identifiers, which is exactly what we want.
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: tz });
+      } catch {
+        throw new CustomError(`Invalid timezone identifier: ${tz}`, 400);
+      }
+      patch.timezone = tz;
     }
 
-    // Validate against the host's ICU timezone database. `Intl.DateTimeFormat`
-    // throws RangeError for unknown identifiers, which is exactly what we want.
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: timezone });
-    } catch {
-      throw new CustomError(`Invalid timezone identifier: ${timezone}`, 400);
+    if (body.dateFormat !== undefined) {
+      if (!(DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat as string)) {
+        throw new CustomError(
+          `Invalid dateFormat. Allowed: ${DATE_FORMAT_VALUES.join(', ')}`,
+          400,
+        );
+      }
+      patch.dateFormat = body.dateFormat as DateFormat;
+    }
+
+    if (body.timeFormat !== undefined) {
+      if (!(TIME_FORMAT_VALUES as readonly string[]).includes(body.timeFormat as string)) {
+        throw new CustomError(
+          `Invalid timeFormat. Allowed: ${TIME_FORMAT_VALUES.join(', ')}`,
+          400,
+        );
+      }
+      patch.timeFormat = body.timeFormat as TimeFormat;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      throw new CustomError(
+        'At least one of `timezone`, `dateFormat`, `timeFormat` is required',
+        400,
+      );
     }
 
     if (!req.user?.userId) {
@@ -237,15 +276,20 @@ router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequ
       throw new CustomError('Settings pool not available', 500);
     }
 
-    const savedTimezone = await writeUserTimezone(req.settingsPool, req.user.userId, timezone);
-    if (savedTimezone == null) {
+    const saved = await writeUserPreferences(req.settingsPool, req.user.userId, patch);
+    if (saved == null) {
       // Row not found - the JWT references a user that no longer exists in
       // the metadata DB. Surface explicitly instead of silently 200ing.
       throw new CustomError('User record not found', 404);
     }
 
-    logger.info(`User preferences updated by ${req.user.email}: timezone=${savedTimezone}`);
-    res.json({ timezone: savedTimezone });
+    logger.info(
+      `User preferences updated by ${req.user.email}: ` +
+        Object.entries(patch)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', '),
+    );
+    res.json(saved);
   } catch (error) {
     next(error);
   }

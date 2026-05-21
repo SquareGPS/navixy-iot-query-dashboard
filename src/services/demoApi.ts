@@ -4,7 +4,14 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
-import type { ApiResponse, TableQueryParams, TableQueryResult, TileQueryParams, TileQueryResult } from './api';
+import type {
+  ApiResponse,
+  TableQueryParams,
+  TableQueryResult,
+  TileQueryParams,
+  TileQueryResult,
+  UserPreferences,
+} from './api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -973,14 +980,29 @@ class DemoApiService {
   // For now, return defaults - could be extended
   // ==========================================
 
-  async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
-    // Return default timezone
-    return { data: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } };
+  async getUserPreferences(): Promise<ApiResponse<UserPreferences>> {
+    return {
+      data: {
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateFormat: 'default',
+        timeFormat: 'default',
+      },
+    };
   }
 
-  async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
-    // In demo mode, just return the preferences (could store in localStorage)
-    return { data: preferences };
+  async updateUserPreferences(
+    preferences: Partial<UserPreferences>,
+  ): Promise<ApiResponse<UserPreferences>> {
+    // In demo mode we don't persist; echo the patch merged with defaults so
+    // callers see the same shape as the real backend's RETURNING payload.
+    return {
+      data: {
+        timezone:
+          preferences.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateFormat: preferences.dateFormat ?? 'default',
+        timeFormat: preferences.timeFormat ?? 'default',
+      },
+    };
   }
 
   // ==========================================

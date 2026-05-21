@@ -1,0 +1,75 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Navixy IoT Query Dashboard — full-stack TypeScript app for building SQL-backed report dashboards with a drag-and-drop layout editor. Frontend is React 18 + Vite (port 8080); backend is Node.js + Express (port 3001). Dashboards use a **Grafana-compatible JSON schema** for import/export and to make panels portable.
+
+The app operates in **plugin/passwordless mode**: users supply two external PostgreSQL connection URLs at login (`iotDbUrl` for SQL queries, `userDbUrl` for settings/menu/report storage in the `dashboard_studio_meta_data` schema). The backend does **not** own application data — there is no local app database.
+
+## Common Commands
+
+| Command | Purpose |
+|---|---|
+| `npm run dev:setup` | One-shot bootstrap: deps, env, Postgres check, Redis (Docker), start both servers |
+| `npm run dev` | Frontend only (Vite, port 8080, proxies `/api` → `localhost:3001`) |
+| `npm run dev:backend` | Backend only (`tsx watch` on `backend/src/index.ts`) |
+| `npm run dev:full` | Both via `concurrently` |
+| `npm run dev:stop` | Kill all dev processes (`scripts/stop-dev.sh`) |
+| `npm run build` / `npm run build:backend` / `npm run build:all` | Production builds (frontend → `dist/`, backend → `backend/dist/`) |
+| `npm run lint` / `npm run lint:backend` / `npm run lint:all` | ESLint (root uses flat config + typescript-eslint; backend uses its own eslint v8 config) |
+| `npm run docker:up` | Redis + backend in Docker (use with `npm run dev` for hot-reload frontend) |
+| `npm run docker:up:prod` | Adds the nginx-served frontend (production profile) |
+
+**Backend tests:** `cd backend && npm test` (Jest, ESM). Run a single file: `cd backend && npx jest path/to/file.test.ts`.
+
+**Frontend tests:** Vitest-style tests exist in `src/layout/geometry/__tests__/` but Vitest is **not installed** in `package.json` — these currently can't be executed without adding the dep. Don't claim "tests pass" without verifying the runner is wired up.
+
+There is **no root `npm test`** script. `test-validator-simple.js` at the root is a standalone Node script, not a test-runner entry point.
+
+## Architecture
+
+### Two-database model (critical)
+At login the user submits two Postgres URLs. The backend never persists either; they live in user metadata on the JWT/session and are used per-request:
+- **iotDbUrl** — queried by `/api/sql-new/execute` (read-only, SELECT-only enforced).
+- **userDbUrl** — read/write to the `dashboard_studio_meta_data` schema (users, user_roles, sections, reports, global_variables).
+
+When changing auth, DB service, or menu/report routes, preserve this separation. Local dev does not require any local Postgres instance.
+
+### Backend (`backend/src/`)
+Express layered stack. Entry: `backend/src/index.ts`. Routes mounted under `/api`:
+- `routes/app.ts` — auth (login, both passwordless and legacy bcrypt), settings, reports CRUD.
+- `routes/menu.ts` — hierarchical sections + optimistic-locking via `version` column.
+- `routes/sql-new.ts` — the modern parameterized SQL execution endpoint (`/api/sql/execute` and `/api/sql-new/execute` share this router). All queries pass through `utils/sqlValidationIntegration.ts` → `utils/sqlSelectGuard.ts` which uses `node-sql-parser` to enforce SELECT-only. Results are cached in Redis keyed by `SHA256(statement + sorted params)`.
+- `routes/composite-reports.ts`, `routes/panels.ts` (panel export via puppeteer/exceljs), `routes/analytics.ts`, `routes/health.ts`.
+
+**Services** are singletons via `getInstance()`. `DatabaseService` owns per-user connection pools keyed by URL — be careful not to leak pools when changing connection lifecycle. `RedisService` handles cache only (not required to start; backend degrades gracefully if Redis is down).
+
+Auth middleware (`middleware/auth.ts`) validates JWTs and rehydrates the user's DB URLs onto `req.user` — handlers expect that shape (`AuthenticatedRequest`).
+
+### Frontend (`src/`)
+- **`pages/`** — route components. Routes (see `src/App.tsx`): `/`, `/login`, `/app`, `/app/report/:reportId`, `/app/settings`, `/app/sql-editor`, `/app/composite-report/:id[/edit]`. Note both `ReportView.tsx` and `ReportViewNew.tsx` exist; `ReportView.tsx` is the one wired into the router.
+- **`layout/`** — the dashboard editor (separate from `components/layout/`, which is app shell). This is the core complexity:
+  - `geometry/` — pure functions for the 24-column Grafana grid: `collisions.ts`, `autopack.ts`, `grid.ts` (snapping), `rows.ts`, `move.ts`, `resize.ts`, `add.ts`, `tidyUp.ts`. These are the unit-tested algorithms.
+  - `state/editorStore.ts` — Zustand store holding `dashboard`, `selectedPanelId`, `isEditingLayout`, plus a history stack for undo/redo.
+  - `state/commands.ts` — all mutations go through `cmdMovePanel`, `cmdResizePanel`, `cmdMovePanelToRow`, `cmdReorderRows`, etc. These produce new immutable dashboard states and push to history. **Do not mutate dashboard JSON directly anywhere else.**
+  - `ui/` — Canvas, PanelCard, RowHeader; integrates `@dnd-kit` and emits an `onDashboardChange` callback that `ReportView` persists via `POST /api/reports/:id`.
+- **`renderer-core/`** + **`renderer-adapters/react/`** — schema-driven dashboard renderer. `renderer-core/schema/` defines the panel/visual types; `renderer-adapters/react/` maps them to React components. Adding a new visualization means: define the schema (renderer-core), add the adapter (renderer-adapters), and register it where `DashboardRenderer.tsx` dispatches on `type`.
+- **`components/reports/visualizations/`** — concrete visuals (BarChart, PieChart, Table, Tile, etc.) built on Recharts / `@tanstack/react-table` / Leaflet.
+- **`services/api.ts`** — single API client. `services/demoApi.ts` intercepts the same surface when demo mode is active and routes to `services/demoStorage.ts` (Dexie/IndexedDB).
+- **`contexts/AuthContext.tsx`** — owns `signIn`, `signInDemo`, `reseedDemoData`. Token stored in `localStorage` as `auth_token`.
+
+### Demo mode
+Set on login (`demo: true`). After login the frontend seeds IndexedDB from the user's `userDbUrl` (via demoApi-wrapped reads), then all CRUD goes to IndexedDB. **SQL execution still hits the real backend** against `iotDbUrl` (it's read-only). When touching `services/api.ts`, verify the same shape is honoured in `services/demoApi.ts` or you'll silently break demo users.
+
+### Grafana-compatible schema
+Dashboard JSON follows Grafana's panel/gridPos shape (`x`, `y`, `w`, `h` on a 24-column grid). Sample dashboards live in `schemas/*.json`. Keep changes to panel shape backward-compatible with these fixtures.
+
+## Conventions worth knowing
+
+- **Path alias:** `@/` → `src/` (set in `vite.config.ts` and `tsconfig.app.json`).
+- **Backend module style:** ESM with `.js` import specifiers in `.ts` files (e.g. `import { logger } from './utils/logger.js'`). Required by the `tsx`/Node ESM setup — don't strip the `.js`.
+- **SQL safety is non-negotiable:** any new endpoint that runs user-supplied SQL must go through `validateSQLQuery` middleware. Parameter binding uses the request's `params` map; do not interpolate values into the statement string.
+- **Commit style:** Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, etc.). Main branch is `main`.
+- **shadcn/ui** is used for primitives (`src/components/ui/`); `components.json` configures the generator. Prefer composing existing primitives over hand-rolling Radix wrappers.

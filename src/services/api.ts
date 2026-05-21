@@ -38,6 +38,26 @@ export interface TileQueryResult {
   value: number | null;
 }
 
+export const DATE_FORMAT_VALUES = [
+  'default',
+  'dd.mm.yyyy',
+  'mm-dd-yyyy',
+  'yyyy-mm-dd',
+  'dd-mmm-yyyy',
+  'dd-mmmm-yyyy',
+] as const;
+
+export const TIME_FORMAT_VALUES = ['default', 'h24'] as const;
+
+export type DateFormat = (typeof DATE_FORMAT_VALUES)[number];
+export type TimeFormat = (typeof TIME_FORMAT_VALUES)[number];
+
+export interface UserPreferences {
+  timezone: string;
+  dateFormat: DateFormat;
+  timeFormat: TimeFormat;
+}
+
 class ApiService {
   private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('auth_token');
@@ -477,7 +497,7 @@ class ApiService {
   }
 
   // User Preferences
-  async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
+  async getUserPreferences(): Promise<ApiResponse<UserPreferences>> {
     if (isDemoMode()) {
       return demoApiService.getUserPreferences();
     }
@@ -485,10 +505,12 @@ class ApiService {
     if (response.data && (response.data as any).preferences) {
       return { data: (response.data as any).preferences };
     }
-    return response as ApiResponse<{ timezone: string }>;
+    return response as ApiResponse<UserPreferences>;
   }
 
-  async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
+  async updateUserPreferences(
+    preferences: Partial<UserPreferences>,
+  ): Promise<ApiResponse<UserPreferences>> {
     if (isDemoMode()) {
       return demoApiService.updateUserPreferences(preferences);
     }
@@ -499,7 +521,7 @@ class ApiService {
     if (response.data && (response.data as any).preferences) {
       return { data: (response.data as any).preferences };
     }
-    return response as ApiResponse<{ timezone: string }>;
+    return response as ApiResponse<UserPreferences>;
   }
 
   // ==========================================
