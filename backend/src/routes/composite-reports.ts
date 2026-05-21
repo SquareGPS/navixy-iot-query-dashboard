@@ -4,7 +4,7 @@ import fastq from 'fastq';
 import type { queueAsPromised } from 'fastq';
 import { DatabaseService } from '../services/database.js';
 import { ExportService } from '../services/export.js';
-import { getUserExportPreferences } from '../services/userPreferences.js';
+import { resolveExportPreferences } from '../services/userPreferences.js';
 import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
@@ -596,7 +596,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     );
 
     const exportService = ExportService.getInstance();
-    const exportPrefs = await getUserExportPreferences(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
@@ -719,7 +719,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
 
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const exportPrefs = await getUserExportPreferences(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -833,7 +833,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
 
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const exportPrefs = await getUserExportPreferences(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,

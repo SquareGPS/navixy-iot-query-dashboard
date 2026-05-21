@@ -668,6 +668,9 @@ class ApiService {
       description?: string;
       column?: string;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -709,6 +712,9 @@ class ApiService {
       center: [number, number];
       zoom: number;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -750,6 +756,9 @@ class ApiService {
       center: [number, number];
       zoom: number;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -797,6 +806,14 @@ class ApiService {
       description?: string;
       column?: string;
     };
+    // Resolved formatting prefs from the active session. Sending them
+    // explicitly lets the export render the user's wall-clock time in demo
+    // mode and before "Save Preferences" has been clicked — otherwise the
+    // backend reads an empty preferences row and Excel cells fall back to
+    // UTC (ExcelJS serializes Date via getTime()/86400000).
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/panels/export`;

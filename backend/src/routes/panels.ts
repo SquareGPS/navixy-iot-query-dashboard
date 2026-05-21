@@ -9,7 +9,7 @@ import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { getUserExportPreferences } from '../services/userPreferences.js';
+import { resolveExportPreferences } from '../services/userPreferences.js';
 
 const router = Router();
 
@@ -33,7 +33,7 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
       throw new CustomError('format must be "xlsx" or "csv"', 400);
     }
 
-    const exportPrefs = await getUserExportPreferences(req);
+    const exportPrefs = await resolveExportPreferences(req, req.body);
 
     const exportService = ExportService.getInstance();
     const exportOptions = {

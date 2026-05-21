@@ -132,6 +132,56 @@ export interface ExportPreferences {
 }
 
 /**
+ * Validate a request-body patch and merge it with the user's stored prefs.
+ * Body values win when present and valid; a body-supplied `'default'` format
+ * falls through to the stored pref so an explicit default in the request
+ * doesn't shadow a non-default DB pref.
+ *
+ * Routes prefer this over {@link getUserExportPreferences} so the active
+ * session's resolved timezone reaches the export service even when the
+ * stored preferences row is empty (demo mode, or the user never clicked
+ * "Save Preferences") — without this, Excel cells fall back to UTC since
+ * ExcelJS serializes Date via `getTime() / 86400000`.
+ */
+export async function resolveExportPreferences(
+  req: AuthenticatedRequest,
+  body?: { timeZone?: unknown; dateFormat?: unknown; timeFormat?: unknown },
+): Promise<ExportPreferences> {
+  let bodyTimeZone: string | undefined;
+  if (typeof body?.timeZone === 'string' && body.timeZone.trim()) {
+    const tz = body.timeZone.trim();
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: tz });
+      bodyTimeZone = tz;
+    } catch {
+      // Ignore invalid IANA names; stored prefs may still supply one.
+    }
+  }
+  const bodyDateFormat: DateFormat | undefined =
+    typeof body?.dateFormat === 'string' &&
+    (DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat)
+      ? (body.dateFormat as DateFormat)
+      : undefined;
+  const bodyTimeFormat: TimeFormat | undefined =
+    typeof body?.timeFormat === 'string' &&
+    (TIME_FORMAT_VALUES as readonly string[]).includes(body.timeFormat)
+      ? (body.timeFormat as TimeFormat)
+      : undefined;
+
+  const stored = await getUserExportPreferences(req);
+  const out: ExportPreferences = {};
+  const tz = bodyTimeZone ?? stored.timeZone;
+  if (tz) out.timeZone = tz;
+  const df =
+    bodyDateFormat && bodyDateFormat !== 'default' ? bodyDateFormat : stored.dateFormat;
+  if (df) out.dateFormat = df;
+  const tf =
+    bodyTimeFormat && bodyTimeFormat !== 'default' ? bodyTimeFormat : stored.timeFormat;
+  if (tf) out.timeFormat = tf;
+  return out;
+}
+
+/**
  * Safe wrapper that returns all export-relevant preferences in one call.
  * Every failure is swallowed so exports never fail on a settings-DB hiccup.
  */
