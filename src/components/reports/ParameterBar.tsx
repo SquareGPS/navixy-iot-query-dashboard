@@ -23,15 +23,8 @@ import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
 import { extractParameterNames, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
-
-// Simple date formatter (avoiding date-fns dependency)
-function formatDate(date: Date, formatStr: string): string {
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const month = monthNames[date.getMonth()];
-  const day = date.getDate();
-  const year = date.getFullYear();
-  return `${month} ${day}, ${year}`;
-}
+import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { formatTimestamp } from '@/utils/datetime';
 
 export interface ParameterValues {
   [paramName: string]: unknown;
@@ -58,6 +51,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   className,
   globalVariables = []
 }) => {
+  const { prefs: datetimePrefs } = useDatetimePrefs();
+
   // Get declared parameters from x-navixy.params
   const declaredParams = dashboard['x-navixy']?.params || [];
 
@@ -352,7 +347,9 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {fromDate && toDate ? (
                     <>
-                      {formatDate(fromDate, "LLL dd, y")} - {formatDate(toDate, "LLL dd, y")}
+                      {formatTimestamp(fromDate, datetimePrefs, { includeTime: false })}
+                      {' - '}
+                      {formatTimestamp(toDate, datetimePrefs, { includeTime: false })}
                     </>
                   ) : (
                     <span>Pick a date range</span>

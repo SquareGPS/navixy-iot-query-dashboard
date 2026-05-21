@@ -3,10 +3,13 @@
  */
 
 import { Router } from 'express';
-import type { Request, Response, NextFunction } from 'express';
+import type { Response, NextFunction } from 'express';
 import { ExportService } from '../services/export.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
+import { authenticateToken } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { getUserExportPreferences } from '../services/userPreferences.js';
 
 const router = Router();
 
@@ -14,7 +17,7 @@ const router = Router();
  * POST /api/panels/export
  * Export panel data as Excel (xlsx) or CSV
  */
-router.post('/panels/export', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/panels/export', authenticateToken, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const { title, columns, rows, format = 'csv', excelHeader } = req.body;
 
@@ -30,6 +33,8 @@ router.post('/panels/export', async (req: Request, res: Response, next: NextFunc
       throw new CustomError('format must be "xlsx" or "csv"', 400);
     }
 
+    const exportPrefs = await getUserExportPreferences(req);
+
     const exportService = ExportService.getInstance();
     const exportOptions = {
       title: title || 'Panel Export',
@@ -38,6 +43,9 @@ router.post('/panels/export', async (req: Request, res: Response, next: NextFunc
       rows: rows as unknown[][],
       executedAt: new Date(),
       ...(excelHeader && { excelHeader }),
+      ...(exportPrefs.timeZone && { timeZone: exportPrefs.timeZone }),
+      ...(exportPrefs.dateFormat && { dateFormat: exportPrefs.dateFormat }),
+      ...(exportPrefs.timeFormat && { timeFormat: exportPrefs.timeFormat }),
     };
 
     if (format === 'csv') {

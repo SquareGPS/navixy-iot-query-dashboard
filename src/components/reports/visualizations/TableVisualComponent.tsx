@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { DataTable } from '@/components/reports/DataTable';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiService } from '@/services/api';
 import { Pencil, AlertCircle } from 'lucide-react';
 import type { TableVisual } from '@/types/report-schema';
+import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { formatTimestamp, isTimestampLike } from '@/utils/datetime';
 
 interface TableVisualComponentProps {
   visual: TableVisual;
@@ -13,12 +15,38 @@ interface TableVisualComponentProps {
   onEdit: () => void;
 }
 
+interface ColumnSpec {
+  id: string;
+  header: string;
+}
+
 export function TableVisualComponent({ visual, title, editMode, onEdit }: TableVisualComponentProps) {
   const [data, setData] = useState<any[]>([]);
-  const [columns, setColumns] = useState<any[]>([]);
+  const [columnSpecs, setColumnSpecs] = useState<ColumnSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const { prefs: datetimePrefs } = useDatetimePrefs();
+
+  // Re-runs whenever prefs change, so date columns reformat live after the
+  // user saves new settings — no refetch needed.
+  const columns = useMemo(() => {
+    return columnSpecs.map((spec) => ({
+      id: spec.id,
+      accessorKey: spec.id,
+      header: spec.header,
+      cell: ({ getValue }: any) => {
+        const value = getValue();
+        if (value === null || value === undefined) return '';
+        if (value instanceof Date) return formatTimestamp(value, datetimePrefs);
+        if (isTimestampLike(value)) {
+          const formatted = formatTimestamp(value, datetimePrefs);
+          if (formatted) return formatted;
+        }
+        return String(value);
+      },
+    }));
+  }, [columnSpecs, datetimePrefs]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,57 +64,34 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
           console.error('Table query error:', response.error);
           setError(response.error.message || 'Query failed');
           setData([]);
-          setColumns([]);
+          setColumnSpecs([]);
           return;
         }
 
         if (response.data?.rows) {
           setData(response.data.rows);
-          
-          // Build columns from schema or result
-          let cols;
+
+          let specs: ColumnSpec[];
           if (visual.options?.columns && visual.options.columns.length > 0) {
-            cols = visual.options.columns.map(col => ({
+            specs = visual.options.columns.map(col => ({
               id: col.field,
-              accessorKey: col.field,
               header: col.label || col.field,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
             }));
           } else if (response.data.columns && response.data.columns.length > 0) {
-            cols = response.data.columns.map((col: string) => ({
-              id: col,
-              accessorKey: col,
-              header: col,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
-            }));
+            specs = response.data.columns.map((col: string) => ({ id: col, header: col }));
           } else if (response.data.rows.length > 0) {
-            // Fallback: derive columns from first row
-            cols = Object.keys(response.data.rows[0]).map((col: string) => ({
-              id: col,
-              accessorKey: col,
-              header: col,
-              cell: ({ getValue }: any) => {
-                const value = getValue();
-                return value !== null && value !== undefined ? String(value) : '';
-              },
-            }));
+            specs = Object.keys(response.data.rows[0]).map((col: string) => ({ id: col, header: col }));
           } else {
-            cols = [];
+            specs = [];
           }
-          
-          setColumns(cols);
+
+          setColumnSpecs(specs);
         }
       } catch (err: any) {
         console.error('Error fetching table data:', err);
         setError(err.message || 'Query failed');
         setData([]);
-        setColumns([]);
+        setColumnSpecs([]);
       } finally {
         setLoading(false);
       }

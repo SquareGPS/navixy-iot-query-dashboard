@@ -121,34 +121,52 @@ export async function writeUserPreferences(
 }
 
 /**
- * Safe wrapper used by export paths: reads the user's stored timezone,
- * validates the identifier against ICU, and swallows every failure
- * (missing pool/user, DB error, invalid identifier). Returns `undefined`
- * so callers can gracefully fall back to server-local formatting.
+ * Resolved subset of preferences used by export routes. Any/all fields may
+ * be undefined when the user hasn't set them (or when reading fails) — the
+ * export service falls back to its existing defaults in that case.
  */
-export async function getUserTimezoneForExport(
+export interface ExportPreferences {
+  timeZone?: string;
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
+}
+
+/**
+ * Safe wrapper that returns all export-relevant preferences in one call.
+ * Every failure is swallowed so exports never fail on a settings-DB hiccup.
+ */
+export async function getUserExportPreferences(
   req: AuthenticatedRequest,
-): Promise<string | undefined> {
+): Promise<ExportPreferences> {
   const settingsPool = req.settingsPool;
   const userId = req.user?.userId;
-  if (!settingsPool || !userId) return undefined;
+  if (!settingsPool || !userId) return {};
 
   try {
-    const { timezone } = await readUserPreferences(settingsPool, userId);
-    const tz = timezone.trim();
-    if (!tz) return undefined;
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: tz });
-    } catch {
-      logger.warn('Ignoring invalid user timezone preference', { userId, timezone: tz });
-      return undefined;
+    const prefs = await readUserPreferences(settingsPool, userId);
+    const result: ExportPreferences = {};
+
+    const tz = prefs.timezone.trim();
+    if (tz) {
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: tz });
+        result.timeZone = tz;
+      } catch {
+        logger.warn('Ignoring invalid user timezone preference', { userId, timezone: tz });
+      }
     }
-    return tz;
+    if (prefs.dateFormat && prefs.dateFormat !== 'default') {
+      result.dateFormat = prefs.dateFormat;
+    }
+    if (prefs.timeFormat && prefs.timeFormat !== 'default') {
+      result.timeFormat = prefs.timeFormat;
+    }
+    return result;
   } catch (err) {
-    logger.error('Failed to read user timezone preference', {
+    logger.error('Failed to read user export preferences', {
       userId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return undefined;
+    return {};
   }
 }

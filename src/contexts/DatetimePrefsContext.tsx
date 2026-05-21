@@ -19,6 +19,16 @@ const DatetimePrefsContext = createContext<DatetimePrefsContextValue | undefined
   undefined,
 );
 
+const DATE_FORMAT_VALUES = [
+  'default',
+  'dd.mm.yyyy',
+  'mm-dd-yyyy',
+  'yyyy-mm-dd',
+  'dd-mmm-yyyy',
+  'dd-mmmm-yyyy',
+] as const;
+const TIME_FORMAT_VALUES = ['default', 'h24'] as const;
+
 function readFromStorage(): DatetimePrefs | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -41,6 +51,16 @@ function readFromStorage(): DatetimePrefs | null {
         parsed.dateStyle === 'long'
           ? parsed.dateStyle
           : defaults.dateStyle,
+      dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
+        parsed.dateFormat as string,
+      )
+        ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
+        : 'default',
+      timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
+        parsed.timeFormat as string,
+      )
+        ? (parsed.timeFormat as DatetimePrefs['timeFormat'])
+        : 'default',
     };
   } catch {
     return null;
@@ -92,11 +112,35 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
       try {
         const res = await apiService.getUserPreferences();
         if (cancelled) return;
-        const tz = res?.data?.timezone;
-        if (typeof tz === 'string' && tz.trim().length > 0) {
-          setPrefsState((prev) =>
-            prev.timeZone === tz ? prev : { ...prev, timeZone: tz },
-          );
+        const data = res?.data;
+        if (data) {
+          setPrefsState((prev) => {
+            const next: DatetimePrefs = { ...prev };
+            let changed = false;
+            if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
+              if (next.timeZone !== data.timezone) {
+                next.timeZone = data.timezone;
+                changed = true;
+              }
+            }
+            if (
+              data.dateFormat &&
+              (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
+              next.dateFormat !== data.dateFormat
+            ) {
+              next.dateFormat = data.dateFormat;
+              changed = true;
+            }
+            if (
+              data.timeFormat &&
+              (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
+              next.timeFormat !== data.timeFormat
+            ) {
+              next.timeFormat = data.timeFormat;
+              changed = true;
+            }
+            return changed ? next : prev;
+          });
         }
         lastSyncedUserId.current = user.id;
       } catch {

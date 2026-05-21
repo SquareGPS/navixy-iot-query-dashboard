@@ -230,7 +230,11 @@ const Settings = () => {
         setUserTimezone(savedTimezone);
         setUserDateFormat(savedDateFormat);
         setUserTimeFormat(savedTimeFormat);
-        setDatetimePrefs({ timeZone: savedTimezone });
+        setDatetimePrefs({
+          timeZone: savedTimezone,
+          dateFormat: savedDateFormat,
+          timeFormat: savedTimeFormat,
+        });
         toast.success('Preferences saved successfully');
       }
     } catch (error: any) {
