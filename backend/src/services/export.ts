@@ -645,7 +645,7 @@ export class ExportService {
           xColumn: effectiveXColumn,
           yColumn: effectiveYColumns[0],
           groupColumn: effectiveGroupColumn,
-        }, timeZone);
+        }, timeZone, dateFormat, timeFormat);
       } else {
         const chartConfigForGeneration: { type?: string; xColumn?: string; yColumns?: string[] } = {
           xColumn: effectiveXColumn,
@@ -654,7 +654,7 @@ export class ExportService {
         if (config.chart?.type) {
           chartConfigForGeneration.type = config.chart.type;
         }
-        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration, timeZone);
+        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration, timeZone, dateFormat, timeFormat);
       }
     }
 
@@ -929,10 +929,12 @@ export class ExportService {
    * Generate Chart.js code for time series chart
    */
   private generateChartHTML(
-    columns: ExportColumn[], 
+    columns: ExportColumn[],
     rows: Record<string, unknown>[],
     chartConfig: { type?: string; xColumn?: string; yColumns?: string[] },
-    timeZone?: string
+    timeZone?: string,
+    dateFormat?: ExportDateFormat,
+    timeFormat?: ExportTimeFormat,
   ): string {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
@@ -941,9 +943,9 @@ export class ExportService {
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
       if (xIsDate) {
-        if (val instanceof Date) return this.formatShortDateTime(val, timeZone);
+        if (val instanceof Date) return this.formatShortDateTime(val, timeZone, dateFormat, timeFormat);
         if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-          return this.formatShortDateTime(new Date(val), timeZone);
+          return this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat);
         }
       }
       return String(val ?? '');
@@ -1024,10 +1026,12 @@ export class ExportService {
    * Generate Chart.js code for grouped time series chart
    */
   private generateGroupedChartHTML(
-    columns: ExportColumn[], 
+    columns: ExportColumn[],
     rows: Record<string, unknown>[],
     chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
-    timeZone?: string
+    timeZone?: string,
+    dateFormat?: ExportDateFormat,
+    timeFormat?: ExportTimeFormat,
   ): string {
     const { xColumn, yColumn, groupColumn } = chartConfig;
     if (!xColumn || !yColumn || !groupColumn) return '';
@@ -1058,9 +1062,9 @@ export class ExportService {
       if (val !== null && val !== undefined) {
         if (xIsDate) {
           if (val instanceof Date) {
-            xValuesSet.add(this.formatShortDateTime(val, timeZone));
+            xValuesSet.add(this.formatShortDateTime(val, timeZone, dateFormat, timeFormat));
           } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone));
+            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat));
           } else {
             xValuesSet.add(String(val));
           }
@@ -1076,16 +1080,16 @@ export class ExportService {
     const datasets = groups.map((group, idx) => {
       const color = colors[idx % colors.length];
       const groupRows = sortedRows.filter(row => String(row[groupColumn] ?? 'Unknown') === group);
-      
+
       // Map X values to Y values for this group
       const dataMap = new Map<string, number>();
       groupRows.forEach(row => {
         const xVal = row[xColumn];
         let label: string;
         if (xIsDate && xVal instanceof Date) {
-          label = this.formatShortDateTime(xVal, timeZone);
+          label = this.formatShortDateTime(xVal, timeZone, dateFormat, timeFormat);
         } else if (xIsDate && typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
-          label = this.formatShortDateTime(new Date(xVal), timeZone);
+          label = this.formatShortDateTime(new Date(xVal), timeZone, dateFormat, timeFormat);
         } else {
           label = String(xVal ?? '');
         }
