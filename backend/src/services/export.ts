@@ -5,6 +5,7 @@
 
 import ExcelJS from 'exceljs';
 import { logger } from '../utils/logger.js';
+import type { DateFormat, TimeFormat } from './userPreferences.js';
 
 export interface ExportColumn {
   name: string;
@@ -17,22 +18,6 @@ export interface ExcelHeaderConfig {
   description?: string;
   column?: string;
 }
-
-/**
- * Subset of user preferences relevant to formatting dates in exports.
- * Each value is an explicit pattern — there is no `default` for either
- * field. The frontend Settings page is the source of truth for the
- * allowed values; we mirror them here as a string union so the route
- * layer can pass them in without an extra import.
- */
-export type ExportDateFormat =
-  | 'dd/mm/yyyy'
-  | 'dd.mm.yyyy'
-  | 'mm-dd-yyyy'
-  | 'yyyy-mm-dd'
-  | 'dd-mmm-yyyy'
-  | 'dd-mmmm-yyyy';
-export type ExportTimeFormat = 'h12' | 'h24';
 
 export interface ExcelExportOptions {
   title: string;
@@ -48,8 +33,8 @@ export interface ExcelExportOptions {
   timeZone?: string;
   // Optional pattern overrides; when absent or 'default', exports keep the
   // legacy `dd/mm/yy hh:mm` shape so existing reports look the same.
-  dateFormat?: ExportDateFormat;
-  timeFormat?: ExportTimeFormat;
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
 }
 
 export interface HTMLExportOptions {
@@ -82,8 +67,8 @@ export interface HTMLExportOptions {
   // IANA identifier; when set, dates in the table, chart labels and the
   // "Generated on" meta header are rendered in this zone.
   timeZone?: string;
-  dateFormat?: ExportDateFormat;
-  timeFormat?: ExportTimeFormat;
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
 }
 
 const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
@@ -174,7 +159,7 @@ const MONTHS_LONG = [
  * falls through to the 4-digit slash form — the same shape the legacy
  * `default` UI label promised ("01/12/2021 (DD/MM/YYYY)").
  */
-function excelDatePart(fmt: ExportDateFormat | undefined): string {
+function excelDatePart(fmt: DateFormat | undefined): string {
   switch (fmt) {
     case 'dd.mm.yyyy':
       return 'dd.mm.yyyy';
@@ -196,13 +181,13 @@ function excelDatePart(fmt: ExportDateFormat | undefined): string {
 // without an AM/PM indicator, `hh:mm AM/PM` renders 12h with the marker.
 // `hh:mm` without an indicator silently renders 24h, which is what produced
 // the old "default" dead branch (lowercase `hh` looks 12-hour-ish but isn't).
-function excelTimePart(fmt: ExportTimeFormat | undefined): string {
+function excelTimePart(fmt: TimeFormat | undefined): string {
   return fmt === 'h24' ? 'HH:mm' : 'hh:mm AM/PM';
 }
 
 function buildExcelNumFmt(
-  dateFmt: ExportDateFormat | undefined,
-  timeFmt: ExportTimeFormat | undefined,
+  dateFmt: DateFormat | undefined,
+  timeFmt: TimeFormat | undefined,
 ): string {
   return `${excelDatePart(dateFmt)} ${excelTimePart(timeFmt)}`;
 }
@@ -215,8 +200,8 @@ function buildExcelNumFmt(
 function formatDateWithPrefs(
   date: Date,
   timeZone: string | undefined,
-  dateFmt: ExportDateFormat | undefined,
-  timeFmt: ExportTimeFormat | undefined,
+  dateFmt: DateFormat | undefined,
+  timeFmt: TimeFormat | undefined,
 ): string {
   let day: number, month: number, year: number, hour: number, minute: number;
   if (timeZone) {
@@ -581,8 +566,8 @@ export class ExportService {
   private formatShortDateTime(
     date: Date,
     timeZone?: string,
-    dateFormat?: ExportDateFormat,
-    timeFormat?: ExportTimeFormat,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     return formatDateWithPrefs(date, timeZone, dateFormat, timeFormat);
   }
@@ -878,8 +863,8 @@ export class ExportService {
     columns: ExportColumn[],
     rows: Record<string, unknown>[],
     timeZone?: string,
-    dateFormat?: ExportDateFormat,
-    timeFormat?: ExportTimeFormat,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     // Filter out empty columns
     const visibleColumns = this.filterEmptyColumns(columns, rows);
@@ -933,8 +918,8 @@ export class ExportService {
     rows: Record<string, unknown>[],
     chartConfig: { type?: string; xColumn?: string; yColumns?: string[] },
     timeZone?: string,
-    dateFormat?: ExportDateFormat,
-    timeFormat?: ExportTimeFormat,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
@@ -1030,8 +1015,8 @@ export class ExportService {
     rows: Record<string, unknown>[],
     chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
     timeZone?: string,
-    dateFormat?: ExportDateFormat,
-    timeFormat?: ExportTimeFormat,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     const { xColumn, yColumn, groupColumn } = chartConfig;
     if (!xColumn || !yColumn || !groupColumn) return '';
