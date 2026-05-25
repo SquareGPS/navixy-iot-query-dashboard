@@ -4,7 +4,7 @@ import fastq from 'fastq';
 import type { queueAsPromised } from 'fastq';
 import { DatabaseService } from '../services/database.js';
 import { ExportService } from '../services/export.js';
-import { getUserTimezoneForExport } from '../services/userPreferences.js';
+import { resolveExportPreferences } from '../services/userPreferences.js';
 import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
@@ -596,7 +596,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     );
 
     const exportService = ExportService.getInstance();
-    const timeZone = await getUserTimezoneForExport(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
@@ -604,7 +604,9 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       rows,
       executedAt: new Date(),
       ...(excelHeader && { excelHeader }),
-      ...(timeZone && { timeZone }),
+      ...(exportPrefs.timeZone && { timeZone: exportPrefs.timeZone }),
+      ...(exportPrefs.dateFormat && { dateFormat: exportPrefs.dateFormat }),
+      ...(exportPrefs.timeFormat && { timeFormat: exportPrefs.timeFormat }),
     };
 
     if (format === 'csv') {
@@ -717,7 +719,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
 
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const timeZone = await getUserTimezoneForExport(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -730,7 +732,9 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       chartSettings,
       mapSettings,
       ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
-      ...(timeZone && { timeZone }),
+      ...(exportPrefs.timeZone && { timeZone: exportPrefs.timeZone }),
+      ...(exportPrefs.dateFormat && { dateFormat: exportPrefs.dateFormat }),
+      ...(exportPrefs.timeFormat && { timeFormat: exportPrefs.timeFormat }),
     });
 
     // Set response headers
@@ -829,7 +833,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
 
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const timeZone = await getUserTimezoneForExport(req as AuthenticatedRequest);
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -842,7 +846,9 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       chartSettings,
       mapSettings,
       ...(geocodedAddresses ? { mapColumns: queryResult.columns, mapRows: queryResult.rows } : {}),
-      ...(timeZone && { timeZone }),
+      ...(exportPrefs.timeZone && { timeZone: exportPrefs.timeZone }),
+      ...(exportPrefs.dateFormat && { dateFormat: exportPrefs.dateFormat }),
+      ...(exportPrefs.timeFormat && { timeFormat: exportPrefs.timeFormat }),
     });
 
     // Convert HTML to PDF

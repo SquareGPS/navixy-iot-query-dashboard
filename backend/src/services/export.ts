@@ -5,6 +5,7 @@
 
 import ExcelJS from 'exceljs';
 import { logger } from '../utils/logger.js';
+import type { DateFormat, TimeFormat } from './userPreferences.js';
 
 export interface ExportColumn {
   name: string;
@@ -30,6 +31,10 @@ export interface ExcelExportOptions {
   // this zone so they match what the Data Table shows on screen. The caller
   // is expected to validate the identifier before passing it in.
   timeZone?: string;
+  // Optional pattern overrides; when absent or 'default', exports keep the
+  // legacy `dd/mm/yy hh:mm` shape so existing reports look the same.
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
 }
 
 export interface HTMLExportOptions {
@@ -62,6 +67,8 @@ export interface HTMLExportOptions {
   // IANA identifier; when set, dates in the table, chart labels and the
   // "Generated on" meta header are rendered in this zone.
   timeZone?: string;
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
 }
 
 const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
@@ -137,6 +144,128 @@ function shiftDateToZone(utcDate: Date, timeZone: string): Date {
   return new Date(Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, c.second));
 }
 
+const MONTHS_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const MONTHS_LONG = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * Translate a user-pref date format value to an ExcelJS `numFmt` string.
+ * The time portion is appended by {@link buildExcelNumFmt}. `undefined`
+ * falls through to the 4-digit slash form — the same shape the legacy
+ * `default` UI label promised ("01/12/2021 (DD/MM/YYYY)").
+ */
+function excelDatePart(fmt: DateFormat | undefined): string {
+  switch (fmt) {
+    case 'dd.mm.yyyy':
+      return 'dd.mm.yyyy';
+    case 'mm-dd-yyyy':
+      return 'mm-dd-yyyy';
+    case 'yyyy-mm-dd':
+      return 'yyyy-mm-dd';
+    case 'dd-mmm-yyyy':
+      return 'd mmm yyyy';
+    case 'dd-mmmm-yyyy':
+      return 'd mmmm yyyy';
+    case 'dd/mm/yyyy':
+    default:
+      return 'dd/mm/yyyy';
+  }
+}
+
+// Excel's number-format mini-language is locale-agnostic: `HH:mm` renders 24h
+// without an AM/PM indicator, `hh:mm AM/PM` renders 12h with the marker.
+// `hh:mm` without an indicator silently renders 24h, which is what produced
+// the old "default" dead branch (lowercase `hh` looks 12-hour-ish but isn't).
+function excelTimePart(fmt: TimeFormat | undefined): string {
+  return fmt === 'h24' ? 'HH:mm' : 'hh:mm AM/PM';
+}
+
+function buildExcelNumFmt(
+  dateFmt: DateFormat | undefined,
+  timeFmt: TimeFormat | undefined,
+): string {
+  return `${excelDatePart(dateFmt)} ${excelTimePart(timeFmt)}`;
+}
+
+/**
+ * Render `date` for CSV/HTML/info-sheet output using the user's date/time
+ * format preferences. When both are 'default' (or unset), keeps the legacy
+ * `dd/mm/yy hh:mm` shape.
+ */
+function formatDateWithPrefs(
+  date: Date,
+  timeZone: string | undefined,
+  dateFmt: DateFormat | undefined,
+  timeFmt: TimeFormat | undefined,
+): string {
+  let day: number, month: number, year: number, hour: number, minute: number;
+  if (timeZone) {
+    const c = getDateComponentsInZone(date, timeZone);
+    if (c) {
+      ({ day, month, year, hour, minute } = c);
+    } else {
+      day = date.getDate();
+      month = date.getMonth() + 1;
+      year = date.getFullYear();
+      hour = date.getHours();
+      minute = date.getMinutes();
+    }
+  } else {
+    day = date.getDate();
+    month = date.getMonth() + 1;
+    year = date.getFullYear();
+    hour = date.getHours();
+    minute = date.getMinutes();
+  }
+
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  const yyyy = String(year);
+
+  let datePart: string;
+  switch (dateFmt) {
+    case 'dd.mm.yyyy':
+      datePart = `${dd}.${mm}.${yyyy}`;
+      break;
+    case 'mm-dd-yyyy':
+      datePart = `${mm}-${dd}-${yyyy}`;
+      break;
+    case 'yyyy-mm-dd':
+      datePart = `${yyyy}-${mm}-${dd}`;
+      break;
+    case 'dd-mmm-yyyy':
+      datePart = `${day} ${MONTHS_SHORT[month - 1]} ${yyyy}`;
+      break;
+    case 'dd-mmmm-yyyy':
+      datePart = `${day} ${MONTHS_LONG[month - 1]} ${yyyy}`;
+      break;
+    case 'dd/mm/yyyy':
+    default:
+      datePart = `${dd}/${mm}/${yyyy}`;
+  }
+
+  const mm2 = String(minute).padStart(2, '0');
+  let timePart: string;
+  if (timeFmt === 'h12') {
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour % 12 === 0 ? 12 : hour % 12;
+    timePart = `${String(h12).padStart(2, '0')}:${mm2} ${period}`;
+  } else {
+    // 'h24' or undefined — render 24-hour. `undefined` falls through to 24h
+    // because callers omit `timeFormat` only when the user has no preference
+    // resolved (rare; backend reads default to 'h12' now), and 24h is the
+    // safer fallback than guessing a 12-hour AM/PM marker.
+    timePart = `${String(hour).padStart(2, '0')}:${mm2}`;
+  }
+
+  return `${datePart} ${timePart}`;
+}
+
 export class ExportService {
   private static instance: ExportService;
 
@@ -151,7 +280,8 @@ export class ExportService {
    * Generate Excel file from composite report data
    */
   async generateExcel(options: ExcelExportOptions): Promise<Buffer> {
-    const { title, description, columns, rows, executedAt, excelHeader, timeZone } = options;
+    const { title, description, columns, rows, executedAt, excelHeader, timeZone, dateFormat, timeFormat } = options;
+    const cellNumFmt = buildExcelNumFmt(dateFormat, timeFormat);
 
     const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
     const rowOffset = headerActive ? 2 : 0;
@@ -277,7 +407,7 @@ export class ExportService {
         for (let rowNum = firstDataRow; rowNum < firstDataRow + rows.length; rowNum++) {
           const cell = dataSheet.getCell(rowNum, colIdx + 1);
           if (cell.value instanceof Date) {
-            cell.numFmt = 'dd/mm/yy hh:mm';
+            cell.numFmt = cellNumFmt;
           }
         }
       }
@@ -309,7 +439,9 @@ export class ExportService {
     }
     infoSheet.addRow({
       property: 'Executed At',
-      value: timeZone ? this.formatShortDateTime(executedAt, timeZone) : executedAt.toISOString(),
+      value: timeZone
+        ? this.formatShortDateTime(executedAt, timeZone, dateFormat, timeFormat)
+        : executedAt.toISOString(),
     });
     if (timeZone) {
       infoSheet.addRow({ property: 'Timezone', value: timeZone });
@@ -334,7 +466,7 @@ export class ExportService {
    * Generate CSV file from composite report data
    */
   generateCSV(options: ExcelExportOptions): Buffer {
-    const { columns, rows, timeZone } = options;
+    const { columns, rows, timeZone, dateFormat, timeFormat } = options;
     
     // Filter out empty columns
     const emptyColumnIndices = new Set<number>();
@@ -374,7 +506,11 @@ export class ExportService {
         if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (!isNaN(dateValue.getTime())) {
-            csvRow.push(this.escapeCSVField(this.formatShortDateTime(dateValue, timeZone)));
+            csvRow.push(
+              this.escapeCSVField(
+                this.formatShortDateTime(dateValue, timeZone, dateFormat, timeFormat),
+              ),
+            );
             return;
           }
         }
@@ -422,32 +558,18 @@ export class ExportService {
   }
 
   /**
-   * Format date/time in short format (e.g., "02/02/26 22:00")
+   * Format date/time for CSV/HTML output, honouring user preferences when
+   * supplied. Falls back to the legacy `dd/mm/yy hh:mm` shape when none of
+   * the format overrides are set, so existing reports look unchanged.
    * Uses manual formatting to avoid Node.js locale issues in Docker/Alpine.
-   * When `timeZone` is provided, components are taken in that IANA zone via
-   * Intl.DateTimeFormat; otherwise the server's local Date getters are used.
    */
-  private formatShortDateTime(date: Date, timeZone?: string): string {
-    let day: string, month: string, year: string, hours: string, minutes: string;
-    if (timeZone) {
-      const c = getDateComponentsInZone(date, timeZone);
-      if (c) {
-        day = String(c.day).padStart(2, '0');
-        month = String(c.month).padStart(2, '0');
-        year = String(c.year).slice(-2);
-        hours = String(c.hour).padStart(2, '0');
-        minutes = String(c.minute).padStart(2, '0');
-        return `${day}/${month}/${year} ${hours}:${minutes}`;
-      }
-      // Fall through to server-local on Intl failure (unknown TZ at format time)
-    }
-    day = String(date.getDate()).padStart(2, '0');
-    month = String(date.getMonth() + 1).padStart(2, '0');
-    year = String(date.getFullYear()).slice(-2);
-    hours = String(date.getHours()).padStart(2, '0');
-    minutes = String(date.getMinutes()).padStart(2, '0');
-
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  private formatShortDateTime(
+    date: Date,
+    timeZone?: string,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
+  ): string {
+    return formatDateWithPrefs(date, timeZone, dateFormat, timeFormat);
   }
 
   /**
@@ -479,7 +601,7 @@ export class ExportService {
    * Generate self-contained HTML from composite report data
    */
   async generateHTML(options: HTMLExportOptions): Promise<string> {
-    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt, chartSettings, timeZone } = options;
+    const { title, description, columns, rows, config, gpsColumns, includeChart, executedAt, chartSettings, timeZone, dateFormat, timeFormat } = options;
 
     // Convert rows to objects for easier template processing
     const rowObjects = rows.map((row) => {
@@ -491,7 +613,7 @@ export class ExportService {
     });
 
     // Generate table HTML
-    const tableHTML = this.generateTableHTML(columns, rowObjects, timeZone);
+    const tableHTML = this.generateTableHTML(columns, rowObjects, timeZone, dateFormat, timeFormat);
 
     // Generate chart HTML/JS if enabled
     // Use chartSettings from frontend if provided, otherwise fall back to config
@@ -508,7 +630,7 @@ export class ExportService {
           xColumn: effectiveXColumn,
           yColumn: effectiveYColumns[0],
           groupColumn: effectiveGroupColumn,
-        }, timeZone);
+        }, timeZone, dateFormat, timeFormat);
       } else {
         const chartConfigForGeneration: { type?: string; xColumn?: string; yColumns?: string[] } = {
           xColumn: effectiveXColumn,
@@ -517,7 +639,7 @@ export class ExportService {
         if (config.chart?.type) {
           chartConfigForGeneration.type = config.chart.type;
         }
-        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration, timeZone);
+        chartHTML = this.generateChartHTML(columns, rowObjects, chartConfigForGeneration, timeZone, dateFormat, timeFormat);
       }
     }
 
@@ -689,7 +811,7 @@ export class ExportService {
   <header>
     <h1>${this.escapeHTML(title)}</h1>
     ${description ? `<p class="description">${this.escapeHTML(description)}</p>` : ''}
-    <p class="meta">Generated on ${this.escapeHTML(this.formatShortDateTime(executedAt, timeZone))}${timeZone ? ` (${this.escapeHTML(timeZone)})` : ''} | ${rows.length} rows</p>
+    <p class="meta">Generated on ${this.escapeHTML(this.formatShortDateTime(executedAt, timeZone, dateFormat, timeFormat))}${timeZone ? ` (${this.escapeHTML(timeZone)})` : ''} | ${rows.length} rows</p>
   </header>
 
   <main>
@@ -737,12 +859,18 @@ export class ExportService {
   /**
    * Generate HTML table from data
    */
-  private generateTableHTML(columns: ExportColumn[], rows: Record<string, unknown>[], timeZone?: string): string {
+  private generateTableHTML(
+    columns: ExportColumn[],
+    rows: Record<string, unknown>[],
+    timeZone?: string,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
+  ): string {
     // Filter out empty columns
     const visibleColumns = this.filterEmptyColumns(columns, rows);
-    
+
     const headerCells = visibleColumns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
-    
+
     const bodyRows = rows.slice(0, 500).map(row => {
       const cells = visibleColumns.map(col => {
         let value = row[col.name];
@@ -750,7 +878,7 @@ export class ExportService {
         if (value === null || value === undefined) {
           value = '';
         } else if (value instanceof Date) {
-          value = this.formatShortDateTime(value, timeZone);
+          value = this.formatShortDateTime(value, timeZone, dateFormat, timeFormat);
         } else if (typeof value === 'number') {
           value = this.formatNumericValue(value);
         } else if (typeof value === 'string' && /^-?\d+\.\d+0+$/.test(value)) {
@@ -761,7 +889,7 @@ export class ExportService {
         } else if (isDateColumn && typeof value === 'string' && !isNaN(Date.parse(value))) {
           const date = new Date(value);
           if (!isNaN(date.getTime())) {
-            value = this.formatShortDateTime(date, timeZone);
+            value = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
           }
         } else if (typeof value === 'object') {
           value = JSON.stringify(value);
@@ -786,10 +914,12 @@ export class ExportService {
    * Generate Chart.js code for time series chart
    */
   private generateChartHTML(
-    columns: ExportColumn[], 
+    columns: ExportColumn[],
     rows: Record<string, unknown>[],
     chartConfig: { type?: string; xColumn?: string; yColumns?: string[] },
-    timeZone?: string
+    timeZone?: string,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
@@ -798,9 +928,9 @@ export class ExportService {
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
       if (xIsDate) {
-        if (val instanceof Date) return this.formatShortDateTime(val, timeZone);
+        if (val instanceof Date) return this.formatShortDateTime(val, timeZone, dateFormat, timeFormat);
         if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-          return this.formatShortDateTime(new Date(val), timeZone);
+          return this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat);
         }
       }
       return String(val ?? '');
@@ -881,10 +1011,12 @@ export class ExportService {
    * Generate Chart.js code for grouped time series chart
    */
   private generateGroupedChartHTML(
-    columns: ExportColumn[], 
+    columns: ExportColumn[],
     rows: Record<string, unknown>[],
     chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
-    timeZone?: string
+    timeZone?: string,
+    dateFormat?: DateFormat,
+    timeFormat?: TimeFormat,
   ): string {
     const { xColumn, yColumn, groupColumn } = chartConfig;
     if (!xColumn || !yColumn || !groupColumn) return '';
@@ -915,9 +1047,9 @@ export class ExportService {
       if (val !== null && val !== undefined) {
         if (xIsDate) {
           if (val instanceof Date) {
-            xValuesSet.add(this.formatShortDateTime(val, timeZone));
+            xValuesSet.add(this.formatShortDateTime(val, timeZone, dateFormat, timeFormat));
           } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone));
+            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat));
           } else {
             xValuesSet.add(String(val));
           }
@@ -933,16 +1065,16 @@ export class ExportService {
     const datasets = groups.map((group, idx) => {
       const color = colors[idx % colors.length];
       const groupRows = sortedRows.filter(row => String(row[groupColumn] ?? 'Unknown') === group);
-      
+
       // Map X values to Y values for this group
       const dataMap = new Map<string, number>();
       groupRows.forEach(row => {
         const xVal = row[xColumn];
         let label: string;
         if (xIsDate && xVal instanceof Date) {
-          label = this.formatShortDateTime(xVal, timeZone);
+          label = this.formatShortDateTime(xVal, timeZone, dateFormat, timeFormat);
         } else if (xIsDate && typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
-          label = this.formatShortDateTime(new Date(xVal), timeZone);
+          label = this.formatShortDateTime(new Date(xVal), timeZone, dateFormat, timeFormat);
         } else {
           label = String(xVal ?? '');
         }

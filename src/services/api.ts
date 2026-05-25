@@ -2,6 +2,7 @@
 import { isDemoMode } from './demoApi';
 import { demoApiService } from './demoApi';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
+import type { DateFormat, TimeFormat } from '@/utils/datetime';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -36,6 +37,21 @@ export interface TileQueryParams {
 
 export interface TileQueryResult {
   value: number | null;
+}
+
+// Re-exported from @/utils/datetime, which owns the source of truth for the
+// date/time format enums. Centralised there so adding a new format value only
+// needs touching one file.
+export {
+  DATE_FORMAT_VALUES,
+  TIME_FORMAT_VALUES,
+} from '@/utils/datetime';
+export type { DateFormat, TimeFormat } from '@/utils/datetime';
+
+export interface UserPreferences {
+  timezone: string;
+  dateFormat: DateFormat;
+  timeFormat: TimeFormat;
 }
 
 class ApiService {
@@ -477,7 +493,7 @@ class ApiService {
   }
 
   // User Preferences
-  async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
+  async getUserPreferences(): Promise<ApiResponse<UserPreferences>> {
     if (isDemoMode()) {
       return demoApiService.getUserPreferences();
     }
@@ -485,10 +501,12 @@ class ApiService {
     if (response.data && (response.data as any).preferences) {
       return { data: (response.data as any).preferences };
     }
-    return response as ApiResponse<{ timezone: string }>;
+    return response as ApiResponse<UserPreferences>;
   }
 
-  async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
+  async updateUserPreferences(
+    preferences: Partial<UserPreferences>,
+  ): Promise<ApiResponse<UserPreferences>> {
     if (isDemoMode()) {
       return demoApiService.updateUserPreferences(preferences);
     }
@@ -499,7 +517,7 @@ class ApiService {
     if (response.data && (response.data as any).preferences) {
       return { data: (response.data as any).preferences };
     }
-    return response as ApiResponse<{ timezone: string }>;
+    return response as ApiResponse<UserPreferences>;
   }
 
   // ==========================================
@@ -646,6 +664,9 @@ class ApiService {
       description?: string;
       column?: string;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -687,6 +708,9 @@ class ApiService {
       center: [number, number];
       zoom: number;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -728,6 +752,9 @@ class ApiService {
       center: [number, number];
       zoom: number;
     };
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const body = await this.getExportBody(id, options);
@@ -775,6 +802,14 @@ class ApiService {
       description?: string;
       column?: string;
     };
+    // Resolved formatting prefs from the active session. Sending them
+    // explicitly lets the export render the user's wall-clock time in demo
+    // mode and before "Save Preferences" has been clicked — otherwise the
+    // backend reads an empty preferences row and Excel cells fall back to
+    // UTC (ExcelJS serializes Date via getTime()/86400000).
+    timeZone?: string;
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
   }): Promise<Blob | null> {
     try {
       const url = `${API_BASE_URL}/api/panels/export`;

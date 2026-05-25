@@ -29,6 +29,7 @@ import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-t
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
+import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
@@ -349,6 +350,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              onSave,
                                                                                              globalVariables = [],
                                                                                            }, ref) => {
+  const { prefs: datetimePrefs } = useDatetimePrefs();
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1838,12 +1840,29 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     try {
+      // Resolve "auto" to the browser's IANA name so the backend doesn't
+      // have to re-detect it. Excel cells need an explicit zone to render
+      // wall-clock times — see shiftDateToZone in backend export service.
+      const resolvedTz =
+        datetimePrefs.timeZone === 'auto'
+          ? (() => {
+              try {
+                return Intl.DateTimeFormat().resolvedOptions().timeZone;
+              } catch {
+                return undefined;
+              }
+            })()
+          : datetimePrefs.timeZone;
+
       const blob = await apiService.exportPanelData({
         title: panel.title,
         columns: panelState.data.columns,
         rows: panelState.data.rows,
         format,
         ...(excelHeader && { excelHeader }),
+        ...(resolvedTz && { timeZone: resolvedTz }),
+        ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
+        ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
       });
 
       if (blob) {

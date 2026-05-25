@@ -4,7 +4,20 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
-import type { ApiResponse, TableQueryParams, TableQueryResult, TileQueryParams, TileQueryResult } from './api';
+import {
+  DATE_FORMAT_VALUES,
+  TIME_FORMAT_VALUES,
+  detectInitialTimeFormat,
+} from '@/utils/datetime';
+import type { DateFormat, TimeFormat } from '@/utils/datetime';
+import type {
+  ApiResponse,
+  TableQueryParams,
+  TableQueryResult,
+  TileQueryParams,
+  TileQueryResult,
+  UserPreferences,
+} from './api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -14,6 +27,48 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const DEMO_MODE_KEY = 'demo_mode';
 const DEMO_USER_ID_KEY = 'demo_user_id';
+// User preferences in demo mode live in localStorage. The IndexedDB layer
+// (demoStorageService) doesn't have a table for them and a dedicated migration
+// would be overkill for three scalar fields. The key is per-installation, not
+// per-user, since demo mode only has one active user at a time.
+const DEMO_USER_PREFS_KEY = 'demo.userPreferences.v1';
+
+function readDemoUserPreferences(): Partial<UserPreferences> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(DEMO_USER_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<UserPreferences>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Partial<UserPreferences> = {};
+    if (typeof parsed.timezone === 'string') out.timezone = parsed.timezone;
+    if (
+      typeof parsed.dateFormat === 'string' &&
+      (DATE_FORMAT_VALUES as readonly string[]).includes(parsed.dateFormat)
+    ) {
+      out.dateFormat = parsed.dateFormat as DateFormat;
+    }
+    if (
+      typeof parsed.timeFormat === 'string' &&
+      (TIME_FORMAT_VALUES as readonly string[]).includes(parsed.timeFormat)
+    ) {
+      out.timeFormat = parsed.timeFormat as TimeFormat;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeDemoUserPreferences(prefs: UserPreferences): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(DEMO_USER_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // localStorage might be unavailable (privacy mode); ignore — the call
+    // still echoes the prefs back to the caller for the active session.
+  }
+}
 
 export function isDemoMode(): boolean {
   return localStorage.getItem(DEMO_MODE_KEY) === 'true';
@@ -973,14 +1028,36 @@ class DemoApiService {
   // For now, return defaults - could be extended
   // ==========================================
 
-  async getUserPreferences(): Promise<ApiResponse<{ timezone: string }>> {
-    // Return default timezone
-    return { data: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } };
+  async getUserPreferences(): Promise<ApiResponse<UserPreferences>> {
+    const stored = readDemoUserPreferences();
+    return {
+      data: {
+        timezone:
+          stored.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateFormat: stored.dateFormat ?? 'dd/mm/yyyy',
+        timeFormat: stored.timeFormat ?? detectInitialTimeFormat(),
+      },
+    };
   }
 
-  async updateUserPreferences(preferences: { timezone: string }): Promise<ApiResponse<{ timezone: string }>> {
-    // In demo mode, just return the preferences (could store in localStorage)
-    return { data: preferences };
+  async updateUserPreferences(
+    preferences: Partial<UserPreferences>,
+  ): Promise<ApiResponse<UserPreferences>> {
+    // Merge the patch with any previously stored prefs and persist to
+    // localStorage so a page reload doesn't reset the user's choice. The
+    // returned shape matches the real backend's RETURNING payload.
+    const stored = readDemoUserPreferences();
+    const merged: UserPreferences = {
+      timezone:
+        preferences.timezone ??
+        stored.timezone ??
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      dateFormat: preferences.dateFormat ?? stored.dateFormat ?? 'dd/mm/yyyy',
+      timeFormat:
+        preferences.timeFormat ?? stored.timeFormat ?? detectInitialTimeFormat(),
+    };
+    writeDemoUserPreferences(merged);
+    return { data: merged };
   }
 
   // ==========================================

@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
-import { apiService } from '@/services/api';
+import { apiService, type DateFormat, type TimeFormat } from '@/services/api';
+import { detectInitialTimeFormat } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable, FlaskConical, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -31,6 +32,13 @@ const Settings = () => {
 
   // User Preferences state
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
+  const [userDateFormat, setUserDateFormat] = useState<DateFormat>('dd/mm/yyyy');
+  // Seed from the browser's locale so first-time users see their conventional
+  // clock pre-selected. The server value (loaded by fetchUserPreferences)
+  // overrides this on mount when the user has saved a preference.
+  const [userTimeFormat, setUserTimeFormat] = useState<TimeFormat>(() =>
+    detectInitialTimeFormat(),
+  );
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [browserTimezone] = useState<string | null>(() => {
@@ -191,6 +199,12 @@ const Settings = () => {
           // No saved preference - use browser timezone as default
           setUserTimezone(browserTimezone || 'UTC');
         }
+        if (response.data?.dateFormat) {
+          setUserDateFormat(response.data.dateFormat);
+        }
+        if (response.data?.timeFormat) {
+          setUserTimeFormat(response.data.timeFormat);
+        }
       }
     } catch (error) {
       console.error('Error fetching user preferences:', error);
@@ -206,15 +220,27 @@ const Settings = () => {
   const handleSavePreferences = async () => {
     setSavingPreferences(true);
     try {
-      const response = await apiService.updateUserPreferences({ timezone: userTimezone });
+      const response = await apiService.updateUserPreferences({
+        timezone: userTimezone,
+        dateFormat: userDateFormat,
+        timeFormat: userTimeFormat,
+      });
       if (response.error) {
         toast.error(response.error.message || 'Failed to save preferences');
       } else {
-        // PUT returns the saved timezone via RETURNING; trust it as the
+        // PUT returns the saved preferences via RETURNING; trust them as the
         // source of truth and skip the otherwise redundant GET.
         const savedTimezone = response.data?.timezone ?? userTimezone;
+        const savedDateFormat = response.data?.dateFormat ?? userDateFormat;
+        const savedTimeFormat = response.data?.timeFormat ?? userTimeFormat;
         setUserTimezone(savedTimezone);
-        setDatetimePrefs({ timeZone: savedTimezone });
+        setUserDateFormat(savedDateFormat);
+        setUserTimeFormat(savedTimeFormat);
+        setDatetimePrefs({
+          timeZone: savedTimezone,
+          dateFormat: savedDateFormat,
+          timeFormat: savedTimeFormat,
+        });
         toast.success('Preferences saved successfully');
       }
     } catch (error: any) {
@@ -310,6 +336,44 @@ const Settings = () => {
                       <p className="text-xs text-muted-foreground">
                         All date and time values in reports will be displayed in your selected timezone
                       </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="dateFormat" className="text-sm font-medium">Date format</Label>
+                      <Select
+                        value={userDateFormat}
+                        onValueChange={(value) => setUserDateFormat(value as DateFormat)}
+                        disabled={loadingPreferences || savingPreferences}
+                      >
+                        <SelectTrigger id="dateFormat">
+                          <SelectValue placeholder="Select date format" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dd/mm/yyyy">01/12/2021 (DD/MM/YYYY)</SelectItem>
+                          <SelectItem value="dd.mm.yyyy">01.12.2021 (DD.MM.YYYY)</SelectItem>
+                          <SelectItem value="mm-dd-yyyy">12-01-2021 (MM-DD-YYYY)</SelectItem>
+                          <SelectItem value="yyyy-mm-dd">2021-12-01 (YYYY-MM-DD)</SelectItem>
+                          <SelectItem value="dd-mmm-yyyy">1 Dec 2021 (DD MMM YYYY)</SelectItem>
+                          <SelectItem value="dd-mmmm-yyyy">1 December 2021 (DD MMMM YYYY)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="timeFormat" className="text-sm font-medium">Time format</Label>
+                      <Select
+                        value={userTimeFormat}
+                        onValueChange={(value) => setUserTimeFormat(value as TimeFormat)}
+                        disabled={loadingPreferences || savingPreferences}
+                      >
+                        <SelectTrigger id="timeFormat">
+                          <SelectValue placeholder="Select time format" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="h12">12:13 PM (12-hour clock)</SelectItem>
+                          <SelectItem value="h24">12:13 (24-hour clock)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 

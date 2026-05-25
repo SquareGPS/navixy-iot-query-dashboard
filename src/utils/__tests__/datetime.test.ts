@@ -15,6 +15,10 @@ const prefsBerlin = {
   timeZone: 'Europe/Berlin',
   hourCycle: 'h23' as const,
   dateStyle: 'short' as const,
+  // Explicit formats — DateFormat/TimeFormat no longer have a 'default' that
+  // defers to locale. 'dd.mm.yyyy' + 'h24' matches German conventions.
+  dateFormat: 'dd.mm.yyyy' as const,
+  timeFormat: 'h24' as const,
 };
 
 const prefsNY = {
@@ -22,6 +26,10 @@ const prefsNY = {
   timeZone: 'America/New_York',
   hourCycle: 'h12' as const,
   dateStyle: 'short' as const,
+  // 'mm-dd-yyyy' + 'h12' matches US conventions (with dashes since that is the
+  // closest preset to the US slash form).
+  dateFormat: 'mm-dd-yyyy' as const,
+  timeFormat: 'h12' as const,
 };
 
 describe('isDateLikeParam', () => {
@@ -101,7 +109,7 @@ describe('formatTimestamp', () => {
   });
 
   it('renders New York local time', () => {
-    expect(formatTimestamp(utcInstant, prefsNY)).toMatch(/05\/11\/2026.*11:00\s?PM/);
+    expect(formatTimestamp(utcInstant, prefsNY)).toMatch(/05-11-2026.*11:00\s?PM/);
   });
 
   it('accepts a naive string (treats as UTC)', () => {

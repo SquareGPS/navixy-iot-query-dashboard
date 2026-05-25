@@ -1,8 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
+  DATE_FORMAT_VALUES,
   DatetimePrefs,
+  TIME_FORMAT_VALUES,
   detectDefaultPrefs,
+  detectInitialTimeFormat,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/api';
@@ -41,6 +44,21 @@ function readFromStorage(): DatetimePrefs | null {
         parsed.dateStyle === 'long'
           ? parsed.dateStyle
           : defaults.dateStyle,
+      // Legacy 'default' and missing values map to 'dd/mm/yyyy', which is the
+      // shape the previous dropdown label promised ("01/12/2021 (DD/MM/YYYY)").
+      dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
+        parsed.dateFormat as string,
+      )
+        ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
+        : 'dd/mm/yyyy',
+      // Legacy 'default' and missing values seed from the auto-detected
+      // hourCycle so users who never opened Settings still see the clock style
+      // their locale conventionally uses.
+      timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
+        parsed.timeFormat as string,
+      )
+        ? (parsed.timeFormat as DatetimePrefs['timeFormat'])
+        : detectInitialTimeFormat(),
     };
   } catch {
     return null;
@@ -92,11 +110,35 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
       try {
         const res = await apiService.getUserPreferences();
         if (cancelled) return;
-        const tz = res?.data?.timezone;
-        if (typeof tz === 'string' && tz.trim().length > 0) {
-          setPrefsState((prev) =>
-            prev.timeZone === tz ? prev : { ...prev, timeZone: tz },
-          );
+        const data = res?.data;
+        if (data) {
+          setPrefsState((prev) => {
+            const next: DatetimePrefs = { ...prev };
+            let changed = false;
+            if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
+              if (next.timeZone !== data.timezone) {
+                next.timeZone = data.timezone;
+                changed = true;
+              }
+            }
+            if (
+              data.dateFormat &&
+              (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
+              next.dateFormat !== data.dateFormat
+            ) {
+              next.dateFormat = data.dateFormat;
+              changed = true;
+            }
+            if (
+              data.timeFormat &&
+              (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
+              next.timeFormat !== data.timeFormat
+            ) {
+              next.timeFormat = data.timeFormat;
+              changed = true;
+            }
+            return changed ? next : prev;
+          });
         }
         lastSyncedUserId.current = user.id;
       } catch {

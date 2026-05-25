@@ -761,18 +761,41 @@ export default function CompositeReportView() {
     setExportDialogOpen(true);
   };
 
+  // Resolve the active session's prefs into request-body fields. Excel
+  // cells need an explicit timezone (see shiftDateToZone in the backend
+  // export service) — otherwise ExcelJS serializes Date via UTC and the
+  // user sees their wall-clock time shifted by their UTC offset.
+  const getExportPrefsOptions = () => {
+    const resolvedTz =
+      datetimePrefs.timeZone === 'auto'
+        ? (() => {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone;
+            } catch {
+              return undefined;
+            }
+          })()
+        : datetimePrefs.timeZone;
+    return {
+      ...(resolvedTz && { timeZone: resolvedTz }),
+      ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
+      ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
+    };
+  };
+
   const handleExportExcel = async (
     format: 'xlsx' | 'csv' = excelFormat,
     excelHeader?: ExcelHeaderConfig
   ) => {
     if (!id) return;
-    
+
     setExporting('excel');
     try {
       const blob = await apiService.exportCompositeReportExcel(id, {
         ...getExportGeocodingOptions(),
         format,
         ...(excelHeader && { excelHeader }),
+        ...getExportPrefsOptions(),
       });
       if (blob) {
         const extension = format === 'csv' ? 'csv' : 'xlsx';
@@ -838,6 +861,7 @@ export default function CompositeReportView() {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
         } : undefined,
+        ...getExportPrefsOptions(),
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.html`);
@@ -870,6 +894,7 @@ export default function CompositeReportView() {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
         } : undefined,
+        ...getExportPrefsOptions(),
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.pdf`);
