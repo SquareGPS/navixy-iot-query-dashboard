@@ -150,15 +150,18 @@ export interface ExportPreferences {
 
 /**
  * Validate a request-body patch and merge it with the user's stored prefs.
- * Body values win when present and valid; a body-supplied `'default'` format
- * falls through to the stored pref so an explicit default in the request
- * doesn't shadow a non-default DB pref.
+ * Body values win when present and valid; only missing body fields fall
+ * through to the stored row.
  *
  * Routes prefer this over {@link getUserExportPreferences} so the active
  * session's resolved timezone reaches the export service even when the
  * stored preferences row is empty (demo mode, or the user never clicked
  * "Save Preferences") — without this, Excel cells fall back to UTC since
  * ExcelJS serializes Date via `getTime() / 86400000`.
+ *
+ * The DB read is skipped entirely when the body already supplies all three
+ * fields (the common path now that the frontend sends resolved prefs in
+ * every export request), saving a round-trip per export.
  */
 export async function resolveExportPreferences(
   req: AuthenticatedRequest,
@@ -185,13 +188,17 @@ export async function resolveExportPreferences(
       ? (body.timeFormat as TimeFormat)
       : undefined;
 
-  const stored = await getUserExportPreferences(req);
+  // Skip the DB read on the common path where the request body already
+  // carries all three resolved fields. The stored row would only override
+  // values that the body left undefined, so it contributes nothing here.
+  const needStored = !bodyTimeZone || !bodyDateFormat || !bodyTimeFormat;
+  const stored: ExportPreferences = needStored
+    ? await getUserExportPreferences(req)
+    : {};
+
   const out: ExportPreferences = {};
   const tz = bodyTimeZone ?? stored.timeZone;
   if (tz) out.timeZone = tz;
-  // Neither dateFormat nor timeFormat has a 'default' value any more — all
-  // listed values carry concrete meaning, so the body always wins when
-  // present and valid.
   const df = bodyDateFormat ?? stored.dateFormat;
   if (df) out.dateFormat = df;
   const tf = bodyTimeFormat ?? stored.timeFormat;
