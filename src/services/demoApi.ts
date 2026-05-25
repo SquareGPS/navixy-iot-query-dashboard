@@ -4,6 +4,7 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
+import { detectInitialTimeFormat } from '@/utils/datetime';
 import type {
   ApiResponse,
   TableQueryParams,
@@ -985,7 +986,7 @@ class DemoApiService {
       data: {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         dateFormat: 'default',
-        timeFormat: 'default',
+        timeFormat: detectInitialTimeFormat(),
       },
     };
   }
@@ -1000,7 +1001,7 @@ class DemoApiService {
         timezone:
           preferences.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
         dateFormat: preferences.dateFormat ?? 'default',
-        timeFormat: preferences.timeFormat ?? 'default',
+        timeFormat: preferences.timeFormat ?? detectInitialTimeFormat(),
       },
     };
   }

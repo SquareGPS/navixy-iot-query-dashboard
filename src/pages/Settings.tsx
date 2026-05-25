@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
 import { apiService, type DateFormat, type TimeFormat } from '@/services/api';
+import { detectInitialTimeFormat } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, Variable, FlaskConical, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -32,7 +33,12 @@ const Settings = () => {
   // User Preferences state
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
   const [userDateFormat, setUserDateFormat] = useState<DateFormat>('default');
-  const [userTimeFormat, setUserTimeFormat] = useState<TimeFormat>('default');
+  // Seed from the browser's locale so first-time users see their conventional
+  // clock pre-selected. The server value (loaded by fetchUserPreferences)
+  // overrides this on mount when the user has saved a preference.
+  const [userTimeFormat, setUserTimeFormat] = useState<TimeFormat>(() =>
+    detectInitialTimeFormat(),
+  );
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [browserTimezone] = useState<string | null>(() => {
@@ -364,7 +370,7 @@ const Settings = () => {
                           <SelectValue placeholder="Select time format" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="default">12:13 PM (12-hour clock) — Default</SelectItem>
+                          <SelectItem value="h12">12:13 PM (12-hour clock)</SelectItem>
                           <SelectItem value="h24">12:13 (24-hour clock)</SelectItem>
                         </SelectContent>
                       </Select>

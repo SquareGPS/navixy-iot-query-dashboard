@@ -10,7 +10,7 @@ import { logger } from '../utils/logger.js';
 //     preferences: {
 //       timezone: "Europe/Belgrade",
 //       dateFormat: "dd.mm.yyyy",
-//       timeFormat: "h24",
+//       timeFormat: "h12",
 //     },
 //   }
 
@@ -23,7 +23,13 @@ export const DATE_FORMAT_VALUES = [
   'dd-mmmm-yyyy',
 ] as const;
 
-export const TIME_FORMAT_VALUES = ['default', 'h24'] as const;
+// 'h12' renders 12-hour with AM/PM ("01:13 PM"), 'h24' renders 24-hour ("13:13").
+// The legacy 'default' value used to mean "follow locale", but the backend has
+// no locale and the resulting export was indistinguishable from 'h24' (dead
+// branch); we now reject 'default' and map any stored value to 'h12' so users
+// who picked the old "12:13 PM (12-hour clock) — Default" option get what the
+// dropdown promised.
+export const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
 
 export type DateFormat = (typeof DATE_FORMAT_VALUES)[number];
 export type TimeFormat = (typeof TIME_FORMAT_VALUES)[number];
@@ -69,7 +75,9 @@ export async function readUserPreferences(
       (metaData && typeof metaData === 'object' && metaData.preferences) || {};
     const timezone = typeof prefs.timezone === 'string' ? prefs.timezone : '';
     const dateFormat = isDateFormat(prefs.dateFormat) ? prefs.dateFormat : 'default';
-    const timeFormat = isTimeFormat(prefs.timeFormat) ? prefs.timeFormat : 'default';
+    // Legacy values (e.g. the old 'default') and missing fields map to 'h12'
+    // — matches the prior dropdown label "12:13 PM (12-hour clock) — Default".
+    const timeFormat = isTimeFormat(prefs.timeFormat) ? prefs.timeFormat : 'h12';
     return { timezone, dateFormat, timeFormat };
   } finally {
     client.release();
@@ -113,7 +121,8 @@ export async function writeUserPreferences(
     return {
       timezone: typeof parsed.timezone === 'string' ? parsed.timezone : '',
       dateFormat: isDateFormat(parsed.dateFormat) ? parsed.dateFormat : 'default',
-      timeFormat: isTimeFormat(parsed.timeFormat) ? parsed.timeFormat : 'default',
+      // See readUserPreferences: legacy 'default' / missing → 'h12'.
+      timeFormat: isTimeFormat(parsed.timeFormat) ? parsed.timeFormat : 'h12',
     };
   } finally {
     client.release();
@@ -172,11 +181,14 @@ export async function resolveExportPreferences(
   const out: ExportPreferences = {};
   const tz = bodyTimeZone ?? stored.timeZone;
   if (tz) out.timeZone = tz;
+  // dateFormat still has a 'default' value (locale-style date), so an explicit
+  // 'default' in the body should fall through to a non-default stored pref.
   const df =
     bodyDateFormat && bodyDateFormat !== 'default' ? bodyDateFormat : stored.dateFormat;
   if (df) out.dateFormat = df;
-  const tf =
-    bodyTimeFormat && bodyTimeFormat !== 'default' ? bodyTimeFormat : stored.timeFormat;
+  // timeFormat no longer has a 'default' value — h12/h24 are both meaningful,
+  // so the body always wins when present and valid.
+  const tf = bodyTimeFormat ?? stored.timeFormat;
   if (tf) out.timeFormat = tf;
   return out;
 }
@@ -208,7 +220,9 @@ export async function getUserExportPreferences(
     if (prefs.dateFormat && prefs.dateFormat !== 'default') {
       result.dateFormat = prefs.dateFormat;
     }
-    if (prefs.timeFormat && prefs.timeFormat !== 'default') {
+    // timeFormat is always 'h12' or 'h24' now — both carry meaning, so pass
+    // through unconditionally.
+    if (prefs.timeFormat) {
       result.timeFormat = prefs.timeFormat;
     }
     return result;

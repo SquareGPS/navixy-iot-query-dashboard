@@ -20,10 +20,11 @@ export interface ExcelHeaderConfig {
 
 /**
  * Subset of user preferences relevant to formatting dates in exports.
- * `default` for either field means "use the export's built-in default
- * (`dd/mm/yy hh:mm`)". The frontend Settings page is the source of truth
- * for the allowed values; we mirror them here as a string union so the
- * route layer can pass them in without an extra import.
+ * `default` for date means "use the export's built-in `dd/mm/yy` shape".
+ * Time has no default — h12 renders `hh:mm AM/PM`, h24 renders `HH:mm`.
+ * The frontend Settings page is the source of truth for the allowed
+ * values; we mirror them here as a string union so the route layer can
+ * pass them in without an extra import.
  */
 export type ExportDateFormat =
   | 'default'
@@ -32,7 +33,7 @@ export type ExportDateFormat =
   | 'yyyy-mm-dd'
   | 'dd-mmm-yyyy'
   | 'dd-mmmm-yyyy';
-export type ExportTimeFormat = 'default' | 'h24';
+export type ExportTimeFormat = 'h12' | 'h24';
 
 export interface ExcelExportOptions {
   title: string;
@@ -191,8 +192,12 @@ function excelDatePart(fmt: ExportDateFormat | undefined): string {
   }
 }
 
+// Excel's number-format mini-language is locale-agnostic: `HH:mm` renders 24h
+// without an AM/PM indicator, `hh:mm AM/PM` renders 12h with the marker.
+// `hh:mm` without an indicator silently renders 24h, which is what produced
+// the old "default" dead branch (lowercase `hh` looks 12-hour-ish but isn't).
 function excelTimePart(fmt: ExportTimeFormat | undefined): string {
-  return fmt === 'h24' ? 'HH:mm' : 'hh:mm';
+  return fmt === 'h24' ? 'HH:mm' : 'hh:mm AM/PM';
 }
 
 function buildExcelNumFmt(
@@ -260,13 +265,18 @@ function formatDateWithPrefs(
       datePart = `${dd}/${mm}/${yy}`;
   }
 
+  const mm2 = String(minute).padStart(2, '0');
   let timePart: string;
-  if (timeFmt === 'h24') {
-    timePart = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (timeFmt === 'h12') {
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour % 12 === 0 ? 12 : hour % 12;
+    timePart = `${String(h12).padStart(2, '0')}:${mm2} ${period}`;
   } else {
-    // 'default' — keep the legacy 24-hour-styled `HH:mm` rendering so
-    // existing reports look identical when nothing is overridden.
-    timePart = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    // 'h24' or undefined — render 24-hour. `undefined` falls through to 24h
+    // because callers omit `timeFormat` only when the user has no preference
+    // resolved (rare; backend reads default to 'h12' now), and 24h is the
+    // safer fallback than guessing a 12-hour AM/PM marker.
+    timePart = `${String(hour).padStart(2, '0')}:${mm2}`;
   }
 
   return `${datePart} ${timePart}`;

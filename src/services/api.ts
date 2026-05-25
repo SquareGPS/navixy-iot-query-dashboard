@@ -47,7 +47,11 @@ export const DATE_FORMAT_VALUES = [
   'dd-mmmm-yyyy',
 ] as const;
 
-export const TIME_FORMAT_VALUES = ['default', 'h24'] as const;
+// 'h12' renders 12-hour with AM/PM; 'h24' renders 24-hour. The legacy
+// 'default' option was dropped because the backend export had no way to honor
+// it (no locale info) and produced indistinguishable 24h output regardless of
+// the user's choice — see backend export.ts.
+export const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
 
 export type DateFormat = (typeof DATE_FORMAT_VALUES)[number];
 export type TimeFormat = (typeof TIME_FORMAT_VALUES)[number];

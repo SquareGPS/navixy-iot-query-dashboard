@@ -44,10 +44,12 @@ export type DateFormatPref =
   | 'dd-mmmm-yyyy';
 
 /**
- * User-selectable time format. `default` keeps the existing locale/hourCycle
- * behaviour; `h24` forces a 24-hour `HH:mm` rendering.
+ * User-selectable time format. `h12` renders 12-hour with AM/PM ("01:13 PM");
+ * `h24` renders 24-hour ("13:13"). There is no `default` value — the dropdown
+ * is seeded from {@link DatetimePrefs.hourCycle} for first-time users so the
+ * initial pick matches their locale, but the stored value is always explicit.
  */
-export type TimeFormatPref = 'default' | 'h24';
+export type TimeFormatPref = 'h12' | 'h24';
 
 export interface DatetimePrefs {
   /** BCP-47 locale tag (e.g. "en-US", "ru-RU", "en-GB"). */
@@ -86,6 +88,21 @@ export function detectDefaultPrefs(): DatetimePrefs {
     hourCycle: resolved?.hourCycle === 'h12' || resolved?.hour12 ? 'h12' : 'h23',
     dateStyle: 'short',
   };
+}
+
+/**
+ * Seed value for the Time format dropdown when nothing is stored yet. Reads
+ * the host locale's conventional clock so users in 12-hour locales (en-US,
+ * en-CA, ...) see "12-hour clock" pre-selected and users in 24-hour locales
+ * see "24-hour clock" pre-selected — matching what their Data Table renders.
+ */
+export function detectInitialTimeFormat(): TimeFormatPref {
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    return resolved.hourCycle === 'h12' || resolved.hour12 ? 'h12' : 'h24';
+  } catch {
+    return 'h12';
+  }
 }
 
 /**
@@ -136,10 +153,11 @@ export function isTimestampLike(value: unknown): value is string {
  * {@link parseServerTimestamp}). Returns an empty string for invalid input
  * so callers can use it inside JSX without extra guards.
  *
- * When `prefs.dateFormat` or `prefs.timeFormat` is set to a non-`default`
- * value, the corresponding component is rendered with a fixed pattern
- * (locale-independent) so the user gets exactly what they picked in
- * Settings. Otherwise the existing Intl path is used.
+ * When `prefs.dateFormat` is set to a non-`default` value the date is rendered
+ * with a fixed pattern (locale-independent) so the user gets exactly what they
+ * picked in Settings; otherwise the date follows the locale's short style.
+ * `prefs.timeFormat` is always explicit (`'h12'` or `'h24'`) and drives whether
+ * AM/PM is appended.
  */
 export function formatTimestamp(
   value: Date | string | null | undefined,
@@ -153,11 +171,13 @@ export function formatTimestamp(
   const includeTime = options.includeTime ?? true;
   const timeZone = prefs.timeZone === 'auto' ? undefined : prefs.timeZone;
   const dateFmt = prefs.dateFormat ?? 'default';
-  const timeFmt = prefs.timeFormat ?? 'default';
+  // Legacy prefs may not have a timeFormat set; seed from auto-detected
+  // hourCycle so users who never opened Settings still get a sensible default.
+  const timeFmt: TimeFormatPref =
+    prefs.timeFormat ?? (prefs.hourCycle === 'h12' ? 'h12' : 'h24');
 
   // Custom date pattern selected — render the date (and time, if requested)
-  // by hand. The default time path uses Intl with the user's hourCycle so
-  // AM/PM still respects locale.
+  // by hand using the explicit time format.
   if (dateFmt !== 'default') {
     const datePart = formatDateWithPattern(date, dateFmt, timeZone);
     if (!includeTime) return datePart;
@@ -165,17 +185,10 @@ export function formatTimestamp(
     return `${datePart} ${timePart}`;
   }
 
-  // Custom time pattern with default date — render time by hand and pair it
-  // with the locale's short date.
-  if (timeFmt !== 'default') {
-    const datePart = formatDateLocale(date, prefs, timeZone);
-    if (!includeTime) return datePart;
-    const timePart = formatTimeWithPattern(date, timeFmt, prefs, timeZone);
-    return `${datePart} ${timePart}`;
-  }
-
-  // Default path: existing Intl behaviour, unchanged.
-  const hour12 = prefs.hourCycle === 'h12';
+  // Locale-style date: use the single-Intl path so the locale's preferred
+  // date+time separator (comma in en-US, space in de-DE, etc.) is preserved.
+  // hour12 is driven by the explicit timeFormat, not by locale.
+  const hour12 = timeFmt === 'h12';
   const formatterOptions: Intl.DateTimeFormatOptions = {
     timeZone,
     hour12,
@@ -271,13 +284,10 @@ function formatTimeWithPattern(
   prefs: DatetimePrefs,
   timeZone?: string,
 ): string {
-  if (fmt === 'h24') {
-    const c = getZoneComponents(date, timeZone);
-    if (!c) return '';
-    return `${pad2(c.hour)}:${pad2(c.minute)}`;
-  }
-  // 'default' — use Intl so AM/PM follows locale.
-  const hour12 = prefs.hourCycle === 'h12';
+  const hour12 = fmt === 'h12';
+  // Prefer Intl so AM/PM follows locale conventions ("PM" vs "п.п." vs "下午"
+  // depending on locale); fall back to a manual render if Intl rejects the
+  // zone or locale.
   try {
     return new Intl.DateTimeFormat(prefs.locale, {
       timeZone,
@@ -287,7 +297,11 @@ function formatTimeWithPattern(
     }).format(date);
   } catch {
     const c = getZoneComponents(date, timeZone);
-    return c ? `${pad2(c.hour)}:${pad2(c.minute)}` : '';
+    if (!c) return '';
+    if (!hour12) return `${pad2(c.hour)}:${pad2(c.minute)}`;
+    const period = c.hour >= 12 ? 'PM' : 'AM';
+    const h12 = c.hour % 12 === 0 ? 12 : c.hour % 12;
+    return `${pad2(h12)}:${pad2(c.minute)} ${period}`;
   }
 }
 

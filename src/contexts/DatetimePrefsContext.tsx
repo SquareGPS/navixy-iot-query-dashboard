@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   DatetimePrefs,
   detectDefaultPrefs,
+  detectInitialTimeFormat,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/api';
@@ -27,7 +28,7 @@ const DATE_FORMAT_VALUES = [
   'dd-mmm-yyyy',
   'dd-mmmm-yyyy',
 ] as const;
-const TIME_FORMAT_VALUES = ['default', 'h24'] as const;
+const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
 
 function readFromStorage(): DatetimePrefs | null {
   if (typeof window === 'undefined') return null;
@@ -56,11 +57,14 @@ function readFromStorage(): DatetimePrefs | null {
       )
         ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
         : 'default',
+      // Legacy 'default' and missing values seed from the auto-detected
+      // hourCycle so users who never opened Settings still see the clock style
+      // their locale conventionally uses.
       timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
         parsed.timeFormat as string,
       )
         ? (parsed.timeFormat as DatetimePrefs['timeFormat'])
-        : 'default',
+        : detectInitialTimeFormat(),
     };
   } catch {
     return null;
