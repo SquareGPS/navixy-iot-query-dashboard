@@ -2,6 +2,7 @@
 import { isDemoMode } from './demoApi';
 import { demoApiService } from './demoApi';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
+import type { DateFormat, TimeFormat } from '@/utils/datetime';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -38,27 +39,14 @@ export interface TileQueryResult {
   value: number | null;
 }
 
-// 'dd/mm/yyyy' replaces the legacy 'default' value. The old default rendered
-// `dd/mm/yy` (2-digit year) in backend exports despite the Settings dropdown
-// labelling it as "01/12/2021 (DD/MM/YYYY)"; making the value explicit keeps
-// what users see on screen and in exports in sync.
-export const DATE_FORMAT_VALUES = [
-  'dd/mm/yyyy',
-  'dd.mm.yyyy',
-  'mm-dd-yyyy',
-  'yyyy-mm-dd',
-  'dd-mmm-yyyy',
-  'dd-mmmm-yyyy',
-] as const;
-
-// 'h12' renders 12-hour with AM/PM; 'h24' renders 24-hour. The legacy
-// 'default' option was dropped because the backend export had no way to honor
-// it (no locale info) and produced indistinguishable 24h output regardless of
-// the user's choice — see backend export.ts.
-export const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
-
-export type DateFormat = (typeof DATE_FORMAT_VALUES)[number];
-export type TimeFormat = (typeof TIME_FORMAT_VALUES)[number];
+// Re-exported from @/utils/datetime, which owns the source of truth for the
+// date/time format enums. Centralised there so adding a new format value only
+// needs touching one file.
+export {
+  DATE_FORMAT_VALUES,
+  TIME_FORMAT_VALUES,
+} from '@/utils/datetime';
+export type { DateFormat, TimeFormat } from '@/utils/datetime';
 
 export interface UserPreferences {
   timezone: string;

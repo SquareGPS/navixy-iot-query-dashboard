@@ -34,15 +34,19 @@ export type HourCycle = 'h12' | 'h23';
  * User-selectable date format presets. Every value is an explicit pattern
  * rendered the same way regardless of locale so the user sees exactly what
  * they picked in Settings. `'dd/mm/yyyy'` is the "neutral" pick and the
- * fallback for legacy `'default'` values still in storage.
+ * fallback for legacy `'default'` values still in storage. This module owns
+ * the single source of truth for the allowed values; api.ts and the context
+ * re-import these.
  */
-export type DateFormatPref =
-  | 'dd/mm/yyyy'
-  | 'dd.mm.yyyy'
-  | 'mm-dd-yyyy'
-  | 'yyyy-mm-dd'
-  | 'dd-mmm-yyyy'
-  | 'dd-mmmm-yyyy';
+export const DATE_FORMAT_VALUES = [
+  'dd/mm/yyyy',
+  'dd.mm.yyyy',
+  'mm-dd-yyyy',
+  'yyyy-mm-dd',
+  'dd-mmm-yyyy',
+  'dd-mmmm-yyyy',
+] as const;
+export type DateFormat = (typeof DATE_FORMAT_VALUES)[number];
 
 /**
  * User-selectable time format. `h12` renders 12-hour with AM/PM ("01:13 PM");
@@ -50,7 +54,8 @@ export type DateFormatPref =
  * is seeded from {@link DatetimePrefs.hourCycle} for first-time users so the
  * initial pick matches their locale, but the stored value is always explicit.
  */
-export type TimeFormatPref = 'h12' | 'h24';
+export const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
+export type TimeFormat = (typeof TIME_FORMAT_VALUES)[number];
 
 export interface DatetimePrefs {
   /** BCP-47 locale tag (e.g. "en-US", "ru-RU", "en-GB"). */
@@ -62,9 +67,9 @@ export interface DatetimePrefs {
   /** Compactness preset for date display. */
   dateStyle: DatetimeStyle;
   /** Optional explicit date pattern; falls back to {@link dateStyle} when absent. */
-  dateFormat?: DateFormatPref;
+  dateFormat?: DateFormat;
   /** Optional explicit time pattern; falls back to {@link hourCycle} when absent. */
-  timeFormat?: TimeFormatPref;
+  timeFormat?: TimeFormat;
 }
 
 const MONTHS_SHORT = [
@@ -97,7 +102,7 @@ export function detectDefaultPrefs(): DatetimePrefs {
  * en-CA, ...) see "12-hour clock" pre-selected and users in 24-hour locales
  * see "24-hour clock" pre-selected — matching what their Data Table renders.
  */
-export function detectInitialTimeFormat(): TimeFormatPref {
+export function detectInitialTimeFormat(): TimeFormat {
   try {
     const resolved = Intl.DateTimeFormat().resolvedOptions();
     return resolved.hourCycle === 'h12' || resolved.hour12 ? 'h12' : 'h24';
@@ -172,8 +177,8 @@ export function formatTimestamp(
   const timeZone = prefs.timeZone === 'auto' ? undefined : prefs.timeZone;
   // Legacy prefs may not have either format set; seed from sensible defaults
   // so users who never opened Settings still get a stable rendering.
-  const dateFmt: DateFormatPref = prefs.dateFormat ?? 'dd/mm/yyyy';
-  const timeFmt: TimeFormatPref =
+  const dateFmt: DateFormat = prefs.dateFormat ?? 'dd/mm/yyyy';
+  const timeFmt: TimeFormat =
     prefs.timeFormat ?? (prefs.hourCycle === 'h12' ? 'h12' : 'h24');
 
   const datePart = formatDateWithPattern(date, dateFmt, timeZone);
@@ -232,7 +237,7 @@ function pad2(n: number): string {
 
 function formatDateWithPattern(
   date: Date,
-  fmt: DateFormatPref,
+  fmt: DateFormat,
   timeZone?: string,
 ): string {
   const c = getZoneComponents(date, timeZone);
@@ -259,7 +264,7 @@ function formatDateWithPattern(
 
 function formatTimeWithPattern(
   date: Date,
-  fmt: TimeFormatPref,
+  fmt: TimeFormat,
   prefs: DatetimePrefs,
   timeZone?: string,
 ): string {

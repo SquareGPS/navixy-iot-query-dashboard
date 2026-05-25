@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
+  DATE_FORMAT_VALUES,
   DatetimePrefs,
+  TIME_FORMAT_VALUES,
   detectDefaultPrefs,
   detectInitialTimeFormat,
 } from '@/utils/datetime';
@@ -19,16 +21,6 @@ interface DatetimePrefsContextValue {
 const DatetimePrefsContext = createContext<DatetimePrefsContextValue | undefined>(
   undefined,
 );
-
-const DATE_FORMAT_VALUES = [
-  'dd/mm/yyyy',
-  'dd.mm.yyyy',
-  'mm-dd-yyyy',
-  'yyyy-mm-dd',
-  'dd-mmm-yyyy',
-  'dd-mmmm-yyyy',
-] as const;
-const TIME_FORMAT_VALUES = ['h12', 'h24'] as const;
 
 function readFromStorage(): DatetimePrefs | null {
   if (typeof window === 'undefined') return null;
