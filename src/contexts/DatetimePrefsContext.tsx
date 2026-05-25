@@ -21,7 +21,7 @@ const DatetimePrefsContext = createContext<DatetimePrefsContextValue | undefined
 );
 
 const DATE_FORMAT_VALUES = [
-  'default',
+  'dd/mm/yyyy',
   'dd.mm.yyyy',
   'mm-dd-yyyy',
   'yyyy-mm-dd',
@@ -52,11 +52,13 @@ function readFromStorage(): DatetimePrefs | null {
         parsed.dateStyle === 'long'
           ? parsed.dateStyle
           : defaults.dateStyle,
+      // Legacy 'default' and missing values map to 'dd/mm/yyyy', which is the
+      // shape the previous dropdown label promised ("01/12/2021 (DD/MM/YYYY)").
       dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
         parsed.dateFormat as string,
       )
         ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
-        : 'default',
+        : 'dd/mm/yyyy',
       // Legacy 'default' and missing values seed from the auto-detected
       // hourCycle so users who never opened Settings still see the clock style
       // their locale conventionally uses.

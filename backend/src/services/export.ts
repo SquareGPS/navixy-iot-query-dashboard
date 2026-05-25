@@ -20,14 +20,13 @@ export interface ExcelHeaderConfig {
 
 /**
  * Subset of user preferences relevant to formatting dates in exports.
- * `default` for date means "use the export's built-in `dd/mm/yy` shape".
- * Time has no default — h12 renders `hh:mm AM/PM`, h24 renders `HH:mm`.
- * The frontend Settings page is the source of truth for the allowed
- * values; we mirror them here as a string union so the route layer can
- * pass them in without an extra import.
+ * Each value is an explicit pattern — there is no `default` for either
+ * field. The frontend Settings page is the source of truth for the
+ * allowed values; we mirror them here as a string union so the route
+ * layer can pass them in without an extra import.
  */
 export type ExportDateFormat =
-  | 'default'
+  | 'dd/mm/yyyy'
   | 'dd.mm.yyyy'
   | 'mm-dd-yyyy'
   | 'yyyy-mm-dd'
@@ -171,8 +170,9 @@ const MONTHS_LONG = [
 
 /**
  * Translate a user-pref date format value to an ExcelJS `numFmt` string.
- * `default` keeps the legacy `dd/mm/yy hh:mm` so older reports look the
- * same. The time portion is appended by {@link buildExcelNumFmt}.
+ * The time portion is appended by {@link buildExcelNumFmt}. `undefined`
+ * falls through to the 4-digit slash form — the same shape the legacy
+ * `default` UI label promised ("01/12/2021 (DD/MM/YYYY)").
  */
 function excelDatePart(fmt: ExportDateFormat | undefined): string {
   switch (fmt) {
@@ -186,9 +186,9 @@ function excelDatePart(fmt: ExportDateFormat | undefined): string {
       return 'd mmm yyyy';
     case 'dd-mmmm-yyyy':
       return 'd mmmm yyyy';
-    case 'default':
+    case 'dd/mm/yyyy':
     default:
-      return 'dd/mm/yy';
+      return 'dd/mm/yyyy';
   }
 }
 
@@ -241,7 +241,6 @@ function formatDateWithPrefs(
   const dd = String(day).padStart(2, '0');
   const mm = String(month).padStart(2, '0');
   const yyyy = String(year);
-  const yy = yyyy.slice(-2);
 
   let datePart: string;
   switch (dateFmt) {
@@ -260,9 +259,9 @@ function formatDateWithPrefs(
     case 'dd-mmmm-yyyy':
       datePart = `${day} ${MONTHS_LONG[month - 1]} ${yyyy}`;
       break;
-    case 'default':
+    case 'dd/mm/yyyy':
     default:
-      datePart = `${dd}/${mm}/${yy}`;
+      datePart = `${dd}/${mm}/${yyyy}`;
   }
 
   const mm2 = String(minute).padStart(2, '0');

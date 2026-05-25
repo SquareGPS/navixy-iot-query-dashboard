@@ -38,8 +38,12 @@ export interface TileQueryResult {
   value: number | null;
 }
 
+// 'dd/mm/yyyy' replaces the legacy 'default' value. The old default rendered
+// `dd/mm/yy` (2-digit year) in backend exports despite the Settings dropdown
+// labelling it as "01/12/2021 (DD/MM/YYYY)"; making the value explicit keeps
+// what users see on screen and in exports in sync.
 export const DATE_FORMAT_VALUES = [
-  'default',
+  'dd/mm/yyyy',
   'dd.mm.yyyy',
   'mm-dd-yyyy',
   'yyyy-mm-dd',

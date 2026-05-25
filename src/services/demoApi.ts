@@ -985,7 +985,7 @@ class DemoApiService {
     return {
       data: {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        dateFormat: 'default',
+        dateFormat: 'dd/mm/yyyy',
         timeFormat: detectInitialTimeFormat(),
       },
     };
@@ -1000,7 +1000,7 @@ class DemoApiService {
       data: {
         timezone:
           preferences.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-        dateFormat: preferences.dateFormat ?? 'default',
+        dateFormat: preferences.dateFormat ?? 'dd/mm/yyyy',
         timeFormat: preferences.timeFormat ?? detectInitialTimeFormat(),
       },
     };

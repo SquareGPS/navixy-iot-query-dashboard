@@ -32,7 +32,7 @@ const Settings = () => {
 
   // User Preferences state
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
-  const [userDateFormat, setUserDateFormat] = useState<DateFormat>('default');
+  const [userDateFormat, setUserDateFormat] = useState<DateFormat>('dd/mm/yyyy');
   // Seed from the browser's locale so first-time users see their conventional
   // clock pre-selected. The server value (loaded by fetchUserPreferences)
   // overrides this on mount when the user has saved a preference.
@@ -349,7 +349,7 @@ const Settings = () => {
                           <SelectValue placeholder="Select date format" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="default">01/12/2021 (DD/MM/YYYY) — Default</SelectItem>
+                          <SelectItem value="dd/mm/yyyy">01/12/2021 (DD/MM/YYYY)</SelectItem>
                           <SelectItem value="dd.mm.yyyy">01.12.2021 (DD.MM.YYYY)</SelectItem>
                           <SelectItem value="mm-dd-yyyy">12-01-2021 (MM-DD-YYYY)</SelectItem>
                           <SelectItem value="yyyy-mm-dd">2021-12-01 (YYYY-MM-DD)</SelectItem>

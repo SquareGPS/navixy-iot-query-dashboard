@@ -31,12 +31,13 @@ export type DatetimeStyle = 'short' | 'medium' | 'long';
 export type HourCycle = 'h12' | 'h23';
 
 /**
- * User-selectable date format presets. `default` defers to the locale's
- * short-style date; the others render a fixed pattern regardless of locale
- * so the user sees exactly what they picked in Settings.
+ * User-selectable date format presets. Every value is an explicit pattern
+ * rendered the same way regardless of locale so the user sees exactly what
+ * they picked in Settings. `'dd/mm/yyyy'` is the "neutral" pick and the
+ * fallback for legacy `'default'` values still in storage.
  */
 export type DateFormatPref =
-  | 'default'
+  | 'dd/mm/yyyy'
   | 'dd.mm.yyyy'
   | 'mm-dd-yyyy'
   | 'yyyy-mm-dd'
@@ -153,11 +154,10 @@ export function isTimestampLike(value: unknown): value is string {
  * {@link parseServerTimestamp}). Returns an empty string for invalid input
  * so callers can use it inside JSX without extra guards.
  *
- * When `prefs.dateFormat` is set to a non-`default` value the date is rendered
- * with a fixed pattern (locale-independent) so the user gets exactly what they
- * picked in Settings; otherwise the date follows the locale's short style.
- * `prefs.timeFormat` is always explicit (`'h12'` or `'h24'`) and drives whether
- * AM/PM is appended.
+ * Both `prefs.dateFormat` and `prefs.timeFormat` are explicit patterns
+ * (no more `'default'`); the result is rendered the same way regardless
+ * of locale so what the user picks in Settings is what they see in
+ * tables, charts, and exports.
  */
 export function formatTimestamp(
   value: Date | string | null | undefined,
@@ -170,37 +170,16 @@ export function formatTimestamp(
 
   const includeTime = options.includeTime ?? true;
   const timeZone = prefs.timeZone === 'auto' ? undefined : prefs.timeZone;
-  const dateFmt = prefs.dateFormat ?? 'default';
-  // Legacy prefs may not have a timeFormat set; seed from auto-detected
-  // hourCycle so users who never opened Settings still get a sensible default.
+  // Legacy prefs may not have either format set; seed from sensible defaults
+  // so users who never opened Settings still get a stable rendering.
+  const dateFmt: DateFormatPref = prefs.dateFormat ?? 'dd/mm/yyyy';
   const timeFmt: TimeFormatPref =
     prefs.timeFormat ?? (prefs.hourCycle === 'h12' ? 'h12' : 'h24');
 
-  // Custom date pattern selected — render the date (and time, if requested)
-  // by hand using the explicit time format.
-  if (dateFmt !== 'default') {
-    const datePart = formatDateWithPattern(date, dateFmt, timeZone);
-    if (!includeTime) return datePart;
-    const timePart = formatTimeWithPattern(date, timeFmt, prefs, timeZone);
-    return `${datePart} ${timePart}`;
-  }
-
-  // Locale-style date: use the single-Intl path so the locale's preferred
-  // date+time separator (comma in en-US, space in de-DE, etc.) is preserved.
-  // hour12 is driven by the explicit timeFormat, not by locale.
-  const hour12 = timeFmt === 'h12';
-  const formatterOptions: Intl.DateTimeFormatOptions = {
-    timeZone,
-    hour12,
-    ...dateStyleOptions(prefs.dateStyle),
-    ...(includeTime ? timeStyleOptions(prefs.dateStyle, hour12) : {}),
-  };
-
-  try {
-    return new Intl.DateTimeFormat(prefs.locale, formatterOptions).format(date);
-  } catch {
-    return date.toISOString();
-  }
+  const datePart = formatDateWithPattern(date, dateFmt, timeZone);
+  if (!includeTime) return datePart;
+  const timePart = formatTimeWithPattern(date, timeFmt, prefs, timeZone);
+  return `${datePart} ${timePart}`;
 }
 
 interface ZoneComponents {
@@ -272,9 +251,9 @@ function formatDateWithPattern(
       return `${c.day} ${MONTHS_SHORT[c.month - 1]} ${yyyy}`;
     case 'dd-mmmm-yyyy':
       return `${c.day} ${MONTHS_LONG[c.month - 1]} ${yyyy}`;
-    case 'default':
+    case 'dd/mm/yyyy':
     default:
-      return formatDateLocale(date, { locale: 'en-GB' } as DatetimePrefs, timeZone);
+      return `${dd}/${mm}/${yyyy}`;
   }
 }
 
@@ -303,45 +282,6 @@ function formatTimeWithPattern(
     const h12 = c.hour % 12 === 0 ? 12 : c.hour % 12;
     return `${pad2(h12)}:${pad2(c.minute)} ${period}`;
   }
-}
-
-function formatDateLocale(
-  date: Date,
-  prefs: DatetimePrefs,
-  timeZone?: string,
-): string {
-  try {
-    return new Intl.DateTimeFormat(prefs.locale, {
-      timeZone,
-      ...dateStyleOptions(prefs.dateStyle ?? 'short'),
-    }).format(date);
-  } catch {
-    return date.toISOString().slice(0, 10);
-  }
-}
-
-function dateStyleOptions(style: DatetimeStyle): Intl.DateTimeFormatOptions {
-  switch (style) {
-    case 'long':
-      return { day: 'numeric', month: 'long', year: 'numeric' };
-    case 'medium':
-      return { day: '2-digit', month: 'short', year: 'numeric' };
-    case 'short':
-    default:
-      return { day: '2-digit', month: '2-digit', year: 'numeric' };
-  }
-}
-
-function timeStyleOptions(
-  style: DatetimeStyle,
-  hour12: boolean,
-): Intl.DateTimeFormatOptions {
-  return {
-    hour: '2-digit',
-    minute: '2-digit',
-    ...(style === 'long' ? { second: '2-digit' } : {}),
-    hour12,
-  };
 }
 
 /**
