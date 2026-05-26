@@ -1854,15 +1854,20 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             })()
           : datetimePrefs.timeZone;
 
+      const exportPrefsPayload = {
+        ...(resolvedTz && { timeZone: resolvedTz }),
+        ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
+        ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
+      };
+      console.debug('[export] panel prefs sent to backend:', exportPrefsPayload, 'raw datetimePrefs:', datetimePrefs);
+
       const blob = await apiService.exportPanelData({
         title: panel.title,
         columns: panelState.data.columns,
         rows: panelState.data.rows,
         format,
         ...(excelHeader && { excelHeader }),
-        ...(resolvedTz && { timeZone: resolvedTz }),
-        ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
-        ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
+        ...exportPrefsPayload,
       });
 
       if (blob) {

@@ -203,6 +203,19 @@ export async function resolveExportPreferences(
   if (df) out.dateFormat = df;
   const tf = bodyTimeFormat ?? stored.timeFormat;
   if (tf) out.timeFormat = tf;
+
+  logger.debug('[export-prefs] resolveExportPreferences', {
+    bodyRaw: {
+      timeZone: body?.timeZone,
+      dateFormat: body?.dateFormat,
+      timeFormat: body?.timeFormat,
+    },
+    bodyValidated: { bodyTimeZone, bodyDateFormat, bodyTimeFormat },
+    needStored,
+    stored: needStored ? stored : '(skipped)',
+    resolved: out,
+  });
+
   return out;
 }
 
@@ -215,7 +228,13 @@ export async function getUserExportPreferences(
 ): Promise<ExportPreferences> {
   const settingsPool = req.settingsPool;
   const userId = req.user?.userId;
-  if (!settingsPool || !userId) return {};
+  if (!settingsPool || !userId) {
+    logger.debug('[export-prefs] getUserExportPreferences skipped', {
+      hasSettingsPool: !!settingsPool,
+      hasUserId: !!userId,
+    });
+    return {};
+  }
 
   try {
     const prefs = await readUserPreferences(settingsPool, userId);
@@ -238,6 +257,11 @@ export async function getUserExportPreferences(
     if (prefs.timeFormat) {
       result.timeFormat = prefs.timeFormat;
     }
+    logger.debug('[export-prefs] getUserExportPreferences from DB', {
+      userId,
+      storedPrefs: prefs,
+      result,
+    });
     return result;
   } catch (err) {
     logger.error('Failed to read user export preferences', {

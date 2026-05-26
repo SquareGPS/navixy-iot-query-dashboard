@@ -776,11 +776,13 @@ export default function CompositeReportView() {
             }
           })()
         : datetimePrefs.timeZone;
-    return {
+    const opts = {
       ...(resolvedTz && { timeZone: resolvedTz }),
       ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
       ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
     };
+    console.debug('[export] prefs sent to backend:', opts, 'raw datetimePrefs:', datetimePrefs);
+    return opts;
   };
 
   const handleExportExcel = async (
