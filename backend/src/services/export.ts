@@ -73,9 +73,84 @@ export interface HTMLExportOptions {
 
 const DATE_COLUMN_TYPES = ['timestamp', 'timestamptz', 'date'];
 
-function isDateColumn(columns: ExportColumn[], columnName: string): boolean {
+function isDateColumnByType(col: ExportColumn): boolean {
+  return DATE_COLUMN_TYPES.some(t => col.type.includes(t));
+}
+
+/**
+ * Check whether the column named `columnName` should be treated as a date
+ * column — either by its pg type or by heuristic value sampling.
+ */
+function isDateColumn(
+  columns: ExportColumn[],
+  columnName: string,
+  rows?: Record<string, unknown>[],
+): boolean {
   const col = columns.find(c => c.name === columnName);
-  return !!col && DATE_COLUMN_TYPES.some(t => col.type.includes(t));
+  if (!col) return false;
+  if (isDateColumnByType(col)) return true;
+  if (!rows || rows.length === 0) return false;
+  let checked = 0;
+  let matched = 0;
+  for (let r = 0; r < rows.length && checked < 5; r++) {
+    const v = rows[r]![columnName];
+    if (v == null || v === '') continue;
+    checked++;
+    if (isTimestampLikeValue(v)) matched++;
+  }
+  return checked > 0 && matched === checked;
+}
+
+// Matches ISO-ish timestamps: "2026-05-20 01:02:25", "2026-05-20T01:02:25Z", etc.
+// Mirrors the frontend's `isTimestampLike` regex from src/utils/datetime.ts.
+const TIMESTAMP_LIKE_RE =
+  /^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function isTimestampLikeValue(value: unknown): value is string {
+  return typeof value === 'string' && TIMESTAMP_LIKE_RE.test(value.trim());
+}
+
+/**
+ * Parse a timestamp string to a Date. Naive strings (no TZ suffix) are treated
+ * as UTC — same convention as the frontend's `parseServerTimestamp`.
+ */
+function parseTimestampValue(raw: string): Date | null {
+  const trimmed = raw.trim();
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(trimmed);
+  const iso = hasZone
+    ? trimmed.replace(' ', 'T')
+    : `${trimmed.replace(' ', 'T')}Z`;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Scan the first few non-null values of each column and return a Set of
+ * column indices whose pg type is NOT timestamp/date but whose values look
+ * like timestamps. Used as a fallback so exports format date-like text
+ * columns the same way the frontend's `isTimestampLike` heuristic does.
+ */
+function detectHeuristicDateColumns(
+  columns: ExportColumn[],
+  rows: unknown[][],
+): Set<number> {
+  const indices = new Set<number>();
+  const SAMPLE_COUNT = 5;
+  for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+    if (isDateColumnByType(columns[colIdx]!)) continue;
+    let checked = 0;
+    let matched = 0;
+    for (let r = 0; r < rows.length && checked < SAMPLE_COUNT; r++) {
+      const v = rows[r]![colIdx];
+      if (v == null || v === '') continue;
+      checked++;
+      if (isTimestampLikeValue(v)) matched++;
+    }
+    if (checked > 0 && matched === checked) {
+      indices.add(colIdx);
+    }
+  }
+  return indices;
 }
 
 interface ZoneDateComponents {
@@ -125,12 +200,7 @@ function getDateComponentsInZone(date: Date, timeZone: string): ZoneDateComponen
       minute: Number(map.minute),
       second: Number(map.second),
     };
-  } catch (err) {
-    logger.warn('[export-trace] getDateComponentsInZone FAILED — Intl unsupported for zone?', {
-      timeZone,
-      dateIso: date.toISOString(),
-      error: (err as Error).message,
-    });
+  } catch {
     return null;
   }
 }
@@ -288,37 +358,7 @@ export class ExportService {
     const { title, description, columns, rows, executedAt, excelHeader, timeZone, dateFormat, timeFormat } = options;
     const cellNumFmt = buildExcelNumFmt(dateFormat, timeFormat);
 
-    const dateColumns = columns
-      .map((c, i) => ({ name: c.name, type: c.type, idx: i }))
-      .filter(c => c.type.includes('timestamp') || c.type.includes('date'));
-    const nonDateColumnsWithDates = columns
-      .map((c, i) => ({ name: c.name, type: c.type, idx: i }))
-      .filter(c => !c.type.includes('timestamp') && !c.type.includes('date'))
-      .filter(c => {
-        const sample = rows.length > 0 ? rows[0]![c.idx] : undefined;
-        return typeof sample === 'string' && !isNaN(Date.parse(sample as string));
-      });
-    const firstRow = rows.length > 0 ? rows[0] : null;
-    logger.debug('[export-trace] generateExcel entry', {
-      title,
-      timeZone, dateFormat, timeFormat, cellNumFmt,
-      totalColumns: columns.length,
-      totalRows: rows.length,
-      columnTypes: columns.map(c => ({ name: c.name, type: c.type })),
-      dateColumns: dateColumns.map(c => ({
-        name: c.name, type: c.type,
-        sampleRaw: firstRow ? firstRow[c.idx] : undefined,
-        sampleType: firstRow ? typeof firstRow[c.idx] : undefined,
-        sampleIsDate: firstRow ? firstRow[c.idx] instanceof Date : undefined,
-        parsedOk: firstRow && firstRow[c.idx] != null
-          ? !isNaN(new Date(firstRow[c.idx] as string).getTime())
-          : undefined,
-      })),
-      nonDateColumnsWithDates: nonDateColumnsWithDates.map(c => ({
-        name: c.name, type: c.type,
-        sampleRaw: firstRow ? firstRow[c.idx] : undefined,
-      })),
-    });
+    const heuristicDateIndices = detectHeuristicDateColumns(columns, rows);
 
     const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
     const rowOffset = headerActive ? 2 : 0;
@@ -390,7 +430,6 @@ export class ExportService {
     headerRow.commit();
 
     // Add data rows
-    let excelDateTraceSent = false;
     rows.forEach((row, rowIdx) => {
       const rowData: Record<string, unknown> = {};
       columns.forEach((col, idx) => {
@@ -402,30 +441,14 @@ export class ExportService {
 
         if (value === null || value === undefined) {
           rowData[col.name] = '';
-        } else if (col.type.includes('timestamp') || col.type.includes('date')) {
-          const dateValue = new Date(value as string);
-          if (isNaN(dateValue.getTime())) {
-            if (!excelDateTraceSent) {
-              logger.debug('[export-trace] excel date parse FAILED', {
-                col: col.name, colType: col.type, rawValue: value, rawType: typeof value, rowIdx,
-              });
-            }
+        } else if (isDateColumnByType(col) || heuristicDateIndices.has(idx)) {
+          const dateValue = value instanceof Date
+            ? value
+            : parseTimestampValue(String(value));
+          if (!dateValue) {
             rowData[col.name] = value;
           } else {
-            // Excel cells are TZ-agnostic serials, so shift the Date so that its
-            // UTC components carry the user-zone wall clock — see shiftDateToZone.
-            const shifted = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
-            if (!excelDateTraceSent) {
-              logger.debug('[export-trace] excel date cell', {
-                col: col.name, colType: col.type, rowIdx,
-                rawValue: value, rawType: typeof value,
-                parsedUtc: dateValue.toISOString(),
-                shiftedUtc: shifted.toISOString(),
-                timeZone: timeZone ?? '(none)',
-              });
-              excelDateTraceSent = true;
-            }
-            rowData[col.name] = shifted;
+            rowData[col.name] = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
           }
         } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
           rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
@@ -455,14 +478,11 @@ export class ExportService {
         column.width = Math.min(Math.max(maxLength + 2, 10), 50);
       }
       
-      const col = visibleColumns[colIdx];
-      if (col && (col.type.includes('timestamp') || col.type.includes('date'))) {
-        const firstDataRow = colHeaderRowNum + 1;
-        for (let rowNum = firstDataRow; rowNum < firstDataRow + rows.length; rowNum++) {
-          const cell = dataSheet.getCell(rowNum, colIdx + 1);
-          if (cell.value instanceof Date) {
-            cell.numFmt = cellNumFmt;
-          }
+      const firstDataRow = colHeaderRowNum + 1;
+      for (let rowNum = firstDataRow; rowNum < firstDataRow + rows.length; rowNum++) {
+        const cell = dataSheet.getCell(rowNum, colIdx + 1);
+        if (cell.value instanceof Date) {
+          cell.numFmt = cellNumFmt;
         }
       }
     });
@@ -521,12 +541,7 @@ export class ExportService {
    */
   generateCSV(options: ExcelExportOptions): Buffer {
     const { columns, rows, timeZone, dateFormat, timeFormat } = options;
-
-    logger.debug('[export-trace] generateCSV entry', {
-      timeZone, dateFormat, timeFormat,
-      totalColumns: columns.length,
-      totalRows: rows.length,
-    });
+    const heuristicDateIndices = detectHeuristicDateColumns(columns, rows);
 
     // Filter out empty columns
     const emptyColumnIndices = new Set<number>();
@@ -547,7 +562,6 @@ export class ExportService {
     lines.push(visibleColumns.map(col => this.escapeCSVField(col.name)).join(','));
 
     // Add data rows
-    let csvDateTraceSent = false;
     rows.forEach((row) => {
       const csvRow: string[] = [];
       columns.forEach((col, idx) => {
@@ -564,23 +578,16 @@ export class ExportService {
         }
 
         // Format dates in short locale format
-        if (col.type.includes('timestamp') || col.type.includes('date')) {
-          const dateValue = new Date(value as string);
-          if (!isNaN(dateValue.getTime())) {
-            const formatted = this.formatShortDateTime(dateValue, timeZone, dateFormat, timeFormat);
-            if (!csvDateTraceSent) {
-              logger.debug('[export-trace] csv date cell', {
-                col: col.name, colType: col.type,
-                rawValue: value, rawType: typeof value,
-                parsedUtc: dateValue.toISOString(),
-                formatted,
-                timeZone: timeZone ?? '(none)',
-                dateFormat: dateFormat ?? '(none)',
-                timeFormat: timeFormat ?? '(none)',
-              });
-              csvDateTraceSent = true;
-            }
-            csvRow.push(this.escapeCSVField(formatted));
+        if (isDateColumnByType(col) || heuristicDateIndices.has(idx)) {
+          const dateValue = value instanceof Date
+            ? value
+            : parseTimestampValue(String(value));
+          if (dateValue) {
+            csvRow.push(
+              this.escapeCSVField(
+                this.formatShortDateTime(dateValue, timeZone, dateFormat, timeFormat),
+              ),
+            );
             return;
           }
         }
@@ -941,17 +948,26 @@ export class ExportService {
 
     const headerCells = visibleColumns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
 
-    logger.debug('[export-trace] generateTableHTML entry', {
-      timeZone, dateFormat, timeFormat,
-      visibleColumnTypes: visibleColumns.map(c => ({ name: c.name, type: c.type })),
-      rowCount: rows.length,
-    });
+    // Detect text columns whose values look like timestamps
+    const heuristicDateNames = new Set<string>();
+    const SAMPLE_COUNT = 5;
+    for (const col of visibleColumns) {
+      if (isDateColumnByType(col)) continue;
+      let checked = 0;
+      let matched = 0;
+      for (let r = 0; r < rows.length && checked < SAMPLE_COUNT; r++) {
+        const v = rows[r]![col.name];
+        if (v == null || v === '') continue;
+        checked++;
+        if (isTimestampLikeValue(v)) matched++;
+      }
+      if (checked > 0 && matched === checked) heuristicDateNames.add(col.name);
+    }
 
-    let htmlDateTraceSent = false;
     const bodyRows = rows.slice(0, 500).map(row => {
       const cells = visibleColumns.map(col => {
         let value = row[col.name];
-        const isDateColumn = col.type.includes('timestamp') || col.type.includes('date');
+        const treatAsDate = isDateColumnByType(col) || heuristicDateNames.has(col.name);
         if (value === null || value === undefined) {
           value = '';
         } else if (value instanceof Date) {
@@ -963,35 +979,13 @@ export class ExportService {
           if (!isNaN(num)) {
             value = this.formatNumericValue(num);
           }
-        } else if (isDateColumn && typeof value === 'string' && !isNaN(Date.parse(value))) {
-          const date = new Date(value);
-          if (!isNaN(date.getTime())) {
-            const formatted = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
-            if (!htmlDateTraceSent) {
-              logger.debug('[export-trace] html date cell', {
-                col: col.name, colType: col.type,
-                rawValue: value,
-                parsedUtc: date.toISOString(),
-                formatted,
-                timeZone: timeZone ?? '(none)',
-                dateFormat: dateFormat ?? '(none)',
-                timeFormat: timeFormat ?? '(none)',
-              });
-              htmlDateTraceSent = true;
-            }
-            value = formatted;
+        } else if (treatAsDate && typeof value === 'string') {
+          const date = parseTimestampValue(value);
+          if (date) {
+            value = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
           }
         } else if (typeof value === 'object') {
           value = JSON.stringify(value);
-        }
-        if (!htmlDateTraceSent && isDateColumn && typeof value === 'string' && value !== '') {
-          logger.debug('[export-trace] html date column NOT formatted', {
-            col: col.name, colType: col.type,
-            rawValue: row[col.name], rawType: typeof row[col.name],
-            isDateInstance: row[col.name] instanceof Date,
-            dateParseResult: Date.parse(row[col.name] as string),
-          });
-          htmlDateTraceSent = true;
         }
         return `<td>${this.escapeHTML(String(value))}</td>`;
       }).join('');
@@ -1023,14 +1017,12 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
-    const xIsDate = isDateColumn(columns, xColumn);
+    const xIsDate = isDateColumn(columns, xColumn, rows);
     const labels = rows.slice(0, 200).map(row => {
       const val = row[xColumn];
       if (xIsDate) {
-        if (val instanceof Date) return this.formatShortDateTime(val, timeZone, dateFormat, timeFormat);
-        if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-          return this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat);
-        }
+        const d = val instanceof Date ? val : parseTimestampValue(String(val ?? ''));
+        if (d) return this.formatShortDateTime(d, timeZone, dateFormat, timeFormat);
       }
       return String(val ?? '');
     });
@@ -1139,16 +1131,15 @@ export class ExportService {
       return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
     }).slice(0, 500); // Limit for performance
 
-    const xIsDate = isDateColumn(columns, xColumn);
+    const xIsDate = isDateColumn(columns, xColumn, rows);
     const xValuesSet = new Set<string>();
     sortedRows.forEach(row => {
       const val = row[xColumn];
       if (val !== null && val !== undefined) {
         if (xIsDate) {
-          if (val instanceof Date) {
-            xValuesSet.add(this.formatShortDateTime(val, timeZone, dateFormat, timeFormat));
-          } else if (typeof val === 'string' && !isNaN(Date.parse(val))) {
-            xValuesSet.add(this.formatShortDateTime(new Date(val), timeZone, dateFormat, timeFormat));
+          const d = val instanceof Date ? val : parseTimestampValue(String(val));
+          if (d) {
+            xValuesSet.add(this.formatShortDateTime(d, timeZone, dateFormat, timeFormat));
           } else {
             xValuesSet.add(String(val));
           }
@@ -1170,10 +1161,9 @@ export class ExportService {
       groupRows.forEach(row => {
         const xVal = row[xColumn];
         let label: string;
-        if (xIsDate && xVal instanceof Date) {
-          label = this.formatShortDateTime(xVal, timeZone, dateFormat, timeFormat);
-        } else if (xIsDate && typeof xVal === 'string' && !isNaN(Date.parse(xVal))) {
-          label = this.formatShortDateTime(new Date(xVal), timeZone, dateFormat, timeFormat);
+        if (xIsDate) {
+          const d = xVal instanceof Date ? xVal : parseTimestampValue(String(xVal ?? ''));
+          label = d ? this.formatShortDateTime(d, timeZone, dateFormat, timeFormat) : String(xVal ?? '');
         } else {
           label = String(xVal ?? '');
         }

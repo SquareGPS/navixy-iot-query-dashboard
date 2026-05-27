@@ -34,9 +34,6 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
     }
 
     const exportPrefs = await resolveExportPreferences(req, req.body);
-    logger.debug('[export] panel prefs resolved', {
-      title, format, exportPrefs,
-    });
 
     const exportService = ExportService.getInstance();
     const exportOptions = {

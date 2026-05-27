@@ -597,9 +597,6 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
 
     const exportService = ExportService.getInstance();
     const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
-    logger.debug('[export] excel/csv prefs resolved', {
-      reportId: id, format, exportPrefs,
-    });
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
@@ -723,9 +720,6 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
     const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
-    logger.debug('[export] html prefs resolved', {
-      reportId: id, exportPrefs,
-    });
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -840,9 +834,6 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
     const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
-    logger.debug('[export] pdf prefs resolved', {
-      reportId: id, exportPrefs,
-    });
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
