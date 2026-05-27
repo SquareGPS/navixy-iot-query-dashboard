@@ -125,7 +125,12 @@ function getDateComponentsInZone(date: Date, timeZone: string): ZoneDateComponen
       minute: Number(map.minute),
       second: Number(map.second),
     };
-  } catch {
+  } catch (err) {
+    logger.warn('[export-trace] getDateComponentsInZone FAILED — Intl unsupported for zone?', {
+      timeZone,
+      dateIso: date.toISOString(),
+      error: (err as Error).message,
+    });
     return null;
   }
 }
@@ -283,6 +288,38 @@ export class ExportService {
     const { title, description, columns, rows, executedAt, excelHeader, timeZone, dateFormat, timeFormat } = options;
     const cellNumFmt = buildExcelNumFmt(dateFormat, timeFormat);
 
+    const dateColumns = columns
+      .map((c, i) => ({ name: c.name, type: c.type, idx: i }))
+      .filter(c => c.type.includes('timestamp') || c.type.includes('date'));
+    const nonDateColumnsWithDates = columns
+      .map((c, i) => ({ name: c.name, type: c.type, idx: i }))
+      .filter(c => !c.type.includes('timestamp') && !c.type.includes('date'))
+      .filter(c => {
+        const sample = rows.length > 0 ? rows[0]![c.idx] : undefined;
+        return typeof sample === 'string' && !isNaN(Date.parse(sample as string));
+      });
+    const firstRow = rows.length > 0 ? rows[0] : null;
+    logger.debug('[export-trace] generateExcel entry', {
+      title,
+      timeZone, dateFormat, timeFormat, cellNumFmt,
+      totalColumns: columns.length,
+      totalRows: rows.length,
+      columnTypes: columns.map(c => ({ name: c.name, type: c.type })),
+      dateColumns: dateColumns.map(c => ({
+        name: c.name, type: c.type,
+        sampleRaw: firstRow ? firstRow[c.idx] : undefined,
+        sampleType: firstRow ? typeof firstRow[c.idx] : undefined,
+        sampleIsDate: firstRow ? firstRow[c.idx] instanceof Date : undefined,
+        parsedOk: firstRow && firstRow[c.idx] != null
+          ? !isNaN(new Date(firstRow[c.idx] as string).getTime())
+          : undefined,
+      })),
+      nonDateColumnsWithDates: nonDateColumnsWithDates.map(c => ({
+        name: c.name, type: c.type,
+        sampleRaw: firstRow ? firstRow[c.idx] : undefined,
+      })),
+    });
+
     const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
     const rowOffset = headerActive ? 2 : 0;
     const colHeaderRowNum = 1 + rowOffset;
@@ -353,25 +390,42 @@ export class ExportService {
     headerRow.commit();
 
     // Add data rows
+    let excelDateTraceSent = false;
     rows.forEach((row, rowIdx) => {
       const rowData: Record<string, unknown> = {};
       columns.forEach((col, idx) => {
         if (emptyColumnIndices.has(idx)) {
           return;
         }
-        
+
         let value = row[idx];
-        
+
         if (value === null || value === undefined) {
           rowData[col.name] = '';
         } else if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (isNaN(dateValue.getTime())) {
+            if (!excelDateTraceSent) {
+              logger.debug('[export-trace] excel date parse FAILED', {
+                col: col.name, colType: col.type, rawValue: value, rawType: typeof value, rowIdx,
+              });
+            }
             rowData[col.name] = value;
           } else {
             // Excel cells are TZ-agnostic serials, so shift the Date so that its
             // UTC components carry the user-zone wall clock — see shiftDateToZone.
-            rowData[col.name] = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
+            const shifted = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
+            if (!excelDateTraceSent) {
+              logger.debug('[export-trace] excel date cell', {
+                col: col.name, colType: col.type, rowIdx,
+                rawValue: value, rawType: typeof value,
+                parsedUtc: dateValue.toISOString(),
+                shiftedUtc: shifted.toISOString(),
+                timeZone: timeZone ?? '(none)',
+              });
+              excelDateTraceSent = true;
+            }
+            rowData[col.name] = shifted;
           }
         } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
           rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
@@ -467,7 +521,13 @@ export class ExportService {
    */
   generateCSV(options: ExcelExportOptions): Buffer {
     const { columns, rows, timeZone, dateFormat, timeFormat } = options;
-    
+
+    logger.debug('[export-trace] generateCSV entry', {
+      timeZone, dateFormat, timeFormat,
+      totalColumns: columns.length,
+      totalRows: rows.length,
+    });
+
     // Filter out empty columns
     const emptyColumnIndices = new Set<number>();
     columns.forEach((col, idx) => {
@@ -480,13 +540,14 @@ export class ExportService {
       }
     });
     const visibleColumns = columns.filter((_, idx) => !emptyColumnIndices.has(idx));
-    
+
     const lines: string[] = [];
-    
+
     // Add header row
     lines.push(visibleColumns.map(col => this.escapeCSVField(col.name)).join(','));
-    
+
     // Add data rows
+    let csvDateTraceSent = false;
     rows.forEach((row) => {
       const csvRow: string[] = [];
       columns.forEach((col, idx) => {
@@ -494,23 +555,32 @@ export class ExportService {
         if (emptyColumnIndices.has(idx)) {
           return;
         }
-        
+
         let value = row[idx];
-        
+
         if (value === null || value === undefined) {
           csvRow.push('');
           return;
         }
-        
+
         // Format dates in short locale format
         if (col.type.includes('timestamp') || col.type.includes('date')) {
           const dateValue = new Date(value as string);
           if (!isNaN(dateValue.getTime())) {
-            csvRow.push(
-              this.escapeCSVField(
-                this.formatShortDateTime(dateValue, timeZone, dateFormat, timeFormat),
-              ),
-            );
+            const formatted = this.formatShortDateTime(dateValue, timeZone, dateFormat, timeFormat);
+            if (!csvDateTraceSent) {
+              logger.debug('[export-trace] csv date cell', {
+                col: col.name, colType: col.type,
+                rawValue: value, rawType: typeof value,
+                parsedUtc: dateValue.toISOString(),
+                formatted,
+                timeZone: timeZone ?? '(none)',
+                dateFormat: dateFormat ?? '(none)',
+                timeFormat: timeFormat ?? '(none)',
+              });
+              csvDateTraceSent = true;
+            }
+            csvRow.push(this.escapeCSVField(formatted));
             return;
           }
         }
@@ -871,6 +941,13 @@ export class ExportService {
 
     const headerCells = visibleColumns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
 
+    logger.debug('[export-trace] generateTableHTML entry', {
+      timeZone, dateFormat, timeFormat,
+      visibleColumnTypes: visibleColumns.map(c => ({ name: c.name, type: c.type })),
+      rowCount: rows.length,
+    });
+
+    let htmlDateTraceSent = false;
     const bodyRows = rows.slice(0, 500).map(row => {
       const cells = visibleColumns.map(col => {
         let value = row[col.name];
@@ -889,10 +966,32 @@ export class ExportService {
         } else if (isDateColumn && typeof value === 'string' && !isNaN(Date.parse(value))) {
           const date = new Date(value);
           if (!isNaN(date.getTime())) {
-            value = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
+            const formatted = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
+            if (!htmlDateTraceSent) {
+              logger.debug('[export-trace] html date cell', {
+                col: col.name, colType: col.type,
+                rawValue: value,
+                parsedUtc: date.toISOString(),
+                formatted,
+                timeZone: timeZone ?? '(none)',
+                dateFormat: dateFormat ?? '(none)',
+                timeFormat: timeFormat ?? '(none)',
+              });
+              htmlDateTraceSent = true;
+            }
+            value = formatted;
           }
         } else if (typeof value === 'object') {
           value = JSON.stringify(value);
+        }
+        if (!htmlDateTraceSent && isDateColumn && typeof value === 'string' && value !== '') {
+          logger.debug('[export-trace] html date column NOT formatted', {
+            col: col.name, colType: col.type,
+            rawValue: row[col.name], rawType: typeof row[col.name],
+            isDateInstance: row[col.name] instanceof Date,
+            dateParseResult: Date.parse(row[col.name] as string),
+          });
+          htmlDateTraceSent = true;
         }
         return `<td>${this.escapeHTML(String(value))}</td>`;
       }).join('');
