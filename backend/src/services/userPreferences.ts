@@ -203,6 +203,7 @@ export async function resolveExportPreferences(
   if (df) out.dateFormat = df;
   const tf = bodyTimeFormat ?? stored.timeFormat;
   if (tf) out.timeFormat = tf;
+
   return out;
 }
 
@@ -215,7 +216,9 @@ export async function getUserExportPreferences(
 ): Promise<ExportPreferences> {
   const settingsPool = req.settingsPool;
   const userId = req.user?.userId;
-  if (!settingsPool || !userId) return {};
+  if (!settingsPool || !userId) {
+    return {};
+  }
 
   try {
     const prefs = await readUserPreferences(settingsPool, userId);

@@ -63,6 +63,14 @@ router.post('/auth/login', async (req, res, next) => {
 
     logger.info(`User logged in (passwordless): ${email}`, { demo: isDemoMode, session_id: sessionId ?? 'not provided' });
 
+    let preferences: UserPreferences | undefined;
+    try {
+      const settingsPool = dbService.getClientSettingsPool(userDbUrl);
+      preferences = await readUserPreferences(settingsPool, result.user.id);
+    } catch {
+      // Non-critical; frontend will fall back to defaults.
+    }
+
     res.json({
       success: true,
       user: {
@@ -71,7 +79,8 @@ router.post('/auth/login', async (req, res, next) => {
         role: role
       },
       token: result.token,
-      demo: isDemoMode
+      demo: isDemoMode,
+      ...(preferences && { preferences }),
     });
   } catch (error) {
     logger.error('Login error:', {
@@ -85,15 +94,23 @@ router.post('/auth/login', async (req, res, next) => {
 // Get current user info (verify token)
 router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
-    // For demo mode, use role from request (already set by authenticateToken)
-    // For normal mode, get role from database
+    let preferences: UserPreferences | undefined;
+    if (req.settingsPool && req.user?.userId) {
+      try {
+        preferences = await readUserPreferences(req.settingsPool, req.user.userId);
+      } catch {
+        // Non-critical; frontend will fall back to defaults.
+      }
+    }
+
     res.json({
       success: true,
       user: {
         id: req.user?.userId,
         email: req.user?.email,
         role: req.user?.role
-      }
+      },
+      ...(preferences && { preferences }),
     });
   } catch (error) {
     next(error);

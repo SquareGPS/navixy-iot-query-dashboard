@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   DATE_FORMAT_VALUES,
@@ -8,7 +8,7 @@ import {
   detectInitialTimeFormat,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
-import { apiService } from '@/services/api';
+import type { ServerPreferences } from '@/contexts/AuthContext';
 
 const STORAGE_KEY = 'navixy.datetimePrefs.v1';
 
@@ -74,6 +74,39 @@ function writeToStorage(prefs: DatetimePrefs): void {
   }
 }
 
+function applyServerPreferences(
+  data: ServerPreferences,
+  setPrefsState: React.Dispatch<React.SetStateAction<DatetimePrefs>>,
+) {
+  setPrefsState((prev) => {
+    const next: DatetimePrefs = { ...prev };
+    let changed = false;
+    if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
+      if (next.timeZone !== data.timezone) {
+        next.timeZone = data.timezone;
+        changed = true;
+      }
+    }
+    if (
+      data.dateFormat &&
+      (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
+      next.dateFormat !== data.dateFormat
+    ) {
+      next.dateFormat = data.dateFormat as DatetimePrefs['dateFormat'];
+      changed = true;
+    }
+    if (
+      data.timeFormat &&
+      (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
+      next.timeFormat !== data.timeFormat
+    ) {
+      next.timeFormat = data.timeFormat as DatetimePrefs['timeFormat'];
+      changed = true;
+    }
+    return changed ? next : prev;
+  });
+}
+
 export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsState] = useState<DatetimePrefs>(() => {
     return readFromStorage() ?? detectDefaultPrefs();
@@ -91,64 +124,17 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
     setPrefsState(detectDefaultPrefs());
   }, []);
 
-  // Sync the server-side `timezone` preference once per authenticated
-  // session. The backend is the source of truth for this field because
-  // the same account can be used from multiple browsers; local storage
-  // only acts as a warm cache for first render.
-  const { user } = useAuth();
-  const lastSyncedUserId = useRef<string | null>(null);
+  // Merge server-side preferences delivered by the login / /auth/me
+  // response. No separate API call needed — AuthContext already fetches
+  // them and exposes `serverPreferences`. This is synchronous with the
+  // auth state change, so there is no flash-of-defaults even when
+  // localStorage is unavailable (e.g. cross-origin iframe).
+  const { serverPreferences } = useAuth();
 
   useEffect(() => {
-    if (!user) {
-      lastSyncedUserId.current = null;
-      return;
-    }
-    if (lastSyncedUserId.current === user.id) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiService.getUserPreferences();
-        if (cancelled) return;
-        const data = res?.data;
-        if (data) {
-          setPrefsState((prev) => {
-            const next: DatetimePrefs = { ...prev };
-            let changed = false;
-            if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
-              if (next.timeZone !== data.timezone) {
-                next.timeZone = data.timezone;
-                changed = true;
-              }
-            }
-            if (
-              data.dateFormat &&
-              (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
-              next.dateFormat !== data.dateFormat
-            ) {
-              next.dateFormat = data.dateFormat;
-              changed = true;
-            }
-            if (
-              data.timeFormat &&
-              (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
-              next.timeFormat !== data.timeFormat
-            ) {
-              next.timeFormat = data.timeFormat;
-              changed = true;
-            }
-            return changed ? next : prev;
-          });
-        }
-        lastSyncedUserId.current = user.id;
-      } catch {
-        // Network / auth error: silently keep current prefs.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+    if (!serverPreferences) return;
+    applyServerPreferences(serverPreferences, setPrefsState);
+  }, [serverPreferences]);
 
   const value = useMemo<DatetimePrefsContextValue>(
     () => ({ prefs, setPrefs, resetPrefs }),

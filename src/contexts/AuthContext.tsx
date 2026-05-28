@@ -24,11 +24,18 @@ interface User {
   role: 'admin' | 'editor' | 'viewer';
 }
 
+export interface ServerPreferences {
+  timezone?: string;
+  dateFormat?: string;
+  timeFormat?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
   demoMode: boolean;
+  serverPreferences: ServerPreferences | null;
   signIn: (email: string, role: 'admin' | 'editor' | 'viewer', iotDbUrl: string, userDbUrl: string) => Promise<{ error: Error | null }>;
   signInDemo: (email: string, role: 'admin' | 'editor' | 'viewer', iotDbUrl: string, userDbUrl: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -46,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [demoModeState, setDemoModeState] = useState(isDemoMode());
+  const [serverPreferences, setServerPreferences] = useState<ServerPreferences | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -82,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('auth_token');
           setToken(null);
           setUser(null);
+          setServerPreferences(null);
           setDemoMode(false);
           setDemoModeState(false);
           return;
@@ -91,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (data.success && data.user) {
             setUser(data.user);
             setToken(tokenToVerify);
+            if (data.preferences) setServerPreferences(data.preferences);
             
             // If JWT has demo flag and we're not already in demo mode, initialize demo mode
             if (tokenHasDemoFlag && !isDemoMode()) {
@@ -118,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('auth_token');
             setToken(null);
             setUser(null);
+            setServerPreferences(null);
             setDemoMode(false);
             setDemoModeState(false);
           }
@@ -125,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('auth_token');
           setToken(null);
           setUser(null);
+          setServerPreferences(null);
           setDemoMode(false);
           setDemoModeState(false);
         }
@@ -132,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('auth_token');
         setToken(null);
         setUser(null);
+        setServerPreferences(null);
         setDemoMode(false);
         setDemoModeState(false);
       }
@@ -140,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem('auth_token');
       setToken(null);
       setUser(null);
+      setServerPreferences(null);
       setDemoMode(false);
       setDemoModeState(false);
     } finally {
@@ -259,6 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.success) {
         setUser(data.user);
         setToken(data.token);
+        if (data.preferences) setServerPreferences(data.preferences);
         localStorage.setItem('auth_token', data.token);
         navigate('/app');
         return { error: null };
@@ -421,6 +436,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set user and token
       setUser(loginData.user);
       setToken(authToken);
+      if (loginData.preferences) setServerPreferences(loginData.preferences);
       localStorage.setItem('auth_token', authToken);
 
       console.log('[AuthContext] Demo mode sign-in complete', {
@@ -442,11 +458,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('auth_token');
     setToken(null);
     setUser(null);
-    
+    setServerPreferences(null);
+
     // Clear demo mode on sign out
     setDemoMode(false);
     setDemoModeState(false);
-    
+
     navigate('/login');
   };
 
@@ -528,14 +545,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      token, 
+    <AuthContext.Provider value={{
+      user,
+      token,
       loading,
       demoMode: demoModeState,
+      serverPreferences,
       signIn,
       signInDemo,
-      signOut, 
+      signOut,
       refreshUser,
       clearDemoData,
       reseedDemoData

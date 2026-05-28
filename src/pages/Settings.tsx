@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 const Settings = () => {
   const { user, loading, demoMode, reseedDemoData } = useAuth();
-  const { setPrefs: setDatetimePrefs } = useDatetimePrefs();
+  const { prefs, setPrefs: setDatetimePrefs } = useDatetimePrefs();
   const navigate = useNavigate();
   
   // Global Variables state
@@ -34,12 +34,11 @@ const Settings = () => {
   const [userTimezone, setUserTimezone] = useState<string>('UTC');
   const [userDateFormat, setUserDateFormat] = useState<DateFormat>('dd/mm/yyyy');
   // Seed from the browser's locale so first-time users see their conventional
-  // clock pre-selected. The server value (loaded by fetchUserPreferences)
-  // overrides this on mount when the user has saved a preference.
+  // clock pre-selected. The stored preference (from DatetimePrefsContext)
+  // overrides this on mount when the user has saved one.
   const [userTimeFormat, setUserTimeFormat] = useState<TimeFormat>(() =>
     detectInitialTimeFormat(),
   );
-  const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [browserTimezone] = useState<string | null>(() => {
     // Detect browser timezone immediately on component mount
@@ -63,11 +62,20 @@ const Settings = () => {
     if (user?.role === 'admin') {
       fetchGlobalVariables();
     }
-    // Fetch user preferences for all authenticated users
-    if (user) {
-      fetchUserPreferences();
-    }
   }, [user?.role, user]);
+
+  // Seed the preferences form from the live datetime prefs. DatetimePrefsContext
+  // already populates these from the auth response and localStorage, so there is
+  // no separate GET /user/preferences round-trip.
+  useEffect(() => {
+    setUserTimezone(
+      prefs.timeZone && prefs.timeZone !== 'auto'
+        ? prefs.timeZone
+        : browserTimezone || 'UTC',
+    );
+    if (prefs.dateFormat) setUserDateFormat(prefs.dateFormat);
+    if (prefs.timeFormat) setUserTimeFormat(prefs.timeFormat);
+  }, [prefs, browserTimezone]);
 
   // Global Variables functions
   const fetchGlobalVariables = async () => {
@@ -177,43 +185,6 @@ const Settings = () => {
     } catch (error: any) {
       console.error('Error creating variable:', error);
       toast.error(error.message || 'Failed to create variable');
-    }
-  };
-
-  // User Preferences functions
-  const fetchUserPreferences = async () => {
-    setLoadingPreferences(true);
-    try {
-      const response = await apiService.getUserPreferences();
-      if (response.error) {
-        console.error('Error fetching user preferences:', response.error);
-        // Use browser timezone as default if available, otherwise UTC
-        if (browserTimezone) {
-          setUserTimezone(browserTimezone);
-        }
-      } else {
-        const savedTimezone = response.data?.timezone;
-        if (savedTimezone) {
-          setUserTimezone(savedTimezone);
-        } else {
-          // No saved preference - use browser timezone as default
-          setUserTimezone(browserTimezone || 'UTC');
-        }
-        if (response.data?.dateFormat) {
-          setUserDateFormat(response.data.dateFormat);
-        }
-        if (response.data?.timeFormat) {
-          setUserTimeFormat(response.data.timeFormat);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching user preferences:', error);
-      // Use browser timezone as default if available, otherwise UTC
-      if (browserTimezone) {
-        setUserTimezone(browserTimezone);
-      }
-    } finally {
-      setLoadingPreferences(false);
     }
   };
 
@@ -330,7 +301,7 @@ const Settings = () => {
                       <TimezoneCombobox
                         value={userTimezone}
                         onValueChange={setUserTimezone}
-                        disabled={loadingPreferences || savingPreferences}
+                        disabled={savingPreferences}
                         browserTimezone={browserTimezone}
                       />
                       <p className="text-xs text-muted-foreground">
@@ -343,7 +314,7 @@ const Settings = () => {
                       <Select
                         value={userDateFormat}
                         onValueChange={(value) => setUserDateFormat(value as DateFormat)}
-                        disabled={loadingPreferences || savingPreferences}
+                        disabled={savingPreferences}
                       >
                         <SelectTrigger id="dateFormat">
                           <SelectValue placeholder="Select date format" />
@@ -364,7 +335,7 @@ const Settings = () => {
                       <Select
                         value={userTimeFormat}
                         onValueChange={(value) => setUserTimeFormat(value as TimeFormat)}
-                        disabled={loadingPreferences || savingPreferences}
+                        disabled={savingPreferences}
                       >
                         <SelectTrigger id="timeFormat">
                           <SelectValue placeholder="Select time format" />
@@ -380,7 +351,7 @@ const Settings = () => {
                   <div className="flex items-center justify-end pt-6 border-t">
                     <Button 
                       onClick={handleSavePreferences}
-                      disabled={savingPreferences || loadingPreferences}
+                      disabled={savingPreferences}
                       size="sm"
                     >
                       {savingPreferences ? (
