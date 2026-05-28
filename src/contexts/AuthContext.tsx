@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('auth_token');
           setToken(null);
           setUser(null);
+          setServerPreferences(null);
           setDemoMode(false);
           setDemoModeState(false);
           return;
@@ -127,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('auth_token');
             setToken(null);
             setUser(null);
+            setServerPreferences(null);
             setDemoMode(false);
             setDemoModeState(false);
           }
@@ -134,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('auth_token');
           setToken(null);
           setUser(null);
+          setServerPreferences(null);
           setDemoMode(false);
           setDemoModeState(false);
         }
@@ -141,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('auth_token');
         setToken(null);
         setUser(null);
+        setServerPreferences(null);
         setDemoMode(false);
         setDemoModeState(false);
       }
@@ -149,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem('auth_token');
       setToken(null);
       setUser(null);
+      setServerPreferences(null);
       setDemoMode(false);
       setDemoModeState(false);
     } finally {

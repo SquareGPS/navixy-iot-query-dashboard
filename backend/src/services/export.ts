@@ -5,6 +5,7 @@
 
 import ExcelJS from 'exceljs';
 import { logger } from '../utils/logger.js';
+import { isTimestampLikeValue, parseTimestampValue } from '../utils/datetime.js';
 import type { DateFormat, TimeFormat } from './userPreferences.js';
 
 export interface ExportColumn {
@@ -99,58 +100,6 @@ function isDateColumn(
     if (isTimestampLikeValue(v)) matched++;
   }
   return checked > 0 && matched === checked;
-}
-
-// Matches ISO-ish timestamps: "2026-05-20 01:02:25", "2026-05-20T01:02:25Z", etc.
-// Mirrors the frontend's `isTimestampLike` regex from src/utils/datetime.ts.
-const TIMESTAMP_LIKE_RE =
-  /^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
-
-function isTimestampLikeValue(value: unknown): value is string {
-  return typeof value === 'string' && TIMESTAMP_LIKE_RE.test(value.trim());
-}
-
-/**
- * Parse a timestamp string to a Date. Naive strings (no TZ suffix) are treated
- * as UTC — same convention as the frontend's `parseServerTimestamp`.
- */
-function parseTimestampValue(raw: string): Date | null {
-  const trimmed = raw.trim();
-  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(trimmed);
-  const iso = hasZone
-    ? trimmed.replace(' ', 'T')
-    : `${trimmed.replace(' ', 'T')}Z`;
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-/**
- * Scan the first few non-null values of each column and return a Set of
- * column indices whose pg type is NOT timestamp/date but whose values look
- * like timestamps. Used as a fallback so exports format date-like text
- * columns the same way the frontend's `isTimestampLike` heuristic does.
- */
-function detectHeuristicDateColumns(
-  columns: ExportColumn[],
-  rows: unknown[][],
-): Set<number> {
-  const indices = new Set<number>();
-  const SAMPLE_COUNT = 5;
-  for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-    if (isDateColumnByType(columns[colIdx]!)) continue;
-    let checked = 0;
-    let matched = 0;
-    for (let r = 0; r < rows.length && checked < SAMPLE_COUNT; r++) {
-      const v = rows[r]![colIdx];
-      if (v == null || v === '') continue;
-      checked++;
-      if (isTimestampLikeValue(v)) matched++;
-    }
-    if (checked > 0 && matched === checked) {
-      indices.add(colIdx);
-    }
-  }
-  return indices;
 }
 
 interface ZoneDateComponents {
@@ -358,8 +307,6 @@ export class ExportService {
     const { title, description, columns, rows, executedAt, excelHeader, timeZone, dateFormat, timeFormat } = options;
     const cellNumFmt = buildExcelNumFmt(dateFormat, timeFormat);
 
-    const heuristicDateIndices = detectHeuristicDateColumns(columns, rows);
-
     const headerActive = !!(excelHeader?.enabled && (excelHeader.title || excelHeader.description));
     const rowOffset = headerActive ? 2 : 0;
     const colHeaderRowNum = 1 + rowOffset;
@@ -441,7 +388,7 @@ export class ExportService {
 
         if (value === null || value === undefined) {
           rowData[col.name] = '';
-        } else if (isDateColumnByType(col) || heuristicDateIndices.has(idx)) {
+        } else if (isDateColumnByType(col) || value instanceof Date || isTimestampLikeValue(value)) {
           const dateValue = value instanceof Date
             ? value
             : parseTimestampValue(String(value));
@@ -541,7 +488,6 @@ export class ExportService {
    */
   generateCSV(options: ExcelExportOptions): Buffer {
     const { columns, rows, timeZone, dateFormat, timeFormat } = options;
-    const heuristicDateIndices = detectHeuristicDateColumns(columns, rows);
 
     // Filter out empty columns
     const emptyColumnIndices = new Set<number>();
@@ -578,7 +524,7 @@ export class ExportService {
         }
 
         // Format dates in short locale format
-        if (isDateColumnByType(col) || heuristicDateIndices.has(idx)) {
+        if (isDateColumnByType(col) || value instanceof Date || isTimestampLikeValue(value)) {
           const dateValue = value instanceof Date
             ? value
             : parseTimestampValue(String(value));
@@ -948,26 +894,9 @@ export class ExportService {
 
     const headerCells = visibleColumns.map(col => `<th>${this.escapeHTML(col.name)}</th>`).join('');
 
-    // Detect text columns whose values look like timestamps
-    const heuristicDateNames = new Set<string>();
-    const SAMPLE_COUNT = 5;
-    for (const col of visibleColumns) {
-      if (isDateColumnByType(col)) continue;
-      let checked = 0;
-      let matched = 0;
-      for (let r = 0; r < rows.length && checked < SAMPLE_COUNT; r++) {
-        const v = rows[r]![col.name];
-        if (v == null || v === '') continue;
-        checked++;
-        if (isTimestampLikeValue(v)) matched++;
-      }
-      if (checked > 0 && matched === checked) heuristicDateNames.add(col.name);
-    }
-
     const bodyRows = rows.slice(0, 500).map(row => {
       const cells = visibleColumns.map(col => {
         let value = row[col.name];
-        const treatAsDate = isDateColumnByType(col) || heuristicDateNames.has(col.name);
         if (value === null || value === undefined) {
           value = '';
         } else if (value instanceof Date) {
@@ -979,7 +908,7 @@ export class ExportService {
           if (!isNaN(num)) {
             value = this.formatNumericValue(num);
           }
-        } else if (treatAsDate && typeof value === 'string') {
+        } else if (typeof value === 'string' && (isDateColumnByType(col) || isTimestampLikeValue(value))) {
           const date = parseTimestampValue(value);
           if (date) {
             value = this.formatShortDateTime(date, timeZone, dateFormat, timeFormat);
