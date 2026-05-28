@@ -5,12 +5,11 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  RefreshCw, 
-  Download, 
-  FileSpreadsheet, 
-  FileCode2, 
-  ChevronDown, 
+import {
+  RefreshCw,
+  FileSpreadsheet,
+  FileCode2,
+  ChevronDown,
   ChevronRight,
   ChevronLeft,
   ChevronsLeft,
@@ -167,10 +166,10 @@ export default function CompositeReportView() {
     const payload = decodeJwtPayload(token);
     return payload?.session_id != null;
   }, [token]);
-  
+
   // Map view state (for export sync)
   const [mapViewState, setMapViewState] = useState<MapViewState | null>(null);
-  
+
   // Table pagination state
   const [tablePage, setTablePage] = useState(1);
 
@@ -190,7 +189,7 @@ export default function CompositeReportView() {
   useEffect(() => {
     async function loadReport() {
       if (!id) return;
-      
+
       setLoading(true);
       try {
         const [response, globalVarsResponse] = await Promise.all([
@@ -246,24 +245,31 @@ export default function CompositeReportView() {
 
   // Execute the SQL query
   const sqlQuery = report?.sql_query ?? '';
+
+  // Resolved parameter map sent with the query. Exports reuse this so the
+  // backend re-runs the same query instead of receiving the full row set in
+  // the request body (which 413s for large tables).
+  const buildQueryParams = useCallback((): Record<string, unknown> => {
+    const merged: Record<string, unknown> = {};
+    const filtered = filterUsedParameters(sqlQuery, parameterValues);
+    const paramTimeZone =
+      datetimePrefs.timeZone === 'auto' ? undefined : datetimePrefs.timeZone;
+    Object.entries(filtered).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      if (typeof v === 'string' && v.trim() === '') return;
+      merged[k] = normaliseParamForApi(k, v, { timeZone: paramTimeZone });
+    });
+    return merged;
+  }, [sqlQuery, parameterValues, datetimePrefs.timeZone]);
+
   const executeQuery = useCallback(async () => {
     if (!id || !sqlQuery) return;
 
     setExecution(prev => ({ ...prev, loading: true, error: null }));
-    
-    try {
-      const merged: Record<string, unknown> = {};
-      const filtered = filterUsedParameters(sqlQuery, parameterValues);
-      const paramTimeZone =
-        datetimePrefs.timeZone === 'auto' ? undefined : datetimePrefs.timeZone;
-      Object.entries(filtered).forEach(([k, v]) => {
-        if (v === undefined || v === null) return;
-        if (typeof v === 'string' && v.trim() === '') return;
-        merged[k] = normaliseParamForApi(k, v, { timeZone: paramTimeZone });
-      });
 
+    try {
       const response = await apiService.executeCompositeReport(id, {
-        params: merged,
+        params: buildQueryParams(),
       });
 
       if (response.error) {
@@ -285,12 +291,12 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, sqlQuery, parameterValues, datetimePrefs.timeZone]);
+  }, [id, sqlQuery, buildQueryParams]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
     if (!execution.data) return [];
-    
+
     return execution.data.rows.map(row => {
       const obj: Record<string, unknown> = {};
       execution.data!.columns.forEach((col, idx) => {
@@ -314,7 +320,7 @@ export default function CompositeReportView() {
       const defaultX = report.config.chart.xColumn || columns[0] || '';
       const defaultY = report.config.chart.yColumns?.[0] || columns.find(c => c !== defaultX) || '';
       const defaultGroup = report.config.chart.colorColumn || 'none';
-      
+
       if (!chartXColumn) setChartXColumn(defaultX);
       if (!chartYColumn) setChartYColumn(defaultY);
       if (!chartColorColumn) setChartColorColumn(defaultGroup);
@@ -326,7 +332,7 @@ export default function CompositeReportView() {
     if (!execution.data?.gps || !rowObjects.length) return [];
 
     const { latColumn, lonColumn, labelColumn } = execution.data.gps;
-    
+
     return rowObjects
       .filter(row => {
         const lat = parseFloat(String(row[latColumn]));
@@ -372,15 +378,15 @@ export default function CompositeReportView() {
 
     const geocodeCoordinates = async () => {
       setGeocoding(true);
-      
+
       const coordsToGeocode: { lat: number; lng: number }[] = [];
       const seen = new Set<string>();
-      
+
       for (const pair of gpsPairs) {
         for (const row of rowObjects) {
           const lat = parseFloat(String(row[pair.latColumn]));
           const lng = parseFloat(String(row[pair.lonColumn]));
-          
+
           if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
             const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
             if (!geocodedAddresses.has(key) && !seen.has(key)) {
@@ -398,7 +404,7 @@ export default function CompositeReportView() {
 
       try {
         const response = await apiService.geocodeBatch(coordsToGeocode);
-        
+
         if (response.data?.results) {
           setGeocodedAddresses(prev => {
             const updated = new Map(prev);
@@ -415,7 +421,7 @@ export default function CompositeReportView() {
         console.error('Geocoding error:', error);
         toast.error('Geocoding failed. Please try again.');
       }
-      
+
       setGeocoding(false);
     };
 
@@ -431,7 +437,7 @@ export default function CompositeReportView() {
   // Get unique group values for the chart - scan ALL rows to find all groups
   const chartGroupValues = useMemo(() => {
     if (!chartColorColumn || chartColorColumn === 'none' || !rowObjects.length) return [];
-    
+
     const uniqueValues = new Set<string>();
     for (const row of rowObjects) {
       const groupVal = row[chartColorColumn];
@@ -477,16 +483,16 @@ export default function CompositeReportView() {
       // Create data points - each row creates a point with its group's Y value
       const dataPoints: Record<string, unknown>[] = [];
       const seenX = new Map<string, number>(); // Map to track indices by X value
-      
+
       for (const row of sortedRows) {
         const xRaw = row[chartXColumn];
         const xFormatted = formatChartLabel(xRaw, true, datetimePrefs);
         const groupVal = String(row[chartColorColumn] ?? 'Unknown');
         const yVal = row[chartYColumn];
         const yNumeric = typeof yVal === 'number' ? yVal : parseFloat(String(yVal)) || 0;
-        
+
         const xKey = String(xRaw);
-        
+
         if (!seenX.has(xKey)) {
           // New X value - create a new data point
           const point: Record<string, unknown> = { [chartXColumn]: xFormatted };
@@ -503,7 +509,7 @@ export default function CompositeReportView() {
           dataPoints[idx][groupVal] = yNumeric;
         }
       }
-      
+
       return dataPoints;
     } else {
       // No grouping - single series
@@ -511,10 +517,10 @@ export default function CompositeReportView() {
         const point: Record<string, unknown> = {
           [chartXColumn]: formatChartLabel(row[chartXColumn], true, datetimePrefs),
         };
-        
+
         const val = row[chartYColumn];
         point[chartYColumn] = typeof val === 'number' ? val : parseFloat(String(val)) || 0;
-        
+
         return point;
       });
     }
@@ -523,7 +529,7 @@ export default function CompositeReportView() {
   // Save SQL query
   const handleSaveSql = async (): Promise<boolean> => {
     if (!id || !report) return false;
-    
+
     setSavingSql(true);
     try {
       const response = await apiService.updateCompositeReport(id, {
@@ -535,11 +541,11 @@ export default function CompositeReportView() {
         sql_query: editableSql,
         config: report.config,
       });
-      
+
       if (response.error) {
         throw new Error(response.error.message);
       }
-      
+
       // Update both report and editableSql to match
       setReport(response.data);
       setEditableSql(response.data.sql_query || editableSql);
@@ -595,7 +601,7 @@ export default function CompositeReportView() {
   // Save chart configuration
   const handleSaveChartConfig = async () => {
     if (!id || !report) return;
-    
+
     setSavingChartConfig(true);
     try {
       const updatedConfig = {
@@ -617,11 +623,11 @@ export default function CompositeReportView() {
         sql_query: report.sql_query,
         config: updatedConfig,
       });
-      
+
       if (response.error) {
         throw new Error(response.error.message);
       }
-      
+
       setReport(response.data);
       toast.success('Chart settings saved');
     } catch (error: any) {
@@ -641,6 +647,10 @@ export default function CompositeReportView() {
   // Save table configuration
   const handleSaveTableConfig = async () => {
     if (!id || !report) return;
+
+    // maxRows is the server-side LIMIT, so a change needs a re-fetch to load
+    // the new row count; pageSize/showTotals are client-side only.
+    const maxRowsChanged = editMaxRows !== (report.config.table.maxRows || 10000);
 
     setSavingTableConfig(true);
     try {
@@ -670,6 +680,9 @@ export default function CompositeReportView() {
 
       setReport(response.data);
       setTablePage(1);
+      if (maxRowsChanged) {
+        setPendingExecute(true);
+      }
       toast.success('Table settings saved');
     } catch (error: any) {
       toast.error(`Failed to save table settings: ${error.message}`);
@@ -724,30 +737,20 @@ export default function CompositeReportView() {
     }
   };
 
-  // Prepare geocoded addresses and cached execution data for export.
-  // We pass the already-fetched rows so the backend doesn't re-execute the query
-  // (which could return different data for relative time windows like "last 24h").
+  // Geocoded addresses for export. Row data is intentionally NOT sent — the
+  // backend re-runs the query from the params we pass, keeping the request
+  // small regardless of row count (see the export endpoints' re-query branch).
   const getExportGeocodingOptions = () => {
-    const base: Record<string, unknown> = {};
-
-    if (execution.data) {
-      base.cachedData = {
-        columns: execution.data.columns,
-        rows: execution.data.rows,
-      };
-    }
-
     if (!geocodeEnabled || geocodedAddresses.size === 0 || gpsPairs.length === 0) {
-      return base;
+      return {};
     }
-    
+
     const addressesObj: Record<string, string> = {};
     geocodedAddresses.forEach((address, key) => {
       addressesObj[key] = address;
     });
-    
+
     return {
-      ...base,
       geocodedAddresses: addressesObj,
       latColumn: gpsPairs[0].latColumn,
       lonColumn: gpsPairs[0].lonColumn,
@@ -792,6 +795,7 @@ export default function CompositeReportView() {
     setExporting('excel');
     try {
       const blob = await apiService.exportCompositeReportExcel(id, {
+        params: buildQueryParams(),
         ...getExportGeocodingOptions(),
         format,
         ...(excelHeader && { excelHeader }),
@@ -845,10 +849,11 @@ export default function CompositeReportView() {
 
   const handleExportHTML = async () => {
     if (!id) return;
-    
+
     setExporting('html');
     try {
       const blob = await apiService.exportCompositeReportHTML(id, {
+        params: buildQueryParams(),
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
@@ -878,10 +883,11 @@ export default function CompositeReportView() {
 
   const handleExportPDF = async () => {
     if (!id) return;
-    
+
     setExporting('pdf');
     try {
       const blob = await apiService.exportCompositeReportPDF(id, {
+        params: buildQueryParams(),
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
@@ -947,7 +953,7 @@ export default function CompositeReportView() {
               <p className="text-muted-foreground mt-2">{report.description}</p>
             )}
           </div>
-          
+
           {/* Actions */}
           <div className="flex items-center gap-2 print:hidden">
             <div className="h-9 inline-flex items-center gap-1.5 px-1 text-sm">
@@ -962,8 +968,8 @@ export default function CompositeReportView() {
                 className="scale-75 data-[state=checked]:bg-primary transition-all"
               />
             </div>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={executeQuery}
               disabled={execution.loading}
@@ -971,7 +977,7 @@ export default function CompositeReportView() {
               <RefreshCw className={`h-4 w-4 mr-2 ${execution.loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -999,7 +1005,7 @@ export default function CompositeReportView() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            
+
             <Button
               variant="outline"
               size="sm"
@@ -1273,7 +1279,7 @@ export default function CompositeReportView() {
                         {execution.data.rows.length} rows loaded
                       </CardDescription>
                     </div>
-                    
+
                     {/* Geocode Checkbox - show if any GPS column pairs detected */}
                     {gpsPairs.length > 0 && (
                       <div className="flex items-center gap-2 print:hidden" title={!hasSessionId ? 'Geocoding requires a session. Please log in via the Navixy platform.' : undefined}>
@@ -1669,8 +1675,8 @@ export default function CompositeReportView() {
                         <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis 
-                              dataKey={chartXColumn} 
+                            <XAxis
+                              dataKey={chartXColumn}
                               tick={{ fontSize: 11 }}
                               tickLine={false}
                               interval="preserveStartEnd"
@@ -1679,12 +1685,12 @@ export default function CompositeReportView() {
                               textAnchor="end"
                               height={50}
                             />
-                            <YAxis 
+                            <YAxis
                               tick={{ fontSize: 12 }}
                               tickLine={false}
                               axisLine={false}
                             />
-                            <Tooltip 
+                            <Tooltip
                               contentStyle={{
                                 backgroundColor: 'var(--surface-1)',
                                 border: '1px solid var(--border)',
@@ -1741,14 +1747,14 @@ export default function CompositeReportView() {
                           </ComposedChart>
                         </ResponsiveContainer>
                       </div>
-                      
+
                       {/* Custom Clickable Legend */}
                       {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
                         <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 print:gap-x-3">
                           {chartGroupValues.map((groupVal, idx) => {
                             const isActive = selectedGroups.length === 0 || selectedGroups.includes(groupVal);
                             const color = CHART_COLORS[idx % CHART_COLORS.length];
-                            
+
                             return (
                               <button
                                 key={groupVal}
@@ -1792,7 +1798,7 @@ export default function CompositeReportView() {
                           )}
                         </div>
                       )}
-                      
+
                       {/* Single series legend */}
                       {(!chartColorColumn || chartColorColumn === 'none' || chartGroupValues.length === 0) && (
                         <div className="flex justify-center">
