@@ -159,38 +159,34 @@ export function DataTable({ data, columns, loading, columnTypes, pagination }: D
             </span>
             <div className="flex gap-1">
               <Button
-                variant="outline"
-                size="icon"
+                variant="secondary"
                 onClick={() => pagination.onPageChange(1)}
                 disabled={pagination.page === 1}
-                className="hover:bg-surface-3 border-border"
+                className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center"
               >
                 <ChevronsLeft className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
-                size="icon"
+                variant="secondary"
                 onClick={() => pagination.onPageChange(pagination.page - 1)}
                 disabled={pagination.page === 1}
-                className="hover:bg-surface-3 border-border"
+                className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
-                size="icon"
+                variant="secondary"
                 onClick={() => pagination.onPageChange(pagination.page + 1)}
                 disabled={pagination.page >= totalPages}
-                className="hover:bg-surface-3 border-border"
+                className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
-                size="icon"
+                variant="secondary"
                 onClick={() => pagination.onPageChange(totalPages)}
                 disabled={pagination.page >= totalPages}
-                className="hover:bg-surface-3 border-border"
+                className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center"
               >
                 <ChevronsRight className="h-4 w-4" />
               </Button>
