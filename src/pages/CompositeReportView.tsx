@@ -1555,19 +1555,19 @@ export default function CompositeReportView() {
                             </span>
                             {totalPages > 1 && (
                               <div className="flex items-center gap-1">
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(1)} disabled={safeTablePage === 1} title="First page">
+                                <Button variant="secondary" className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center" onClick={() => setTablePage(1)} disabled={safeTablePage === 1} title="First page">
                                   <ChevronsLeft className="h-4 w-4" />
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(p => Math.max(1, p - 1))} disabled={safeTablePage === 1} title="Previous page">
+                                <Button variant="secondary" className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center" onClick={() => setTablePage(p => Math.max(1, p - 1))} disabled={safeTablePage === 1} title="Previous page">
                                   <ChevronLeft className="h-4 w-4" />
                                 </Button>
                                 <span className="text-sm text-muted-foreground px-2">
                                   {safeTablePage} / {totalPages}
                                 </span>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(p => Math.min(totalPages, p + 1))} disabled={safeTablePage >= totalPages} title="Next page">
+                                <Button variant="secondary" className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center" onClick={() => setTablePage(p => Math.min(totalPages, p + 1))} disabled={safeTablePage >= totalPages} title="Next page">
                                   <ChevronRight className="h-4 w-4" />
                                 </Button>
-                                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setTablePage(totalPages)} disabled={safeTablePage >= totalPages} title="Last page">
+                                <Button variant="secondary" className="h-8 w-8 !px-0 !py-0 min-w-8 flex items-center justify-center" onClick={() => setTablePage(totalPages)} disabled={safeTablePage >= totalPages} title="Last page">
                                   <ChevronsRight className="h-4 w-4" />
                                 </Button>
                               </div>
