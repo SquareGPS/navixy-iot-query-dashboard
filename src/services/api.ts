@@ -1,6 +1,7 @@
 // API service for backend communication
 import { isDemoMode } from './demoApi';
 import { demoApiService } from './demoApi';
+import { invalidateDashboardSearchCache } from '@/lib/queryClient';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import type { DateFormat, TimeFormat } from '@/utils/datetime';
 
@@ -55,6 +56,13 @@ export interface UserPreferences {
 }
 
 class ApiService {
+  private notifyReportsChanged<T>(response: ApiResponse<T>): ApiResponse<T> {
+    if (!response.error) {
+      void invalidateDashboardSearchCache();
+    }
+    return response;
+  }
+
   private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('auth_token');
     return token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -294,30 +302,30 @@ class ApiService {
     report_schema: any;
   }): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.createReport(reportData);
+      return this.notifyReportsChanged(await demoApiService.createReport(reportData));
     }
     const response = await this.request('/api/reports', {
       method: 'POST',
       body: JSON.stringify(reportData),
     });
     if (response.data && (response.data as any).report) {
-      return { data: (response.data as any).report };
+      return this.notifyReportsChanged({ data: (response.data as any).report });
     }
-    return response;
+    return this.notifyReportsChanged(response);
   }
 
   async updateReport(id: string, reportData: any): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.updateReport(id, reportData);
+      return this.notifyReportsChanged(await demoApiService.updateReport(id, reportData));
     }
     const response = await this.request(`/api/reports/${id}`, {
       method: 'PUT',
       body: JSON.stringify(reportData),
     });
     if (response.data && (response.data as any).report) {
-      return { data: (response.data as any).report };
+      return this.notifyReportsChanged({ data: (response.data as any).report });
     }
-    return response;
+    return this.notifyReportsChanged(response);
   }
 
 
@@ -390,31 +398,37 @@ class ApiService {
 
   async renameReport(id: string, name: string, version: number): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.renameReport(id, name, version);
+      return this.notifyReportsChanged(await demoApiService.renameReport(id, name, version));
     }
-    return this.request(`/api/v1/reports/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ name, version }),
-    });
+    return this.notifyReportsChanged(
+      await this.request(`/api/v1/reports/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, version }),
+      }),
+    );
   }
 
   async deleteSection(id: string, strategy: 'move_children_to_root' | 'delete_children'): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.deleteSection(id, strategy);
+      return this.notifyReportsChanged(await demoApiService.deleteSection(id, strategy));
     }
-    return this.request(`/api/v1/sections/${id}/delete`, {
-      method: 'PATCH',
-      body: JSON.stringify({ strategy }),
-    });
+    return this.notifyReportsChanged(
+      await this.request(`/api/v1/sections/${id}/delete`, {
+        method: 'PATCH',
+        body: JSON.stringify({ strategy }),
+      }),
+    );
   }
 
   async deleteReport(id: string): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.deleteReport(id);
+      return this.notifyReportsChanged(await demoApiService.deleteReport(id));
     }
-    return this.request(`/api/v1/reports/${id}/delete`, {
-      method: 'PATCH',
-    });
+    return this.notifyReportsChanged(
+      await this.request(`/api/v1/reports/${id}/delete`, {
+        method: 'PATCH',
+      }),
+    );
   }
 
   async restoreSection(id: string): Promise<ApiResponse<any>> {
@@ -428,11 +442,13 @@ class ApiService {
 
   async restoreReport(id: string): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.restoreReport(id);
+      return this.notifyReportsChanged(await demoApiService.restoreReport(id));
     }
-    return this.request(`/api/v1/reports/${id}/restore`, {
-      method: 'PATCH',
-    });
+    return this.notifyReportsChanged(
+      await this.request(`/api/v1/reports/${id}/restore`, {
+        method: 'PATCH',
+      }),
+    );
   }
 
   // Global Variables
@@ -557,16 +573,16 @@ class ApiService {
     report_schema?: any;
   }): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.createCompositeReport(data);
+      return this.notifyReportsChanged(await demoApiService.createCompositeReport(data));
     }
     const response = await this.request('/api/composite-reports', {
       method: 'POST',
       body: JSON.stringify(data),
     });
     if (response.data && (response.data as any).data) {
-      return { data: (response.data as any).data };
+      return this.notifyReportsChanged({ data: (response.data as any).data });
     }
-    return response;
+    return this.notifyReportsChanged(response);
   }
 
   async updateCompositeReport(id: string, data: {
@@ -580,25 +596,27 @@ class ApiService {
     report_schema?: any;
   }): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.updateCompositeReport(id, data);
+      return this.notifyReportsChanged(await demoApiService.updateCompositeReport(id, data));
     }
     const response = await this.request(`/api/composite-reports/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
     if (response.data && (response.data as any).data) {
-      return { data: (response.data as any).data };
+      return this.notifyReportsChanged({ data: (response.data as any).data });
     }
-    return response;
+    return this.notifyReportsChanged(response);
   }
 
   async deleteCompositeReport(id: string): Promise<ApiResponse<any>> {
     if (isDemoMode()) {
-      return demoApiService.deleteCompositeReport(id);
+      return this.notifyReportsChanged(await demoApiService.deleteCompositeReport(id));
     }
-    return this.request(`/api/composite-reports/${id}`, {
-      method: 'DELETE',
-    });
+    return this.notifyReportsChanged(
+      await this.request(`/api/composite-reports/${id}`, {
+        method: 'DELETE',
+      }),
+    );
   }
 
   async executeCompositeReport(id: string, params?: {
