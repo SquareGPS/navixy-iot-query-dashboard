@@ -1,5 +1,6 @@
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Accepts any RFC-4122-shaped UUID (any version nibble). Stricter variant checks
+// would reject UUIDv7/v8 and nil UUIDs once id generation evolves.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_PANEL_DEPTH = 20;
 const MAX_SQL_STATEMENT_INDEX_LENGTH = 4096;
 const MAX_SQL_STATEMENTS_PER_DASHBOARD = 50;
@@ -22,6 +23,7 @@ export interface DashboardSearchResult extends SearchableDashboard {
 export interface DashboardSearchFilterOptions {
   includeSqlInSearch?: boolean;
   includeSqlSnippets?: boolean;
+  maxResults?: number;
 }
 
 export function isValidReportId(id: string): boolean {
@@ -63,23 +65,30 @@ function walkPanelsWithDepth(
   }
 }
 
-export function getReportDescription(report: Record<string, unknown>): string {
-  const schema = parseReportSchema(report);
-  if (!schema) return '';
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
 
+function truncateText(text: string, maxLength: number): string {
+  const normalized = normalizeWhitespace(text);
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+function getDescriptionFromSchema(schema: Record<string, unknown> | null): string {
+  if (!schema) return '';
   const description = schema.description;
   return typeof description === 'string' ? description : '';
 }
 
-export function getReportType(report: Record<string, unknown>): 'composite' | 'dashboard' {
-  const schema = parseReportSchema(report);
+function getTypeFromSchema(schema: Record<string, unknown> | null): 'composite' | 'dashboard' {
   return schema?.type === 'composite' ? 'composite' : 'dashboard';
 }
 
-function collectPanelTitles(panels: unknown, depth = 0): string[] {
+function collectPanelTitles(panels: unknown): string[] {
   const titles: string[] = [];
 
-  walkPanelsWithDepth(panels, depth, (panelRecord) => {
+  walkPanelsWithDepth(panels, 0, (panelRecord) => {
     if (typeof panelRecord.title === 'string' && panelRecord.title.trim()) {
       titles.push(panelRecord.title.trim());
     }
@@ -88,24 +97,18 @@ function collectPanelTitles(panels: unknown, depth = 0): string[] {
   return titles;
 }
 
-function truncateForSearchIndex(sql: string): string {
-  const normalized = sql.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= MAX_SQL_STATEMENT_INDEX_LENGTH) return normalized;
-  return normalized.slice(0, MAX_SQL_STATEMENT_INDEX_LENGTH);
-}
-
 function collectSqlStatements(schema: Record<string, unknown>): string[] {
   const statements: string[] = [];
 
   if (typeof schema.sqlQuery === 'string' && schema.sqlQuery.trim()) {
-    statements.push(truncateForSearchIndex(schema.sqlQuery));
+    statements.push(truncateText(schema.sqlQuery, MAX_SQL_STATEMENT_INDEX_LENGTH));
   }
 
   walkPanelsWithDepth(schema.panels, 0, (panelRecord) => {
     const navixy = panelRecord['x-navixy'] as { sql?: { statement?: string } } | undefined;
     const sql = navixy?.sql?.statement;
     if (typeof sql === 'string' && sql.trim()) {
-      statements.push(truncateForSearchIndex(sql));
+      statements.push(truncateText(sql, MAX_SQL_STATEMENT_INDEX_LENGTH));
     }
   });
 
@@ -113,7 +116,7 @@ function collectSqlStatements(schema: Record<string, unknown>): string[] {
   if (Array.isArray(templating?.list)) {
     for (const variable of templating.list) {
       if (typeof variable.query === 'string' && variable.query.trim()) {
-        statements.push(truncateForSearchIndex(variable.query));
+        statements.push(truncateText(variable.query, MAX_SQL_STATEMENT_INDEX_LENGTH));
       }
     }
   }
@@ -121,42 +124,27 @@ function collectSqlStatements(schema: Record<string, unknown>): string[] {
   return statements.slice(0, MAX_SQL_STATEMENTS_PER_DASHBOARD);
 }
 
-export function getReportPanelTitles(report: Record<string, unknown>): string[] {
-  const schema = parseReportSchema(report);
-  if (!schema) return [];
+function buildSearchableDashboard(
+  report: Record<string, unknown>,
+  schema: Record<string, unknown> | null,
+): SearchableDashboard | null {
+  const id = String(report.id);
+  if (!isValidReportId(id)) return null;
 
-  return collectPanelTitles(schema.panels);
-}
-
-export function getReportSqlQueries(report: Record<string, unknown>): string[] {
-  const schema = parseReportSchema(report);
-  if (!schema) return [];
-
-  return collectSqlStatements(schema);
-}
-
-function truncateSqlSnippet(sql: string, maxLength = 100): string {
-  const normalized = sql.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength)}…`;
+  return {
+    id,
+    title: typeof report.title === 'string' ? report.title : '',
+    description: getDescriptionFromSchema(schema),
+    panelTitles: schema ? collectPanelTitles(schema.panels) : [],
+    sqlQueries: schema ? collectSqlStatements(schema) : [],
+    type: getTypeFromSchema(schema),
+    sectionName: typeof report.section_name === 'string' ? report.section_name : undefined,
+  };
 }
 
 export function normalizeReportsForSearch(reports: Record<string, unknown>[]): SearchableDashboard[] {
   return reports
-    .map((report) => {
-      const id = String(report.id);
-      if (!isValidReportId(id)) return null;
-
-      return {
-        id,
-        title: typeof report.title === 'string' ? report.title : '',
-        description: getReportDescription(report),
-        panelTitles: getReportPanelTitles(report),
-        sqlQueries: getReportSqlQueries(report),
-        type: getReportType(report),
-        sectionName: typeof report.section_name === 'string' ? report.section_name : undefined,
-      };
-    })
+    .map((report) => buildSearchableDashboard(report, parseReportSchema(report)))
     .filter((dashboard): dashboard is SearchableDashboard => dashboard !== null);
 }
 
@@ -168,16 +156,54 @@ export function matchesKeywords(query: string, text: string): boolean {
   return keywords.every((keyword) => haystack.includes(keyword));
 }
 
+function scoreDashboardMatch(
+  dashboard: SearchableDashboard,
+  query: string,
+  includeSqlInSearch: boolean,
+): number {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return 0;
+
+  let score = 0;
+
+  if (dashboard.title.toLowerCase() === trimmed) {
+    score += 1000;
+  } else if (matchesKeywords(trimmed, dashboard.title)) {
+    score += 500;
+  }
+
+  for (const panelTitle of dashboard.panelTitles) {
+    if (!matchesKeywords(trimmed, panelTitle)) continue;
+    score += panelTitle.toLowerCase() === trimmed ? 300 : 200;
+    break;
+  }
+
+  if (matchesKeywords(trimmed, dashboard.description)) {
+    score += 100;
+  }
+
+  if (includeSqlInSearch) {
+    for (const sql of dashboard.sqlQueries) {
+      if (matchesKeywords(trimmed, sql)) {
+        score += 50;
+        break;
+      }
+    }
+  }
+
+  return score;
+}
+
 export function filterDashboardsByKeywords(
   dashboards: SearchableDashboard[],
   query: string,
   options: DashboardSearchFilterOptions = {},
 ): DashboardSearchResult[] {
-  const { includeSqlInSearch = true, includeSqlSnippets = true } = options;
+  const { includeSqlInSearch = true, includeSqlSnippets = true, maxResults } = options;
   const trimmed = query.trim();
   if (!trimmed) return [];
 
-  return dashboards.flatMap((dashboard) => {
+  const results = dashboards.flatMap((dashboard) => {
     const searchableText = [
       dashboard.description,
       dashboard.title,
@@ -199,12 +225,22 @@ export function filterDashboardsByKeywords(
       includeSqlInSearch && includeSqlSnippets
         ? dashboard.sqlQueries
             .filter((sql) => matchesKeywords(trimmed, sql))
-            .map((sql) => truncateSqlSnippet(sql))
+            .map((sql) => truncateText(sql, 100))
             .slice(0, 2)
         : [];
 
     return [{ ...dashboard, matchedPanelTitles, matchedSqlSnippets }];
   });
+
+  results.sort(
+    (a, b) => scoreDashboardMatch(b, trimmed, includeSqlInSearch) - scoreDashboardMatch(a, trimmed, includeSqlInSearch),
+  );
+
+  if (typeof maxResults === 'number') {
+    return results.slice(0, maxResults);
+  }
+
+  return results;
 }
 
 export function getDashboardRoute(dashboard: SearchableDashboard): string | null {
@@ -213,4 +249,8 @@ export function getDashboardRoute(dashboard: SearchableDashboard): string | null
   return dashboard.type === 'composite'
     ? `/app/composite-report/${dashboard.id}`
     : `/app/report/${dashboard.id}`;
+}
+
+export function getDashboardSearchOptionId(dashboardId: string): string {
+  return `dashboard-search-option-${dashboardId}`;
 }

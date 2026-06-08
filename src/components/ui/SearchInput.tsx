@@ -6,17 +6,32 @@ import { useDashboardSearchReports } from '@/hooks/use-dashboard-search';
 import {
   filterDashboardsByKeywords,
   getDashboardRoute,
+  getDashboardSearchOptionId,
   type DashboardSearchResult,
 } from '@/utils/dashboardSearch';
 
 const MAX_RESULTS = 8;
 
-export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+type SearchInputProps = Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  | 'value'
+  | 'onChange'
+  | 'onKeyDown'
+  | 'role'
+  | 'aria-expanded'
+  | 'aria-controls'
+  | 'aria-autocomplete'
+  | 'aria-activedescendant'
+>;
+
+export function SearchInput({ className, ...props }: SearchInputProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // UI-only: hides SQL from search results for viewers. /api/reports still returns
+  // full report_schema to all roles — not an authorization boundary.
   const canUseSqlSearch = user?.role === 'admin' || user?.role === 'editor';
 
   const [query, setQuery] = useState('');
@@ -36,11 +51,16 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
       filterDashboardsByKeywords(dashboards, debouncedQuery, {
         includeSqlInSearch: canUseSqlSearch,
         includeSqlSnippets: canUseSqlSearch,
-      }).slice(0, MAX_RESULTS),
+        maxResults: MAX_RESULTS,
+      }),
     [dashboards, debouncedQuery, canUseSqlSearch],
   );
 
   const showDropdown = isOpen && debouncedQuery.trim().length > 0;
+  const activeOptionId =
+    activeIndex >= 0 && results[activeIndex]
+      ? getDashboardSearchOptionId(results[activeIndex].id)
+      : undefined;
 
   useEffect(() => {
     setActiveIndex(-1);
@@ -82,9 +102,10 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
       return;
     }
 
-    if (event.key === 'Enter' && activeIndex >= 0 && results[activeIndex]) {
+    if (event.key === 'Enter' && results.length > 0) {
       event.preventDefault();
-      openDashboard(results[activeIndex]);
+      const index = activeIndex >= 0 ? activeIndex : 0;
+      openDashboard(results[index]);
       return;
     }
 
@@ -106,17 +127,26 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
             setQuery(event.target.value);
             setIsOpen(true);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={(event) => {
+            props.onFocus?.(event);
+            setIsOpen(true);
+          }}
           onKeyDown={handleKeyDown}
-          className="h-10 w-full max-w-[560px] rounded-md
-                     bg-[var(--surface-3)]/80 border border-[var(--border)]
-                     pl-10 pr-4 text-sm placeholder:text-[var(--text-muted)]
-                     focus:ring-2 focus:ring-[var(--accent)] focus:outline-none"
+          className={[
+            'h-10 w-full max-w-[560px] rounded-md',
+            'bg-[var(--surface-3)]/80 border border-[var(--border)]',
+            'pl-10 pr-4 text-sm placeholder:text-[var(--text-muted)]',
+            'focus:ring-2 focus:ring-[var(--accent)] focus:outline-none',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
           placeholder="Search data, dashboards, SQL…"
           role="combobox"
           aria-expanded={showDropdown}
           aria-controls="dashboard-search-results"
           aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
         />
       </div>
 
@@ -151,6 +181,7 @@ export function SearchInput(props: React.InputHTMLAttributes<HTMLInputElement>) 
                 <li key={dashboard.id}>
                   <button
                     type="button"
+                    id={getDashboardSearchOptionId(dashboard.id)}
                     role="option"
                     aria-selected={index === activeIndex}
                     className={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${

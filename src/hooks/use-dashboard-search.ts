@@ -1,12 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/api';
+import { dashboardSearchQueryKeys } from '@/lib/queryClient';
 import { normalizeReportsForSearch, type SearchableDashboard } from '@/utils/dashboardSearch';
 
-export const dashboardSearchQueryKeys = {
-  all: ['dashboard-search'] as const,
-  reports: () => [...dashboardSearchQueryKeys.all, 'reports'] as const,
-};
+export { dashboardSearchQueryKeys, invalidateDashboardSearchCache } from '@/lib/queryClient';
 
 export function useDashboardSearchReports() {
   const { user } = useAuth();
