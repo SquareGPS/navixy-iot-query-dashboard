@@ -61,6 +61,19 @@ export interface Variable {
   sort?: number;
   hide?: number;
   description?: string;
+  /**
+   * Navixy vendor extension for local filter variables.
+   * When present, the parameter bar renders a dedicated filter control for this
+   * variable instead of treating it as a plain template variable.
+   */
+  'x-navixy'?: {
+    /**
+     * Filter control to render in the parameter bar.
+     * - 'daterange': a from/to date-range picker that binds two derived SQL
+     *   parameters, `${<name>_from}` and `${<name>_to}`.
+     */
+    control?: 'daterange';
+  };
 }
 
 export interface TimePickerConfig {
@@ -242,12 +255,26 @@ export type PanelType =
   | 'linechart'      // Alias for 'timeseries'
   | 'piechart';      // For pie charts (may use bargauge or custom)
 
+/**
+ * Binds a dashboard-level filter variable (e.g. a date-range filter) to a column
+ * in this panel's query result. Applied at execution time by wrapping the panel
+ * statement — the stored SQL is left untouched.
+ */
+export interface PanelFilterBinding {
+  /** Name of the templating variable (templating.list[].name) to apply. */
+  variable: string;
+  /** Output column of the panel query to filter on. */
+  column: string;
+}
+
 export interface NavixyPanelConfig {
   sql?: {
     statement: string;
     params?: Record<string, NavixyParam>;
     bindings?: Record<string, string>;
   };
+  /** Local filter bindings applied to this panel (guided per-panel filters). */
+  filters?: PanelFilterBinding[];
   dataset?: {
     shape: 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie';
     columns: Record<string, { type: NavixyColumnType }>;

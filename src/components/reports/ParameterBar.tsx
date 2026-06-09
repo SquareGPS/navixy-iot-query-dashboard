@@ -25,6 +25,13 @@ import { extractParameterNames, walkSqlPanels } from '@/utils/sqlParameterExtrac
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { formatTimestamp } from '@/utils/datetime';
+import { DateRangeFilterControl } from './DateRangeFilterControl';
+import {
+  getDateRangeFilters,
+  dateRangeParamNames,
+  dateRangeDefaults,
+  DATE_RANGE_PRESETS,
+} from '@/utils/filterVariables';
 
 export interface ParameterValues {
   [paramName: string]: unknown;
@@ -133,10 +140,26 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     });
   }, [declaredParams, inferredParams, dashboard.time]);
 
+  // Local date-range filter variables (templating.list[] with x-navixy.control = 'daterange')
+  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard.templating]);
+
+  // SQL parameter names owned by date-range filters (e.g. period_from / period_to).
+  // These are rendered by the dedicated control, so they must be excluded from the
+  // generic "other parameters" list to avoid rendering them twice as text inputs.
+  const filterManagedNames = useMemo(() => {
+    const names = new Set<string>();
+    dateRangeFilters.forEach((v) => {
+      const { from, to } = dateRangeParamNames(v.name);
+      names.add(from);
+      names.add(to);
+    });
+    return names;
+  }, [dateRangeFilters]);
+
   // Calculate default values
   const defaultValues = useMemo(() => {
     const defaults: ParameterValues = {};
-    
+
     allParams.forEach(param => {
       if (param.name === '__from' || param.name === '__to') {
         // Time range params get defaults from dashboard.time
@@ -191,8 +214,16 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       }
     });
 
+    // Seed defaults for local date-range filters (from their stored relative range)
+    dateRangeFilters.forEach((variable) => {
+      const names = dateRangeParamNames(variable.name);
+      const range = dateRangeDefaults(variable);
+      defaults[names.from] = parseTimeExpression(range.from);
+      defaults[names.to] = parseTimeExpression(range.to);
+    });
+
     return defaults;
-  }, [allParams, defaultTimeRange, globalVariables]);
+  }, [allParams, defaultTimeRange, globalVariables, dateRangeFilters]);
 
   // Sync with URL parameters
   useParameterUrlSync(values, onChange, defaultValues);
@@ -311,9 +342,13 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       ? pendingValues.to 
       : parseTimeExpression(defaultTimeRange.to));
 
-  // Group parameters: time range (__from/__to) first, then others
+  // Group parameters: time range (__from/__to) first, then others.
+  // Date-range filter params (period_from/period_to) are rendered by their own
+  // control, so exclude them from the generic list.
   const timeParams = allParams.filter(p => p.name === '__from' || p.name === '__to');
-  const otherParams = allParams.filter(p => p.name !== '__from' && p.name !== '__to');
+  const otherParams = allParams.filter(
+    p => p.name !== '__from' && p.name !== '__to' && !filterManagedNames.has(p.name)
+  );
 
   return (
     <Card className={cn("p-4 flex flex-col", className)}>
@@ -413,6 +448,35 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
             </Popover>
           </div>
         )}
+
+        {/* Local Date-Range Filters */}
+        {dateRangeFilters.map(variable => {
+          const names = dateRangeParamNames(variable.name);
+          const range = dateRangeDefaults(variable);
+          const filterFrom = pendingValues[names.from] instanceof Date
+            ? (pendingValues[names.from] as Date)
+            : parseTimeExpression(range.from);
+          const filterTo = pendingValues[names.to] instanceof Date
+            ? (pendingValues[names.to] as Date)
+            : parseTimeExpression(range.to);
+          return (
+            <DateRangeFilterControl
+              key={variable.name}
+              label={variable.label || variable.name}
+              fromDate={filterFrom}
+              toDate={filterTo}
+              displayLabel={`${formatTimestamp(filterFrom, datetimePrefs, { includeTime: false })} - ${formatTimestamp(filterTo, datetimePrefs, { includeTime: false })}`}
+              presets={DATE_RANGE_PRESETS}
+              onChange={(newFrom, newTo) =>
+                setPendingValues(prev => ({
+                  ...prev,
+                  [names.from]: newFrom,
+                  [names.to]: newTo,
+                }))
+              }
+            />
+          );
+        })}
 
         {/* Other Parameters */}
         {otherParams.map(param => (

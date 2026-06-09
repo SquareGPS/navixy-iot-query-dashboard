@@ -12,6 +12,8 @@ import { AnnotationEditor } from '@/components/reports/AnnotationEditor';
 import { PanelEditor } from '@/components/reports/PanelEditor';
 import { DashboardRenderer, DashboardRendererRef } from '@/components/reports/DashboardRenderer';
 import { EditToolbar } from '@/components/reports/EditToolbar';
+import { VariablesManager } from '@/components/reports/VariablesManager';
+import { getDateRangeFilters } from '@/utils/filterVariables';
 import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -21,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { Dashboard, DashboardConfig } from '@/types/dashboard-types';
+import type { Dashboard, DashboardConfig, Variable } from '@/types/dashboard-types';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
@@ -77,6 +79,7 @@ const ReportView = () => {
   const [newRowType, setNewRowType] = useState<'tiles' | 'table' | 'charts' | 'annotation' | null>(null);
   const [insertAfterIndex, setInsertAfterIndex] = useState<number | undefined>(undefined);
   const [showPanelGallery, setShowPanelGallery] = useState(false);
+  const [showVariablesManager, setShowVariablesManager] = useState(false);
   const dashboardRendererRef = useRef<DashboardRendererRef>(null);
   const [globalVariables, setGlobalVariables] = useState<Array<{ label: string; value: string; description?: string }>>([]);
 
@@ -424,6 +427,59 @@ const ReportView = () => {
       throw error; // Re-throw so caller can handle it
     }
   }, [reportId, schema, report, dashboardConfig]);
+
+  // Persist the dashboard's local filter variables (templating.list[]).
+  // Unlike handleSaveDashboard, this always syncs local state AND the editor
+  // store so the new filters appear immediately while still in edit mode.
+  const handleSaveVariables = useCallback(async (variables: Variable[]) => {
+    if (!reportId || !schema) return;
+
+    const store = useEditorStore.getState();
+    // store.dashboard holds the freshest copy during layout editing (it may have
+    // unsaved canvas edits that haven't flushed to local state yet). Cast away the
+    // store's GrafanaDashboard typing — at runtime it is a Dashboard.
+    const base = (store.dashboard || dashboard) as Dashboard;
+    if (!base) return;
+
+    const updatedDashboard: Dashboard = {
+      ...base,
+      templating: { ...(base.templating || {}), list: variables },
+    };
+
+    // Preserve the existing schema structure (same pattern as handleSaveDashboard)
+    let updatedSchema: any;
+    if (schema.dashboard) {
+      updatedSchema = { ...schema, dashboard: updatedDashboard };
+    } else if (schema.panels) {
+      updatedSchema = updatedDashboard;
+    } else {
+      updatedSchema = { dashboard: updatedDashboard };
+    }
+
+    const response = await apiService.updateReport(reportId, {
+      title: report?.title,
+      subtitle: report?.subtitle,
+      report_schema: updatedSchema,
+    });
+
+    if (response.error) {
+      throw new Error(response.error.message || 'Failed to save dashboard filters');
+    }
+
+    // Sync both local state and the editor store (guard the canvas auto-save).
+    (window as any).__skipDashboardAutoSave = true;
+    try {
+      store.setDashboard(updatedDashboard);
+      setDashboard(updatedDashboard);
+      setSchema(updatedSchema);
+      setEditorValue(JSON.stringify(updatedDashboard, null, 2));
+      if (dashboardConfig) {
+        setDashboardConfig({ ...dashboardConfig, dashboard: updatedDashboard });
+      }
+    } finally {
+      (window as any).__skipDashboardAutoSave = false;
+    }
+  }, [reportId, schema, report, dashboard, dashboardConfig]);
 
   const handleSaveTitle = async () => {
     if (!reportId || !schema || !report) return;
@@ -2082,6 +2138,7 @@ const ReportView = () => {
           onClose={() => setEditingPanel(null)}
           panel={editingPanel}
           onSave={handleSavePanel}
+          dateFilters={getDateRangeFilters(dashboard)}
         />
       )}
 
@@ -2145,6 +2202,7 @@ const ReportView = () => {
         onNewRow={handleNewRow}
         onNewPanel={handleNewPanel}
         onTidyUp={handleTidyUp}
+        onManageVariables={() => setShowVariablesManager(true)}
       />
 
       {/* Panel Gallery Dialog */}
@@ -2152,6 +2210,14 @@ const ReportView = () => {
         open={showPanelGallery}
         onClose={() => setShowPanelGallery(false)}
         onSelect={handlePanelGallerySelect}
+      />
+
+      {/* Dashboard Filters (local variables) Dialog */}
+      <VariablesManager
+        open={showVariablesManager}
+        onClose={() => setShowVariablesManager(false)}
+        dashboard={dashboard}
+        onSave={handleSaveVariables}
       />
     </AppLayout>
   );
