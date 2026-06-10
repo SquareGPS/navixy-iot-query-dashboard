@@ -26,12 +26,18 @@ import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { formatTimestamp } from '@/utils/datetime';
 import { DateRangeFilterControl } from './DateRangeFilterControl';
+import { MultiSelectFilterControl } from './MultiSelectFilterControl';
 import {
   getDateRangeFilters,
+  getMultiselectFilters,
   dateRangeParamNames,
   dateRangeDefaults,
+  multiselectSelection,
+  multiselectStaticOptions,
+  defaultTimeParams,
   DATE_RANGE_PRESETS,
 } from '@/utils/filterVariables';
+import { apiService } from '@/services/api';
 
 export interface ParameterValues {
   [paramName: string]: unknown;
@@ -143,9 +149,43 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   // Local date-range filter variables (templating.list[] with x-navixy.control = 'daterange')
   const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard.templating]);
 
-  // SQL parameter names owned by date-range filters (e.g. period_from / period_to).
-  // These are rendered by the dedicated control, so they must be excluded from the
-  // generic "other parameters" list to avoid rendering them twice as text inputs.
+  // Local multiselect (column-value) filter variables
+  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard.templating]);
+
+  // Discovered option values per multiselect variable (from its discovery query)
+  const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
+  const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
+  const discoveredRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    multiselectFilters.forEach(async (variable) => {
+      // Static options take precedence and need no discovery
+      const staticOpts = multiselectStaticOptions(variable);
+      if (staticOpts.length > 0) {
+        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: staticOpts }));
+        return;
+      }
+      if (!variable.query || discoveredRef.current.has(variable.name)) return;
+      discoveredRef.current.add(variable.name);
+      setOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
+      try {
+        // The derived discovery query wraps a panel that may reference ${__from}/${__to}.
+        const res = await apiService.executeSQL({ sql: variable.query, params: defaultTimeParams(dashboard), row_limit: 1000 });
+        const rows = res.data?.rows || [];
+        const values = [...new Set(rows.map((r: unknown[]) => r[0]).filter((x) => x !== null && x !== undefined).map(String))];
+        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
+      } catch {
+        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: [] }));
+        discoveredRef.current.delete(variable.name); // allow retry on next load
+      } finally {
+        setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
+      }
+    });
+  }, [multiselectFilters]);
+
+  // SQL parameter names owned by local filters (date: period_from/period_to;
+  // multiselect: the variable name itself). These are rendered by dedicated
+  // controls, so exclude them from the generic "other parameters" list.
   const filterManagedNames = useMemo(() => {
     const names = new Set<string>();
     dateRangeFilters.forEach((v) => {
@@ -153,8 +193,9 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       names.add(from);
       names.add(to);
     });
+    multiselectFilters.forEach((v) => names.add(v.name));
     return names;
-  }, [dateRangeFilters]);
+  }, [dateRangeFilters, multiselectFilters]);
 
   // Calculate default values
   const defaultValues = useMemo(() => {
@@ -222,8 +263,13 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       defaults[names.to] = parseTimeExpression(range.to);
     });
 
+    // Seed defaults for multiselect filters (their stored selection; usually empty = All)
+    multiselectFilters.forEach((variable) => {
+      defaults[variable.name] = multiselectSelection(variable);
+    });
+
     return defaults;
-  }, [allParams, defaultTimeRange, globalVariables, dateRangeFilters]);
+  }, [allParams, defaultTimeRange, globalVariables, dateRangeFilters, multiselectFilters]);
 
   // Sync with URL parameters
   useParameterUrlSync(values, onChange, defaultValues);
@@ -473,6 +519,25 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
                   [names.from]: newFrom,
                   [names.to]: newTo,
                 }))
+              }
+            />
+          );
+        })}
+
+        {/* Local Multiselect (column-value) Filters */}
+        {multiselectFilters.map(variable => {
+          const selected = Array.isArray(pendingValues[variable.name])
+            ? (pendingValues[variable.name] as string[])
+            : multiselectSelection(variable);
+          return (
+            <MultiSelectFilterControl
+              key={variable.name}
+              label={variable.label || variable.name}
+              options={discoveredOptions[variable.name] || []}
+              selected={selected}
+              loading={optionsLoading[variable.name] || false}
+              onChange={(next) =>
+                setPendingValues(prev => ({ ...prev, [variable.name]: next }))
               }
             />
           );

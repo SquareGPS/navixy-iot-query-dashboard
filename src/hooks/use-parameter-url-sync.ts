@@ -80,6 +80,11 @@ export function useParameterUrlSync(
 
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
+        // Arrays (multiselect filters) are not URL-synced yet — serializing them
+        // as a comma string would break array binding on reload. Skip them.
+        if (Array.isArray(value)) {
+          return;
+        }
         if (value instanceof Date) {
           newParams.set(key, formatDateToISO(value));
         } else if (typeof value === 'boolean') {

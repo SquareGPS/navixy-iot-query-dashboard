@@ -626,6 +626,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       navixyConfig.sql.statement,
       navixyConfig.filters,
       dashboard,
+      params, // multiselect filters only apply when something is selected
     );
 
     // Filter parameters to only include those actually used in the (effective) SQL

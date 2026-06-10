@@ -13,7 +13,7 @@ import { PanelEditor } from '@/components/reports/PanelEditor';
 import { DashboardRenderer, DashboardRendererRef } from '@/components/reports/DashboardRenderer';
 import { EditToolbar } from '@/components/reports/EditToolbar';
 import { VariablesManager } from '@/components/reports/VariablesManager';
-import { getDateRangeFilters } from '@/utils/filterVariables';
+import { getLocalFilters, reconcileFilterBindings } from '@/utils/filterVariables';
 import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -441,9 +441,14 @@ const ReportView = () => {
     const base = (store.dashboard || dashboard) as Dashboard;
     if (!base) return;
 
+    // Auto-bind new/changed value filters to their source panel and prune
+    // bindings whose variable was deleted (prevents stale bindings reactivating
+    // when a same-named filter is created later).
+    const oldVariables = base.templating?.list ?? [];
     const updatedDashboard: Dashboard = {
       ...base,
       templating: { ...(base.templating || {}), list: variables },
+      panels: reconcileFilterBindings(base.panels, oldVariables, variables),
     };
 
     // Preserve the existing schema structure (same pattern as handleSaveDashboard)
@@ -2138,7 +2143,7 @@ const ReportView = () => {
           onClose={() => setEditingPanel(null)}
           panel={editingPanel}
           onSave={handleSavePanel}
-          dateFilters={getDateRangeFilters(dashboard)}
+          localFilters={getLocalFilters(dashboard)}
         />
       )}
 

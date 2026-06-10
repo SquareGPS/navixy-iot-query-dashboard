@@ -11,6 +11,7 @@
  *   the filter by referencing those parameters in the panel SQL.
  */
 import type { Dashboard, Variable, PanelFilterBinding, Panel } from '@/types/dashboard-types';
+import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 
 export interface DateRangePreset {
   id: string;
@@ -53,6 +54,40 @@ export function dateRangeDefaults(variable: Variable): { from: string; to: strin
   return { from: DEFAULT_DATE_RANGE.from, to: DEFAULT_DATE_RANGE.to };
 }
 
+// ── Type 2 — column-value (multiselect) filters ──────────────────────────────
+// A multiselect filter is a query/custom variable carrying
+// `x-navixy.control: 'multiselect'`. Its candidate values come from either a
+// discovery query (`variable.query`, run at dashboard open) or a static list
+// (`variable.options`). It exposes ONE bindable array param `${<name>}`, applied
+// to a panel as `"col" = ANY(${<name>}::text[])`. An empty selection means "All"
+// (no clause added), which is why array binding never needs an empty-array case.
+
+/** Return the multiselect (column-value) filter variables on a dashboard. */
+export function getMultiselectFilters(dashboard: Dashboard | null | undefined): Variable[] {
+  return (dashboard?.templating?.list ?? []).filter(
+    (v) => v['x-navixy']?.control === 'multiselect'
+  );
+}
+
+/** Return all local filter variables (date-range + multiselect), in declared order. */
+export function getLocalFilters(dashboard: Dashboard | null | undefined): Variable[] {
+  return (dashboard?.templating?.list ?? []).filter((v) => {
+    const c = v['x-navixy']?.control;
+    return c === 'daterange' || c === 'multiselect';
+  });
+}
+
+/** Static option values declared on a multiselect variable (empty if it uses a query). */
+export function multiselectStaticOptions(variable: Variable): string[] {
+  return (variable.options ?? []).map((o) => String(o.value));
+}
+
+/** The currently-selected values of a multiselect variable (its default selection). */
+export function multiselectSelection(variable: Variable): string[] {
+  const v = variable.current?.value;
+  return Array.isArray(v) ? v.map(String) : [];
+}
+
 /**
  * Validate a filter variable name. Must be a SQL-identifier-safe token and must
  * not shadow the reserved global time bindings (`__from` / `__to`).
@@ -91,9 +126,100 @@ export function makeDateRangeVariable(params: {
   };
 }
 
+/** Build a multiselect (column-value) filter variable for templating.list[]. */
+export function makeMultiselectVariable(params: {
+  name: string;
+  label: string;
+  column?: string;
+  panelId?: string | number;
+  panelTitle?: string;
+  query?: string;
+  staticValues?: string[];
+}): Variable {
+  const variable: Variable = {
+    type: params.query ? 'query' : 'custom',
+    name: params.name,
+    label: params.label,
+    multi: true,
+    includeAll: true,
+    current: { value: [], text: 'All' },
+    'x-navixy': {
+      control: 'multiselect',
+      ...(params.column ? { column: params.column } : {}),
+      ...(params.panelId !== undefined && params.panelId !== null ? { panelId: params.panelId } : {}),
+      ...(params.panelTitle ? { panelTitle: params.panelTitle } : {}),
+    },
+  };
+  if (params.query) variable.query = params.query;
+  if (params.staticValues && params.staticValues.length > 0) {
+    variable.options = params.staticValues.map((val) => ({ text: val, value: val }));
+  }
+  return variable;
+}
+
+/**
+ * Whether a local filter should be offered to a panel in its Filters tab. Date
+ * filters apply to any panel. Value filters belong to the panel their column was
+ * picked from (matched by id, falling back to title); legacy value filters with
+ * no recorded source panel are offered everywhere.
+ */
+export function filterAppliesToPanel(variable: Variable, panel: Panel): boolean {
+  const nav = variable['x-navixy'];
+  if (nav?.control === 'daterange') return true;
+  if (nav?.control !== 'multiselect') return false;
+  if (nav.panelId !== undefined && nav.panelId !== null && panel.id !== undefined && panel.id !== null) {
+    return String(nav.panelId) === String(panel.id);
+  }
+  if (nav.panelTitle) return nav.panelTitle === panel.title;
+  return true;
+}
+
+/** The source/output column a multiselect filter targets (for pre-filling bindings). */
+export function multiselectColumn(variable: Variable): string | undefined {
+  return variable['x-navixy']?.column;
+}
+
+/**
+ * Build an open-time discovery query for a column-value filter: distinct values
+ * of the chosen output column, sourced by wrapping the panel that produces it.
+ */
+export function buildDiscoveryQuery(column: string, panelSql: string): string {
+  const inner = panelSql.trim().replace(/;\s*$/, '');
+  const q = quoteIdentifier(column);
+  return `SELECT DISTINCT ${q} FROM (\n${inner}\n) AS _navixy_values\nWHERE ${q} IS NOT NULL\nORDER BY 1`;
+}
+
+/** Resolve a dashboard's default time params (${__from}/${__to}) to ISO strings. */
+export function defaultTimeParams(dashboard: Dashboard | null | undefined): Record<string, string> {
+  const from = dashboard?.time?.from || 'now-24h';
+  const to = dashboard?.time?.to || 'now';
+  return {
+    __from: formatDateToISO(parseTimeExpression(from)),
+    __to: formatDateToISO(parseTimeExpression(to)),
+  };
+}
+
 /** Double-quote a SQL identifier, escaping embedded quotes. */
-function quoteIdentifier(name: string): string {
+export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * The SQL clause shape a filter binding produces (for editor previews). Mirrors
+ * applyPanelFilters but always renders the multiselect clause regardless of the
+ * current selection.
+ */
+export function filterClausePreview(variable: Variable, column: string): string {
+  const q = quoteIdentifier(column);
+  const control = variable['x-navixy']?.control;
+  if (control === 'daterange') {
+    const names = dateRangeParamNames(variable.name);
+    return `${q} BETWEEN \${${names.from}} AND \${${names.to}}`;
+  }
+  if (control === 'multiselect') {
+    return `${q} = ANY(\${${variable.name}}::text[])`;
+  }
+  return '';
 }
 
 /**
@@ -113,7 +239,8 @@ function quoteIdentifier(name: string): string {
 export function applyPanelFilters(
   statement: string,
   filters: PanelFilterBinding[] | undefined,
-  dashboard: Dashboard | null | undefined
+  dashboard: Dashboard | null | undefined,
+  values?: Record<string, unknown>
 ): string {
   if (!filters || filters.length === 0) return statement;
 
@@ -121,11 +248,18 @@ export function applyPanelFilters(
   for (const binding of filters) {
     if (!binding.column) continue;
     const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
-    if (variable?.['x-navixy']?.control === 'daterange') {
+    const control = variable?.['x-navixy']?.control;
+    if (control === 'daterange') {
       const names = dateRangeParamNames(binding.variable);
       clauses.push(
         `${quoteIdentifier(binding.column)} BETWEEN \${${names.from}} AND \${${names.to}}`
       );
+    } else if (control === 'multiselect') {
+      // Only filter when something is selected; an empty selection means "All".
+      const selection = values?.[binding.variable];
+      if (Array.isArray(selection) && selection.length > 0) {
+        clauses.push(`${quoteIdentifier(binding.column)} = ANY(\${${binding.variable}}::text[])`);
+      }
     }
   }
 
@@ -133,6 +267,83 @@ export function applyPanelFilters(
 
   const inner = statement.trim().replace(/;\s*$/, '');
   return `SELECT * FROM (\n${inner}\n) AS _navixy_filter\nWHERE ${clauses.join(' AND ')}`;
+}
+
+/**
+ * Reconcile panel filter bindings after the dashboard's filter variables change.
+ *
+ * - Bindings to variables that no longer exist are removed, so deleting a filter
+ *   cleans up every panel it touched (no stale bindings that silently reactivate
+ *   when a same-named filter is created later).
+ * - A multiselect filter is auto-bound to its source panel when it is created or
+ *   when its column/source panel changes, and removed from panels that are no
+ *   longer its source. Unchanged filters keep their bindings as-is, so a manual
+ *   opt-out in the panel editor survives unrelated edits.
+ * - Date-range bindings are author-managed and only pruned on deletion.
+ */
+export function reconcileFilterBindings(
+  panels: Panel[],
+  oldVariables: Variable[],
+  newVariables: Variable[]
+): Panel[] {
+  const newNames = new Set(newVariables.map((v) => v.name));
+  const oldByName = new Map(oldVariables.map((v) => [v.name, v]));
+
+  const needsBinding = (v: Variable): boolean => {
+    const nav = v['x-navixy'];
+    if (nav?.control !== 'multiselect' || !nav.column) return false;
+    // Without a recorded source panel there is nowhere to auto-bind.
+    if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle) return false;
+    const old = oldByName.get(v.name)?.['x-navixy'];
+    if (!old || old.control !== 'multiselect') return true;
+    return (
+      old.column !== nav.column ||
+      String(old.panelId ?? '') !== String(nav.panelId ?? '') ||
+      (old.panelTitle ?? '') !== (nav.panelTitle ?? '')
+    );
+  };
+  const autoBind = newVariables.filter(needsBinding);
+
+  const mapPanel = (panel: Panel): Panel => {
+    const newChildren = panel.panels ? panel.panels.map(mapPanel) : undefined;
+    const childChanged = !!newChildren && newChildren.some((c, i) => c !== panel.panels![i]);
+
+    let filters = panel['x-navixy']?.filters ?? [];
+    let changed = false;
+
+    const pruned = filters.filter((f) => newNames.has(f.variable));
+    if (pruned.length !== filters.length) {
+      filters = pruned;
+      changed = true;
+    }
+
+    for (const v of autoBind) {
+      const nav = v['x-navixy']!;
+      const existing = filters.findIndex((f) => f.variable === v.name);
+      if (filterAppliesToPanel(v, panel)) {
+        if (existing >= 0) {
+          if (filters[existing].column !== nav.column) {
+            filters = filters.map((f, i) => (i === existing ? { ...f, column: nav.column! } : f));
+            changed = true;
+          }
+        } else {
+          filters = [...filters, { variable: v.name, column: nav.column! }];
+          changed = true;
+        }
+      } else if (existing >= 0) {
+        filters = filters.filter((f) => f.variable !== v.name);
+        changed = true;
+      }
+    }
+
+    if (!changed && !childChanged) return panel;
+    const next: Panel = { ...panel };
+    if (childChanged) next.panels = newChildren;
+    if (changed) next['x-navixy'] = { ...panel['x-navixy'], filters };
+    return next;
+  };
+
+  return panels.map(mapPanel);
 }
 
 export interface ActivePanelFilter {
@@ -143,9 +354,9 @@ export interface ActivePanelFilter {
 
 /**
  * Resolve a panel's active local filter bindings — those whose column is set and
- * whose variable still exists as a date-range filter. Mirrors applyPanelFilters
- * exactly, so a UI indicator built on this shows precisely when a filter is
- * actually applied to the query.
+ * whose variable still exists as a local filter (date-range or multiselect). The
+ * indicator is config-level: it shows whenever a panel is wired to a filter,
+ * regardless of the current selection.
  */
 export function getActivePanelFilters(
   panel: Panel,
@@ -158,7 +369,8 @@ export function getActivePanelFilters(
   for (const binding of filters) {
     if (!binding.column) continue;
     const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
-    if (variable?.['x-navixy']?.control === 'daterange') {
+    const control = variable?.['x-navixy']?.control;
+    if (control === 'daterange' || control === 'multiselect') {
       active.push({
         variable: binding.variable,
         label: variable.label || variable.name,

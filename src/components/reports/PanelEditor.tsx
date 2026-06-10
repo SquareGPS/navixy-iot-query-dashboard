@@ -19,7 +19,7 @@ import { formatSql } from '@/lib/sqlFormatter';
 import type { Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames } from '@/utils/sqlParameterExtractor';
-import { dateRangeParamNames } from '@/utils/filterVariables';
+import { filterClausePreview, filterAppliesToPanel } from '@/utils/filterVariables';
 
 /**
  * Maps panel type to default dataset shape
@@ -52,8 +52,8 @@ interface PanelEditorProps {
   onClose: () => void;
   panel: Panel;
   onSave: (updatedPanel: Panel) => void;
-  /** Dashboard date-range filter variables available to bind to this panel. */
-  dateFilters?: Variable[];
+  /** Dashboard local filter variables (date-range + multiselect) available to bind to this panel. */
+  localFilters?: Variable[];
 }
 
 /** Read a panel's existing filter bindings into a {variable: column} map. */
@@ -65,7 +65,7 @@ function initFilterBindings(panel: Panel): Record<string, string> {
   return map;
 }
 
-export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: PanelEditorProps) {
+export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }: PanelEditorProps) {
   const [title, setTitle] = useState(panel.title);
   const [description, setDescription] = useState(panel.description || '');
   const [panelType, setPanelType] = useState(panel.type);
@@ -229,7 +229,7 @@ export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: 
       // (even when empty) so unchecking clears it through the panel-save merge.
       const filters: PanelFilterBinding[] = Object.entries(filterBindings)
         .filter(([variable, column]) =>
-          column && column.trim() && dateFilters.some((v) => v.name === variable)
+          column && column.trim() && localFilters.some((v) => v.name === variable)
         )
         .map(([variable, column]) => ({ variable, column: column.trim() }));
 
@@ -398,15 +398,25 @@ export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: 
     (a, b) => Number(isDateishType(columnTypeOf(b))) - Number(isDateishType(columnTypeOf(a)))
   );
 
-  const showFiltersTab = !isTextPanel && dateFilters.length > 0;
+  // Offer date filters to any panel, value filters only to their source panel —
+  // plus any filter already bound here, so a stale binding stays visible and
+  // can be unticked.
+  const visibleFilters = localFilters.filter(
+    (v) => filterAppliesToPanel(v, panel) || v.name in filterBindings
+  );
+
+  const showFiltersTab = !isTextPanel && visibleFilters.length > 0;
   const nonTextTabCols = showFiltersTab ? 'grid-cols-4' : 'grid-cols-3';
 
   const setFilterEnabled = (variable: string, enabled: boolean) => {
     setFilterBindings((prev) => {
       const next = { ...prev };
       if (enabled) {
-        // Pre-select the first date-ish column if one was detected
-        const suggested = sortedColumns.find((c) => isDateishType(columnTypeOf(c))) || '';
+        const v = localFilters.find((f) => f.name === variable);
+        // Value filters carry their source column; pre-fill it. Date filters
+        // pre-select the first detected date/time column.
+        const preferred = v?.['x-navixy']?.column;
+        const suggested = preferred ?? sortedColumns.find((c) => isDateishType(columnTypeOf(c))) ?? '';
         next[variable] = prev[variable] ?? suggested;
       } else {
         delete next[variable];
@@ -617,9 +627,10 @@ export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: 
               <div className="space-y-4 py-2">
                 <Alert>
                   <AlertDescription className="text-xs">
-                    Bind a dashboard date filter to a column in this panel's result. When a viewer changes the
-                    filter, this panel re-queries and shows only rows whose column falls in the selected range.
-                    Your SQL is not modified — the filter is applied by wrapping the query at run time.
+                    Bind a dashboard filter to a column in this panel's result. When a viewer changes the
+                    filter, this panel re-queries and shows only the matching rows (a date range, or the
+                    selected values). Your SQL is not modified — the filter is applied by wrapping the query
+                    at run time.
                   </AlertDescription>
                 </Alert>
 
@@ -630,10 +641,9 @@ export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: 
                   </p>
                 )}
 
-                {dateFilters.map((variable) => {
+                {visibleFilters.map((variable) => {
                   const enabled = variable.name in filterBindings;
                   const column = filterBindings[variable.name] ?? '';
-                  const names = dateRangeParamNames(variable.name);
                   return (
                     <div key={variable.name} className="rounded-lg border p-3 space-y-3">
                       <div className="flex items-center gap-2">
@@ -670,13 +680,13 @@ export function PanelEditor({ open, onClose, panel, onSave, dateFilters = [] }: 
                             <Input
                               value={column}
                               onChange={(e) => setFilterColumn(variable.name, e.target.value)}
-                              placeholder="e.g. event_time"
+                              placeholder="e.g. event_time / status"
                               className="h-9 w-72 font-mono"
                             />
                           )}
                           {column ? (
                             <p className="text-xs text-muted-foreground font-mono">
-                              WHERE "{column}" BETWEEN {'${'}{names.from}{'}'} AND {'${'}{names.to}{'}'}
+                              WHERE {filterClausePreview(variable, column)}
                             </p>
                           ) : (
                             <p className="text-xs text-amber-600">Pick a column to activate this filter.</p>

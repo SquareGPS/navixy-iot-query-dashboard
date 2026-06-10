@@ -2,13 +2,16 @@
  * VariablesManager
  *
  * Editor dialog for a dashboard's local filter variables (templating.list[]).
- * Currently supports Type 1 — date-range filters. Non-date-range template
- * variables present on the dashboard are preserved untouched on save.
+ * Supports Type 1 — date-range filters — and Type 2 — column-value (multiselect)
+ * filters. Value filters are column-first: the available columns are collected
+ * from the dashboard's panels (by running each panel query once), and the author
+ * picks one — the label, variable name, and open-time discovery query are all
+ * derived from that column.
  *
- * On save it hands the full, merged templating.list[] back to the parent, which
- * is responsible for persisting it onto the dashboard.
+ * Non-filter template variables present on the dashboard are preserved untouched.
+ * On save it hands the full, merged templating.list[] back to the parent.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,21 +26,29 @@ import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CalendarRange, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
+import { CalendarRange, ListChecks, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import type { Dashboard, Variable } from '@/types/dashboard-types';
+import { apiService } from '@/services/api';
+import { walkSqlPanels } from '@/utils/sqlParameterExtractor';
+import type { Dashboard, Variable, Panel } from '@/types/dashboard-types';
 import {
   DATE_RANGE_PRESETS,
   DEFAULT_DATE_RANGE,
   dateRangeDefaults,
   dateRangeParamNames,
+  defaultTimeParams,
+  buildDiscoveryQuery,
+  multiselectColumn,
   isValidFilterName,
   makeDateRangeVariable,
+  makeMultiselectVariable,
   suggestFilterName,
 } from '@/utils/filterVariables';
 
@@ -45,88 +56,159 @@ interface VariablesManagerProps {
   open: boolean;
   onClose: () => void;
   dashboard: Dashboard | null;
-  /** Receives the full, merged templating.list[] (date-range + preserved vars). */
   onSave: (variables: Variable[]) => Promise<void> | void;
 }
 
+type FilterKind = 'daterange' | 'multiselect';
+
 interface EditorState {
-  originalName: string | null; // null = creating a new filter
+  originalName: string | null;
+  kind: FilterKind;
   label: string;
   name: string;
-  presetId: string; // preset id, or 'custom' to keep an existing non-preset range
   nameTouched: boolean;
+  presetId: string; // date
+  column: string; // multiselect: the chosen column name (stored on the variable)
+  columnKey: string; // multiselect: unique select value, `<panelIndex>:<column>`
+  panelId?: string | number; // multiselect: source panel of the chosen column
+  panelTitle?: string;
+}
+
+interface PanelColumns {
+  panel: string;
+  panelId?: string | number;
+  sql: string;
+  columns: Array<{ key: string; name: string; type: string }>;
 }
 
 const CUSTOM_PRESET_ID = 'custom';
+const controlOf = (v: Variable): FilterKind | undefined => v['x-navixy']?.control as FilterKind | undefined;
+const isLocalFilter = (v: Variable) => controlOf(v) === 'daterange' || controlOf(v) === 'multiselect';
 
-function isDateRange(v: Variable): boolean {
-  return v['x-navixy']?.control === 'daterange';
-}
-
-/** Map a stored variable back to a preset id, or 'custom' if it doesn't match one. */
 function matchPresetId(variable: Variable): string {
   const range = dateRangeDefaults(variable);
   const found = DATE_RANGE_PRESETS.find((p) => p.from === range.from && p.to === range.to);
   return found ? found.id : CUSTOM_PRESET_ID;
 }
 
-export const VariablesManager: React.FC<VariablesManagerProps> = ({
-  open,
-  onClose,
-  dashboard,
-  onSave,
-}) => {
+function titleize(col: string): string {
+  return col.replace(/[_.]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+}
+
+export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClose, dashboard, onSave }) => {
   const [list, setList] = useState<Variable[]>([]);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Initialize working copy from the dashboard each time the dialog opens.
+  // Columns collected from the dashboard's panels, grouped per panel and kept
+  // in dashboard order (for value-filter creation)
+  const [panelColumns, setPanelColumns] = useState<PanelColumns[]>([]);
+  const [columnsLoading, setColumnsLoading] = useState(false);
+  const columnsLoadedRef = useRef(false);
+
   useEffect(() => {
     if (open) {
       setList(dashboard?.templating?.list ?? []);
       setEditor(null);
       setSaving(false);
+      columnsLoadedRef.current = false;
+      setPanelColumns([]);
     }
   }, [open, dashboard]);
 
-  const dateFilters = useMemo(() => list.filter(isDateRange), [list]);
+  // Collect panel output columns the first time a value filter is being edited.
+  // Runs each panel query in parallel; the picker stays disabled until every
+  // panel has answered, so the column list is complete and stable when shown.
+  useEffect(() => {
+    if (editor?.kind !== 'multiselect' || columnsLoadedRef.current || !dashboard) return;
+    columnsLoadedRef.current = true;
+    setColumnsLoading(true);
+
+    const timeParams = defaultTimeParams(dashboard);
+    const panels: { id?: string | number; title: string; sql: string }[] = [];
+    walkSqlPanels(dashboard.panels, (p) => {
+      const panel = p as Panel;
+      const sql = panel['x-navixy']?.sql?.statement;
+      if (sql && sql.trim() && panel.type !== 'text') panels.push({ id: panel.id, title: panel.title || 'panel', sql });
+    });
+
+    // Results slot per panel so dashboard order is preserved regardless of
+    // which queries finish first.
+    const results: (PanelColumns | null)[] = panels.map(() => null);
+
+    Promise.all(
+      panels.map(async (p, idx) => {
+        try {
+          const res = await apiService.executeSQL({ sql: p.sql, params: timeParams, row_limit: 1, timeout_ms: 15000 });
+          const cols = (res.data?.columns || []).map((c: { name: string; type: string }) => ({
+            key: `${idx}:${c.name}`,
+            name: c.name,
+            type: c.type,
+          }));
+          if (cols.length > 0) results[idx] = { panel: p.title, panelId: p.id, sql: p.sql, columns: cols };
+        } catch {
+          /* skip panels that fail to run */
+        }
+      })
+    ).finally(() => {
+      setPanelColumns(results.filter((r): r is PanelColumns => r !== null));
+      setColumnsLoading(false);
+    });
+  }, [editor?.kind, dashboard]);
+
+  // When editing an existing value filter, resolve its stored column name to a
+  // concrete picker entry once columns have loaded (without re-deriving the
+  // label/name — those keep their stored values).
+  useEffect(() => {
+    if (!editor || editor.kind !== 'multiselect' || editor.columnKey || !editor.column || panelColumns.length === 0) return;
+    // Prefer the filter's stored source panel; fall back to any panel with the column.
+    const ranked = [...panelColumns].sort((a, b) => {
+      const isSource = (pc: PanelColumns) =>
+        (editor.panelId !== undefined && editor.panelId !== null && String(pc.panelId) === String(editor.panelId)) ||
+        (!!editor.panelTitle && pc.panel === editor.panelTitle);
+      return Number(isSource(b)) - Number(isSource(a));
+    });
+    for (const pc of ranked) {
+      const hit = pc.columns.find((c) => c.name === editor.column);
+      if (hit) {
+        setEditor((prev) => (prev && !prev.columnKey ? { ...prev, columnKey: hit.key } : prev));
+        return;
+      }
+    }
+  }, [panelColumns, editor]);
+
+  const filters = useMemo(() => list.filter(isLocalFilter), [list]);
 
   const nameError = useMemo(() => {
     if (!editor) return null;
     const name = editor.name.trim();
     if (!name) return 'Name is required.';
-    if (!isValidFilterName(name)) {
-      return 'Use letters, digits and underscores; must start with a letter and not begin with "__".';
-    }
-    const collides = list.some(
-      (v) => v.name === name && v.name !== editor.originalName
-    );
-    if (collides) return 'A variable with this name already exists.';
+    if (!isValidFilterName(name)) return 'Use letters, digits and underscores; must start with a letter and not begin with "__".';
+    if (list.some((v) => v.name === name && v.name !== editor.originalName)) return 'A variable with this name already exists.';
     return null;
   }, [editor, list]);
 
-  const labelError = useMemo(() => {
-    if (!editor) return null;
-    return editor.label.trim() ? null : 'Label is required.';
-  }, [editor]);
+  const labelError = useMemo(() => (editor && !editor.label.trim() ? 'Label is required.' : null), [editor]);
+  const columnError = useMemo(() => (editor?.kind === 'multiselect' && !editor.column ? 'Pick a column.' : null), [editor]);
+  const formInvalid = !!nameError || !!labelError || !!columnError;
 
-  const startAdd = () => {
-    setEditor({
-      originalName: null,
-      label: '',
-      name: '',
-      presetId: DEFAULT_DATE_RANGE.id,
-      nameTouched: false,
-    });
-  };
+  const baseEditor = (kind: FilterKind): EditorState => ({
+    originalName: null, kind, label: '', name: '', nameTouched: false, presetId: DEFAULT_DATE_RANGE.id, column: '', columnKey: '',
+  });
 
   const startEdit = (variable: Variable) => {
+    const kind = controlOf(variable) as FilterKind;
     setEditor({
       originalName: variable.name,
+      kind,
       label: variable.label || variable.name,
       name: variable.name,
-      presetId: matchPresetId(variable),
       nameTouched: true,
+      presetId: kind === 'daterange' ? matchPresetId(variable) : DEFAULT_DATE_RANGE.id,
+      column: multiselectColumn(variable) || '',
+      columnKey: '', // resolved against the loaded columns by the sync effect
+      panelId: variable['x-navixy']?.panelId,
+      panelTitle: variable['x-navixy']?.panelTitle,
     });
   };
 
@@ -136,49 +218,72 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({
   };
 
   const handleLabelChange = (label: string) => {
+    setEditor((prev) => (prev ? { ...prev, label, name: prev.nameTouched ? prev.name : suggestFilterName(label) } : prev));
+  };
+
+  // Picking (or changing) the column always re-derives the label and name.
+  const pickColumn = (key: string) => {
+    const panel = panelColumns.find((pc) => pc.columns.some((c) => c.key === key));
+    const entry = panel?.columns.find((c) => c.key === key);
+    if (!panel || !entry) return;
     setEditor((prev) =>
       prev
         ? {
             ...prev,
-            label,
-            name: prev.nameTouched ? prev.name : suggestFilterName(label),
+            columnKey: key,
+            column: entry.name,
+            panelId: panel.panelId,
+            panelTitle: panel.panel,
+            label: titleize(entry.name),
+            name: suggestFilterName(entry.name),
+            nameTouched: false,
           }
         : prev
     );
   };
 
   const commitEditor = () => {
-    if (!editor || nameError || labelError) return;
+    if (!editor || formInvalid) return;
     const name = editor.name.trim();
     const label = editor.label.trim();
 
-    let from: string;
-    let to: string;
-    let text: string;
-
-    if (editor.presetId === CUSTOM_PRESET_ID) {
-      // Keep the existing custom range from the original variable.
-      const original = list.find((v) => v.name === editor.originalName);
-      const range = original ? dateRangeDefaults(original) : DEFAULT_DATE_RANGE;
-      from = range.from;
-      to = range.to;
-      text = original?.current?.text || 'Custom range';
+    let newVar: Variable;
+    if (editor.kind === 'daterange') {
+      if (editor.presetId === CUSTOM_PRESET_ID) {
+        const original = list.find((v) => v.name === editor.originalName);
+        const range = original ? dateRangeDefaults(original) : DEFAULT_DATE_RANGE;
+        newVar = makeDateRangeVariable({ name, label, from: range.from, to: range.to, text: original?.current?.text || 'Custom range' });
+      } else {
+        const preset = DATE_RANGE_PRESETS.find((p) => p.id === editor.presetId) ?? DEFAULT_DATE_RANGE;
+        newVar = makeDateRangeVariable({ name, label, from: preset.from, to: preset.to, text: preset.display });
+      }
     } else {
-      const preset =
-        DATE_RANGE_PRESETS.find((p) => p.id === editor.presetId) ?? DEFAULT_DATE_RANGE;
-      from = preset.from;
-      to = preset.to;
-      text = preset.display;
+      const panel = panelColumns.find((pc) => pc.columns.some((c) => c.key === editor.columnKey));
+      if (panel) {
+        newVar = makeMultiselectVariable({
+          name,
+          label,
+          column: editor.column,
+          panelId: panel.panelId,
+          panelTitle: panel.panel,
+          query: buildDiscoveryQuery(editor.column, panel.sql),
+        });
+      } else {
+        // Editing without re-picking (e.g. label rename before columns loaded):
+        // keep the original variable's column, source panel and discovery query.
+        const original = list.find((v) => v.name === editor.originalName);
+        newVar = makeMultiselectVariable({
+          name,
+          label,
+          column: editor.column,
+          panelId: editor.panelId,
+          panelTitle: editor.panelTitle,
+          query: original?.query,
+        });
+      }
     }
 
-    const newVar = makeDateRangeVariable({ name, label, from, to, text });
-
-    setList((prev) => {
-      if (editor.originalName) {
-        return prev.map((v) => (v.name === editor.originalName ? newVar : v));
-      }
-      return [...prev, newVar];
-    });
+    setList((prev) => (editor.originalName ? prev.map((v) => (v.name === editor.originalName ? newVar : v)) : [...prev, newVar]));
     setEditor(null);
   };
 
@@ -190,185 +295,178 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({
       onClose();
     } catch (err) {
       console.error('Error saving dashboard filters:', err);
-      toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to save dashboard filters',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to save dashboard filters', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
-  const derivedNames = editor && editor.name.trim() && !nameError
-    ? dateRangeParamNames(editor.name.trim())
+  const derivedBind = editor && editor.name.trim() && !nameError
+    ? editor.kind === 'daterange'
+      ? (() => { const n = dateRangeParamNames(editor.name.trim()); return `\${${n.from}} … \${${n.to}}`; })()
+      : `\${${editor.name.trim()}}`
     : null;
 
   const presetOptions = editor?.presetId === CUSTOM_PRESET_ID
     ? [{ id: CUSTOM_PRESET_ID, display: 'Custom (keep current)' }, ...DATE_RANGE_PRESETS]
     : DATE_RANGE_PRESETS;
 
+  // Shared Label + Variable name fields (rendered in kind-specific order).
+  const renderLabelField = (e: EditorState) => (
+    <div className="space-y-1">
+      <Label className="text-xs">Label</Label>
+      <Input value={e.label} onChange={(ev) => handleLabelChange(ev.target.value)} placeholder={e.kind === 'daterange' ? 'Reporting period' : 'Status'} className="h-9" />
+      {labelError && <p className="text-xs text-red-600">{labelError}</p>}
+    </div>
+  );
+  const renderNameField = (e: EditorState) => (
+    <div className="space-y-1">
+      <Label className="text-xs">Variable name</Label>
+      <Input value={e.name} onChange={(ev) => setEditor((prev) => (prev ? { ...prev, name: ev.target.value, nameTouched: true } : prev))} placeholder={e.kind === 'daterange' ? 'period' : 'status'} className="h-9 font-mono" />
+      {nameError ? (
+        <p className="text-xs text-red-600">{nameError}</p>
+      ) : derivedBind ? (
+        <p className="text-xs text-muted-foreground">
+          {e.kind === 'multiselect' && e.panelTitle ? (
+            <>
+              Binds <code className="rounded bg-[var(--surface-3)] px-1">{derivedBind}</code> — applied to{' '}
+              <span className="font-medium">“{e.panelTitle}”</span> automatically.
+            </>
+          ) : (
+            <>
+              Binds <code className="rounded bg-[var(--surface-3)] px-1">{derivedBind}</code> — apply it to panels in
+              each panel's <span className="font-medium">Filters</span> tab.
+            </>
+          )}
+        </p>
+      ) : null}
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CalendarRange className="h-5 w-5" />
+            <ListChecks className="h-5 w-5" />
             Dashboard Filters
           </DialogTitle>
           <DialogDescription>
-            Add local filter variables that bind into panel SQL. A date filter exposes
-            two parameters you can reference in any panel query.
+            Add local filter variables that bind into panel SQL. A date filter picks a range; a value filter
+            picks from a column's distinct values.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2 max-h-[55vh] overflow-y-auto">
-          {/* Existing filters */}
-          {dateFilters.length === 0 && !editor && (
+        <div className="space-y-3 py-2 max-h-[58vh] overflow-y-auto">
+          {filters.length === 0 && !editor && (
             <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              No filters yet. Add a date filter to let viewers pick a custom range.
+              No filters yet. Add a date or value filter for viewers to use.
             </div>
           )}
 
-          {dateFilters.map((variable) => {
-            const names = dateRangeParamNames(variable.name);
+          {filters.map((variable) => {
+            const kind = controlOf(variable);
             const isEditingThis = editor?.originalName === variable.name;
+            const bind = kind === 'daterange'
+              ? (() => { const n = dateRangeParamNames(variable.name); return `\${${n.from}} · \${${n.to}}`; })()
+              : `\${${variable.name}} = ANY(...)`;
+            const sourceText = kind === 'multiselect'
+              ? (multiselectColumn(variable)
+                  ? `column “${multiselectColumn(variable)}”${variable['x-navixy']?.panelTitle ? ` · ${variable['x-navixy'].panelTitle}` : ''}`
+                  : 'values')
+              : (variable.current?.text || 'range');
             return (
-              <div
-                key={variable.name}
-                className={cn(
-                  'flex items-start justify-between gap-3 rounded-lg border p-3',
-                  isEditingThis && 'ring-2 ring-[#379EF9]'
-                )}
-              >
+              <div key={variable.name} className={cn('flex items-start justify-between gap-3 rounded-lg border p-3', isEditingThis && 'ring-2 ring-[#379EF9]')}>
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
-                    <CalendarRange className="h-4 w-4 text-muted-foreground shrink-0" />
+                    {kind === 'daterange' ? <CalendarRange className="h-4 w-4 text-muted-foreground shrink-0" /> : <ListChecks className="h-4 w-4 text-muted-foreground shrink-0" />}
                     <span className="font-medium truncate">{variable.label || variable.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      ({variable.current?.text || 'range'})
-                    </span>
+                    <span className="text-xs text-muted-foreground">({sourceText})</span>
                   </div>
-                  <div className="text-xs text-muted-foreground font-mono truncate">
-                    {'${'}{names.from}{'}'} · {'${'}{names.to}{'}'}
-                  </div>
+                  <div className="text-xs text-muted-foreground font-mono truncate">{bind}</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="sm" onClick={() => startEdit(variable)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    onClick={() => handleDelete(variable.name)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(variable)}><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleDelete(variable.name)}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               </div>
             );
           })}
 
-          {/* Add / edit form */}
           {editor ? (
             <div className="rounded-lg border bg-[var(--surface-2)] p-4 space-y-3">
               <div className="text-sm font-semibold">
-                {editor.originalName ? 'Edit date filter' : 'New date filter'}
+                {editor.originalName ? 'Edit' : 'New'} {editor.kind === 'daterange' ? 'date filter' : 'value filter'}
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">Label</Label>
-                <Input
-                  value={editor.label}
-                  onChange={(e) => handleLabelChange(e.target.value)}
-                  placeholder="Reporting period"
-                  className="h-9"
-                  autoFocus
-                />
-                {labelError && <p className="text-xs text-red-600">{labelError}</p>}
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Variable name</Label>
-                <Input
-                  value={editor.name}
-                  onChange={(e) =>
-                    setEditor((prev) =>
-                      prev ? { ...prev, name: e.target.value, nameTouched: true } : prev
-                    )
-                  }
-                  placeholder="period"
-                  className="h-9 font-mono"
-                />
-                {nameError ? (
-                  <p className="text-xs text-red-600">{nameError}</p>
-                ) : derivedNames ? (
-                  <p className="text-xs text-muted-foreground">
-                    Use in panel SQL as{' '}
-                    <code className="rounded bg-[var(--surface-3)] px-1">
-                      {'${'}{derivedNames.from}{'}'}
-                    </code>{' '}
-                    and{' '}
-                    <code className="rounded bg-[var(--surface-3)] px-1">
-                      {'${'}{derivedNames.to}{'}'}
-                    </code>
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs">Default range</Label>
-                <Select
-                  value={editor.presetId}
-                  onValueChange={(val) =>
-                    setEditor((prev) => (prev ? { ...prev, presetId: val } : prev))
-                  }
-                >
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {presetOptions.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.display}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {editor.kind === 'multiselect' ? (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Column</Label>
+                    <Select value={editor.columnKey} onValueChange={pickColumn} disabled={columnsLoading}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder={columnsLoading ? 'Detecting columns…' : editor.column || 'Pick a column'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {panelColumns.map((pc, idx) => (
+                          <SelectGroup key={`${idx}-${pc.panel}`}>
+                            <SelectLabel>{pc.panel}</SelectLabel>
+                            {pc.columns.map((c) => (
+                              <SelectItem key={c.key} value={c.key}>
+                                {c.name}<span className="text-muted-foreground"> · {c.type}</span>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {columnError && <p className="text-xs text-red-600">{columnError}</p>}
+                    {!columnsLoading && panelColumns.length === 0 && <p className="text-xs text-amber-600">No columns detected from the panels.</p>}
+                    <p className="text-xs text-muted-foreground">
+                      {columnsLoading
+                        ? 'Running panel queries to detect available columns…'
+                        : "Viewers pick from this column's distinct values (loaded when the dashboard opens)."}
+                    </p>
+                  </div>
+                  {editor.column && (
+                    <>
+                      {renderLabelField(editor)}
+                      {renderNameField(editor)}
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {renderLabelField(editor)}
+                  {renderNameField(editor)}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Default range</Label>
+                    <Select value={editor.presetId} onValueChange={(val) => setEditor((prev) => (prev ? { ...prev, presetId: val } : prev))}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {presetOptions.map((p) => (<SelectItem key={p.id} value={p.id}>{p.display}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
 
               <div className="flex justify-end gap-2 pt-1">
-                <Button variant="ghost" size="sm" onClick={() => setEditor(null)}>
-                  <X className="h-4 w-4 mr-1" />
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={commitEditor}
-                  disabled={!!nameError || !!labelError}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {editor.originalName ? 'Update filter' : 'Add filter'}
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditor(null)}><X className="h-4 w-4 mr-1" />Cancel</Button>
+                <Button size="sm" onClick={commitEditor} disabled={formInvalid}><Plus className="h-4 w-4 mr-1" />{editor.originalName ? 'Update filter' : 'Add filter'}</Button>
               </div>
             </div>
           ) : (
-            <Button variant="outline" className="w-full" onClick={startAdd}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add date filter
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEditor(baseEditor('daterange'))}><CalendarRange className="h-4 w-4 mr-2" />Add date filter</Button>
+              <Button variant="outline" className="flex-1" onClick={() => setEditor(baseEditor('multiselect'))}><ListChecks className="h-4 w-4 mr-2" />Add value filter</Button>
+            </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving || !!editor}>
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? 'Saving...' : 'Save changes'}
-          </Button>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || !!editor}><Save className="h-4 w-4 mr-2" />{saving ? 'Saving...' : 'Save changes'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
