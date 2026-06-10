@@ -199,6 +199,112 @@ export function defaultTimeParams(dashboard: Dashboard | null | undefined): Reco
   };
 }
 
+/**
+ * Resolve a binding expression the way the dashboard renderer does at query
+ * time: `${__from}`/`${__to}` against the default time range, `${name}` against
+ * templating current values, then recursively against dashboard-level
+ * x-navixy.parameters.bindings. Literals and unresolvable expressions are
+ * returned as-is.
+ */
+function resolveBindingExpression(
+  expr: string,
+  dashboard: Dashboard | null | undefined,
+  seen: Set<string> = new Set()
+): unknown {
+  const match = typeof expr === 'string' ? expr.match(/^\$\{([^}]+)\}$/) : null;
+  if (!match) return expr;
+  const name = match[1];
+  if (seen.has(name)) return expr; // cycle guard
+  seen.add(name);
+
+  if (name === '__from' || name === '__to') {
+    return defaultTimeParams(dashboard)[name];
+  }
+  const variable = dashboard?.templating?.list?.find((v) => v.name === name);
+  if (variable?.current?.value !== undefined) {
+    return variable.current.value;
+  }
+  const nested = dashboard?.['x-navixy']?.parameters?.bindings?.[name];
+  if (nested !== undefined) {
+    return resolveBindingExpression(nested, dashboard, seen);
+  }
+  return expr;
+}
+
+/**
+ * Default parameter values for running a panel's SQL outside the live parameter
+ * bar (column collection and option discovery). Mirrors executePanelQuery's
+ * resolution order minus user-selected values: panel param defaults → panel
+ * bindings → dashboard bindings → default time range → templating current
+ * values. Callers should still strip unused params via filterUsedParameters.
+ */
+export function resolveDefaultPanelParams(
+  dashboard: Dashboard | null | undefined,
+  panel?: Panel
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  const sql = panel?.['x-navixy']?.sql;
+
+  // Panel param defaults (the params map can hold nulls and config scalars —
+  // only honour real config objects with a default)
+  if (sql?.params) {
+    for (const [key, cfg] of Object.entries(sql.params as Record<string, unknown>)) {
+      if (cfg && typeof cfg === 'object' && (cfg as { default?: unknown }).default !== undefined) {
+        params[key] = (cfg as { default?: unknown }).default;
+      }
+    }
+  }
+
+  // Panel-level bindings, then dashboard-level bindings
+  for (const bindings of [sql?.bindings, dashboard?.['x-navixy']?.parameters?.bindings]) {
+    if (!bindings) continue;
+    for (const [key, expr] of Object.entries(bindings)) {
+      if (!(key in params)) params[key] = resolveBindingExpression(expr, dashboard);
+    }
+  }
+
+  // Default global time range
+  const time = defaultTimeParams(dashboard);
+  if (!('__from' in params)) params.__from = time.__from;
+  if (!('__to' in params)) params.__to = time.__to;
+
+  // Templating variables by name (current values)
+  dashboard?.templating?.list?.forEach((v) => {
+    if (v.current?.value !== undefined && !(v.name in params)) {
+      params[v.name] = v.current.value;
+    }
+  });
+
+  return params;
+}
+
+/**
+ * Locate the source panel a multiselect filter was created from (for resolving
+ * that panel's bindings when running the filter's discovery query). Returns
+ * undefined for filters without a recorded source panel.
+ */
+export function findFilterSourcePanel(
+  variable: Variable,
+  panels: Panel[] | undefined
+): Panel | undefined {
+  const nav = variable['x-navixy'];
+  if (nav?.control !== 'multiselect') return undefined;
+  if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle) return undefined;
+
+  let found: Panel | undefined;
+  const visit = (list: Panel[]) => {
+    for (const p of list) {
+      if (!found && p['x-navixy']?.sql?.statement && filterAppliesToPanel(variable, p)) {
+        found = p;
+        return;
+      }
+      if (!found && p.panels?.length) visit(p.panels);
+    }
+  };
+  if (panels) visit(panels);
+  return found;
+}
+
 /** Double-quote a SQL identifier, escaping embedded quotes. */
 export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;

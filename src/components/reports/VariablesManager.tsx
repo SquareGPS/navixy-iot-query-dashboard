@@ -36,14 +36,14 @@ import { CalendarRange, ListChecks, Plus, Trash2, Pencil, X, Save } from 'lucide
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { apiService } from '@/services/api';
-import { walkSqlPanels } from '@/utils/sqlParameterExtractor';
+import { filterUsedParameters, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import type { Dashboard, Variable, Panel } from '@/types/dashboard-types';
 import {
   DATE_RANGE_PRESETS,
   DEFAULT_DATE_RANGE,
   dateRangeDefaults,
   dateRangeParamNames,
-  defaultTimeParams,
+  resolveDefaultPanelParams,
   buildDiscoveryQuery,
   multiselectColumn,
   isValidFilterName,
@@ -124,12 +124,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     columnsLoadedRef.current = true;
     setColumnsLoading(true);
 
-    const timeParams = defaultTimeParams(dashboard);
-    const panels: { id?: string | number; title: string; sql: string }[] = [];
+    const panels: { id?: string | number; title: string; sql: string; panel: Panel }[] = [];
     walkSqlPanels(dashboard.panels, (p) => {
       const panel = p as Panel;
       const sql = panel['x-navixy']?.sql?.statement;
-      if (sql && sql.trim() && panel.type !== 'text') panels.push({ id: panel.id, title: panel.title || 'panel', sql });
+      if (sql && sql.trim() && panel.type !== 'text') panels.push({ id: panel.id, title: panel.title || 'panel', sql, panel });
     });
 
     // Results slot per panel so dashboard order is preserved regardless of
@@ -139,7 +138,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     Promise.all(
       panels.map(async (p, idx) => {
         try {
-          const res = await apiService.executeSQL({ sql: p.sql, params: timeParams, row_limit: 1, timeout_ms: 15000 });
+          // Resolve the panel's full default parameter context (bindings,
+          // templating values, time range) so panels referencing template
+          // variables are collected rather than silently skipped.
+          const params = filterUsedParameters(p.sql, resolveDefaultPanelParams(dashboard, p.panel));
+          const res = await apiService.executeSQL({ sql: p.sql, params, row_limit: 1, timeout_ms: 15000 });
           const cols = (res.data?.columns || []).map((c: { name: string; type: string }) => ({
             key: `${idx}:${c.name}`,
             name: c.name,

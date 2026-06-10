@@ -21,7 +21,7 @@ import { CalendarIcon, RotateCcw, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
-import { extractParameterNames, walkSqlPanels } from '@/utils/sqlParameterExtractor';
+import { extractParameterNames, filterUsedParameters, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { formatTimestamp } from '@/utils/datetime';
@@ -34,7 +34,8 @@ import {
   dateRangeDefaults,
   multiselectSelection,
   multiselectStaticOptions,
-  defaultTimeParams,
+  resolveDefaultPanelParams,
+  findFilterSourcePanel,
   DATE_RANGE_PRESETS,
 } from '@/utils/filterVariables';
 import { apiService } from '@/services/api';
@@ -165,18 +166,34 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
         setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: staticOpts }));
         return;
       }
-      if (!variable.query || discoveredRef.current.has(variable.name)) return;
-      discoveredRef.current.add(variable.name);
+      if (!variable.query) return;
+      // Key by name + query so editing the filter's column (which changes the
+      // derived discovery query) re-runs discovery without a full reload.
+      const discoveryKey = `${variable.name}:${variable.query}`;
+      if (discoveredRef.current.has(discoveryKey)) return;
+      discoveredRef.current.add(discoveryKey);
       setOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
       try {
-        // The derived discovery query wraps a panel that may reference ${__from}/${__to}.
-        const res = await apiService.executeSQL({ sql: variable.query, params: defaultTimeParams(dashboard), row_limit: 1000 });
+        // The derived discovery query wraps a panel's SQL, which may reference
+        // ${__from}/${__to}, other template variables, or panel/dashboard
+        // bindings — resolve them all from defaults, like executePanelQuery.
+        const sourcePanel = findFilterSourcePanel(variable, dashboard.panels);
+        const params = filterUsedParameters(
+          variable.query,
+          resolveDefaultPanelParams(dashboard, sourcePanel)
+        );
+        const res = await apiService.executeSQL({ sql: variable.query, params, row_limit: 1000 });
+        // executeSQL reports SQL failures as a 200 + {error} payload, not a throw
+        if (res.error) {
+          throw new Error(res.error.message || 'Discovery query failed');
+        }
         const rows = res.data?.rows || [];
         const values = [...new Set(rows.map((r: unknown[]) => r[0]).filter((x) => x !== null && x !== undefined).map(String))];
         setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
-      } catch {
+      } catch (err) {
+        console.error(`Discovery query for filter "${variable.name}" failed:`, err);
         setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: [] }));
-        discoveredRef.current.delete(variable.name); // allow retry on next load
+        discoveredRef.current.delete(discoveryKey); // allow retry on next load
       } finally {
         setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
       }
