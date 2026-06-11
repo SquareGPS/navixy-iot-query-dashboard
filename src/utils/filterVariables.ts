@@ -133,6 +133,7 @@ export function makeMultiselectVariable(params: {
   column?: string;
   panelId?: string | number;
   panelTitle?: string;
+  panels?: Array<{ id?: string | number; title?: string }>;
   query?: string;
   staticValues?: string[];
 }): Variable {
@@ -148,6 +149,7 @@ export function makeMultiselectVariable(params: {
       ...(params.column ? { column: params.column } : {}),
       ...(params.panelId !== undefined && params.panelId !== null ? { panelId: params.panelId } : {}),
       ...(params.panelTitle ? { panelTitle: params.panelTitle } : {}),
+      ...(params.panels && params.panels.length > 0 ? { panels: params.panels } : {}),
     },
   };
   if (params.query) variable.query = params.query;
@@ -157,20 +159,35 @@ export function makeMultiselectVariable(params: {
   return variable;
 }
 
+/** Match a panel against a recorded {id, title} reference (id wins, title falls back). */
+function panelMatchesRef(
+  panel: Panel,
+  ref: { id?: string | number; title?: string }
+): boolean {
+  if (ref.id !== undefined && ref.id !== null && panel.id !== undefined && panel.id !== null) {
+    return String(ref.id) === String(panel.id);
+  }
+  if (ref.title) return ref.title === panel.title;
+  return false;
+}
+
 /**
- * Whether a local filter should be offered to a panel in its Filters tab. Date
- * filters apply to any panel. Value filters belong to the panel their column was
- * picked from (matched by id, falling back to title); legacy value filters with
- * no recorded source panel are offered everywhere.
+ * Whether a local filter should be offered to / auto-applied on a panel. Date
+ * filters apply to any panel. Value filters apply to every panel whose query
+ * outputs their column (the set recorded on the variable at creation); older
+ * variables that only recorded a single source panel match that panel, and
+ * legacy ones with no panel info at all are offered everywhere.
  */
 export function filterAppliesToPanel(variable: Variable, panel: Panel): boolean {
   const nav = variable['x-navixy'];
   if (nav?.control === 'daterange') return true;
   if (nav?.control !== 'multiselect') return false;
-  if (nav.panelId !== undefined && nav.panelId !== null && panel.id !== undefined && panel.id !== null) {
-    return String(nav.panelId) === String(panel.id);
+  if (nav.panels && nav.panels.length > 0) {
+    return nav.panels.some((ref) => panelMatchesRef(panel, ref));
   }
-  if (nav.panelTitle) return nav.panelTitle === panel.title;
+  if ((nav.panelId !== undefined && nav.panelId !== null) || nav.panelTitle) {
+    return panelMatchesRef(panel, { id: nav.panelId, title: nav.panelTitle });
+  }
   return true;
 }
 
@@ -180,13 +197,19 @@ export function multiselectColumn(variable: Variable): string | undefined {
 }
 
 /**
- * Build an open-time discovery query for a column-value filter: distinct values
- * of the chosen output column, sourced by wrapping the panel that produces it.
+ * Build an open-time discovery query for a column-value filter: the union of
+ * the column's distinct values across every panel that outputs it, so the
+ * option list covers all data the filter can apply to (not just the panel the
+ * column was picked from). Values are cast to text so panels with differently
+ * typed same-named columns still union cleanly.
  */
-export function buildDiscoveryQuery(column: string, panelSql: string): string {
-  const inner = panelSql.trim().replace(/;\s*$/, '');
+export function buildDiscoveryQuery(column: string, panelSqls: string[]): string {
   const q = quoteIdentifier(column);
-  return `SELECT DISTINCT ${q} FROM (\n${inner}\n) AS _navixy_values\nWHERE ${q} IS NOT NULL\nORDER BY 1`;
+  const inners = panelSqls.map(
+    (sql, i) =>
+      `SELECT ${q}::text AS _navixy_value FROM (\n${sql.trim().replace(/;\s*$/, '')}\n) AS _navixy_src_${i + 1}`
+  );
+  return `SELECT DISTINCT _navixy_value FROM (\n${inners.join('\nUNION\n')}\n) AS _navixy_values\nWHERE _navixy_value IS NOT NULL\nORDER BY 1`;
 }
 
 /** Resolve a dashboard's default time params (${__from}/${__to}) to ISO strings. */
@@ -279,26 +302,24 @@ export function resolveDefaultPanelParams(
 }
 
 /**
- * Locate the source panel a multiselect filter was created from (for resolving
- * that panel's bindings when running the filter's discovery query). Returns
- * undefined for filters without a recorded source panel.
+ * Locate every SQL panel a multiselect filter applies to (its recorded apply
+ * set, falling back to the single source panel for older variables). Used to
+ * resolve the parameter contexts of all the panels its discovery query wraps.
  */
-export function findFilterSourcePanel(
-  variable: Variable,
-  panels: Panel[] | undefined
-): Panel | undefined {
+export function findFilterPanels(variable: Variable, panels: Panel[] | undefined): Panel[] {
   const nav = variable['x-navixy'];
-  if (nav?.control !== 'multiselect') return undefined;
-  if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle) return undefined;
+  if (nav?.control !== 'multiselect') return [];
+  if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle && !(nav.panels && nav.panels.length > 0)) {
+    return [];
+  }
 
-  let found: Panel | undefined;
+  const found: Panel[] = [];
   const visit = (list: Panel[]) => {
     for (const p of list) {
-      if (!found && p['x-navixy']?.sql?.statement && filterAppliesToPanel(variable, p)) {
-        found = p;
-        return;
+      if (p['x-navixy']?.sql?.statement && filterAppliesToPanel(variable, p)) {
+        found.push(p);
       }
-      if (!found && p.panels?.length) visit(p.panels);
+      if (p.panels?.length) visit(p.panels);
     }
   };
   if (panels) visit(panels);
@@ -323,7 +344,7 @@ export function filterClausePreview(variable: Variable, column: string): string 
     return `${q} BETWEEN \${${names.from}} AND \${${names.to}}`;
   }
   if (control === 'multiselect') {
-    return `${q} = ANY(\${${variable.name}}::text[])`;
+    return `${q}::text = ANY(\${${variable.name}}::text[])`;
   }
   return '';
 }
@@ -362,9 +383,11 @@ export function applyPanelFilters(
       );
     } else if (control === 'multiselect') {
       // Only filter when something is selected; an empty selection means "All".
+      // The column is cast to text so non-text columns (ids, numerics, uuids)
+      // compare cleanly against the text[] selection.
       const selection = values?.[binding.variable];
       if (Array.isArray(selection) && selection.length > 0) {
-        clauses.push(`${quoteIdentifier(binding.column)} = ANY(\${${binding.variable}}::text[])`);
+        clauses.push(`${quoteIdentifier(binding.column)}::text = ANY(\${${binding.variable}}::text[])`);
       }
     }
   }
@@ -395,17 +418,21 @@ export function reconcileFilterBindings(
   const newNames = new Set(newVariables.map((v) => v.name));
   const oldByName = new Map(oldVariables.map((v) => [v.name, v]));
 
+  const panelsKey = (nav: NonNullable<Variable['x-navixy']> | undefined): string =>
+    JSON.stringify((nav?.panels ?? []).map((p) => `${p.id ?? ''}|${p.title ?? ''}`));
+
   const needsBinding = (v: Variable): boolean => {
     const nav = v['x-navixy'];
     if (nav?.control !== 'multiselect' || !nav.column) return false;
-    // Without a recorded source panel there is nowhere to auto-bind.
-    if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle) return false;
+    // Without any recorded target panel there is nowhere to auto-bind.
+    if ((nav.panelId === undefined || nav.panelId === null) && !nav.panelTitle && !(nav.panels && nav.panels.length > 0)) return false;
     const old = oldByName.get(v.name)?.['x-navixy'];
     if (!old || old.control !== 'multiselect') return true;
     return (
       old.column !== nav.column ||
       String(old.panelId ?? '') !== String(nav.panelId ?? '') ||
-      (old.panelTitle ?? '') !== (nav.panelTitle ?? '')
+      (old.panelTitle ?? '') !== (nav.panelTitle ?? '') ||
+      panelsKey(old) !== panelsKey(nav)
     );
   };
   const autoBind = newVariables.filter(needsBinding);

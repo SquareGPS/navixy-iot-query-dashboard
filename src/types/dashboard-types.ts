@@ -83,12 +83,18 @@ export interface Variable {
      */
     column?: string;
     /**
-     * For multiselect filters: the panel the column was picked from. The filter
-     * is only offered to this panel in the panel editor (matched by id, falling
-     * back to title).
+     * For multiselect filters: the panel the column was picked from. Its SQL is
+     * the source of the filter's value-discovery query.
      */
     panelId?: string | number;
     panelTitle?: string;
+    /**
+     * For multiselect filters: every panel whose query outputs the column
+     * (recorded when the filter is created or its column changes). The filter
+     * is auto-applied to and offered for these panels (matched by id, falling
+     * back to title).
+     */
+    panels?: Array<{ id?: string | number; title?: string }>;
   };
 }
 

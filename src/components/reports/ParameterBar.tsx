@@ -35,7 +35,7 @@ import {
   multiselectSelection,
   multiselectStaticOptions,
   resolveDefaultPanelParams,
-  findFilterSourcePanel,
+  findFilterPanels,
   DATE_RANGE_PRESETS,
 } from '@/utils/filterVariables';
 import { apiService } from '@/services/api';
@@ -174,14 +174,19 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       discoveredRef.current.add(discoveryKey);
       setOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
       try {
-        // The derived discovery query wraps a panel's SQL, which may reference
-        // ${__from}/${__to}, other template variables, or panel/dashboard
-        // bindings — resolve them all from defaults, like executePanelQuery.
-        const sourcePanel = findFilterSourcePanel(variable, dashboard.panels);
-        const params = filterUsedParameters(
-          variable.query,
-          resolveDefaultPanelParams(dashboard, sourcePanel)
-        );
+        // The derived discovery query wraps the SQL of every panel the filter
+        // applies to; those panels may reference ${__from}/${__to}, other
+        // template variables, or panel/dashboard bindings — merge all their
+        // default parameter contexts, like executePanelQuery does per panel.
+        const filterPanels = findFilterPanels(variable, dashboard.panels);
+        const merged: Record<string, unknown> = {};
+        for (const p of filterPanels.length > 0 ? filterPanels : [undefined]) {
+          const resolved = resolveDefaultPanelParams(dashboard, p);
+          for (const [key, value] of Object.entries(resolved)) {
+            if (!(key in merged)) merged[key] = value;
+          }
+        }
+        const params = filterUsedParameters(variable.query, merged);
         const res = await apiService.executeSQL({ sql: variable.query, params, row_limit: 1000 });
         // executeSQL reports SQL failures as a 200 + {error} payload, not a throw
         if (res.error) {

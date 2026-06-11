@@ -727,13 +727,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     refreshPanel,
   }), [refreshPanel]);
 
-  // Execute SQL queries for all panels
+  // Execute SQL queries for all panels.
+  // Runs in layout-editing mode too, so applying a filter re-queries without
+  // leaving edit mode — the cache key below excludes layout geometry, so drag
+  // and resize operations never trigger re-execution.
   useEffect(() => {
-    // Don't execute queries when in layout editing mode
-    if (isEditingLayout) {
-      return;
-    }
-
     // Create a stable cache key that includes ALL panels regardless of collapse state
     // This prevents query re-execution when only collapse/expand state changes
     const createStableCacheKey = (dash: Dashboard): string => {
@@ -1011,7 +1009,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, isEditingLayout]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {

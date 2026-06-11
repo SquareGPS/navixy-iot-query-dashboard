@@ -72,6 +72,8 @@ interface EditorState {
   columnKey: string; // multiselect: unique select value, `<panelIndex>:<column>`
   panelId?: string | number; // multiselect: source panel of the chosen column
   panelTitle?: string;
+  /** multiselect: every panel whose query outputs the chosen column */
+  applyPanels: Array<{ id?: string | number; title?: string }>;
 }
 
 interface PanelColumns {
@@ -104,6 +106,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
   // in dashboard order (for value-filter creation)
   const [panelColumns, setPanelColumns] = useState<PanelColumns[]>([]);
   const [columnsLoading, setColumnsLoading] = useState(false);
+  const [columnsFailed, setColumnsFailed] = useState<string[]>([]);
   const columnsLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -123,6 +126,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     if (editor?.kind !== 'multiselect' || columnsLoadedRef.current || !dashboard) return;
     columnsLoadedRef.current = true;
     setColumnsLoading(true);
+    setColumnsFailed([]);
 
     const panels: { id?: string | number; title: string; sql: string; panel: Panel }[] = [];
     walkSqlPanels(dashboard.panels, (p) => {
@@ -134,6 +138,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     // Results slot per panel so dashboard order is preserved regardless of
     // which queries finish first.
     const results: (PanelColumns | null)[] = panels.map(() => null);
+    const failed: string[] = [];
 
     Promise.all(
       panels.map(async (p, idx) => {
@@ -143,6 +148,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
           // variables are collected rather than silently skipped.
           const params = filterUsedParameters(p.sql, resolveDefaultPanelParams(dashboard, p.panel));
           const res = await apiService.executeSQL({ sql: p.sql, params, row_limit: 1, timeout_ms: 15000 });
+          // executeSQL reports SQL failures (incl. timeouts) as 200 + {error}
+          if (res.error) {
+            failed.push(p.title);
+            return;
+          }
           const cols = (res.data?.columns || []).map((c: { name: string; type: string }) => ({
             key: `${idx}:${c.name}`,
             name: c.name,
@@ -150,11 +160,12 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
           }));
           if (cols.length > 0) results[idx] = { panel: p.title, panelId: p.id, sql: p.sql, columns: cols };
         } catch {
-          /* skip panels that fail to run */
+          failed.push(p.title);
         }
       })
     ).finally(() => {
       setPanelColumns(results.filter((r): r is PanelColumns => r !== null));
+      setColumnsFailed(failed);
       setColumnsLoading(false);
     });
   }, [editor?.kind, dashboard]);
@@ -196,7 +207,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
   const formInvalid = !!nameError || !!labelError || !!columnError;
 
   const baseEditor = (kind: FilterKind): EditorState => ({
-    originalName: null, kind, label: '', name: '', nameTouched: false, presetId: DEFAULT_DATE_RANGE.id, column: '', columnKey: '',
+    originalName: null, kind, label: '', name: '', nameTouched: false, presetId: DEFAULT_DATE_RANGE.id, column: '', columnKey: '', applyPanels: [],
   });
 
   const startEdit = (variable: Variable) => {
@@ -212,6 +223,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
       columnKey: '', // resolved against the loaded columns by the sync effect
       panelId: variable['x-navixy']?.panelId,
       panelTitle: variable['x-navixy']?.panelTitle,
+      applyPanels:
+        variable['x-navixy']?.panels ??
+        (variable['x-navixy']?.panelTitle || variable['x-navixy']?.panelId !== undefined
+          ? [{ id: variable['x-navixy']?.panelId, title: variable['x-navixy']?.panelTitle }]
+          : []),
     });
   };
 
@@ -224,11 +240,16 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     setEditor((prev) => (prev ? { ...prev, label, name: prev.nameTouched ? prev.name : suggestFilterName(label) } : prev));
   };
 
-  // Picking (or changing) the column always re-derives the label and name.
+  // Picking (or changing) the column always re-derives the label and name, and
+  // recomputes the set of panels the filter will apply to (every panel whose
+  // query outputs the chosen column).
   const pickColumn = (key: string) => {
     const panel = panelColumns.find((pc) => pc.columns.some((c) => c.key === key));
     const entry = panel?.columns.find((c) => c.key === key);
     if (!panel || !entry) return;
+    const applyPanels = panelColumns
+      .filter((pc) => pc.columns.some((c) => c.name === entry.name))
+      .map((pc) => ({ id: pc.panelId, title: pc.panel }));
     setEditor((prev) =>
       prev
         ? {
@@ -237,6 +258,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
             column: entry.name,
             panelId: panel.panelId,
             panelTitle: panel.panel,
+            applyPanels,
             label: titleize(entry.name),
             name: suggestFilterName(entry.name),
             nameTouched: false,
@@ -263,17 +285,23 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     } else {
       const panel = panelColumns.find((pc) => pc.columns.some((c) => c.key === editor.columnKey));
       if (panel) {
+        // Discover values from every panel that outputs the column, so the
+        // option list covers all the data the filter applies to.
+        const sourceSqls = panelColumns
+          .filter((pc) => pc.columns.some((c) => c.name === editor.column))
+          .map((pc) => pc.sql);
         newVar = makeMultiselectVariable({
           name,
           label,
           column: editor.column,
           panelId: panel.panelId,
           panelTitle: panel.panel,
-          query: buildDiscoveryQuery(editor.column, panel.sql),
+          panels: editor.applyPanels,
+          query: buildDiscoveryQuery(editor.column, sourceSqls.length > 0 ? sourceSqls : [panel.sql]),
         });
       } else {
         // Editing without re-picking (e.g. label rename before columns loaded):
-        // keep the original variable's column, source panel and discovery query.
+        // keep the original variable's column, panels and discovery query.
         const original = list.find((v) => v.name === editor.originalName);
         newVar = makeMultiselectVariable({
           name,
@@ -281,6 +309,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
           column: editor.column,
           panelId: editor.panelId,
           panelTitle: editor.panelTitle,
+          panels: original?.['x-navixy']?.panels,
           query: original?.query,
         });
       }
@@ -330,10 +359,15 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
         <p className="text-xs text-red-600">{nameError}</p>
       ) : derivedBind ? (
         <p className="text-xs text-muted-foreground">
-          {e.kind === 'multiselect' && e.panelTitle ? (
+          {e.kind === 'multiselect' && e.applyPanels.length > 0 ? (
             <>
-              Binds <code className="rounded bg-[var(--surface-3)] px-1">{derivedBind}</code> — applied to{' '}
-              <span className="font-medium">“{e.panelTitle}”</span> automatically.
+              Binds <code className="rounded bg-[var(--surface-3)] px-1">{derivedBind}</code> — applied automatically to{' '}
+              <span className="font-medium">
+                {e.applyPanels.length <= 2
+                  ? e.applyPanels.map((p) => `“${p.title}”`).join(' and ')
+                  : `${e.applyPanels.length} panels with this column`}
+              </span>
+              .
             </>
           ) : (
             <>
@@ -373,10 +407,15 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
             const bind = kind === 'daterange'
               ? (() => { const n = dateRangeParamNames(variable.name); return `\${${n.from}} · \${${n.to}}`; })()
               : `\${${variable.name}} = ANY(...)`;
+            const applyPanels = variable['x-navixy']?.panels
+              ?? (variable['x-navixy']?.panelTitle ? [{ title: variable['x-navixy'].panelTitle }] : []);
+            const panelsText = applyPanels.length === 0
+              ? ''
+              : applyPanels.length === 1
+                ? ` · ${applyPanels[0].title}`
+                : ` · ${applyPanels.length} panels`;
             const sourceText = kind === 'multiselect'
-              ? (multiselectColumn(variable)
-                  ? `column “${multiselectColumn(variable)}”${variable['x-navixy']?.panelTitle ? ` · ${variable['x-navixy'].panelTitle}` : ''}`
-                  : 'values')
+              ? (multiselectColumn(variable) ? `column “${multiselectColumn(variable)}”${panelsText}` : 'values')
               : (variable.current?.text || 'range');
             return (
               <div key={variable.name} className={cn('flex items-start justify-between gap-3 rounded-lg border p-3', isEditingThis && 'ring-2 ring-[#379EF9]')}>
@@ -425,6 +464,14 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
                     </Select>
                     {columnError && <p className="text-xs text-red-600">{columnError}</p>}
                     {!columnsLoading && panelColumns.length === 0 && <p className="text-xs text-amber-600">No columns detected from the panels.</p>}
+                    {!columnsLoading && columnsFailed.length > 0 && (
+                      <p className="text-xs text-amber-600">
+                        {columnsFailed.length === 1
+                          ? `Panel “${columnsFailed[0]}” didn't respond`
+                          : `${columnsFailed.length} panels didn't respond`}
+                        {' '}— its columns aren't listed. Close and reopen this dialog to retry.
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {columnsLoading
                         ? 'Running panel queries to detect available columns…'
