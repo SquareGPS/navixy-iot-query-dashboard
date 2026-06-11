@@ -285,6 +285,23 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
   const handleTestQuery = async () => {
     const parsedParams = testParams();
 
+    // Placeholders with no resolvable default would reach Postgres unbound and
+    // fail with a cryptic `syntax error at or near "$"` — name them instead.
+    const missing = extractParameterNames(sql.trim()).filter((name) => !(name in parsedParams));
+    if (missing.length > 0) {
+      const list = missing.map((m) => `\${${m}}`).join(', ');
+      setTestResults(null);
+      setTestError(
+        `No value available for ${list}. Give it a default in the panel's params, add a matching dashboard filter or variable, or remove it.`
+      );
+      toast({
+        title: 'Missing parameter value',
+        description: `No value available for ${list}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const currentPage = pagination?.page || 1;
       const currentPageSize = pagination?.pageSize || 25;
