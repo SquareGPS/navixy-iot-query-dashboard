@@ -16,10 +16,10 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
+import type { Dashboard, Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
-import { extractParameterNames } from '@/utils/sqlParameterExtractor';
-import { filterClausePreview, filterAppliesToPanel } from '@/utils/filterVariables';
+import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams } from '@/utils/filterVariables';
 
 /**
  * Maps panel type to default dataset shape
@@ -54,6 +54,8 @@ interface PanelEditorProps {
   onSave: (updatedPanel: Panel) => void;
   /** Dashboard local filter variables (date-range + multiselect) available to bind to this panel. */
   localFilters?: Variable[];
+  /** The dashboard, for resolving default parameter values when testing queries. */
+  dashboard?: Dashboard | null;
 }
 
 /** Read a panel's existing filter bindings into a {variable: column} map. */
@@ -65,7 +67,7 @@ function initFilterBindings(panel: Panel): Record<string, string> {
   return map;
 }
 
-export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }: PanelEditorProps) {
+export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], dashboard = null }: PanelEditorProps) {
   const [title, setTitle] = useState(panel.title);
   const [description, setDescription] = useState(panel.description || '');
   const [panelType, setPanelType] = useState(panel.type);
@@ -273,10 +275,16 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }:
     }
   };
 
+  // Default parameter values for Test Query: the same resolution the dashboard
+  // uses at runtime (panel/dashboard bindings, templating values, time range,
+  // date-filter params), trimmed to the placeholders present in the SQL — so
+  // queries referencing ${...} variables are testable instead of erroring on
+  // unbound placeholders.
+  const testParams = () => filterUsedParameters(sql.trim(), resolveDefaultPanelParams(dashboard, panel));
+
   const handleTestQuery = async () => {
-    // Use empty parameters for testing - parameters will be filled from dashboard variables at runtime
-    const parsedParams: Record<string, unknown> = {};
-    
+    const parsedParams = testParams();
+
     try {
       const currentPage = pagination?.page || 1;
       const currentPageSize = pagination?.pageSize || 25;
@@ -338,7 +346,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }:
     
     setPagination({ ...pagination, page });
     
-    const parsedParams: Record<string, unknown> = {};
+    const parsedParams = testParams();
     
     const result = await executeQuery({
       sql: sql.trim(),
@@ -365,7 +373,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }:
     const newPagination = pagination ? { ...pagination, pageSize, page: 1 } : { page: 1, pageSize, total: testResults?.rowCount || 0 };
     setPagination(newPagination);
     
-    const parsedParams: Record<string, unknown> = {};
+    const parsedParams = testParams();
     
     const result = await executeQuery({
       sql: sql.trim(),
@@ -691,6 +699,16 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [] }:
                           ) : (
                             <p className="text-xs text-amber-600">Pick a column to activate this filter.</p>
                           )}
+                          {column &&
+                            variable['x-navixy']?.control === 'daterange' &&
+                            columnTypeOf(column) &&
+                            !/date|time/i.test(columnTypeOf(column)) && (
+                              <p className="text-xs text-amber-600">
+                                “{column}” is {columnTypeOf(column)}, not a date/timestamp — a date range
+                                won't match formatted text values. Prefer a real time column, or reference{' '}
+                                {'${'}{variable.name}_from{'}'} / {'${'}{variable.name}_to{'}'} inside the SQL.
+                              </p>
+                            )}
                         </div>
                       )}
                     </div>

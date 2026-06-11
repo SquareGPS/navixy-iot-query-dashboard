@@ -2144,6 +2144,7 @@ const ReportView = () => {
           panel={editingPanel}
           onSave={handleSavePanel}
           localFilters={getLocalFilters(dashboard)}
+          dashboard={dashboard}
         />
       )}
 

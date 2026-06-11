@@ -298,6 +298,15 @@ export function resolveDefaultPanelParams(
     }
   });
 
+  // Derived params of date-range filters (${<name>_from} / ${<name>_to}),
+  // resolved from each filter's stored default range
+  getDateRangeFilters(dashboard).forEach((v) => {
+    const names = dateRangeParamNames(v.name);
+    const range = dateRangeDefaults(v);
+    if (!(names.from in params)) params[names.from] = formatDateToISO(parseTimeExpression(range.from));
+    if (!(names.to in params)) params[names.to] = formatDateToISO(parseTimeExpression(range.to));
+  });
+
   return params;
 }
 
@@ -341,7 +350,7 @@ export function filterClausePreview(variable: Variable, column: string): string 
   const control = variable['x-navixy']?.control;
   if (control === 'daterange') {
     const names = dateRangeParamNames(variable.name);
-    return `${q} BETWEEN \${${names.from}} AND \${${names.to}}`;
+    return `${q}::timestamptz BETWEEN \${${names.from}} AND \${${names.to}}`;
   }
   if (control === 'multiselect') {
     return `${q}::text = ANY(\${${variable.name}}::text[])`;
@@ -377,9 +386,12 @@ export function applyPanelFilters(
     const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
     const control = variable?.['x-navixy']?.control;
     if (control === 'daterange') {
+      // Cast the column so date/timestamp variants compare correctly and
+      // non-temporal columns (e.g. to_char-formatted text) fail loudly instead
+      // of silently matching nothing via string comparison.
       const names = dateRangeParamNames(binding.variable);
       clauses.push(
-        `${quoteIdentifier(binding.column)} BETWEEN \${${names.from}} AND \${${names.to}}`
+        `${quoteIdentifier(binding.column)}::timestamptz BETWEEN \${${names.from}} AND \${${names.to}}`
       );
     } else if (control === 'multiselect') {
       // Only filter when something is selected; an empty selection means "All".
