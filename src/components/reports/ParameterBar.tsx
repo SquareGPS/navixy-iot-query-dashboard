@@ -16,15 +16,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, RotateCcw, Check, RefreshCw } from 'lucide-react';
+import { RotateCcw, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
-import { extractParameterNames, walkSqlPanels } from '@/utils/sqlParameterExtractor';
+import { extractParameterNames, filterUsedParameters, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import { useParameterUrlSync } from '@/hooks/use-parameter-url-sync';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { formatTimestamp } from '@/utils/datetime';
+import { DateRangeFilterControl } from './DateRangeFilterControl';
+import { MultiSelectFilterControl } from './MultiSelectFilterControl';
+import {
+  getDateRangeFilters,
+  getMultiselectFilters,
+  dateRangeParamNames,
+  dateRangeDefaults,
+  multiselectSelection,
+  multiselectStaticOptions,
+  resolveDefaultPanelParams,
+  findFilterPanels,
+  DATE_RANGE_PRESETS,
+} from '@/utils/filterVariables';
+import { apiService } from '@/services/api';
 
 export interface ParameterValues {
   [paramName: string]: unknown;
@@ -133,10 +146,103 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     });
   }, [declaredParams, inferredParams, dashboard.time]);
 
+  // Local date-range filter variables (templating.list[] with x-navixy.control = 'daterange')
+  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard.templating]);
+
+  // Local multiselect (column-value) filter variables
+  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard.templating]);
+
+  // Discovered option values per multiselect variable (from its discovery query)
+  const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
+  const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
+  // Variables whose last discovery attempt failed (vs. genuinely returned no
+  // values) — surfaced as a retry affordance in the control.
+  const [discoveryError, setDiscoveryError] = useState<Record<string, boolean>>({});
+  const discoveredRef = useRef<Set<string>>(new Set());
+  // Bumped by a manual retry to re-run the discovery effect (whose other input,
+  // multiselectFilters, only changes when the dashboard's templating changes).
+  const [retryNonce, setRetryNonce] = useState(0);
+
+  useEffect(() => {
+    multiselectFilters.forEach(async (variable) => {
+      // Static options take precedence and need no discovery
+      const staticOpts = multiselectStaticOptions(variable);
+      if (staticOpts.length > 0) {
+        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: staticOpts }));
+        return;
+      }
+      if (!variable.query) return;
+      // Key by name + query so editing the filter's column (which changes the
+      // derived discovery query) re-runs discovery without a full reload.
+      const discoveryKey = `${variable.name}:${variable.query}`;
+      if (discoveredRef.current.has(discoveryKey)) return;
+      discoveredRef.current.add(discoveryKey);
+      setOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
+      try {
+        // The derived discovery query wraps the SQL of every panel the filter
+        // applies to; those panels may reference ${__from}/${__to}, other
+        // template variables, or panel/dashboard bindings — merge all their
+        // default parameter contexts, like executePanelQuery does per panel.
+        const filterPanels = findFilterPanels(variable, dashboard.panels);
+        const merged: Record<string, unknown> = {};
+        for (const p of filterPanels.length > 0 ? filterPanels : [undefined]) {
+          const resolved = resolveDefaultPanelParams(dashboard, p);
+          for (const [key, value] of Object.entries(resolved)) {
+            if (!(key in merged)) merged[key] = value;
+          }
+        }
+        const params = filterUsedParameters(variable.query, merged);
+        const res = await apiService.executeSQL({ sql: variable.query, params, row_limit: 1000 });
+        // executeSQL reports SQL failures as a 200 + {error} payload, not a throw
+        if (res.error) {
+          throw new Error(res.error.message || 'Discovery query failed');
+        }
+        const rows = res.data?.rows || [];
+        const values = [...new Set(rows.map((r: unknown[]) => r[0]).filter((x) => x !== null && x !== undefined).map(String))];
+        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
+        setDiscoveryError((prev) => (prev[variable.name] ? { ...prev, [variable.name]: false } : prev));
+      } catch (err) {
+        console.error(`Discovery query for filter "${variable.name}" failed:`, err);
+        // Flag the error (rather than caching [] as "no values") and drop the key
+        // so a manual retry re-runs it. Don't overwrite any options from a prior
+        // successful load.
+        setDiscoveryError((prev) => ({ ...prev, [variable.name]: true }));
+        discoveredRef.current.delete(discoveryKey);
+      } finally {
+        setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
+      }
+    });
+  }, [multiselectFilters, retryNonce]);
+
+  // Manual retry: drop this variable's discovery keys and re-run the effect. The
+  // catch already deletes the failed key, but the effect won't re-fire on its own
+  // (multiselectFilters keeps the same identity), so we bump retryNonce here.
+  const retryDiscovery = useCallback((name: string) => {
+    for (const key of Array.from(discoveredRef.current)) {
+      if (key === name || key.startsWith(`${name}:`)) discoveredRef.current.delete(key);
+    }
+    setDiscoveryError((prev) => ({ ...prev, [name]: false }));
+    setRetryNonce((n) => n + 1);
+  }, []);
+
+  // SQL parameter names owned by local filters (date: period_from/period_to;
+  // multiselect: the variable name itself). These are rendered by dedicated
+  // controls, so exclude them from the generic "other parameters" list.
+  const filterManagedNames = useMemo(() => {
+    const names = new Set<string>();
+    dateRangeFilters.forEach((v) => {
+      const { from, to } = dateRangeParamNames(v.name);
+      names.add(from);
+      names.add(to);
+    });
+    multiselectFilters.forEach((v) => names.add(v.name));
+    return names;
+  }, [dateRangeFilters, multiselectFilters]);
+
   // Calculate default values
   const defaultValues = useMemo(() => {
     const defaults: ParameterValues = {};
-    
+
     allParams.forEach(param => {
       if (param.name === '__from' || param.name === '__to') {
         // Time range params get defaults from dashboard.time
@@ -191,11 +297,26 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       }
     });
 
-    return defaults;
-  }, [allParams, defaultTimeRange, globalVariables]);
+    // Seed defaults for local date-range filters (from their stored relative range)
+    dateRangeFilters.forEach((variable) => {
+      const names = dateRangeParamNames(variable.name);
+      const range = dateRangeDefaults(variable);
+      defaults[names.from] = parseTimeExpression(range.from);
+      defaults[names.to] = parseTimeExpression(range.to);
+    });
 
-  // Sync with URL parameters
-  useParameterUrlSync(values, onChange, defaultValues);
+    // Seed defaults for multiselect filters (their stored selection; usually empty = All)
+    multiselectFilters.forEach((variable) => {
+      defaults[variable.name] = multiselectSelection(variable);
+    });
+
+    return defaults;
+  }, [allParams, defaultTimeRange, globalVariables, dateRangeFilters, multiselectFilters]);
+
+  // Sync with URL parameters (multiselect filters carry string[] values, so they
+  // need JSON encoding to round-trip rather than being dropped from the URL).
+  const arrayParamNames = useMemo(() => multiselectFilters.map((v) => v.name), [multiselectFilters]);
+  useParameterUrlSync(values, onChange, defaultValues, arrayParamNames);
 
   // Store pending changes separately (don't apply immediately)
   const [pendingValues, setPendingValues] = useState<ParameterValues>(values);
@@ -283,16 +404,6 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     }
   }, [pendingValues, values, hasPendingChanges, onChange]);
 
-  const handlePresetSelect = useCallback((preset: TimeRangePreset) => {
-    const from = parseTimeExpression(preset.from);
-    const to = parseTimeExpression(preset.to);
-    setPendingValues(prev => ({
-      ...prev,
-      __from: from,
-      __to: to
-    }));
-  }, []);
-
   const handleReset = useCallback(() => {
     setPendingValues(defaultValues);
     onChange(defaultValues);
@@ -311,9 +422,13 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       ? pendingValues.to 
       : parseTimeExpression(defaultTimeRange.to));
 
-  // Group parameters: time range (__from/__to) first, then others
+  // Group parameters: time range (__from/__to) first, then others.
+  // Date-range filter params (period_from/period_to) are rendered by their own
+  // control, so exclude them from the generic list.
   const timeParams = allParams.filter(p => p.name === '__from' || p.name === '__to');
-  const otherParams = allParams.filter(p => p.name !== '__from' && p.name !== '__to');
+  const otherParams = allParams.filter(
+    p => p.name !== '__from' && p.name !== '__to' && !filterManagedNames.has(p.name)
+  );
 
   return (
     <Card className={cn("p-4 flex flex-col", className)}>
@@ -331,88 +446,69 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       </div>
 
       <div className="flex flex-wrap gap-4 flex-1">
-        {/* Time Range Picker */}
+        {/* Time Range Picker — same control as the local date-range filters */}
         {timeParams.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium whitespace-nowrap">Time Range:</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-[280px] justify-start text-left font-normal",
-                    !fromDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {fromDate && toDate ? (
-                    <>
-                      {formatTimestamp(fromDate, datetimePrefs, { includeTime: false })}
-                      {' - '}
-                      {formatTimestamp(toDate, datetimePrefs, { includeTime: false })}
-                    </>
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <div className="p-3 border-b">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Quick Ranges</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {allPresets.map((preset, idx) => (
-                        <Button
-                          key={idx}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePresetSelect(preset)}
-                          className="text-xs"
-                        >
-                          {preset.display}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="p-3 space-y-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">From</Label>
-                    <Input
-                      type="datetime-local"
-                      value={formatDateToLocalInput(fromDate)}
-                      onChange={(e) => {
-                        const newFrom = new Date(e.target.value);
-                        setPendingValues(prev => ({
-                          ...prev,
-                          __from: newFrom,
-                          __to: toDate
-                        }));
-                      }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">To</Label>
-                    <Input
-                      type="datetime-local"
-                      value={formatDateToLocalInput(toDate)}
-                      onChange={(e) => {
-                        const newTo = new Date(e.target.value);
-                        setPendingValues(prev => ({
-                          ...prev,
-                          __from: fromDate,
-                          __to: newTo
-                        }));
-                      }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+          <DateRangeFilterControl
+            label="Time Range"
+            fromDate={fromDate}
+            toDate={toDate}
+            displayLabel={`${formatTimestamp(fromDate, datetimePrefs, { includeTime: false })} - ${formatTimestamp(toDate, datetimePrefs, { includeTime: false })}`}
+            presets={allPresets}
+            onChange={(newFrom, newTo) =>
+              setPendingValues(prev => ({ ...prev, __from: newFrom, __to: newTo }))
+            }
+          />
         )}
+
+        {/* Local Date-Range Filters */}
+        {dateRangeFilters.map(variable => {
+          const names = dateRangeParamNames(variable.name);
+          const range = dateRangeDefaults(variable);
+          const filterFrom = pendingValues[names.from] instanceof Date
+            ? (pendingValues[names.from] as Date)
+            : parseTimeExpression(range.from);
+          const filterTo = pendingValues[names.to] instanceof Date
+            ? (pendingValues[names.to] as Date)
+            : parseTimeExpression(range.to);
+          return (
+            <DateRangeFilterControl
+              key={variable.name}
+              label={variable.label || variable.name}
+              fromDate={filterFrom}
+              toDate={filterTo}
+              displayLabel={`${formatTimestamp(filterFrom, datetimePrefs, { includeTime: false })} - ${formatTimestamp(filterTo, datetimePrefs, { includeTime: false })}`}
+              presets={DATE_RANGE_PRESETS}
+              onChange={(newFrom, newTo) =>
+                setPendingValues(prev => ({
+                  ...prev,
+                  [names.from]: newFrom,
+                  [names.to]: newTo,
+                }))
+              }
+            />
+          );
+        })}
+
+        {/* Local Multiselect (column-value) Filters */}
+        {multiselectFilters.map(variable => {
+          const selected = Array.isArray(pendingValues[variable.name])
+            ? (pendingValues[variable.name] as string[])
+            : multiselectSelection(variable);
+          return (
+            <MultiSelectFilterControl
+              key={variable.name}
+              label={variable.label || variable.name}
+              options={discoveredOptions[variable.name] || []}
+              selected={selected}
+              loading={optionsLoading[variable.name] || false}
+              error={discoveryError[variable.name] || false}
+              onRetry={() => retryDiscovery(variable.name)}
+              onChange={(next) =>
+                setPendingValues(prev => ({ ...prev, [variable.name]: next }))
+              }
+            />
+          );
+        })}
 
         {/* Other Parameters */}
         {otherParams.map(param => (

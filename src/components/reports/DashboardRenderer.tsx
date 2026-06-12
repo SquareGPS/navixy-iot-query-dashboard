@@ -31,6 +31,8 @@ import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
+import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
+import { PanelFilterIndicator } from './PanelFilterIndicator';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
@@ -449,8 +451,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
     const hasTimeRange = !!(dashboard.time && dashboard.time.from && dashboard.time.to);
     const hasInferredParams = dashboardPanelsHaveTemplateParameters(dashboard.panels);
-    return hasExplicitParams || hasTimeRange || hasInferredParams;
-  }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time]);
+    const hasFilterVariables = !!dashboard.templating?.list?.some((v) => {
+      const control = v['x-navixy']?.control;
+      return control === 'daterange' || control === 'multiselect';
+    });
+    return hasExplicitParams || hasTimeRange || hasInferredParams || hasFilterVariables;
+  }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time, dashboard.templating]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -468,46 +474,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     if (!bindings) return resolved;
 
-    // Helper to resolve a binding expression
-    const resolveBinding = (binding: string): any => {
-      // Handle ${var_name} syntax
-      const varMatch = binding.match(/^\$\{([^}]+)\}$/);
-      if (varMatch) {
-        const varName = varMatch[1];
-
-        // Handle special time variables (convert to Date then ISO string)
-        if (varName === '__from') {
-          const date = parseTimeExpression(timeRange.from);
-          return formatDateToISO(date);
-        }
-        if (varName === '__to') {
-          const date = parseTimeExpression(timeRange.to);
-          return formatDateToISO(date);
-        }
-
-        // Handle dashboard variables
-        if (dashboard.templating?.list) {
-          const variable = dashboard.templating.list.find(v => v.name === varName);
-          if (variable?.current?.value !== undefined) {
-            return variable.current.value;
-          }
-        }
-
-        // Try dashboard-level bindings from x-navixy (recursive resolution)
-        if (dashboard['x-navixy']?.parameters?.bindings?.[varName]) {
-          return resolveBinding(dashboard['x-navixy'].parameters.bindings[varName]);
-        }
-
-        return binding; // Return as-is if not resolved
-      }
-
-      // Direct value (no ${})
-      return binding;
+    // Resolve ${...} expressions via the shared resolver (filterVariables), so
+    // the precedence rules (__from/__to → templating → dashboard bindings) live
+    // in one place and can't drift from the default-context resolution used by
+    // Test Query / option discovery. Here __from/__to reflect the live selection.
+    const timeParams = {
+      __from: formatDateToISO(parseTimeExpression(timeRange.from)),
+      __to: formatDateToISO(parseTimeExpression(timeRange.to)),
     };
-
-    // Resolve all bindings
     Object.entries(bindings).forEach(([key, value]) => {
-      resolved[key] = resolveBinding(value);
+      resolved[key] = resolveBindingExpression(value, dashboard, timeParams);
     });
 
     return resolved;
@@ -614,8 +590,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Prepare parameters for binding (convert Dates, etc.)
     const preparedParams = prepareParametersForBinding(params);
 
-    // Filter parameters to only include those actually used in the SQL
-    const filteredParams = filterUsedParameters(navixyConfig.sql.statement, preparedParams);
+    // Apply this panel's local filter bindings (e.g. a date filter mapped to a
+    // result column) by wrapping the statement. Non-destructive: the stored
+    // sql.statement is unchanged; the wrap only happens at execution time.
+    const effectiveStatement = applyPanelFilters(
+      navixyConfig.sql.statement,
+      navixyConfig.filters,
+      dashboard,
+      params, // multiselect filters only apply when something is selected
+      navixyConfig.dataset?.columns, // column types pick the date-range comparison
+    );
+
+    // Filter parameters to only include those actually used in the (effective) SQL
+    const filteredParams = filterUsedParameters(effectiveStatement, preparedParams);
 
     // Execute SQL query using the validated endpoint
     // For table panels, fetch more rows (up to 10000) to allow client-side pagination
@@ -626,7 +613,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       : (navixyConfig.verify?.max_rows || 1000); // Default 1000 for other panels
 
     const result = await apiService.executeSQL({
-      sql: navixyConfig.sql.statement,
+      sql: effectiveStatement,
       params: filteredParams,
       timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
       row_limit: rowLimit,
@@ -712,13 +699,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     refreshPanel,
   }), [refreshPanel]);
 
-  // Execute SQL queries for all panels
+  // Execute SQL queries for all panels.
+  // Runs in layout-editing mode too, so applying a filter re-queries without
+  // leaving edit mode — the cache key below excludes layout geometry, so drag
+  // and resize operations never trigger re-execution.
   useEffect(() => {
-    // Don't execute queries when in layout editing mode
-    if (isEditingLayout) {
-      return;
-    }
-
     // Create a stable cache key that includes ALL panels regardless of collapse state
     // This prevents query re-execution when only collapse/expand state changes
     const createStableCacheKey = (dash: Dashboard): string => {
@@ -748,6 +733,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               params: panel['x-navixy'].sql.params,
               bindings: panel['x-navixy'].sql.bindings,
             } : undefined,
+            // Include filter bindings so toggling a panel filter re-executes
+            filters: panel['x-navixy'].filters,
           } : undefined,
         }))
         .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
@@ -994,7 +981,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, isEditingLayout]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -2084,6 +2071,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                     <span>{ panel.title }</span>
                   </h3>
                   <div className="absolute top-0 right-0 flex items-center gap-1">
+                    <PanelFilterIndicator filters={ getActivePanelFilters(panel, displayDashboard) } />
                     <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
                     <PanelExportButton panel={ panel } />
                   </div>
@@ -2142,6 +2130,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                   <span>{ panel.title }</span>
                 </h3>
                 <div className="absolute top-0 right-0 flex items-center gap-1">
+                  <PanelFilterIndicator filters={ getActivePanelFilters(panel, displayDashboard) } />
                   <RefreshIndicator isRefreshing={ panelData[String(panel.id)]?.refreshing || false } />
                   <PanelExportButton panel={ panel } />
                   {/* Edit Button */ }

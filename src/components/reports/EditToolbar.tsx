@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { 
-  Edit, 
-  Code, 
-  Trash2, 
+import {
+  Edit,
+  Code,
+  Trash2,
   Plus,
   Square,
   Layout,
   X,
-  Sparkles
+  Sparkles,
+  SlidersHorizontal
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -27,6 +28,7 @@ interface EditToolbarProps {
   onNewRow: () => void;
   onNewPanel: () => void;
   onTidyUp?: () => void;
+  onManageVariables?: () => void;
   className?: string;
 }
 
@@ -39,6 +41,7 @@ export const EditToolbar = ({
   onNewRow,
   onNewPanel,
   onTidyUp,
+  onManageVariables,
   className
 }: EditToolbarProps) => {
   if (!canEdit) {
@@ -119,6 +122,28 @@ export const EditToolbar = ({
                 <p>New Panel</p>
               </TooltipContent>
             </Tooltip>
+
+            {/* Dashboard Filters */}
+            {onManageVariables && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={onManageVariables}
+                    className={cn(
+                      "h-12 w-12 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200",
+                      "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
+                      "hover:bg-gray-50 dark:hover:bg-gray-700"
+                    )}
+                    size="lg"
+                  >
+                    <SlidersHorizontal className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  <p>Dashboard Filters</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {/* Divider */}
             <div className="h-px bg-gray-300 dark:bg-gray-600 my-1 mx-2" />

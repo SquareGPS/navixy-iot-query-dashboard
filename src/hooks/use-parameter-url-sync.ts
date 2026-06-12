@@ -13,13 +13,18 @@ import { formatDateToISO } from '@/utils/timeParser';
  * @param values Current parameter values
  * @param onChange Callback when values change
  * @param defaults Default parameter values (for initialization)
+ * @param arrayParamNames Names of params whose value is a string[] (multiselect
+ *   filters). They are JSON-encoded in the URL so selections — including an empty
+ *   "All" — round-trip on reload and via shared links, instead of being dropped.
  */
 export function useParameterUrlSync(
   values: ParameterValues,
   onChange: (values: ParameterValues) => void,
-  defaults?: ParameterValues
+  defaults?: ParameterValues,
+  arrayParamNames?: string[]
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const arrayParams = new Set(arrayParamNames ?? []);
 
   // Load parameters from URL on mount
   useEffect(() => {
@@ -27,6 +32,20 @@ export function useParameterUrlSync(
     let hasUrlParams = false;
 
     searchParams.forEach((value, key) => {
+      // Array params (multiselect) are JSON-encoded — decode back to string[].
+      if (arrayParams.has(key)) {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            urlParams[key] = parsed.map(String);
+            hasUrlParams = true;
+            return;
+          }
+        } catch {
+          // Fall through to scalar parsing on malformed input.
+        }
+      }
+
       // Try to parse as date first (ISO format)
       if (value.includes('T') && value.includes('Z')) {
         const dateValue = new Date(value);
@@ -80,6 +99,12 @@ export function useParameterUrlSync(
 
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
+        // Multiselect selections round-trip as JSON (including [] = "All"), so a
+        // shared/refreshed URL restores them instead of reverting to the default.
+        if (Array.isArray(value)) {
+          newParams.set(key, JSON.stringify(value));
+          return;
+        }
         if (value instanceof Date) {
           newParams.set(key, formatDateToISO(value));
         } else if (typeof value === 'boolean') {
