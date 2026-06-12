@@ -16,8 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, RotateCcw, Check, RefreshCw } from 'lucide-react';
+import { RotateCcw, Check, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dashboard, DashboardParameter } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
@@ -156,7 +155,13 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   // Discovered option values per multiselect variable (from its discovery query)
   const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
   const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
+  // Variables whose last discovery attempt failed (vs. genuinely returned no
+  // values) — surfaced as a retry affordance in the control.
+  const [discoveryError, setDiscoveryError] = useState<Record<string, boolean>>({});
   const discoveredRef = useRef<Set<string>>(new Set());
+  // Bumped by a manual retry to re-run the discovery effect (whose other input,
+  // multiselectFilters, only changes when the dashboard's templating changes).
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
     multiselectFilters.forEach(async (variable) => {
@@ -195,15 +200,30 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
         const rows = res.data?.rows || [];
         const values = [...new Set(rows.map((r: unknown[]) => r[0]).filter((x) => x !== null && x !== undefined).map(String))];
         setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
+        setDiscoveryError((prev) => (prev[variable.name] ? { ...prev, [variable.name]: false } : prev));
       } catch (err) {
         console.error(`Discovery query for filter "${variable.name}" failed:`, err);
-        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: [] }));
-        discoveredRef.current.delete(discoveryKey); // allow retry on next load
+        // Flag the error (rather than caching [] as "no values") and drop the key
+        // so a manual retry re-runs it. Don't overwrite any options from a prior
+        // successful load.
+        setDiscoveryError((prev) => ({ ...prev, [variable.name]: true }));
+        discoveredRef.current.delete(discoveryKey);
       } finally {
         setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
       }
     });
-  }, [multiselectFilters]);
+  }, [multiselectFilters, retryNonce]);
+
+  // Manual retry: drop this variable's discovery keys and re-run the effect. The
+  // catch already deletes the failed key, but the effect won't re-fire on its own
+  // (multiselectFilters keeps the same identity), so we bump retryNonce here.
+  const retryDiscovery = useCallback((name: string) => {
+    for (const key of Array.from(discoveredRef.current)) {
+      if (key === name || key.startsWith(`${name}:`)) discoveredRef.current.delete(key);
+    }
+    setDiscoveryError((prev) => ({ ...prev, [name]: false }));
+    setRetryNonce((n) => n + 1);
+  }, []);
 
   // SQL parameter names owned by local filters (date: period_from/period_to;
   // multiselect: the variable name itself). These are rendered by dedicated
@@ -293,8 +313,10 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     return defaults;
   }, [allParams, defaultTimeRange, globalVariables, dateRangeFilters, multiselectFilters]);
 
-  // Sync with URL parameters
-  useParameterUrlSync(values, onChange, defaultValues);
+  // Sync with URL parameters (multiselect filters carry string[] values, so they
+  // need JSON encoding to round-trip rather than being dropped from the URL).
+  const arrayParamNames = useMemo(() => multiselectFilters.map((v) => v.name), [multiselectFilters]);
+  useParameterUrlSync(values, onChange, defaultValues, arrayParamNames);
 
   // Store pending changes separately (don't apply immediately)
   const [pendingValues, setPendingValues] = useState<ParameterValues>(values);
@@ -382,16 +404,6 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     }
   }, [pendingValues, values, hasPendingChanges, onChange]);
 
-  const handlePresetSelect = useCallback((preset: TimeRangePreset) => {
-    const from = parseTimeExpression(preset.from);
-    const to = parseTimeExpression(preset.to);
-    setPendingValues(prev => ({
-      ...prev,
-      __from: from,
-      __to: to
-    }));
-  }, []);
-
   const handleReset = useCallback(() => {
     setPendingValues(defaultValues);
     onChange(defaultValues);
@@ -434,87 +446,18 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
       </div>
 
       <div className="flex flex-wrap gap-4 flex-1">
-        {/* Time Range Picker */}
+        {/* Time Range Picker — same control as the local date-range filters */}
         {timeParams.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-medium whitespace-nowrap">Time Range:</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-[280px] justify-start text-left font-normal",
-                    !fromDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {fromDate && toDate ? (
-                    <>
-                      {formatTimestamp(fromDate, datetimePrefs, { includeTime: false })}
-                      {' - '}
-                      {formatTimestamp(toDate, datetimePrefs, { includeTime: false })}
-                    </>
-                  ) : (
-                    <span>Pick a date range</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <div className="p-3 border-b">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Quick Ranges</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {allPresets.map((preset, idx) => (
-                        <Button
-                          key={idx}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePresetSelect(preset)}
-                          className="text-xs"
-                        >
-                          {preset.display}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="p-3 space-y-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">From</Label>
-                    <Input
-                      type="datetime-local"
-                      value={formatDateToLocalInput(fromDate)}
-                      onChange={(e) => {
-                        const newFrom = new Date(e.target.value);
-                        setPendingValues(prev => ({
-                          ...prev,
-                          __from: newFrom,
-                          __to: toDate
-                        }));
-                      }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">To</Label>
-                    <Input
-                      type="datetime-local"
-                      value={formatDateToLocalInput(toDate)}
-                      onChange={(e) => {
-                        const newTo = new Date(e.target.value);
-                        setPendingValues(prev => ({
-                          ...prev,
-                          __from: fromDate,
-                          __to: newTo
-                        }));
-                      }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+          <DateRangeFilterControl
+            label="Time Range"
+            fromDate={fromDate}
+            toDate={toDate}
+            displayLabel={`${formatTimestamp(fromDate, datetimePrefs, { includeTime: false })} - ${formatTimestamp(toDate, datetimePrefs, { includeTime: false })}`}
+            presets={allPresets}
+            onChange={(newFrom, newTo) =>
+              setPendingValues(prev => ({ ...prev, __from: newFrom, __to: newTo }))
+            }
+          />
         )}
 
         {/* Local Date-Range Filters */}
@@ -558,6 +501,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
               options={discoveredOptions[variable.name] || []}
               selected={selected}
               loading={optionsLoading[variable.name] || false}
+              error={discoveryError[variable.name] || false}
+              onRetry={() => retryDiscovery(variable.name)}
               onChange={(next) =>
                 setPendingValues(prev => ({ ...prev, [variable.name]: next }))
               }

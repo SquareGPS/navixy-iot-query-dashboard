@@ -19,7 +19,7 @@ import { formatSql } from '@/lib/sqlFormatter';
 import type { Dashboard, Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
-import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams } from '@/utils/filterVariables';
+import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
 
 /**
  * Maps panel type to default dataset shape
@@ -188,6 +188,21 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       return;
     }
 
+    // An enabled filter with no column is silently dropped by the save build
+    // below (it requires a non-empty column), leaving a checked box that does
+    // nothing at runtime. Block the save and name the offending filter instead.
+    const incompleteFilters = Object.entries(filterBindings)
+      .filter(([variable, column]) => !column.trim() && localFilters.some((v) => v.name === variable))
+      .map(([variable]) => localFilters.find((v) => v.name === variable)?.label || variable);
+    if (incompleteFilters.length > 0) {
+      toast({
+        title: 'Filter needs a column',
+        description: `Pick a column for ${incompleteFilters.map((n) => `“${n}”`).join(', ')} on the Filters tab, or uncheck it.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       // Auto-extract parameters from SQL
@@ -202,27 +217,13 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       // Auto-determine dataset shape from panel type
       const autoDatasetShape = getDefaultDatasetShape(panelType);
       
-      // Auto-infer columns from test results if available, otherwise empty
-      let inferredColumns: Record<string, { type: NavixyColumnType }> = {};
+      // Auto-infer columns from test results if available, otherwise empty.
+      // rawTypeToNavixy is shared with the filter runtime/preview so the date-range
+      // comparison agrees with what's stored here.
+      const inferredColumns: Record<string, { type: NavixyColumnType }> = {};
       if (testResults && testResults.columns.length > 0 && testResults.columnTypes) {
         testResults.columns.forEach((colName: string) => {
-          const colType = testResults.columnTypes[colName] || 'string';
-          // Map database types to NavixyColumnType
-          let navixyType: NavixyColumnType = 'string';
-          if (colType.includes('int') || colType === 'integer') {
-            navixyType = 'integer';
-          } else if (colType.includes('numeric') || colType.includes('decimal') || colType.includes('float') || colType.includes('double') || colType === 'number') {
-            navixyType = 'number';
-          } else if (colType.includes('bool')) {
-            navixyType = 'boolean';
-          } else if (colType.includes('timestamp')) {
-            navixyType = colType.includes('tz') ? 'timestamptz' : 'timestamp';
-          } else if (colType.includes('date') && !colType.includes('time')) {
-            navixyType = 'date';
-          } else if (colType.includes('uuid')) {
-            navixyType = 'uuid';
-          }
-          inferredColumns[colName] = { type: navixyType };
+          inferredColumns[colName] = { type: rawTypeToNavixy(testResults.columnTypes[colName]) };
         });
       }
       
@@ -711,10 +712,24 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
                           )}
                           {column ? (
                             <p className="text-xs text-muted-foreground font-mono">
-                              WHERE {filterClausePreview(variable, column)}
+                              WHERE {filterClausePreview(variable, column, rawTypeToNavixy(columnTypeOf(column)))}
                             </p>
                           ) : (
                             <p className="text-xs text-amber-600">Pick a column to activate this filter.</p>
+                          )}
+                          {column && detectedColumns.length > 0 && !detectedColumns.includes(column) && (
+                            <p className="text-xs text-amber-600">
+                              “{column}” isn't one of this query's result columns
+                              {detectedColumns.length <= 8 ? ` (${detectedColumns.join(', ')})` : ''}. The
+                              filter matches on output columns, so it won't apply — add it to the SELECT
+                              output or pick a listed column.
+                            </p>
+                          )}
+                          {column && detectedColumns.filter((c) => c === column).length > 1 && (
+                            <p className="text-xs text-amber-600">
+                              “{column}” is output more than once by this query. Alias one of them in your
+                              SQL, or the filter fails with an “ambiguous column” error.
+                            </p>
                           )}
                           {column &&
                             variable['x-navixy']?.control === 'daterange' &&

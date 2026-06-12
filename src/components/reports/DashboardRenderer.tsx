@@ -31,7 +31,7 @@ import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
-import { applyPanelFilters, getActivePanelFilters } from '@/utils/filterVariables';
+import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
 import { PanelFilterIndicator } from './PanelFilterIndicator';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
@@ -451,9 +451,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
     const hasTimeRange = !!(dashboard.time && dashboard.time.from && dashboard.time.to);
     const hasInferredParams = dashboardPanelsHaveTemplateParameters(dashboard.panels);
-    const hasFilterVariables = !!dashboard.templating?.list?.some(
-      (v) => v['x-navixy']?.control === 'daterange'
-    );
+    const hasFilterVariables = !!dashboard.templating?.list?.some((v) => {
+      const control = v['x-navixy']?.control;
+      return control === 'daterange' || control === 'multiselect';
+    });
     return hasExplicitParams || hasTimeRange || hasInferredParams || hasFilterVariables;
   }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time, dashboard.templating]);
 
@@ -473,46 +474,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     if (!bindings) return resolved;
 
-    // Helper to resolve a binding expression
-    const resolveBinding = (binding: string): any => {
-      // Handle ${var_name} syntax
-      const varMatch = binding.match(/^\$\{([^}]+)\}$/);
-      if (varMatch) {
-        const varName = varMatch[1];
-
-        // Handle special time variables (convert to Date then ISO string)
-        if (varName === '__from') {
-          const date = parseTimeExpression(timeRange.from);
-          return formatDateToISO(date);
-        }
-        if (varName === '__to') {
-          const date = parseTimeExpression(timeRange.to);
-          return formatDateToISO(date);
-        }
-
-        // Handle dashboard variables
-        if (dashboard.templating?.list) {
-          const variable = dashboard.templating.list.find(v => v.name === varName);
-          if (variable?.current?.value !== undefined) {
-            return variable.current.value;
-          }
-        }
-
-        // Try dashboard-level bindings from x-navixy (recursive resolution)
-        if (dashboard['x-navixy']?.parameters?.bindings?.[varName]) {
-          return resolveBinding(dashboard['x-navixy'].parameters.bindings[varName]);
-        }
-
-        return binding; // Return as-is if not resolved
-      }
-
-      // Direct value (no ${})
-      return binding;
+    // Resolve ${...} expressions via the shared resolver (filterVariables), so
+    // the precedence rules (__from/__to → templating → dashboard bindings) live
+    // in one place and can't drift from the default-context resolution used by
+    // Test Query / option discovery. Here __from/__to reflect the live selection.
+    const timeParams = {
+      __from: formatDateToISO(parseTimeExpression(timeRange.from)),
+      __to: formatDateToISO(parseTimeExpression(timeRange.to)),
     };
-
-    // Resolve all bindings
     Object.entries(bindings).forEach(([key, value]) => {
-      resolved[key] = resolveBinding(value);
+      resolved[key] = resolveBindingExpression(value, dashboard, timeParams);
     });
 
     return resolved;
@@ -627,6 +598,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       navixyConfig.filters,
       dashboard,
       params, // multiselect filters only apply when something is selected
+      navixyConfig.dataset?.columns, // column types pick the date-range comparison
     );
 
     // Filter parameters to only include those actually used in the (effective) SQL

@@ -21,6 +21,10 @@ interface MultiSelectFilterControlProps {
   selected: string[];
   onChange: (next: string[]) => void;
   loading?: boolean;
+  /** True when the discovery query failed; shows a retry affordance. */
+  error?: boolean;
+  /** Re-run discovery for this filter. */
+  onRetry?: () => void;
 }
 
 export const MultiSelectFilterControl: React.FC<MultiSelectFilterControlProps> = ({
@@ -29,6 +33,8 @@ export const MultiSelectFilterControl: React.FC<MultiSelectFilterControlProps> =
   selected,
   onChange,
   loading,
+  error,
+  onRetry,
 }) => {
   const [search, setSearch] = useState('');
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -40,6 +46,8 @@ export const MultiSelectFilterControl: React.FC<MultiSelectFilterControlProps> =
 
   const triggerText = loading
     ? 'Loading…'
+    : error && options.length === 0
+    ? 'Failed to load'
     : selected.length === 0
     ? 'All'
     : selected.length <= 2
@@ -97,6 +105,15 @@ export const MultiSelectFilterControl: React.FC<MultiSelectFilterControlProps> =
           <div className="max-h-[240px] overflow-y-auto p-1">
             {loading ? (
               <div className="p-3 text-xs text-muted-foreground text-center">Loading values…</div>
+            ) : error && options.length === 0 ? (
+              <div className="p-3 text-xs text-center space-y-2">
+                <p className="text-amber-600">Couldn't load values.</p>
+                {onRetry && (
+                  <button type="button" className="text-[#379EF9] hover:underline" onClick={onRetry}>
+                    Retry
+                  </button>
+                )}
+              </div>
             ) : filtered.length === 0 ? (
               <div className="p-3 text-xs text-muted-foreground text-center">
                 {options.length === 0 ? 'No values' : 'No match'}

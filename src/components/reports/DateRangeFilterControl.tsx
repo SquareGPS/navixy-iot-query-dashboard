@@ -14,7 +14,15 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseTimeExpression, formatDateToLocalInput } from '@/utils/timeParser';
-import type { DateRangePreset } from '@/utils/filterVariables';
+
+/** Minimal preset shape this control needs; both DateRangePreset and the
+ * timepicker's quick-range presets satisfy it. */
+interface RangePreset {
+  id?: string;
+  from: string;
+  to: string;
+  display: string;
+}
 
 interface DateRangeFilterControlProps {
   label: string;
@@ -22,7 +30,7 @@ interface DateRangeFilterControlProps {
   toDate: Date;
   /** Pre-formatted "from - to" string shown on the trigger button. */
   displayLabel: string;
-  presets: DateRangePreset[];
+  presets: RangePreset[];
   onChange: (from: Date, to: Date) => void;
 }
 
@@ -60,7 +68,7 @@ export const DateRangeFilterControl: React.FC<DateRangeFilterControlProps> = ({
               <div className="flex flex-wrap gap-2">
                 {presets.map((preset) => (
                   <Button
-                    key={preset.id}
+                    key={preset.id ?? preset.display}
                     variant="outline"
                     size="sm"
                     onClick={() =>

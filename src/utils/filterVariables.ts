@@ -10,7 +10,7 @@
  *   `${__from}` / `${__to}` timepicker bindings. Panel authors opt a panel into
  *   the filter by referencing those parameters in the panel SQL.
  */
-import type { Dashboard, Variable, PanelFilterBinding, Panel } from '@/types/dashboard-types';
+import type { Dashboard, Variable, PanelFilterBinding, Panel, NavixyColumnType } from '@/types/dashboard-types';
 import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 
 export interface DateRangePreset {
@@ -43,6 +43,24 @@ export function getDateRangeFilters(dashboard: Dashboard | null | undefined): Va
 /** Derived SQL parameter names a date-range filter binds to. */
 export function dateRangeParamNames(name: string): { from: string; to: string } {
   return { from: `${name}_from`, to: `${name}_to` };
+}
+
+/**
+ * The SQL parameter name(s) a filter named `name` with the given `control`
+ * contributes to the shared `${...}` binding namespace: a date-range filter owns
+ * `${name}_from` and `${name}_to`; every other variable owns `${name}`.
+ */
+export function bindingNamesFor(control: string | undefined, name: string): string[] {
+  if (control === 'daterange') {
+    const { from, to } = dateRangeParamNames(name);
+    return [from, to];
+  }
+  return [name];
+}
+
+/** The SQL parameter name(s) an existing variable contributes (see bindingNamesFor). */
+export function variableBindingNames(v: Variable): string[] {
+  return bindingNamesFor(v['x-navixy']?.control, v.name);
 }
 
 /** Read the default [from, to] expressions stored on a date-range variable. */
@@ -110,24 +128,34 @@ export function suggestFilterName(label: string): string {
 }
 
 /**
- * Make a filter name unique within the dashboard's variable namespace by
- * appending a numeric suffix (`_2`, `_3`, …). `taken` must include EVERY
- * templating variable name — not just local filters — because all share the
- * same `${name}` SQL-binding namespace, and a plain (non-filter) template
- * variable colliding with a filter would clash at query time. `exclude` lets an
- * in-place edit keep its own current name.
+ * Make a filter name unique by appending a numeric suffix (`_2`, `_3`, …),
+ * checking BOTH namespaces it participates in against all `variables`:
+ *  - variable identity: every `templating.list[].name` must be distinct;
+ *  - SQL bindings: a date filter binds `${name}_from`/`${name}_to`, others bind
+ *    `${name}`, and those must not collide either — otherwise a date filter
+ *    `period` and a sibling literally named `period_from` would both resolve to
+ *    `${period_from}` and silently read each other's value.
+ * `kind` is the control of the filter being named (so its own binding shape is
+ * checked); `exclude` lets an in-place edit keep its current name.
  */
 export function uniqueFilterName(
   base: string,
-  taken: Iterable<string>,
-  exclude?: string | null
+  variables: Variable[],
+  options?: { kind?: string; exclude?: string | null }
 ): string {
-  const set = new Set(taken);
-  if (exclude) set.delete(exclude);
-  if (!set.has(base)) return base;
+  const exclude = options?.exclude ?? null;
+  const others = variables.filter((v) => v.name !== exclude);
+  const names = new Set(others.map((v) => v.name));
+  const reserved = new Set<string>();
+  for (const v of others) for (const b of variableBindingNames(v)) reserved.add(b);
+
+  const isFree = (candidate: string): boolean =>
+    !names.has(candidate) && bindingNamesFor(options?.kind, candidate).every((b) => !reserved.has(b));
+
+  if (isFree(base)) return base;
   for (let i = 2; ; i++) {
     const candidate = `${base}_${i}`;
-    if (!set.has(candidate)) return candidate;
+    if (isFree(candidate)) return candidate;
   }
 }
 
@@ -235,7 +263,7 @@ export function buildDiscoveryQuery(column: string, panelSqls: string[]): string
 }
 
 /** Resolve a dashboard's default time params (${__from}/${__to}) to ISO strings. */
-export function defaultTimeParams(dashboard: Dashboard | null | undefined): Record<string, string> {
+export function defaultTimeParams(dashboard: Dashboard | null | undefined): { __from: string; __to: string } {
   const from = dashboard?.time?.from || 'now-24h';
   const to = dashboard?.time?.to || 'now';
   return {
@@ -245,15 +273,20 @@ export function defaultTimeParams(dashboard: Dashboard | null | undefined): Reco
 }
 
 /**
- * Resolve a binding expression the way the dashboard renderer does at query
- * time: `${__from}`/`${__to}` against the default time range, `${name}` against
- * templating current values, then recursively against dashboard-level
- * x-navixy.parameters.bindings. Literals and unresolvable expressions are
- * returned as-is.
+ * Resolve a `${...}` binding expression to its value, in one place shared by the
+ * renderer's live query path (executePanelQuery → resolveParameterBindings) and
+ * the default-context path (resolveDefaultPanelParams, for Test Query / option
+ * discovery). Precedence: `${__from}`/`${__to}` from the supplied `timeParams`
+ * (live selection at view time, default range otherwise) → templating
+ * `current.value` → dashboard-level x-navixy.parameters.bindings (resolved
+ * recursively). Literals and unresolvable expressions are returned as-is.
+ * Keeping this single avoids the two paths drifting and resolving a parameter to
+ * different values.
  */
-function resolveBindingExpression(
+export function resolveBindingExpression(
   expr: string,
   dashboard: Dashboard | null | undefined,
+  timeParams: { __from: string; __to: string },
   seen: Set<string> = new Set()
 ): unknown {
   const match = typeof expr === 'string' ? expr.match(/^\$\{([^}]+)\}$/) : null;
@@ -263,7 +296,7 @@ function resolveBindingExpression(
   seen.add(name);
 
   if (name === '__from' || name === '__to') {
-    return defaultTimeParams(dashboard)[name];
+    return timeParams[name];
   }
   const variable = dashboard?.templating?.list?.find((v) => v.name === name);
   if (variable?.current?.value !== undefined) {
@@ -271,7 +304,7 @@ function resolveBindingExpression(
   }
   const nested = dashboard?.['x-navixy']?.parameters?.bindings?.[name];
   if (nested !== undefined) {
-    return resolveBindingExpression(nested, dashboard, seen);
+    return resolveBindingExpression(nested, dashboard, timeParams, seen);
   }
   return expr;
 }
@@ -289,6 +322,7 @@ export function resolveDefaultPanelParams(
 ): Record<string, unknown> {
   const params: Record<string, unknown> = {};
   const sql = panel?.['x-navixy']?.sql;
+  const time = defaultTimeParams(dashboard);
 
   // Panel param defaults (the params map can hold nulls and config scalars —
   // only honour real config objects with a default)
@@ -304,12 +338,11 @@ export function resolveDefaultPanelParams(
   for (const bindings of [sql?.bindings, dashboard?.['x-navixy']?.parameters?.bindings]) {
     if (!bindings) continue;
     for (const [key, expr] of Object.entries(bindings)) {
-      if (!(key in params)) params[key] = resolveBindingExpression(expr, dashboard);
+      if (!(key in params)) params[key] = resolveBindingExpression(expr, dashboard, time);
     }
   }
 
   // Default global time range
-  const time = defaultTimeParams(dashboard);
   if (!('__from' in params)) params.__from = time.__from;
   if (!('__to' in params)) params.__to = time.__to;
 
@@ -362,35 +395,106 @@ export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+/** Map a raw SQL/driver type name (e.g. 'int8', 'timestamptz', 'text') to a coarse NavixyColumnType. */
+export function rawTypeToNavixy(raw: string | undefined): NavixyColumnType {
+  const t = (raw || 'string').toLowerCase();
+  if (t.includes('int') || t === 'integer') return 'integer';
+  if (t.includes('numeric') || t.includes('decimal') || t.includes('float') || t.includes('double') || t === 'number') return 'number';
+  if (t.includes('bool')) return 'boolean';
+  if (t.includes('timestamp')) return t.includes('tz') ? 'timestamptz' : 'timestamp';
+  if (t.includes('date') && !t.includes('time')) return 'date';
+  if (t.includes('uuid')) return 'uuid';
+  return 'string';
+}
+
+/** SQL types we read as Unix-epoch seconds when bound to a date-range filter. */
+function isEpochColumnType(t: NavixyColumnType | undefined): boolean {
+  return t === 'integer' || t === 'number' || t === 'numeric' || t === 'decimal';
+}
+
 /**
- * The SQL clause shape a filter binding produces (for editor previews). Mirrors
- * applyPanelFilters but always renders the multiselect clause regardless of the
- * current selection.
+ * The temporal SQL expression a date-range filter compares against, chosen from
+ * the bound column's known type:
+ *  - numeric columns are Unix-epoch seconds → `to_timestamp("col")`;
+ *  - everything else (timestamp/date, or unknown/text best-effort) → cast to
+ *    `timestamptz`. The cast can still fail for genuinely non-temporal text,
+ *    which the panel editor warns about at bind time.
  */
-export function filterClausePreview(variable: Variable, column: string): string {
+export function dateRangeColumnExpr(column: string, type: NavixyColumnType | undefined): string {
   const q = quoteIdentifier(column);
+  return isEpochColumnType(type) ? `to_timestamp(${q})` : `${q}::timestamptz`;
+}
+
+/**
+ * The SQL WHERE clause a single filter binding contributes, or null when its
+ * control is absent/unknown. Single source of truth for the runtime
+ * (applyPanelFilters) and the editor preview (filterClausePreview), so the two
+ * can never spell the clause differently. `columnType` selects the date-range
+ * expression; the multiselect "empty selection = All" gate is an apply-time
+ * decision and stays with the caller.
+ */
+export function buildFilterClause(
+  variable: Variable,
+  column: string,
+  columnType?: NavixyColumnType
+): string | null {
   const control = variable['x-navixy']?.control;
   if (control === 'daterange') {
     const names = dateRangeParamNames(variable.name);
-    return `${q}::timestamptz BETWEEN \${${names.from}} AND \${${names.to}}`;
+    return `${dateRangeColumnExpr(column, columnType)} BETWEEN \${${names.from}} AND \${${names.to}}`;
   }
   if (control === 'multiselect') {
-    return `${q}::text = ANY(\${${variable.name}}::text[])`;
+    // Cast to text so non-text columns (ids, numerics, uuids) compare cleanly
+    // against the text[] selection.
+    return `${quoteIdentifier(column)}::text = ANY(\${${variable.name}}::text[])`;
   }
-  return '';
+  return null;
+}
+
+/**
+ * The local-filter variable (date-range or multiselect) a binding targets, or
+ * undefined when the binding has no column, names no known variable, or names a
+ * non-filter variable. Shared by applyPanelFilters and getActivePanelFilters.
+ */
+function bindingFilterVariable(
+  binding: PanelFilterBinding,
+  dashboard: Dashboard | null | undefined
+): Variable | undefined {
+  if (!binding.column) return undefined;
+  const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
+  const control = variable?.['x-navixy']?.control;
+  return control === 'daterange' || control === 'multiselect' ? variable : undefined;
+}
+
+/**
+ * The SQL clause shape a filter binding produces (for editor previews). Always
+ * renders the multiselect clause regardless of the current selection.
+ */
+export function filterClausePreview(variable: Variable, column: string, columnType?: NavixyColumnType): string {
+  return buildFilterClause(variable, column, columnType) ?? '';
 }
 
 /**
  * Apply a panel's local filter bindings to its SQL by wrapping the original
- * statement as a subquery and filtering on the chosen output columns:
+ * statement as a subquery and filtering on the chosen OUTPUT columns:
  *
  *   SELECT * FROM ( <original> ) AS _navixy_filter
- *   WHERE "col" BETWEEN ${var_from} AND ${var_to}
+ *   WHERE to_timestamp("col") BETWEEN ${var_from} AND ${var_to}
  *
  * Wrapping is the one rewrite valid for ANY SELECT (CTEs, joins, aggregates), so
- * we never parse or splice the user's query. It is non-destructive — the stored
- * statement is unchanged; this runs at execution time. The chosen column is a
- * result/output column, so the filter restricts the rows the panel would show.
+ * we never parse or splice the user's query, and it is non-destructive (the
+ * stored statement is unchanged; this runs at execution time).
+ *
+ * Contract enforced by the binding UI (PanelEditor): the bound column must be a
+ * single, unambiguous OUTPUT column of the query. A column projected twice (two
+ * `id`s) or not projected at all (e.g. an aggregate's input) cannot be referenced
+ * by the wrapper and would raise at run time, so the editor warns on those before
+ * a binding is saved. The wrapper adds no outer ORDER BY, so Postgres preserves
+ * the inner query's ordering through the filtering scan.
+ *
+ * The date-range comparison adapts to the bound column's stored type (`columns`,
+ * the panel's inferred output schema): numeric columns are read as Unix-epoch
+ * seconds, temporal/other columns are cast to timestamptz.
  *
  * Returns the original statement unchanged when there are no applicable bindings.
  */
@@ -398,32 +502,22 @@ export function applyPanelFilters(
   statement: string,
   filters: PanelFilterBinding[] | undefined,
   dashboard: Dashboard | null | undefined,
-  values?: Record<string, unknown>
+  values?: Record<string, unknown>,
+  columns?: Record<string, { type: NavixyColumnType }>
 ): string {
   if (!filters || filters.length === 0) return statement;
 
   const clauses: string[] = [];
   for (const binding of filters) {
-    if (!binding.column) continue;
-    const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
-    const control = variable?.['x-navixy']?.control;
-    if (control === 'daterange') {
-      // Cast the column so date/timestamp variants compare correctly and
-      // non-temporal columns (e.g. to_char-formatted text) fail loudly instead
-      // of silently matching nothing via string comparison.
-      const names = dateRangeParamNames(binding.variable);
-      clauses.push(
-        `${quoteIdentifier(binding.column)}::timestamptz BETWEEN \${${names.from}} AND \${${names.to}}`
-      );
-    } else if (control === 'multiselect') {
+    const variable = bindingFilterVariable(binding, dashboard);
+    if (!variable) continue;
+    if (variable['x-navixy']?.control === 'multiselect') {
       // Only filter when something is selected; an empty selection means "All".
-      // The column is cast to text so non-text columns (ids, numerics, uuids)
-      // compare cleanly against the text[] selection.
       const selection = values?.[binding.variable];
-      if (Array.isArray(selection) && selection.length > 0) {
-        clauses.push(`${quoteIdentifier(binding.column)}::text = ANY(\${${binding.variable}}::text[])`);
-      }
+      if (!Array.isArray(selection) || selection.length === 0) continue;
     }
+    const clause = buildFilterClause(variable, binding.column, columns?.[binding.column]?.type);
+    if (clause) clauses.push(clause);
   }
 
   if (clauses.length === 0) return statement;
@@ -534,16 +628,13 @@ export function getActivePanelFilters(
 
   const active: ActivePanelFilter[] = [];
   for (const binding of filters) {
-    if (!binding.column) continue;
-    const variable = dashboard?.templating?.list?.find((v) => v.name === binding.variable);
-    const control = variable?.['x-navixy']?.control;
-    if (control === 'daterange' || control === 'multiselect') {
-      active.push({
-        variable: binding.variable,
-        label: variable.label || variable.name,
-        column: binding.column,
-      });
-    }
+    const variable = bindingFilterVariable(binding, dashboard);
+    if (!variable) continue;
+    active.push({
+      variable: binding.variable,
+      label: variable.label || variable.name,
+      column: binding.column,
+    });
   }
   return active;
 }

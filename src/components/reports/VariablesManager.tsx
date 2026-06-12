@@ -51,6 +51,8 @@ import {
   makeMultiselectVariable,
   suggestFilterName,
   uniqueFilterName,
+  bindingNamesFor,
+  variableBindingNames,
 } from '@/utils/filterVariables';
 
 interface VariablesManagerProps {
@@ -209,6 +211,19 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
         ? 'Another filter already uses this name.'
         : `A dashboard template variable named “${name}” already exists (not shown here). Choose a different name.`;
     }
+    // A date filter binds ${name}_from/${name}_to, so its name can clash with a
+    // sibling in the SQL-binding namespace even when the base names differ (e.g.
+    // a date filter "period" vs. a variable literally named "period_from"). Catch
+    // those derived-name collisions too.
+    const others = list.filter((v) => v.name !== editor.originalName);
+    const reserved = new Map<string, Variable>();
+    for (const v of others) for (const b of variableBindingNames(v)) if (!reserved.has(b)) reserved.set(b, v);
+    for (const b of bindingNamesFor(editor.kind, name)) {
+      const owner = reserved.get(b);
+      if (owner) {
+        return `This binds \${${b}}, which is already used by “${owner.label || owner.name}”. Choose a different name.`;
+      }
+    }
     return null;
   }, [editor, list]);
 
@@ -247,7 +262,17 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
   };
 
   const handleLabelChange = (label: string) => {
-    setEditor((prev) => (prev ? { ...prev, label, name: prev.nameTouched ? prev.name : suggestFilterName(label) } : prev));
+    setEditor((prev) =>
+      prev
+        ? {
+            ...prev,
+            label,
+            name: prev.nameTouched
+              ? prev.name
+              : uniqueFilterName(suggestFilterName(label), list, { kind: prev.kind, exclude: prev.originalName }),
+          }
+        : prev
+    );
   };
 
   // Picking (or changing) the column always re-derives the label and name, and
@@ -274,7 +299,7 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
             // picking a column whose name matches an existing (often hidden,
             // non-filter) template variable doesn't dead-end on a duplicate-name
             // error the author can't see or act on.
-            name: uniqueFilterName(suggestFilterName(entry.name), list.map((v) => v.name), prev.originalName),
+            name: uniqueFilterName(suggestFilterName(entry.name), list, { kind: 'multiselect', exclude: prev.originalName }),
             nameTouched: false,
           }
         : prev
