@@ -50,6 +50,7 @@ import {
   makeDateRangeVariable,
   makeMultiselectVariable,
   suggestFilterName,
+  uniqueFilterName,
 } from '@/utils/filterVariables';
 
 interface VariablesManagerProps {
@@ -198,7 +199,16 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     const name = editor.name.trim();
     if (!name) return 'Name is required.';
     if (!isValidFilterName(name)) return 'Use letters, digits and underscores; must start with a letter and not begin with "__".';
-    if (list.some((v) => v.name === name && v.name !== editor.originalName)) return 'A variable with this name already exists.';
+    // The name shares the dashboard's whole `${name}` binding namespace, so it
+    // must be unique against EVERY template variable — including plain ones this
+    // dialog doesn't list. Word the conflict so a hidden (non-filter) collision
+    // is still actionable rather than appearing to clash with nothing.
+    const conflict = list.find((v) => v.name === name && v.name !== editor.originalName);
+    if (conflict) {
+      return isLocalFilter(conflict)
+        ? 'Another filter already uses this name.'
+        : `A dashboard template variable named “${name}” already exists (not shown here). Choose a different name.`;
+    }
     return null;
   }, [editor, list]);
 
@@ -260,7 +270,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
             panelTitle: panel.panel,
             applyPanels,
             label: titleize(entry.name),
-            name: suggestFilterName(entry.name),
+            // Derive a name that's free across the whole variable namespace, so
+            // picking a column whose name matches an existing (often hidden,
+            // non-filter) template variable doesn't dead-end on a duplicate-name
+            // error the author can't see or act on.
+            name: uniqueFilterName(suggestFilterName(entry.name), list.map((v) => v.name), prev.originalName),
             nameTouched: false,
           }
         : prev

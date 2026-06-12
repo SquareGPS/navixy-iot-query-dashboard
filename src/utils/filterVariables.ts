@@ -109,6 +109,28 @@ export function suggestFilterName(label: string): string {
   return base || 'filter';
 }
 
+/**
+ * Make a filter name unique within the dashboard's variable namespace by
+ * appending a numeric suffix (`_2`, `_3`, …). `taken` must include EVERY
+ * templating variable name — not just local filters — because all share the
+ * same `${name}` SQL-binding namespace, and a plain (non-filter) template
+ * variable colliding with a filter would clash at query time. `exclude` lets an
+ * in-place edit keep its own current name.
+ */
+export function uniqueFilterName(
+  base: string,
+  taken: Iterable<string>,
+  exclude?: string | null
+): string {
+  const set = new Set(taken);
+  if (exclude) set.delete(exclude);
+  if (!set.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base}_${i}`;
+    if (!set.has(candidate)) return candidate;
+  }
+}
+
 /** Build a date-range filter variable for templating.list[]. */
 export function makeDateRangeVariable(params: {
   name: string;
