@@ -61,6 +61,7 @@ import {
   Area,
 } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
+import { detectSeriesColumnIndex, seriesDataKey } from '@/lib/chartSeries';
 import { TablePanel } from './TablePanel';
 import { TextPanel } from './visualizations/TextPanel';
 import { MapPanel, GPSPoint } from './visualizations/MapPanel';
@@ -1089,35 +1090,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       legendPosition,
     });
 
-    // Determine if we have multiple series (more than 2 columns)
-    // Only treat as multiple series if column 2 has repeated values (actual grouping)
-    const hasMultipleSeries = data.columns.length > 2;
-    let seriesColumnIndex: number | null = null;
-
-    if (hasMultipleSeries) {
-      // Check if column 2 has repeated values (indicating it's a series grouping)
-      const seriesValues = data.rows.map(row => String(row[2]));
-      const uniqueSeriesCount = new Set(seriesValues).size;
-      const totalRows = data.rows.length;
-
-      // If unique series count is close to total rows, it's probably not a series grouping
-      // (e.g., IDs or unique identifiers). Use a threshold: if >80% unique, treat as simple 2-column
-      const isLikelySeriesGrouping = uniqueSeriesCount < totalRows * 0.8;
-
-      console.log('[BarChart] Series detection logic', {
-        totalRows,
-        uniqueSeriesCount,
-        isLikelySeriesGrouping,
-        threshold: totalRows * 0.8,
-      });
-
-      if (isLikelySeriesGrouping) {
-        seriesColumnIndex = 2;
-      } else {
-        // Treat as simple 2-column chart, ignore third column
-        console.log('[BarChart] Third column appears to be IDs/unique values, treating as 2-column chart');
-      }
-    }
+    // Detect a long-format series column (col 3) via the shared helper so the
+    // same query groups identically in bar and line/time-series panels (DO-273).
+    const seriesColumnIndex = detectSeriesColumnIndex(data.columns, data.rows);
 
     const categoryColumnIndex = 0;
     const valueColumnIndex = 1;
@@ -1384,7 +1359,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             seriesNames.map((seriesName, index) => (
               <Bar
                 key={ seriesName }
-                dataKey={ (d) => d[seriesName] }
+                dataKey={ seriesDataKey(seriesName) }
                 name={ seriesName }
                 stackId={ stacking !== 'none' ? 'stack' : undefined }
                 fill={ colors[index % colors.length] }
@@ -1476,30 +1451,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     //   • Wide format  [x, value1, value2, ...]  -> one line per value column
     const columns = data.columns || [];
     const xKey = columns[0]?.name || 'x';
-    const SERIES_COL = 2;
 
+    // Missing/unparseable values become null so Recharts draws a gap instead of
+    // a fake zero point — the right contract for a line (bar charts use 0).
     const toNumber = (raw: unknown): number | null => {
       const value = typeof raw === 'number' ? raw : parseFloat(String(raw));
       return isNaN(value) || !isFinite(value) ? null : value;
     };
 
-    // Detect a long-format series column (col 3), mirroring the bar chart so a
-    // query that groups in a bar chart groups the same way here (DO-273). A
-    // numeric 3rd column is only treated as a grouping key when the x-axis
-    // repeats (each series contributes a row per x); otherwise it's a second
-    // metric and we keep the original wide-format one-line-per-column behavior.
-    let seriesColumnIndex: number | null = null;
-    if (columns.length > 2 && data.rows.length > 0) {
-      const seriesColType = String(columns[SERIES_COL]?.type || '').toLowerCase();
-      const isNumericSeries = /int|num|dec|serial|double|real|float|money/.test(seriesColType);
-      const uniqueSeriesCount = new Set(data.rows.map((row) => String(row[SERIES_COL]))).size;
-      const seriesRepeats = uniqueSeriesCount < data.rows.length * 0.8;
-      const uniqueXCount = new Set(data.rows.map((row) => String(row[0]))).size;
-      const xHasDuplicates = uniqueXCount < data.rows.length;
-      if (seriesRepeats && (!isNumericSeries || xHasDuplicates)) {
-        seriesColumnIndex = SERIES_COL;
-      }
-    }
+    // Shared detector so the same query groups identically in bar and line (DO-273).
+    const seriesColumnIndex = detectSeriesColumnIndex(columns, data.rows);
 
     let chartData: any[] = [];
     let seriesNames: string[] = [];
@@ -1507,17 +1468,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (seriesColumnIndex !== null) {
       // Long format: pivot rows into one line per distinct series value.
       // x = col 1, value = col 2, series label = col 3.
+      seriesNames = Array.from(
+        new Set(data.rows.map((row) => String(row[seriesColumnIndex]))),
+      );
       const byX = new Map<string, any>();
       data.rows.forEach((row) => {
         const xId = String(row[0]);
-        const seriesName = String(row[SERIES_COL]);
-        if (!seriesNames.includes(seriesName)) seriesNames.push(seriesName);
         if (!byX.has(xId)) byX.set(xId, { [xKey]: row[0] });
-        byX.get(xId)[seriesName] = toNumber(row[1]);
+        // A series missing at some x stays absent -> Recharts renders a gap.
+        byX.get(xId)[String(row[seriesColumnIndex])] = toNumber(row[1]);
       });
-      // One object per x. A series missing at some x is simply absent, which
-      // Recharts renders as a gap (same as null). seriesNames is tracked above,
-      // so nothing depends on every point carrying every key.
       chartData = Array.from(byX.values());
     } else {
       // Wide format: first column is x, each remaining column is its own series.
@@ -1538,6 +1498,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       seriesNames = chartData.length > 0
         ? Object.keys(chartData[0] || {}).filter((key) => key !== xKey)
         : [];
+
+      // A wide result can have no value columns (e.g. a single-column query). The
+      // long-format branch always yields >=1 series for non-empty rows, so this
+      // guard is only meaningful here.
+      if (seriesNames.length === 0) {
+        return <div className="text-gray-500">No data series found</div>;
+      }
     }
 
     // Sort data by x value (assuming it's a date/timestamp)
@@ -1551,11 +1518,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       }
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     });
-
-    // If no series found, return early
-    if (seriesNames.length === 0) {
-      return <div className="text-gray-500">No data series found</div>;
-    }
 
     // Map line style to strokeDasharray
     const getStrokeDasharray = () => {
@@ -1655,42 +1617,49 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               />
             ) }
 
-            {/* Render area fill if needed */ }
-            { fillArea !== 'none' && seriesNames.map((seriesName, index) => (
-              <Area
-                key={ `area-${ seriesName }` }
-                type={ getCurveType() }
-                dataKey={ (d) => d[seriesName] }
-                name={ seriesName }
-                stroke="none"
-                fill={ colors[index % colors.length] }
-                fillOpacity={ 0.1 }
-                isAnimationActive={ false }
-              />
-            )) }
-
-            {/* Render lines */ }
-            { seriesNames.map((seriesName, index) => (
-              <Line
-                key={ `line-${ seriesName }` }
-                type={ getCurveType() }
-                dataKey={ (d) => d[seriesName] }
-                name={ seriesName }
-                stroke={ colors[index % colors.length] }
-                strokeWidth={ lineWidth }
-                strokeDasharray={ getStrokeDasharray() }
-                dot={ shouldShowPoints ? {
-                  r: pointSize,
-                  fill: colors[index % colors.length],
-                  strokeWidth: 2,
-                  stroke: 'var(--surface-1)',
-                } : false }
-                activeDot={ { r: pointSize + 2 } }
-                isAnimationActive={ true }
-                animationDuration={ 300 }
-                animationEasing="ease-out"
-              />
-            )) }
+            {/* One element per series: a stroked Area when fill is enabled (the
+                area's top edge is the line), otherwise a plain Line. A single
+                element per series avoids duplicate legend/tooltip entries. */ }
+            { seriesNames.map((seriesName, index) => {
+              const color = colors[index % colors.length];
+              const dataKey = seriesDataKey(seriesName);
+              const dot = shouldShowPoints
+                ? { r: pointSize, fill: color, strokeWidth: 2, stroke: 'var(--surface-1)' }
+                : false;
+              return fillArea !== 'none' ? (
+                <Area
+                  key={ `series-${ seriesName }` }
+                  type={ getCurveType() }
+                  dataKey={ dataKey }
+                  name={ seriesName }
+                  stroke={ color }
+                  strokeWidth={ lineWidth }
+                  strokeDasharray={ getStrokeDasharray() }
+                  fill={ color }
+                  fillOpacity={ 0.1 }
+                  dot={ dot }
+                  activeDot={ { r: pointSize + 2 } }
+                  isAnimationActive={ true }
+                  animationDuration={ 300 }
+                  animationEasing="ease-out"
+                />
+              ) : (
+                <Line
+                  key={ `series-${ seriesName }` }
+                  type={ getCurveType() }
+                  dataKey={ dataKey }
+                  name={ seriesName }
+                  stroke={ color }
+                  strokeWidth={ lineWidth }
+                  strokeDasharray={ getStrokeDasharray() }
+                  dot={ dot }
+                  activeDot={ { r: pointSize + 2 } }
+                  isAnimationActive={ true }
+                  animationDuration={ 300 }
+                  animationEasing="ease-out"
+                />
+              );
+            }) }
           </ChartComponent>
         </ResponsiveContainer>
       </div>
