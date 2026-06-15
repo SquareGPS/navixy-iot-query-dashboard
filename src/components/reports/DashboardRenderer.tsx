@@ -61,6 +61,7 @@ import {
   Area,
 } from 'recharts';
 import { chartColors } from '@/lib/chartColors';
+import { detectSeriesColumnIndex, seriesDataKey } from '@/lib/chartSeries';
 import { TablePanel } from './TablePanel';
 import { TextPanel } from './visualizations/TextPanel';
 import { MapPanel, GPSPoint } from './visualizations/MapPanel';
@@ -385,18 +386,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const prevIsEditingLayoutRef = useRef(isEditingLayout);
 
   useEffect(() => {
-    console.log('DashboardRenderer: useEffect triggered', {
-      isEditingLayout,
-      dashboardInitialized: dashboardInitializedRef.current,
-      prevIsEditingLayout: prevIsEditingLayoutRef.current,
-      dashboardPanelsCount: dashboard?.panels?.length,
-      storeDashboardPanelsCount: storeDashboard?.panels?.length,
-    });
-
     // Reset initialization flag when exiting layout editing mode
     // This ensures we re-initialize with the updated dashboard prop
     if (prevIsEditingLayoutRef.current && !isEditingLayout) {
-      console.log('DashboardRenderer: Exiting edit mode, resetting initialization flag');
       dashboardInitializedRef.current = false;
       // Clear query cache so queries re-execute with updated layout
       prevDashboardRef.current = null;
@@ -408,12 +400,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // IMPORTANT: When in editing mode, don't overwrite the store with prop changes
     // because the store is the source of truth during editing (user is making changes)
     if (isEditingLayout && dashboardInitializedRef.current) {
-      console.log('DashboardRenderer: Skipping store update - in edit mode and already initialized');
       return; // Early return to prevent overwriting store during editing
     }
 
     // Only update if we're not in edit mode, or if we haven't initialized yet
-    console.log('DashboardRenderer: Initializing dashboard in store');
     // Canonicalize rows to ensure expanded rows have children in main panels array
     const canonicalizedDashboard = canonicalizeRows(dashboard);
     setDashboard(canonicalizedDashboard);
@@ -1052,97 +1042,32 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   const renderBarChartPanel = (panel: Panel, data: QueryResult) => {
-    console.log('[BarChart] renderBarChartPanel called', {
-      panelTitle: panel.title,
-      rowCount: data.rows?.length,
-      columnCount: data.columns?.length,
-      columns: data.columns,
-      firstFewRows: data.rows?.slice(0, 3),
-    });
-
     if (!data.rows || data.rows.length === 0) {
-      console.log('[BarChart] No data rows available');
       return <div className="text-gray-500">No data</div>;
     }
 
     const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
 
-    // Get visualization settings with defaults
-    // Force vertical for now - horizontal bars need more work
-    const orientation = 'vertical'; // visualization?.orientation || 'vertical';
+    // Get visualization settings with defaults (horizontal bars not yet supported)
     const stacking = visualization?.stacking || 'none';
     const showValues = visualization?.showValues || false;
     const sortOrder = visualization?.sortOrder || 'none';
-    const barSpacing = visualization?.barSpacing !== undefined ? visualization.barSpacing : 0.2;
     const colorPalette = visualization?.colorPalette || 'classic';
     const showLegend = visualization?.showLegend !== false;
     const legendPosition = visualization?.legendPosition || 'bottom';
 
-    console.log('[BarChart] Visualization settings', {
-      orientation,
-      stacking,
-      showValues,
-      sortOrder,
-      barSpacing,
-      colorPalette,
-      showLegend,
-      legendPosition,
-    });
-
-    // Determine if we have multiple series (more than 2 columns)
-    // Only treat as multiple series if column 2 has repeated values (actual grouping)
-    const hasMultipleSeries = data.columns.length > 2;
-    let seriesColumnIndex: number | null = null;
-
-    if (hasMultipleSeries) {
-      // Check if column 2 has repeated values (indicating it's a series grouping)
-      const seriesValues = data.rows.map(row => String(row[2]));
-      const uniqueSeriesCount = new Set(seriesValues).size;
-      const totalRows = data.rows.length;
-
-      // If unique series count is close to total rows, it's probably not a series grouping
-      // (e.g., IDs or unique identifiers). Use a threshold: if >80% unique, treat as simple 2-column
-      const isLikelySeriesGrouping = uniqueSeriesCount < totalRows * 0.8;
-
-      console.log('[BarChart] Series detection logic', {
-        totalRows,
-        uniqueSeriesCount,
-        isLikelySeriesGrouping,
-        threshold: totalRows * 0.8,
-      });
-
-      if (isLikelySeriesGrouping) {
-        seriesColumnIndex = 2;
-      } else {
-        // Treat as simple 2-column chart, ignore third column
-        console.log('[BarChart] Third column appears to be IDs/unique values, treating as 2-column chart');
-      }
-    }
+    // Detect a long-format series column (col 3) via the shared helper so the
+    // same query groups identically in bar and line/time-series panels (DO-273).
+    const seriesColumnIndex = detectSeriesColumnIndex(data.columns, data.rows);
 
     const categoryColumnIndex = 0;
     const valueColumnIndex = 1;
-
-    console.log('[BarChart] Data structure analysis', {
-      hasMultipleSeries: seriesColumnIndex !== null,
-      categoryColumnIndex,
-      valueColumnIndex,
-      seriesColumnIndex,
-      columnNames: data.columns.map(c => c.name),
-      columnTypes: data.columns.map(c => c.type),
-      firstRowSample: data.rows[0],
-      firstRowValues: {
-        col0: data.rows[0]?.[0],
-        col1: data.rows[0]?.[1],
-        col2: data.rows[0]?.[2],
-      },
-    });
 
     // Process data
     let chartData: any[] = [];
     let seriesNames: string[] = [];
 
     if (seriesColumnIndex !== null) {
-      console.log('[BarChart] Processing multiple series format');
       // Group data by category and series
       const groupedData: Record<string, Record<string, number>> = {};
 
@@ -1161,21 +1086,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       seriesNames = Array.from(new Set(
         data.rows.map(row => String(row[seriesColumnIndex])),
       ));
-
-      console.log('[BarChart] Multiple series detected', {
-        seriesNames,
-        seriesNamesCount: seriesNames.length,
-        uniqueSeriesCount: new Set(seriesNames).size,
-        groupedDataSample: Object.keys(groupedData).slice(0, 2).map(cat => ({
-          category: cat,
-          series: groupedData[cat],
-        })),
-        firstFewRows: data.rows.slice(0, 3).map(row => ({
-          category: row[categoryColumnIndex],
-          value: row[valueColumnIndex],
-          series: row[seriesColumnIndex],
-        })),
-      });
 
       // Convert to chart data format
       chartData = Object.keys(groupedData).map(category => {
@@ -1196,32 +1106,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           });
           return normalized;
         });
-        console.log('[BarChart] Normalized to percentages');
       }
     } else {
       // Simple category-value format
-      console.log('[BarChart] Processing simple category-value format');
-      console.log('[BarChart] Sample raw row values:', data.rows.slice(0, 3).map(row => ({
-        categoryRaw: row[categoryColumnIndex],
-        valueRaw: row[valueColumnIndex],
-        categoryType: typeof row[categoryColumnIndex],
-        valueType: typeof row[valueColumnIndex],
-      })));
-
       chartData = data.rows.map((row) => {
         const category = String(row[categoryColumnIndex]);
         const value = Number(row[valueColumnIndex]) || 0;
         return { category, value };
       });
       seriesNames = ['value'];
-
-      console.log('[BarChart] Processed chartData sample:', chartData.slice(0, 3));
-      console.log('[BarChart] Value statistics:', {
-        min: Math.min(...chartData.map(d => d.value)),
-        max: Math.max(...chartData.map(d => d.value)),
-        sum: chartData.reduce((sum, d) => sum + d.value, 0),
-        allValues: chartData.map(d => d.value),
-      });
     }
 
     // Apply sorting
@@ -1246,33 +1139,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Get color palette
     const colors = chartColors.getPalette(colorPalette);
 
-    console.log('[BarChart] Final chartData before render:', {
-      dataLength: chartData.length,
-      sampleData: chartData.slice(0, 3),
-      allCategories: chartData.map(d => d.category),
-      allValues: chartData.map(d => d.value),
-      colors: colors.slice(0, 3),
-      hasMultipleSeries: seriesColumnIndex !== null,
-      seriesNames,
-    });
-
     // Force vertical layout for now
     const isHorizontal = false; // orientation === 'horizontal';
-
-    // Calculate Y-axis domain for logging
-    if (seriesColumnIndex === null && chartData.length > 0) {
-      const values = chartData.map(d => d.value);
-      const minVal = Math.min(...values);
-      const maxVal = Math.max(...values);
-      const yAxisDomain = stacking === 'percent' ? [0, 100] : [0, 'auto'];
-      console.log('[BarChart] Y-axis domain calculation:', {
-        stacking,
-        yAxisDomain,
-        dataMin: minVal,
-        dataMax: maxVal,
-        dataRange: maxVal - minVal,
-      });
-    }
 
     // Calculate explicit domain for Y-axis (vertical bars)
     let valueAxisDomain: [number, number] = [0, 100];
@@ -1289,12 +1157,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         // Add 5% padding above max value - matching working test configuration
         const paddedMax = Math.ceil(maxVal * 1.05);
         valueAxisDomain = [0, paddedMax];
-
-        console.log('[BarChart] Calculated value axis domain:', {
-          maxVal,
-          paddedMax,
-          valueAxisDomain,
-        });
       }
     }
 
@@ -1313,15 +1175,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           return { paddingTop: '20px' };
       }
     };
-
-    console.log('[BarChart] Rendering chart with:', {
-      chartDataLength: chartData.length,
-      isHorizontal,
-      barSpacing,
-      colors: colors.slice(0, 3),
-      showLegend,
-      legendPosition,
-    });
 
     return (
       <ResponsiveContainer width="100%" height={ 400 }>
@@ -1384,7 +1237,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             seriesNames.map((seriesName, index) => (
               <Bar
                 key={ seriesName }
-                dataKey={ seriesName }
+                dataKey={ seriesDataKey(seriesName) }
                 name={ seriesName }
                 stackId={ stacking !== 'none' ? 'stack' : undefined }
                 fill={ colors[index % colors.length] }
@@ -1405,33 +1258,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             ))
           ) : (
             // Single series
-            (() => {
-              console.log('[BarChart] Rendering single Bar component', {
-                dataKey: 'value',
-                name: panel.title,
-                fill: colors[0],
-                showValues,
-                chartDataSample: chartData.slice(0, 2),
-              });
-              return (
-                <Bar
-                  dataKey="value"
-                  name={ panel.title }
-                  fill={ colors[0] }
-                >
-                  { showValues && (
-                    <LabelList
-                      position="top"
-                      formatter={ (value: any) => {
-                        console.log('[BarChart] LabelList formatter called with value:', value, typeof value);
-                        return value.toLocaleString();
-                      } }
-                      style={ { fill: 'var(--text-primary)', fontSize: 12 } }
-                    />
-                  ) }
-                </Bar>
-              );
-            })()
+            <Bar
+              dataKey="value"
+              name={ panel.title }
+              fill={ colors[0] }
+            >
+              { showValues && (
+                <LabelList
+                  position="top"
+                  formatter={ (value: any) => value.toLocaleString() }
+                  style={ { fill: 'var(--text-primary)', fontSize: 12 } }
+                />
+              ) }
+            </Bar>
           ) }
         </RechartsBarChart>
       </ResponsiveContainer>
@@ -1470,44 +1309,72 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Get color palette
     const colors = chartColors.getPalette(colorPalette);
 
-    // Transform data from QueryResult format (arrays) to Recharts format (objects)
-    // First column is typically timestamp/category, remaining columns are values
+    // Transform data from QueryResult format (arrays) to Recharts format (objects).
+    // Two supported shapes (matching renderBarChartPanel + DatasetRequirements):
+    //   • Long format  [x, value, series]       -> one line per distinct series value
+    //   • Wide format  [x, value1, value2, ...]  -> one line per value column
     const columns = data.columns || [];
-    const chartData: any[] = [];
+    const xKey = columns[0]?.name || 'x';
 
-    data.rows.forEach((row: any[]) => {
-      const dataPoint: any = {};
+    // Missing/unparseable values become null so Recharts draws a gap instead of
+    // a fake zero point — the right contract for a line (bar charts use 0).
+    const toNumber = (raw: unknown): number | null => {
+      const value = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return isNaN(value) || !isFinite(value) ? null : value;
+    };
 
-      // First column is x-axis (timestamp/category)
-      if (columns.length > 0) {
-        const xColumnName = columns[0]?.name || 'x';
-        dataPoint[xColumnName] = row[0];
-      } else {
-        dataPoint.x = row[0];
-      }
+    // Shared detector so the same query groups identically in bar and line (DO-273).
+    const seriesColumnIndex = detectSeriesColumnIndex(columns, data.rows);
 
-      // Remaining columns are series values
-      for (let i = 1; i < row.length && i < columns.length; i++) {
-        const colName = columns[i]?.name || `series${ i }`;
-        const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
-        dataPoint[colName] = isNaN(value) || !isFinite(value) ? null : value;
-      }
+    let chartData: any[] = [];
+    let seriesNames: string[] = [];
 
-      // If no column names, use default names
-      if (columns.length === 0) {
-        for (let i = 1; i < row.length; i++) {
-          const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
-          dataPoint[`value${ i }`] = isNaN(value) || !isFinite(value) ? null : value;
+    if (seriesColumnIndex !== null) {
+      // Long format: pivot rows into one line per distinct series value.
+      // x = col 1, value = col 2, series label = col 3.
+      seriesNames = Array.from(
+        new Set(data.rows.map((row) => String(row[seriesColumnIndex]))),
+      );
+      const byX = new Map<string, any>();
+      data.rows.forEach((row) => {
+        const xId = String(row[0]);
+        if (!byX.has(xId)) byX.set(xId, { [xKey]: row[0] });
+        // A series missing at some x stays absent -> Recharts renders a gap.
+        byX.get(xId)[String(row[seriesColumnIndex])] = toNumber(row[1]);
+      });
+      chartData = Array.from(byX.values());
+    } else {
+      // Wide format: first column is x, each remaining column is its own series.
+      chartData = data.rows.map((row) => {
+        const dataPoint: any = { [xKey]: row[0] };
+        if (columns.length > 0) {
+          for (let i = 1; i < row.length && i < columns.length; i++) {
+            const colName = columns[i]?.name || `series${ i }`;
+            dataPoint[colName] = toNumber(row[i]);
+          }
+        } else {
+          for (let i = 1; i < row.length; i++) {
+            dataPoint[`value${ i }`] = toNumber(row[i]);
+          }
         }
-      }
+        return dataPoint;
+      });
+      seriesNames = chartData.length > 0
+        ? Object.keys(chartData[0] || {}).filter((key) => key !== xKey)
+        : [];
 
-      chartData.push(dataPoint);
-    });
+      // A wide result can have no value columns (e.g. a single-column query). The
+      // long-format branch always yields >=1 series for non-empty rows, so this
+      // guard is only meaningful here.
+      if (seriesNames.length === 0) {
+        return <div className="text-gray-500">No data series found</div>;
+      }
+    }
 
     // Sort data by x value (assuming it's a date/timestamp)
     chartData.sort((a, b) => {
-      const aVal = a[columns[0]?.name || 'x'];
-      const bVal = b[columns[0]?.name || 'x'];
+      const aVal = a[xKey];
+      const bVal = b[xKey];
       const aDate = new Date(aVal);
       const bDate = new Date(bVal);
       if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
@@ -1515,17 +1382,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       }
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     });
-
-    // Get series names (all keys except the x-axis key)
-    const xKey = columns[0]?.name || 'x';
-    const seriesNames = chartData.length > 0
-      ? Object.keys(chartData[0] || {}).filter(key => key !== xKey)
-      : [];
-
-    // If no series found, return early
-    if (seriesNames.length === 0) {
-      return <div className="text-gray-500">No data series found</div>;
-    }
 
     // Map line style to strokeDasharray
     const getStrokeDasharray = () => {
@@ -1625,41 +1481,49 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               />
             ) }
 
-            {/* Render area fill if needed */ }
-            { fillArea !== 'none' && seriesNames.map((seriesName, index) => (
-              <Area
-                key={ `area-${ seriesName }` }
-                type={ getCurveType() }
-                dataKey={ seriesName }
-                stroke="none"
-                fill={ colors[index % colors.length] }
-                fillOpacity={ 0.1 }
-                isAnimationActive={ false }
-              />
-            )) }
-
-            {/* Render lines */ }
-            { seriesNames.map((seriesName, index) => (
-              <Line
-                key={ `line-${ seriesName }` }
-                type={ getCurveType() }
-                dataKey={ seriesName }
-                name={ seriesName }
-                stroke={ colors[index % colors.length] }
-                strokeWidth={ lineWidth }
-                strokeDasharray={ getStrokeDasharray() }
-                dot={ shouldShowPoints ? {
-                  r: pointSize,
-                  fill: colors[index % colors.length],
-                  strokeWidth: 2,
-                  stroke: 'var(--surface-1)',
-                } : false }
-                activeDot={ { r: pointSize + 2 } }
-                isAnimationActive={ true }
-                animationDuration={ 300 }
-                animationEasing="ease-out"
-              />
-            )) }
+            {/* One element per series: a stroked Area when fill is enabled (the
+                area's top edge is the line), otherwise a plain Line. A single
+                element per series avoids duplicate legend/tooltip entries. */ }
+            { seriesNames.map((seriesName, index) => {
+              const color = colors[index % colors.length];
+              const dataKey = seriesDataKey(seriesName);
+              const dot = shouldShowPoints
+                ? { r: pointSize, fill: color, strokeWidth: 2, stroke: 'var(--surface-1)' }
+                : false;
+              return fillArea !== 'none' ? (
+                <Area
+                  key={ `series-${ seriesName }` }
+                  type={ getCurveType() }
+                  dataKey={ dataKey }
+                  name={ seriesName }
+                  stroke={ color }
+                  strokeWidth={ lineWidth }
+                  strokeDasharray={ getStrokeDasharray() }
+                  fill={ color }
+                  fillOpacity={ 0.1 }
+                  dot={ dot }
+                  activeDot={ { r: pointSize + 2 } }
+                  isAnimationActive={ true }
+                  animationDuration={ 300 }
+                  animationEasing="ease-out"
+                />
+              ) : (
+                <Line
+                  key={ `series-${ seriesName }` }
+                  type={ getCurveType() }
+                  dataKey={ dataKey }
+                  name={ seriesName }
+                  stroke={ color }
+                  strokeWidth={ lineWidth }
+                  strokeDasharray={ getStrokeDasharray() }
+                  dot={ dot }
+                  activeDot={ { r: pointSize + 2 } }
+                  isAnimationActive={ true }
+                  animationDuration={ 300 }
+                  animationEasing="ease-out"
+                />
+              );
+            }) }
           </ChartComponent>
         </ResponsiveContainer>
       </div>
