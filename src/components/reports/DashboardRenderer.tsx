@@ -1384,7 +1384,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             seriesNames.map((seriesName, index) => (
               <Bar
                 key={ seriesName }
-                dataKey={ seriesName }
+                dataKey={ (d) => d[seriesName] }
                 name={ seriesName }
                 stackId={ stacking !== 'none' ? 'stack' : undefined }
                 fill={ colors[index % colors.length] }
@@ -1470,44 +1470,80 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Get color palette
     const colors = chartColors.getPalette(colorPalette);
 
-    // Transform data from QueryResult format (arrays) to Recharts format (objects)
-    // First column is typically timestamp/category, remaining columns are values
+    // Transform data from QueryResult format (arrays) to Recharts format (objects).
+    // Two supported shapes (matching renderBarChartPanel + DatasetRequirements):
+    //   • Long format  [x, value, series]       -> one line per distinct series value
+    //   • Wide format  [x, value1, value2, ...]  -> one line per value column
     const columns = data.columns || [];
-    const chartData: any[] = [];
+    const xKey = columns[0]?.name || 'x';
+    const SERIES_COL = 2;
 
-    data.rows.forEach((row: any[]) => {
-      const dataPoint: any = {};
+    const toNumber = (raw: unknown): number | null => {
+      const value = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return isNaN(value) || !isFinite(value) ? null : value;
+    };
 
-      // First column is x-axis (timestamp/category)
-      if (columns.length > 0) {
-        const xColumnName = columns[0]?.name || 'x';
-        dataPoint[xColumnName] = row[0];
-      } else {
-        dataPoint.x = row[0];
+    // Detect a long-format series column (col 3), mirroring the bar chart so a
+    // query that groups in a bar chart groups the same way here (DO-273). A
+    // numeric 3rd column is only treated as a grouping key when the x-axis
+    // repeats (each series contributes a row per x); otherwise it's a second
+    // metric and we keep the original wide-format one-line-per-column behavior.
+    let seriesColumnIndex: number | null = null;
+    if (columns.length > 2 && data.rows.length > 0) {
+      const seriesColType = String(columns[SERIES_COL]?.type || '').toLowerCase();
+      const isNumericSeries = /int|num|dec|serial|double|real|float|money/.test(seriesColType);
+      const uniqueSeriesCount = new Set(data.rows.map((row) => String(row[SERIES_COL]))).size;
+      const seriesRepeats = uniqueSeriesCount < data.rows.length * 0.8;
+      const uniqueXCount = new Set(data.rows.map((row) => String(row[0]))).size;
+      const xHasDuplicates = uniqueXCount < data.rows.length;
+      if (seriesRepeats && (!isNumericSeries || xHasDuplicates)) {
+        seriesColumnIndex = SERIES_COL;
       }
+    }
 
-      // Remaining columns are series values
-      for (let i = 1; i < row.length && i < columns.length; i++) {
-        const colName = columns[i]?.name || `series${ i }`;
-        const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
-        dataPoint[colName] = isNaN(value) || !isFinite(value) ? null : value;
-      }
+    let chartData: any[] = [];
+    let seriesNames: string[] = [];
 
-      // If no column names, use default names
-      if (columns.length === 0) {
-        for (let i = 1; i < row.length; i++) {
-          const value = typeof row[i] === 'number' ? row[i] : parseFloat(String(row[i]));
-          dataPoint[`value${ i }`] = isNaN(value) || !isFinite(value) ? null : value;
+    if (seriesColumnIndex !== null) {
+      // Long format: pivot rows into one line per distinct series value.
+      // x = col 1, value = col 2, series label = col 3.
+      const byX = new Map<string, any>();
+      data.rows.forEach((row) => {
+        const xId = String(row[0]);
+        const seriesName = String(row[SERIES_COL]);
+        if (!seriesNames.includes(seriesName)) seriesNames.push(seriesName);
+        if (!byX.has(xId)) byX.set(xId, { [xKey]: row[0] });
+        byX.get(xId)[seriesName] = toNumber(row[1]);
+      });
+      // One object per x. A series missing at some x is simply absent, which
+      // Recharts renders as a gap (same as null). seriesNames is tracked above,
+      // so nothing depends on every point carrying every key.
+      chartData = Array.from(byX.values());
+    } else {
+      // Wide format: first column is x, each remaining column is its own series.
+      chartData = data.rows.map((row) => {
+        const dataPoint: any = { [xKey]: row[0] };
+        if (columns.length > 0) {
+          for (let i = 1; i < row.length && i < columns.length; i++) {
+            const colName = columns[i]?.name || `series${ i }`;
+            dataPoint[colName] = toNumber(row[i]);
+          }
+        } else {
+          for (let i = 1; i < row.length; i++) {
+            dataPoint[`value${ i }`] = toNumber(row[i]);
+          }
         }
-      }
-
-      chartData.push(dataPoint);
-    });
+        return dataPoint;
+      });
+      seriesNames = chartData.length > 0
+        ? Object.keys(chartData[0] || {}).filter((key) => key !== xKey)
+        : [];
+    }
 
     // Sort data by x value (assuming it's a date/timestamp)
     chartData.sort((a, b) => {
-      const aVal = a[columns[0]?.name || 'x'];
-      const bVal = b[columns[0]?.name || 'x'];
+      const aVal = a[xKey];
+      const bVal = b[xKey];
       const aDate = new Date(aVal);
       const bDate = new Date(bVal);
       if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
@@ -1515,12 +1551,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       }
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     });
-
-    // Get series names (all keys except the x-axis key)
-    const xKey = columns[0]?.name || 'x';
-    const seriesNames = chartData.length > 0
-      ? Object.keys(chartData[0] || {}).filter(key => key !== xKey)
-      : [];
 
     // If no series found, return early
     if (seriesNames.length === 0) {
@@ -1630,7 +1660,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               <Area
                 key={ `area-${ seriesName }` }
                 type={ getCurveType() }
-                dataKey={ seriesName }
+                dataKey={ (d) => d[seriesName] }
+                name={ seriesName }
                 stroke="none"
                 fill={ colors[index % colors.length] }
                 fillOpacity={ 0.1 }
@@ -1643,7 +1674,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               <Line
                 key={ `line-${ seriesName }` }
                 type={ getCurveType() }
-                dataKey={ seriesName }
+                dataKey={ (d) => d[seriesName] }
                 name={ seriesName }
                 stroke={ colors[index % colors.length] }
                 strokeWidth={ lineWidth }
