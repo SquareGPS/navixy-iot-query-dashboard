@@ -386,18 +386,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const prevIsEditingLayoutRef = useRef(isEditingLayout);
 
   useEffect(() => {
-    console.log('DashboardRenderer: useEffect triggered', {
-      isEditingLayout,
-      dashboardInitialized: dashboardInitializedRef.current,
-      prevIsEditingLayout: prevIsEditingLayoutRef.current,
-      dashboardPanelsCount: dashboard?.panels?.length,
-      storeDashboardPanelsCount: storeDashboard?.panels?.length,
-    });
-
     // Reset initialization flag when exiting layout editing mode
     // This ensures we re-initialize with the updated dashboard prop
     if (prevIsEditingLayoutRef.current && !isEditingLayout) {
-      console.log('DashboardRenderer: Exiting edit mode, resetting initialization flag');
       dashboardInitializedRef.current = false;
       // Clear query cache so queries re-execute with updated layout
       prevDashboardRef.current = null;
@@ -409,12 +400,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // IMPORTANT: When in editing mode, don't overwrite the store with prop changes
     // because the store is the source of truth during editing (user is making changes)
     if (isEditingLayout && dashboardInitializedRef.current) {
-      console.log('DashboardRenderer: Skipping store update - in edit mode and already initialized');
       return; // Early return to prevent overwriting store during editing
     }
 
     // Only update if we're not in edit mode, or if we haven't initialized yet
-    console.log('DashboardRenderer: Initializing dashboard in store');
     // Canonicalize rows to ensure expanded rows have children in main panels array
     const canonicalizedDashboard = canonicalizeRows(dashboard);
     setDashboard(canonicalizedDashboard);
@@ -1053,42 +1042,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   };
 
   const renderBarChartPanel = (panel: Panel, data: QueryResult) => {
-    console.log('[BarChart] renderBarChartPanel called', {
-      panelTitle: panel.title,
-      rowCount: data.rows?.length,
-      columnCount: data.columns?.length,
-      columns: data.columns,
-      firstFewRows: data.rows?.slice(0, 3),
-    });
-
     if (!data.rows || data.rows.length === 0) {
-      console.log('[BarChart] No data rows available');
       return <div className="text-gray-500">No data</div>;
     }
 
     const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
 
-    // Get visualization settings with defaults
-    // Force vertical for now - horizontal bars need more work
-    const orientation = 'vertical'; // visualization?.orientation || 'vertical';
+    // Get visualization settings with defaults (horizontal bars not yet supported)
     const stacking = visualization?.stacking || 'none';
     const showValues = visualization?.showValues || false;
     const sortOrder = visualization?.sortOrder || 'none';
-    const barSpacing = visualization?.barSpacing !== undefined ? visualization.barSpacing : 0.2;
     const colorPalette = visualization?.colorPalette || 'classic';
     const showLegend = visualization?.showLegend !== false;
     const legendPosition = visualization?.legendPosition || 'bottom';
-
-    console.log('[BarChart] Visualization settings', {
-      orientation,
-      stacking,
-      showValues,
-      sortOrder,
-      barSpacing,
-      colorPalette,
-      showLegend,
-      legendPosition,
-    });
 
     // Detect a long-format series column (col 3) via the shared helper so the
     // same query groups identically in bar and line/time-series panels (DO-273).
@@ -1097,27 +1063,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const categoryColumnIndex = 0;
     const valueColumnIndex = 1;
 
-    console.log('[BarChart] Data structure analysis', {
-      hasMultipleSeries: seriesColumnIndex !== null,
-      categoryColumnIndex,
-      valueColumnIndex,
-      seriesColumnIndex,
-      columnNames: data.columns.map(c => c.name),
-      columnTypes: data.columns.map(c => c.type),
-      firstRowSample: data.rows[0],
-      firstRowValues: {
-        col0: data.rows[0]?.[0],
-        col1: data.rows[0]?.[1],
-        col2: data.rows[0]?.[2],
-      },
-    });
-
     // Process data
     let chartData: any[] = [];
     let seriesNames: string[] = [];
 
     if (seriesColumnIndex !== null) {
-      console.log('[BarChart] Processing multiple series format');
       // Group data by category and series
       const groupedData: Record<string, Record<string, number>> = {};
 
@@ -1136,21 +1086,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       seriesNames = Array.from(new Set(
         data.rows.map(row => String(row[seriesColumnIndex])),
       ));
-
-      console.log('[BarChart] Multiple series detected', {
-        seriesNames,
-        seriesNamesCount: seriesNames.length,
-        uniqueSeriesCount: new Set(seriesNames).size,
-        groupedDataSample: Object.keys(groupedData).slice(0, 2).map(cat => ({
-          category: cat,
-          series: groupedData[cat],
-        })),
-        firstFewRows: data.rows.slice(0, 3).map(row => ({
-          category: row[categoryColumnIndex],
-          value: row[valueColumnIndex],
-          series: row[seriesColumnIndex],
-        })),
-      });
 
       // Convert to chart data format
       chartData = Object.keys(groupedData).map(category => {
@@ -1171,32 +1106,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           });
           return normalized;
         });
-        console.log('[BarChart] Normalized to percentages');
       }
     } else {
       // Simple category-value format
-      console.log('[BarChart] Processing simple category-value format');
-      console.log('[BarChart] Sample raw row values:', data.rows.slice(0, 3).map(row => ({
-        categoryRaw: row[categoryColumnIndex],
-        valueRaw: row[valueColumnIndex],
-        categoryType: typeof row[categoryColumnIndex],
-        valueType: typeof row[valueColumnIndex],
-      })));
-
       chartData = data.rows.map((row) => {
         const category = String(row[categoryColumnIndex]);
         const value = Number(row[valueColumnIndex]) || 0;
         return { category, value };
       });
       seriesNames = ['value'];
-
-      console.log('[BarChart] Processed chartData sample:', chartData.slice(0, 3));
-      console.log('[BarChart] Value statistics:', {
-        min: Math.min(...chartData.map(d => d.value)),
-        max: Math.max(...chartData.map(d => d.value)),
-        sum: chartData.reduce((sum, d) => sum + d.value, 0),
-        allValues: chartData.map(d => d.value),
-      });
     }
 
     // Apply sorting
@@ -1221,33 +1139,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Get color palette
     const colors = chartColors.getPalette(colorPalette);
 
-    console.log('[BarChart] Final chartData before render:', {
-      dataLength: chartData.length,
-      sampleData: chartData.slice(0, 3),
-      allCategories: chartData.map(d => d.category),
-      allValues: chartData.map(d => d.value),
-      colors: colors.slice(0, 3),
-      hasMultipleSeries: seriesColumnIndex !== null,
-      seriesNames,
-    });
-
     // Force vertical layout for now
     const isHorizontal = false; // orientation === 'horizontal';
-
-    // Calculate Y-axis domain for logging
-    if (seriesColumnIndex === null && chartData.length > 0) {
-      const values = chartData.map(d => d.value);
-      const minVal = Math.min(...values);
-      const maxVal = Math.max(...values);
-      const yAxisDomain = stacking === 'percent' ? [0, 100] : [0, 'auto'];
-      console.log('[BarChart] Y-axis domain calculation:', {
-        stacking,
-        yAxisDomain,
-        dataMin: minVal,
-        dataMax: maxVal,
-        dataRange: maxVal - minVal,
-      });
-    }
 
     // Calculate explicit domain for Y-axis (vertical bars)
     let valueAxisDomain: [number, number] = [0, 100];
@@ -1264,12 +1157,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         // Add 5% padding above max value - matching working test configuration
         const paddedMax = Math.ceil(maxVal * 1.05);
         valueAxisDomain = [0, paddedMax];
-
-        console.log('[BarChart] Calculated value axis domain:', {
-          maxVal,
-          paddedMax,
-          valueAxisDomain,
-        });
       }
     }
 
@@ -1288,15 +1175,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           return { paddingTop: '20px' };
       }
     };
-
-    console.log('[BarChart] Rendering chart with:', {
-      chartDataLength: chartData.length,
-      isHorizontal,
-      barSpacing,
-      colors: colors.slice(0, 3),
-      showLegend,
-      legendPosition,
-    });
 
     return (
       <ResponsiveContainer width="100%" height={ 400 }>
@@ -1380,33 +1258,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             ))
           ) : (
             // Single series
-            (() => {
-              console.log('[BarChart] Rendering single Bar component', {
-                dataKey: 'value',
-                name: panel.title,
-                fill: colors[0],
-                showValues,
-                chartDataSample: chartData.slice(0, 2),
-              });
-              return (
-                <Bar
-                  dataKey="value"
-                  name={ panel.title }
-                  fill={ colors[0] }
-                >
-                  { showValues && (
-                    <LabelList
-                      position="top"
-                      formatter={ (value: any) => {
-                        console.log('[BarChart] LabelList formatter called with value:', value, typeof value);
-                        return value.toLocaleString();
-                      } }
-                      style={ { fill: 'var(--text-primary)', fontSize: 12 } }
-                    />
-                  ) }
-                </Bar>
-              );
-            })()
+            <Bar
+              dataKey="value"
+              name={ panel.title }
+              fill={ colors[0] }
+            >
+              { showValues && (
+                <LabelList
+                  position="top"
+                  formatter={ (value: any) => value.toLocaleString() }
+                  style={ { fill: 'var(--text-primary)', fontSize: 12 } }
+                />
+              ) }
+            </Bar>
           ) }
         </RechartsBarChart>
       </ResponsiveContainer>
