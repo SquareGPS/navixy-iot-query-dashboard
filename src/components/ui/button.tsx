@@ -1,5 +1,5 @@
 import React from "react";
-import { clsx } from "clsx";
+import { cn } from "@/lib/utils";
 
 type ButtonVariant =
   | "primary"
@@ -46,7 +46,7 @@ export function buttonVariants(options?: {
   size?: ButtonSize;
 }): string {
   const { variant = "primary", size = "default" } = options ?? {};
-  return clsx(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size]);
+  return cn(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size]);
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -54,7 +54,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={clsx(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size], className)}
+        className={cn(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size], className)}
         {...props}
       />
     );
