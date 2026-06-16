@@ -169,7 +169,7 @@ class ApiService {
       requestBody.pagination = params.pagination;
     }
 
-    const response = await this.request('/api/sql-new/execute', {
+    const response = await this.request<{ columns: Array<{ name: string; type: string }>; rows: unknown[][]; stats?: { rowCount: number; elapsedMs: number }; pagination?: { page: number; pageSize: number; total: number } }>('/api/sql-new/execute', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });

@@ -6,6 +6,8 @@ export type SqlDriver = "postgres" | "mysql" | "mssql" | "clickhouse" | "sqlite"
 
 export interface ReportSchema {
   meta: Meta;
+  title?: string;
+  subtitle?: string;
   datasources?: Datasource[];
   parameters?: Parameter[];
   theme?: Theme;

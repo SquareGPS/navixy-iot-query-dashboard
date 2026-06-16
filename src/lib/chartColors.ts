@@ -69,7 +69,7 @@ export const chartColors = {
    * @returns Array of color hex codes
    */
   getColors: (count: number, includeNeutral: boolean = false): string[] => {
-    const colors = chartColors.primary.slice(0, Math.min(count, chartColors.primary.length));
+    const colors: string[] = chartColors.primary.slice(0, Math.min(count, chartColors.primary.length));
     if (includeNeutral && colors.length < count) {
       colors.push(chartColors.neutral);
     }
@@ -134,7 +134,7 @@ export const chartColors = {
           '#8B5CF6', // Purple
         ];
       default:
-        return chartColors.primary;
+        return [...chartColors.primary];
     }
   },
 } as const;

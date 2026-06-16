@@ -526,6 +526,7 @@ export interface CompositeChartConfig {
   type: 'timeseries' | 'bar';
   xColumn?: string;
   yColumns?: string[];
+  colorColumn?: string;
 }
 
 export interface CompositeMapConfig {
@@ -587,4 +588,5 @@ export interface CompositeReportExecutionResult {
     total: number;
   };
   gps?: GPSColumnsInfo | null;
+  gpsPairs?: Array<{ latColumn: string; lonColumn: string }>;
 }

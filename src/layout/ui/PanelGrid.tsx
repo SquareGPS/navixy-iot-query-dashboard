@@ -16,7 +16,7 @@ interface PanelGridProps {
   renderPanel: (panel: Panel) => React.ReactNode;
   containerClassName?: string;
   enableDrag?: boolean;
-  selectedPanelId?: number | null;
+  selectedPanelId?: string | number | null;
   onSelectPanel?: (panelId: string | number) => void;
   editMode?: boolean;
   onEditPanel?: (panel: Panel) => void;

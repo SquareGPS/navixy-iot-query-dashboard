@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { Dashboard, Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
+import type { Dashboard, Panel, NavixyPanelConfig, NavixyParam, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
@@ -240,7 +240,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       const updatedNavixyConfig: NavixyPanelConfig = {
         sql: {
           statement: sql.trim(),
-          params: parsedParams
+          params: parsedParams as Record<string, NavixyParam>
         },
         filters,
         dataset: {
@@ -498,7 +498,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
                   <Label htmlFor="type" className="text-sm font-medium">
                     Panel Type <span className="text-destructive">*</span>
                   </Label>
-                  <Select value={panelType} onValueChange={setPanelType}>
+                  <Select value={panelType} onValueChange={(value) => setPanelType(value as PanelType)}>
                     <SelectTrigger className="mt-1">
                       <SelectValue />
                     </SelectTrigger>

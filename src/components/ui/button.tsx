@@ -11,10 +11,13 @@ type ButtonVariant =
 
 type ButtonSize = "default" | "sm" | "lg" | "icon";
 
-type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
 };
+
+const BASE_STYLES =
+  "inline-flex items-center justify-center gap-2 rounded-sm text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
 
 const VARIANT_STYLES: Record<ButtonVariant, string> = {
   // `default` is the primary action (shadcn semantics); kept identical to `primary`
@@ -33,15 +36,25 @@ const SIZE_STYLES: Record<ButtonSize, string> = {
   icon: "h-9 w-9 p-0",
 };
 
-export const Button = React.forwardRef<HTMLButtonElement, Props>(
-  ({ variant = "primary", size = "default", className, ...props }, ref) => {
-    const base =
-      "inline-flex items-center justify-center gap-2 rounded-sm text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
+/**
+ * Returns the composed class string for a button-styled element.
+ * Exposed for shadcn-style primitives (calendar, pagination) that style
+ * non-<button> elements like links to look like buttons.
+ */
+export function buttonVariants(options?: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}): string {
+  const { variant = "primary", size = "default" } = options ?? {};
+  return clsx(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size]);
+}
 
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ variant = "primary", size = "default", className, ...props }, ref) => {
     return (
       <button
         ref={ref}
-        className={clsx(base, VARIANT_STYLES[variant], SIZE_STYLES[size], className)}
+        className={clsx(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size], className)}
         {...props}
       />
     );

@@ -258,7 +258,7 @@ const ReportView = () => {
             slug: report.slug,
             last_updated: new Date().toISOString(),
             updated_by: {
-              id: user?.userId || 'unknown',
+              id: user?.id || 'unknown',
               name: user?.name || 'Unknown User',
               email: user?.email
             }
@@ -1398,7 +1398,7 @@ const ReportView = () => {
                 slug: reportData.slug,
                 last_updated: new Date().toISOString(),
                 updated_by: {
-                  id: user?.userId || 'unknown',
+                  id: user?.id || 'unknown',
                   name: user?.name || 'Unknown User',
                   email: user?.email
                 }
@@ -1555,7 +1555,7 @@ const ReportView = () => {
                 slug: reportData.slug,
                 last_updated: new Date().toISOString(),
                 updated_by: {
-                  id: user?.userId || 'unknown',
+                  id: user?.id || 'unknown',
                   name: user?.name || 'Unknown User',
                   email: user?.email
                 }
@@ -1654,7 +1654,7 @@ const ReportView = () => {
                 slug: reportData.slug,
                 last_updated: new Date().toISOString(),
                 updated_by: {
-                  id: user?.userId || 'unknown',
+                  id: user?.id || 'unknown',
                   name: user?.name || 'Unknown User',
                   email: user?.email
                 }

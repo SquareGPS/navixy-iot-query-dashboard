@@ -642,9 +642,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Transform the response to match the expected format
     return {
-      columns: result.data?.columns || [],
+      columns: (result.data?.columns || []) as QueryResult['columns'],
       rows: result.data?.rows || [],
-      stats: result.data?.stats,
     };
   }, [resolvePanelQuery]);
 

@@ -21,6 +21,7 @@ function decodeJwtPayload(token: string): any | null {
 interface User {
   id: string;
   email: string;
+  name?: string;
   role: 'admin' | 'editor' | 'viewer';
 }
 

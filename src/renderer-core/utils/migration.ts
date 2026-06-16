@@ -3,8 +3,8 @@
  * Convert legacy report schemas to Grafana-based format
  */
 
-import type { ReportSchema, TilesRow, TableRow, ChartsRow, AnnotationRow } from '../types/report-schema';
-import type { GrafanaDashboard, Panel, GridPosition } from './grafana-dashboard';
+import type { ReportSchema, TilesRow, TableRow, ChartsRow, AnnotationRow } from '../../types/report-schema';
+import type { GrafanaDashboard, Panel, GridPosition } from '../schema/grafana-dashboard';
 
 export class ReportMigration {
   /**
@@ -14,7 +14,7 @@ export class ReportMigration {
     const dashboard: GrafanaDashboard = {
       dashboard: {
         uid: legacyReport.meta.report_id || `report_${Date.now()}`,
-        title: legacyReport.title,
+        title: legacyReport.title || 'Untitled Report',
         description: legacyReport.subtitle,
         tags: [],
         timezone: 'UTC',
