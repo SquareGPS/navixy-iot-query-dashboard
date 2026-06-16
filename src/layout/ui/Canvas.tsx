@@ -23,7 +23,7 @@ import { RowHeader } from './RowHeader';
 import { RowResizeHandle } from './RowResizeHandle';
 import { DropZone } from './DropZone';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight, cmdAddPresetPanel } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
@@ -34,6 +34,8 @@ import { Card } from '@/components/ui/card';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { PanelGallery } from './PanelGallery';
 import { AddPanelGhost } from './AddPanelGhost';
+import { ChartLibraryPanel } from '@/components/reports/ChartLibraryPanel';
+import type { ChartPresetPanel } from '@/types/chart-catalog';
 
 interface CanvasProps {
   renderPanelContent: (panel: Panel) => React.ReactNode;
@@ -53,6 +55,11 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number; gridPos: { x: number; y: number; w: number; h: number } } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // Track what we're hovering over
   const mouseStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Chart Library preset drag (FR-11365): dragged preset payload + whether the pointer is over the canvas
+  const [draggedPreset, setDraggedPreset] = useState<{ panel: ChartPresetPanel; label: string } | null>(null);
+  const presetInsideCanvasRef = useRef<boolean>(false);
+  // Interim: dock visibility while editing (the EditToolbar toggle is a later slice)
+  const [showChartLibrary, setShowChartLibrary] = useState(true);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   
@@ -99,6 +106,11 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
     }
   }, [isEditingLayout, dashboard, setDashboard]);
+
+  // Re-show the Chart Library dock whenever edit mode is (re-)entered (FR-11365, interim)
+  useEffect(() => {
+    if (isEditingLayout) setShowChartLibrary(true);
+  }, [isEditingLayout]);
 
   // Add panel state
   const [showPanelGallery, setShowPanelGallery] = useState(false);
@@ -239,7 +251,20 @@ export const Canvas: React.FC<CanvasProps> = ({
     
     setActiveId(event.active.id as string);
     const activeIdStr = event.active.id.toString();
-    
+
+    // Chart Library preset drag (FR-11365): seed a ghost positioned freely by the cursor
+    if (activeIdStr.startsWith('preset-')) {
+      const data = event.active.data.current as { panel?: ChartPresetPanel; label?: string } | undefined;
+      if (data?.panel) {
+        const { w, h } = data.panel.gridPos;
+        setDraggedPreset({ panel: data.panel, label: data.label || data.panel.title || 'Preset' });
+        setDragStartPos({ x: 0, y: 0 }); // sentinel so the mousemove effect activates
+        setDragPreview({ x: 0, y: 0, gridPos: { x: 0, y: 0, w, h } });
+        presetInsideCanvasRef.current = false;
+      }
+      return;
+    }
+
     // Check if it's a row header
     if (activeIdStr.startsWith('row-')) {
       const rowId = activeIdStr.replace('row-', '');
@@ -339,6 +364,38 @@ export const Canvas: React.FC<CanvasProps> = ({
       };
     }
 
+    // Handle Chart Library preset dragging — absolute position from the cursor (FR-11365)
+    if (activeIdStr.startsWith('preset-')) {
+      if (!draggedPreset) return;
+      const { w, h } = draggedPreset.panel.gridPos;
+
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Center the panel under the cursor, clamped to the 24-col grid
+        let gx = Math.round((mouseX / containerWidth) * 24 - w / 2);
+        let gy = Math.round(mouseY / GRID_UNIT_HEIGHT - h / 2);
+        gx = Math.max(0, Math.min(gx, 24 - w));
+        gy = Math.max(0, gy);
+
+        // Over the canvas but NOT over the dock — drop outside the canvas or over the dock = no-op.
+        // elementFromPoint sees through the DragOverlay (pointer-events: none) to the dock beneath.
+        const overDock = !!document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-chart-library-dock]');
+        presetInsideCanvasRef.current =
+          !overDock && mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height;
+
+        setDragPreview({ x: gx, y: gy, gridPos: { x: gx, y: gy, w, h } });
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+      };
+    }
+
     // Handle panel dragging
     const panelId = activeIdStr.replace('panel-', '');
     const panel = dashboard.panels.find((p) => String(p.id) === panelId);
@@ -375,7 +432,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       mouseStartRef.current = null;
     };
-  }, [activeId, dragStartPos, containerWidth, dashboard]);
+  }, [activeId, dragStartPos, containerWidth, dashboard, draggedPreset]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     // Visual transform is handled by useDraggable
@@ -398,6 +455,20 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
 
       const activeIdStr = event.active.id.toString();
+
+      // Chart Library preset drop (FR-11365): add a panel at the cursor; drop outside canvas = no-op
+      if (activeIdStr.startsWith('preset-')) {
+        if (draggedPreset && dragPreview && presetInsideCanvasRef.current) {
+          cmdAddPresetPanel(draggedPreset.panel, { x: dragPreview.x, y: dragPreview.y });
+        }
+        setActiveId(null);
+        setDragPreview(null);
+        setDragStartPos(null);
+        setDragOverTarget(null);
+        setDraggedPreset(null);
+        presetInsideCanvasRef.current = false;
+        return;
+      }
 
       // Handle row dragging
       if (activeIdStr.startsWith('row-')) {
@@ -640,8 +711,18 @@ export const Canvas: React.FC<CanvasProps> = ({
       setDragStartPos(null);
       setDragOverTarget(null);
     },
-    [dashboard, dragPreview, dragStartPos, activeId]
+    [dashboard, dragPreview, dragStartPos, activeId, draggedPreset]
   );
+
+  // Cancel any in-flight drag (Esc / abort): clear all drag state without applying (FR-11365)
+  const handleDragCancel = useCallback(() => {
+    setActiveId(null);
+    setDragPreview(null);
+    setDragStartPos(null);
+    setDragOverTarget(null);
+    setDraggedPreset(null);
+    presetInsideCanvasRef.current = false;
+  }, []);
 
   // Handle row resize start
   const handleRowResizeStart = useCallback(
@@ -956,6 +1037,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       {/* Toolbar */}
       
@@ -1270,6 +1352,15 @@ export const Canvas: React.FC<CanvasProps> = ({
           />
         )}
 
+        {/* Preset Drop Preview (FR-11365) — shown only while the pointer is over the canvas */}
+        {dragPreview && activeId && activeId.toString().startsWith('preset-') && presetInsideCanvasRef.current && (
+          <DropPreview
+            gridPos={dragPreview.gridPos}
+            containerWidth={containerWidth}
+            isOverCanvasZone={true}
+          />
+        )}
+
         <DndKitDragOverlay>
           {activeId && dragPreview && activeId.toString().startsWith('panel-') ? (
             <Card
@@ -1285,6 +1376,10 @@ export const Canvas: React.FC<CanvasProps> = ({
                 </div>
                 <div className="text-sm">Dragging...</div>
               </div>
+            </Card>
+          ) : activeId && activeId.toString().startsWith('preset-') && draggedPreset ? (
+            <Card className="border-blue-400 px-3 py-2 opacity-90 shadow-2xl">
+              <span className="whitespace-nowrap text-sm font-medium">{draggedPreset.label}</span>
             </Card>
           ) : null}
         </DndKitDragOverlay>
@@ -1307,6 +1402,11 @@ export const Canvas: React.FC<CanvasProps> = ({
         onClose={() => setShowPanelGallery(false)}
         onSelect={handlePanelGallerySelect}
       />
+
+      {/* Chart Library dock (FR-11365) — interim: visible while editing; EditToolbar toggle is a later slice */}
+      {isEditingLayout && showChartLibrary && (
+        <ChartLibraryPanel onClose={() => setShowChartLibrary(false)} />
+      )}
     </DndContext>
   );
 };

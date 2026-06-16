@@ -18,10 +18,11 @@ import {
   deleteRow,
   isRowPanel,
 } from '../geometry/rows';
-import { placeNewPanel } from '../geometry/add';
+import { placeNewPanel, nextId } from '../geometry/add';
 import { tidyUp } from '../geometry/tidyUp';
 import { idEq } from '../geometry/idUtils';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
+import type { ChartPresetPanel } from '@/types/chart-catalog';
 
 /**
  * Command to move a panel
@@ -488,6 +489,54 @@ export function cmdDuplicatePanel(panelId: string | number): void {
     newPanel.fieldConfig = panel.fieldConfig ? JSON.parse(JSON.stringify(panel.fieldConfig)) : undefined;
     if (panel['x-navixy']) {
       newPanel['x-navixy'] = JSON.parse(JSON.stringify(panel['x-navixy']));
+    }
+  }
+
+  store.setDashboard(newDashboard);
+  store.pushToHistory(currentDashboard);
+}
+
+/**
+ * Command to add a Chart Library preset onto the dashboard (FR-11365).
+ * Reuses placeNewPanel for geometry (fresh id, drop position, push-down collision
+ * resolution), then deep-clones the preset's content (options / fieldConfig /
+ * x-navixy) onto the new panel — same approach as cmdDuplicatePanel. Produces
+ * exactly one undo entry, so Ctrl+Z removes the whole panel.
+ */
+export function cmdAddPresetPanel(
+  presetPanel: ChartPresetPanel,
+  position: { x: number; y: number }
+): void {
+  const store = useEditorStore.getState();
+
+  if (!store.dashboard) {
+    console.warn('cmdAddPresetPanel: No dashboard in store');
+    return;
+  }
+
+  const currentDashboard = store.dashboard;
+  const size = {
+    w: presetPanel.gridPos?.w ?? 6,
+    h: presetPanel.gridPos?.h ?? 4,
+  };
+
+  // Geometry + new id (drop at cursor position, then resolve collisions push-down)
+  const newId = nextId(currentDashboard);
+  const newDashboard = placeNewPanel(currentDashboard, {
+    type: presetPanel.type,
+    title: presetPanel.title || 'Panel',
+    size,
+    target: 'top',
+    hint: { position },
+  });
+
+  // Overwrite the freshly created panel with a deep clone of the preset's content
+  const created = newDashboard.panels.find((p) => idEq(p.id, newId));
+  if (created) {
+    created.options = presetPanel.options ? JSON.parse(JSON.stringify(presetPanel.options)) : {};
+    created.fieldConfig = presetPanel.fieldConfig ? JSON.parse(JSON.stringify(presetPanel.fieldConfig)) : undefined;
+    if (presetPanel['x-navixy']) {
+      created['x-navixy'] = JSON.parse(JSON.stringify(presetPanel['x-navixy']));
     }
   }
 
