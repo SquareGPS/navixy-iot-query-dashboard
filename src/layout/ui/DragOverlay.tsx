@@ -7,7 +7,7 @@ import { useDraggable } from '@dnd-kit/core';
 import type { GridPos } from '../../layout/geometry/grid';
 
 interface DraggablePanelProps {
-  panelId: number;
+  panelId: string | number;
   gridPos: GridPos;
   children: React.ReactNode;
 }

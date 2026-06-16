@@ -270,6 +270,7 @@ export type PanelType =
   | 'timeseries'     // Time series panel
   | 'table'          // Table panel
   | 'text'           // Text panel
+  | 'geomap'         // Map panel (Leaflet)
   | 'row'            // Row panel (for grouping)
   // Legacy/alias types for backward compatibility
   | 'kpi'            // Alias for 'stat'

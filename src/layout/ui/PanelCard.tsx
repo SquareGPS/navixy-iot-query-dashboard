@@ -5,22 +5,22 @@
 import React, { useState } from 'react';
 import { DraggablePanel } from './DragOverlay';
 import { ResizeHandles } from './ResizeHandles';
-import type { GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Panel } from '@/types/dashboard-types';
 import type { ResizeHandle } from '../geometry/resize';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from '../../layout/geometry/grid';
 import { Copy, Pencil, Trash2 } from 'lucide-react';
 import { cmdDuplicatePanel, cmdDeletePanel } from '../state/commands';
 
 interface PanelCardProps {
-  panel: GrafanaPanel;
+  panel: Panel;
   containerWidth: number;
   gridUnitHeight?: number;
   isSelected?: boolean;
   isEditingLayout?: boolean;
   onSelect?: (panelId: string | number) => void;
   onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
-  onEditPanel?: (panel: GrafanaPanel) => void;
-  renderContent: (panel: GrafanaPanel) => React.ReactNode;
+  onEditPanel?: (panel: Panel) => void;
+  renderContent: (panel: Panel) => React.ReactNode;
   customTop?: number; // Optional custom top position (for panels inside rows)
 }
 

@@ -4,30 +4,30 @@
  */
 
 import { create } from 'zustand';
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import { isRowPanel, toggleRowCollapsed } from '../geometry/rows';
 
 export interface EditorState {
-  dashboard: GrafanaDashboard | null;
+  dashboard: Dashboard | null;
   selectedPanelId: string | number | null;
   isEditingLayout: boolean;
   chartLibraryOpen: boolean;
-  undoStack: GrafanaDashboard[];
-  redoStack: GrafanaDashboard[];
+  undoStack: Dashboard[];
+  redoStack: Dashboard[];
   maxUndoHistory: number;
   // Track original collapsed states of rows before entering edit mode
   originalCollapsedStates: Map<string | number, boolean>;
 }
 
 export interface EditorActions {
-  setDashboard: (dashboard: GrafanaDashboard) => void;
+  setDashboard: (dashboard: Dashboard) => void;
   setSelectedPanel: (panelId: string | number | null) => void;
   setIsEditingLayout: (isEditing: boolean) => void;
   setChartLibraryOpen: (open: boolean) => void;
   toggleChartLibrary: () => void;
   setOriginalCollapsedStates: (states: Map<string | number, boolean>) => void;
   clearOriginalCollapsedStates: () => void;
-  pushToHistory: (previousDashboard: GrafanaDashboard) => void;
+  pushToHistory: (previousDashboard: Dashboard) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -51,7 +51,7 @@ const initialState: EditorState = {
 export const useEditorStore = create<EditorStore>((set, get) => ({
   ...initialState,
 
-  setDashboard: (dashboard: GrafanaDashboard) => {
+  setDashboard: (dashboard: Dashboard) => {
     console.log('setDashboard called with panels count:', dashboard.panels.length);
     // Ensure we create a new object reference for Zustand to detect the change
     set({ 
@@ -131,7 +131,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({ originalCollapsedStates: new Map() });
   },
 
-  pushToHistory: (previousDashboard: GrafanaDashboard) => {
+  pushToHistory: (previousDashboard: Dashboard) => {
     const state = get();
     const newUndoStack = [...state.undoStack, previousDashboard].slice(-state.maxUndoHistory);
     

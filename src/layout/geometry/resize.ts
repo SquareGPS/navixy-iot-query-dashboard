@@ -6,7 +6,7 @@ import type { GridPos } from './grid';
 import { clampToBounds, GRID_COLUMNS } from './grid';
 import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import { idEq } from './idUtils';
 
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -235,12 +235,12 @@ export function resolveCollisionsAfterResize(
  * Returns a new dashboard with the resized panel and resolved collisions
  */
 export function applyResize(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   panelId: string | number,
   handle: ResizeHandle,
   delta: ResizeDelta,
   containerWidth: number
-): GrafanaDashboard {
+): Dashboard {
   // Find the panel to resize
   const panelIndex = dashboard.panels.findIndex((p) => idEq(p.id, panelId));
   if (panelIndex === -1) {
