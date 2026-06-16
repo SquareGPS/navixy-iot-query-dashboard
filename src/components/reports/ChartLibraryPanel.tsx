@@ -1,9 +1,9 @@
 /**
  * ChartLibraryPanel — the right-side dock listing drag-n-drop chart presets (FR-11365).
  *
- * Interim slice: rendered inside Canvas's DndContext while in edit mode. The
- * EditToolbar toggle + toolbar shift + active state are a later slice; this version
- * just lists catalog groups so presets can be dragged onto the canvas.
+ * Rendered inside Canvas's DndContext while in edit mode, toggled from the EditToolbar
+ * (which also shifts to clear the dock). Lists catalog groups/presets sorted by `order`
+ * so each PresetCard can be dragged onto the canvas.
  */
 import { useMemo } from 'react';
 import { X } from 'lucide-react';

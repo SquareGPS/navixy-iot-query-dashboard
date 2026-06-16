@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import type { Dashboard, Panel } from '@/types/dashboard-types';
+import type { Dashboard } from '@/types/dashboard-types';
 import { isRowPanel, toggleRowCollapsed } from '../geometry/rows';
 
 export interface EditorState {
