@@ -7,6 +7,7 @@ import {
   Plus,
   Square,
   Layout,
+  LibraryBig,
   X,
   Sparkles,
   SlidersHorizontal
@@ -18,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useEditorStore } from '@/layout/state/editorStore';
 
 interface EditToolbarProps {
   isEditing: boolean;
@@ -44,6 +46,9 @@ export const EditToolbar = ({
   onManageVariables,
   className
 }: EditToolbarProps) => {
+  const chartLibraryOpen = useEditorStore((state) => state.chartLibraryOpen);
+  const toggleChartLibrary = useEditorStore((state) => state.toggleChartLibrary);
+
   if (!canEdit) {
     return null;
   }
@@ -51,7 +56,8 @@ export const EditToolbar = ({
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn(
-        "fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-2 transition-all duration-300 ease-in-out",
+        "fixed top-1/2 -translate-y-1/2 z-50 flex flex-col gap-2 transition-all duration-300 ease-in-out",
+        chartLibraryOpen ? "right-[18.5rem]" : "right-6", // 18rem dock (w-72) + 0.5rem gap; rem tracks the dock width
         className
       )}>
         {/* Edit Toggle Button - Always visible */}
@@ -120,6 +126,27 @@ export const EditToolbar = ({
               </TooltipTrigger>
               <TooltipContent side="left">
                 <p>New Panel</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Chart Library (FR-11365) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={toggleChartLibrary}
+                  className={cn(
+                    "h-12 w-12 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 border-2",
+                    chartLibraryOpen
+                      ? "bg-[#379EF9] hover:bg-[#2B7CE6] dark:bg-blue-600 dark:hover:bg-blue-700 border-white dark:border-gray-800"
+                      : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  )}
+                  size="lg"
+                >
+                  <LibraryBig className={cn("h-5 w-5", chartLibraryOpen ? "text-white" : "text-gray-700 dark:text-gray-300")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Chart Library</p>
               </TooltipContent>
             </Tooltip>
 

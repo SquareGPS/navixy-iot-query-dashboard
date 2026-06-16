@@ -11,6 +11,7 @@ export interface EditorState {
   dashboard: GrafanaDashboard | null;
   selectedPanelId: string | number | null;
   isEditingLayout: boolean;
+  chartLibraryOpen: boolean;
   undoStack: GrafanaDashboard[];
   redoStack: GrafanaDashboard[];
   maxUndoHistory: number;
@@ -22,6 +23,8 @@ export interface EditorActions {
   setDashboard: (dashboard: GrafanaDashboard) => void;
   setSelectedPanel: (panelId: string | number | null) => void;
   setIsEditingLayout: (isEditing: boolean) => void;
+  setChartLibraryOpen: (open: boolean) => void;
+  toggleChartLibrary: () => void;
   setOriginalCollapsedStates: (states: Map<string | number, boolean>) => void;
   clearOriginalCollapsedStates: () => void;
   pushToHistory: (previousDashboard: GrafanaDashboard) => void;
@@ -38,6 +41,7 @@ const initialState: EditorState = {
   dashboard: null,
   selectedPanelId: null,
   isEditingLayout: false,
+  chartLibraryOpen: false,
   undoStack: [],
   redoStack: [],
   maxUndoHistory: 50,
@@ -79,8 +83,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
       });
       
-      set({ 
+      set({
         isEditingLayout: true,
+        chartLibraryOpen: false, // every edit session starts with the dock closed
         originalCollapsedStates: collapsedStates,
         dashboard: expandedDashboard,
       });
@@ -98,14 +103,24 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
       });
       
-      set({ 
+      set({
         isEditingLayout: false,
+        chartLibraryOpen: false,
         dashboard: restoredDashboard,
         originalCollapsedStates: new Map(),
       });
     } else {
-      set({ isEditingLayout: isEditing });
+      // Keep the dock from lingering open (and the toolbar shifted) when leaving edit mode
+      set({ isEditingLayout: isEditing, ...(isEditing ? {} : { chartLibraryOpen: false }) });
     }
+  },
+
+  setChartLibraryOpen: (open: boolean) => {
+    set({ chartLibraryOpen: open });
+  },
+
+  toggleChartLibrary: () => {
+    set({ chartLibraryOpen: !get().chartLibraryOpen });
   },
 
   setOriginalCollapsedStates: (states: Map<string | number, boolean>) => {

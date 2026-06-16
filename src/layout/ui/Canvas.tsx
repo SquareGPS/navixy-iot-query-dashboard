@@ -58,8 +58,6 @@ export const Canvas: React.FC<CanvasProps> = ({
   // Chart Library preset drag (FR-11365): dragged preset payload + whether the pointer is over the canvas
   const [draggedPreset, setDraggedPreset] = useState<{ panel: ChartPresetPanel; label: string } | null>(null);
   const presetInsideCanvasRef = useRef<boolean>(false);
-  // Interim: dock visibility while editing (the EditToolbar toggle is a later slice)
-  const [showChartLibrary, setShowChartLibrary] = useState(true);
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   
@@ -81,6 +79,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   const selectedPanelId = useEditorStore((state) => state.selectedPanelId);
   const isEditingLayout = useEditorStore((state) => state.isEditingLayout);
   const setDashboard = useEditorStore((state) => state.setDashboard);
+  const chartLibraryOpen = useEditorStore((state) => state.chartLibraryOpen);
+  const setChartLibraryOpen = useEditorStore((state) => state.setChartLibraryOpen);
   
   // Ensure rows stay expanded in edit mode
   useEffect(() => {
@@ -106,11 +106,6 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
     }
   }, [isEditingLayout, dashboard, setDashboard]);
-
-  // Re-show the Chart Library dock whenever edit mode is (re-)entered (FR-11365, interim)
-  useEffect(() => {
-    if (isEditingLayout) setShowChartLibrary(true);
-  }, [isEditingLayout]);
 
   // Add panel state
   const [showPanelGallery, setShowPanelGallery] = useState(false);
@@ -1403,9 +1398,9 @@ export const Canvas: React.FC<CanvasProps> = ({
         onSelect={handlePanelGallerySelect}
       />
 
-      {/* Chart Library dock (FR-11365) — interim: visible while editing; EditToolbar toggle is a later slice */}
-      {isEditingLayout && showChartLibrary && (
-        <ChartLibraryPanel onClose={() => setShowChartLibrary(false)} />
+      {/* Chart Library dock (FR-11365) — toggled from the EditToolbar */}
+      {isEditingLayout && chartLibraryOpen && (
+        <ChartLibraryPanel onClose={() => setChartLibraryOpen(false)} />
       )}
     </DndContext>
   );

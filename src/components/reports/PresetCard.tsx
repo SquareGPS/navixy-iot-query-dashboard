@@ -5,21 +5,39 @@
  * which the Canvas `preset-` branch reads on drop (see Canvas handleDragStart/End).
  * Must be rendered inside Canvas's DndContext for the drag to register.
  */
-import * as Icons from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
+import {
+  Activity, AlertTriangle, BarChart, BarChart3, Car, Clock, Hash, Hourglass,
+  MapPin, Moon, ParkingSquare, PauseCircle, PieChart, Route, ShieldAlert,
+  Timer, TrendingUp, Wifi, WifiOff, Zap, type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ChartPreset } from '@/types/chart-catalog';
 
-/** Resolve a kebab-case lucide icon name ("trending-up") to its component (TrendingUp). */
-function resolveLucideIcon(name?: string): React.ComponentType<{ className?: string }> | null {
-  if (!name) return null;
-  const pascal = name
-    .split(/[-_]/)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join('');
-  const icons = Icons as unknown as Record<string, React.ComponentType<{ className?: string }>>;
-  return icons[pascal] ?? null;
-}
+// Curated map of the icons the catalog uses (kebab name -> component) so only these are
+// bundled — `import * as` would pull all ~1.5k lucide icons and defeat tree-shaking.
+// Add an entry when the analyst introduces a new icon; unknown names fall back to BarChart3.
+const ICON_MAP: Record<string, LucideIcon> = {
+  'activity': Activity,
+  'alert-triangle': AlertTriangle,
+  'bar-chart': BarChart,
+  'car': Car,
+  'clock': Clock,
+  'hash': Hash,
+  'hourglass': Hourglass,
+  'map-pin': MapPin,
+  'moon': Moon,
+  'parking-square': ParkingSquare,
+  'pause-circle': PauseCircle,
+  'pie-chart': PieChart,
+  'route': Route,
+  'shield-alert': ShieldAlert,
+  'timer': Timer,
+  'trending-up': TrendingUp,
+  'wifi': Wifi,
+  'wifi-off': WifiOff,
+  'zap': Zap,
+};
 
 interface PresetCardProps {
   preset: ChartPreset;
@@ -31,7 +49,7 @@ export function PresetCard({ preset }: PresetCardProps) {
     data: { type: 'preset', panel: preset.panel, label: preset.label },
   });
 
-  const Icon = resolveLucideIcon(preset.icon) ?? Icons.BarChart3;
+  const Icon = (preset.icon && ICON_MAP[preset.icon]) || BarChart3;
 
   return (
     <button
