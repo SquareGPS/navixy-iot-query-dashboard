@@ -4,6 +4,7 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
+import type { ChartCatalog } from '@/types/chart-catalog';
 import {
   DATE_FORMAT_VALUES,
   TIME_FORMAT_VALUES,
@@ -713,6 +714,21 @@ class DemoApiService {
         error: {
           code: 'DEMO_ERROR',
           message: error.message || 'Failed to get global variables from demo storage'
+        }
+      };
+    }
+  }
+
+  // Chart Library preset catalog (drag-n-drop — FR-11365); seeded into IndexedDB at login
+  async getChartCatalog(): Promise<ApiResponse<ChartCatalog>> {
+    try {
+      const catalog = await demoStorageService.getChartCatalog();
+      return { data: catalog ?? { schemaVersion: '1.0', groups: [] } };
+    } catch (error: any) {
+      return {
+        error: {
+          code: 'DEMO_ERROR',
+          message: error.message || 'Failed to get chart catalog from demo storage'
         }
       };
     }

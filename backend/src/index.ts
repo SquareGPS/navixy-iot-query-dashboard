@@ -17,6 +17,7 @@ import appRoutes from './routes/app.js';
 import menuRoutes from './routes/menu.js';
 import compositeReportsRoutes from './routes/composite-reports.js';
 import panelsRoutes from './routes/panels.js';
+import chartCatalogRoutes from './routes/chart-catalog.js';
 import { DatabaseService } from './services/database.js';
 import { RedisService } from './services/redis.js';
 
@@ -157,6 +158,9 @@ app.use('/api', compositeReportsRoutes);
 
 // Panel routes (export, etc.)
 app.use('/api', panelsRoutes);
+
+// Chart preset catalog (drag-n-drop Chart Library — FR-11365)
+app.use('/api', chartCatalogRoutes);
 
 // Protected routes
 app.use('/api/sql', authenticateToken, sqlRoutes);

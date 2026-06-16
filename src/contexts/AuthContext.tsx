@@ -175,10 +175,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('[AuthContext] Clearing IndexedDB before initializing demo storage...');
       await demoStorageService.clearAllData();
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/sections`, { headers }),
         fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null)
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null)
       ]);
 
       let sections: any[] = [];
@@ -200,10 +201,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
+      let chartCatalog: any = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
+      }
+
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId
       });
 
@@ -355,10 +363,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       };
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/sections`, { headers }),
         fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null) // Fail silently
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
 
       // Parse responses
@@ -400,12 +409,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn('[AuthContext] Failed to fetch global variables or endpoint not available');
       }
 
+      let chartCatalog: any = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
+      }
+
       // Seed the demo database
       console.log('[AuthContext] Seeding IndexedDB with fetched data...');
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId
       });
 
@@ -497,10 +513,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       };
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/sections`, { headers }),
         fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null) // Fail silently
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
 
       // Parse responses
@@ -523,11 +540,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
+      let chartCatalog: any = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
+      }
+
       // Reseed the demo database (this clears existing data first)
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId: user.id
       });
 

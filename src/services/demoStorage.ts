@@ -61,15 +61,25 @@ class DemoDatabase extends Dexie {
   reports!: Table<DemoReport, string>;
   globalVariables!: Table<DemoGlobalVariable, string>;
   metadata!: Table<DemoMetadata, string>;
+  chartCatalog!: Table<{ id: string; schemaVersion: string; groups: any[] }, string>;
 
   constructor() {
     super('NavixyDemoDatabase');
-    
+
     this.version(1).stores({
       sections: 'id, name, sortOrder, userId, isDeleted',
       reports: 'id, title, sectionId, sortOrder, userId, isDeleted',
       globalVariables: 'id, label',
       metadata: 'id, key'
+    });
+
+    // v2: chart preset catalog — singleton row keyed by a fixed id (FR-11365)
+    this.version(2).stores({
+      sections: 'id, name, sortOrder, userId, isDeleted',
+      reports: 'id, title, sectionId, sortOrder, userId, isDeleted',
+      globalVariables: 'id, label',
+      metadata: 'id, key',
+      chartCatalog: 'id'
     });
   }
 }
@@ -111,6 +121,7 @@ export class DemoStorageService {
     sections: any[];
     reports: any[];
     globalVariables: any[];
+    chartCatalog?: { schemaVersion?: string; groups?: any[] } | null;
     userId: string;
   }): Promise<void> {
     console.log('[DemoStorage] seedFromBackend called with:', {
@@ -229,7 +240,7 @@ export class DemoStorageService {
     // Bulk insert all data
     console.log('[DemoStorage] Starting bulk insert to IndexedDB...');
     try {
-      await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata], async () => {
+      await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata, database.chartCatalog], async () => {
         if (sections.length > 0) {
           console.log('[DemoStorage] Inserting', sections.length, 'sections...');
           await database.sections.bulkAdd(sections);
@@ -243,6 +254,14 @@ export class DemoStorageService {
           await database.globalVariables.bulkAdd(globalVariables);
         }
         await database.metadata.put(metadata);
+        if (data.chartCatalog) {
+          console.log('[DemoStorage] Inserting chart preset catalog...');
+          await database.chartCatalog.put({
+            id: 'catalog',
+            schemaVersion: data.chartCatalog.schemaVersion || '1.0',
+            groups: Array.isArray(data.chartCatalog.groups) ? data.chartCatalog.groups : []
+          });
+        }
       });
       console.log('[DemoStorage] Bulk insert completed successfully');
     } catch (error) {
@@ -295,11 +314,12 @@ export class DemoStorageService {
       globalVariables: existingGlobalVars
     });
 
-    await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata], async () => {
+    await database.transaction('rw', [database.sections, database.reports, database.globalVariables, database.metadata, database.chartCatalog], async () => {
       await database.sections.clear();
       await database.reports.clear();
       await database.globalVariables.clear();
       await database.metadata.clear();
+      await database.chartCatalog.clear();
     });
     
     // Verify everything is cleared
@@ -309,6 +329,17 @@ export class DemoStorageService {
       reportsAfterClear: afterReports,
       sectionsAfterClear: afterSections
     });
+  }
+
+  // ==========================================
+  // Chart Library preset catalog (FR-11365)
+  // ==========================================
+
+  async getChartCatalog(): Promise<{ schemaVersion: string; groups: any[] } | null> {
+    const database = getDb();
+    const row = await database.chartCatalog.get('catalog');
+    if (!row) return null;
+    return { schemaVersion: row.schemaVersion, groups: Array.isArray(row.groups) ? row.groups : [] };
   }
 
   // ==========================================

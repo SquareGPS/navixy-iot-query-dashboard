@@ -573,6 +573,62 @@ export class DatabaseService {
     }
   }
 
+  /**
+   * Get the drag-n-drop chart preset catalog (FR-11365).
+   * Singleton row in dashboard_studio_meta_data.chart_preset_catalog; the `catalog`
+   * jsonb holds { schemaVersion, groups }. Returns null (not an error) when the
+   * table/row is missing so the endpoint can serve an empty catalog.
+   */
+  async getChartPresetCatalog(pool: Pool): Promise<{ schemaVersion: string; groups: any[] } | null> {
+    try {
+      const client = await pool.connect();
+
+      try {
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'dashboard_studio_meta_data'
+            AND table_name = 'chart_preset_catalog'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('chart_preset_catalog table does not exist in dashboard_studio_meta_data schema');
+          return null;
+        }
+
+        const result = await client.query(
+          'SELECT schema_version, catalog FROM dashboard_studio_meta_data.chart_preset_catalog ORDER BY id ASC LIMIT 1'
+        );
+
+        if (result.rows.length === 0) {
+          logger.warn('chart_preset_catalog has no rows');
+          return null;
+        }
+
+        const row = result.rows[0];
+        const catalog = (row.catalog && typeof row.catalog === 'object') ? row.catalog : {};
+        const groups = Array.isArray(catalog.groups) ? catalog.groups : [];
+
+        logger.info('Loaded chart preset catalog', { groups: groups.length, schemaVersion: catalog.schemaVersion || row.schema_version });
+        return {
+          schemaVersion: catalog.schemaVersion || row.schema_version || '1.0',
+          groups,
+        };
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      // If table doesn't exist, return null instead of error
+      if (error.code === '42P01') { // undefined_table
+        logger.warn('chart_preset_catalog table does not exist:', error.message);
+        return null;
+      }
+      logger.error('Error getting chart preset catalog:', error);
+      throw new CustomError('Failed to get chart preset catalog', 500);
+    }
+  }
+
   async getGlobalVariableById(id: string, pool: Pool): Promise<any | null> {
     try {
       const client = await pool.connect();
