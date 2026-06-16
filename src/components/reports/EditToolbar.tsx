@@ -72,7 +72,7 @@ export const EditToolbar = ({
                   ? "bg-[#379EF9] hover:bg-[#2B7CE6] dark:bg-blue-600 dark:hover:bg-blue-700 text-white" 
                   : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-400"
               )}
-              size="icon"
+              size="lg"
             >
               {isEditing ? (
                 <X className="h-5 w-5 text-white" />
@@ -99,7 +99,7 @@ export const EditToolbar = ({
                     "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
                     "hover:bg-gray-50 dark:hover:bg-gray-700"
                   )}
-                  size="icon"
+                  size="lg"
                 >
                   <Square className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                 </Button>
@@ -119,7 +119,7 @@ export const EditToolbar = ({
                     "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
                     "hover:bg-gray-50 dark:hover:bg-gray-700"
                   )}
-                  size="icon"
+                  size="lg"
                 >
                   <Layout className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                 </Button>
@@ -140,7 +140,7 @@ export const EditToolbar = ({
                       ? "bg-[#379EF9] hover:bg-[#2B7CE6] dark:bg-blue-600 dark:hover:bg-blue-700 border-white dark:border-gray-800"
                       : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                   )}
-                  size="icon"
+                  size="lg"
                 >
                   <LibraryBig className={cn("h-5 w-5", chartLibraryOpen ? "text-white" : "text-gray-700 dark:text-gray-300")} />
                 </Button>
@@ -161,7 +161,7 @@ export const EditToolbar = ({
                       "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
                       "hover:bg-gray-50 dark:hover:bg-gray-700"
                     )}
-                    size="icon"
+                    size="lg"
                   >
                     <SlidersHorizontal className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </Button>
@@ -186,7 +186,7 @@ export const EditToolbar = ({
                       "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
                       "hover:bg-gray-50 dark:hover:bg-gray-700"
                     )}
-                    size="icon"
+                    size="lg"
                   >
                     <Sparkles className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                   </Button>
@@ -210,7 +210,7 @@ export const EditToolbar = ({
                     "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
                     "hover:bg-gray-50 dark:hover:bg-gray-700"
                   )}
-                  size="icon"
+                  size="lg"
                 >
                   <Code className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                 </Button>
@@ -230,7 +230,7 @@ export const EditToolbar = ({
                     "bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-800",
                     "hover:bg-red-50 dark:hover:bg-red-900/20"
                   )}
-                  size="icon"
+                  size="lg"
                 >
                   <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
                 </Button>

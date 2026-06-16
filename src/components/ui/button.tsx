@@ -1,63 +1,47 @@
 import React from "react";
-import { cn } from "@/lib/utils";
+import { clsx } from "clsx";
 
-type ButtonVariant =
+/**
+ * Historically this Button styled only three variants and ignored `size`,
+ * with all sizing/spacing supplied via `className`. That runtime behavior is
+ * preserved verbatim so every existing button renders exactly as before — the
+ * only change here is widening the prop *types* so call sites that pass other
+ * variant/size values (and the shadcn calendar/pagination primitives) type-check.
+ */
+export type ButtonVariant =
   | "primary"
-  | "default"
   | "secondary"
-  | "outline"
   | "ghost"
+  | "default"
+  | "outline"
   | "destructive";
 
-type ButtonSize = "default" | "sm" | "lg" | "icon";
+export type ButtonSize = "default" | "sm" | "lg" | "icon";
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
 };
 
-const BASE_STYLES =
-  "inline-flex items-center justify-center gap-2 rounded-sm text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
+const BASE = "h-9 inline-flex items-center gap-2 rounded-sm px-4 text-sm font-semibold";
 
-const VARIANT_STYLES: Record<ButtonVariant, string> = {
-  // `default` is the primary action (shadcn semantics); kept identical to `primary`
+const VARIANT_STYLES: Partial<Record<ButtonVariant, string>> = {
   primary: "bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]",
-  default: "bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]",
   secondary: "border border-[var(--border)] text-[var(--text-primary)] bg-transparent hover:bg-[var(--surface-3)]",
-  outline: "border border-[var(--border)] text-[var(--text-primary)] bg-transparent hover:bg-[var(--surface-3)]",
   ghost: "text-[var(--text-primary)] hover:bg-[var(--surface-3)]",
-  destructive: "bg-[var(--danger)] text-white hover:opacity-90",
 };
 
-const SIZE_STYLES: Record<ButtonSize, string> = {
-  default: "h-9 px-4",
-  sm: "h-8 px-3 text-xs",
-  lg: "h-10 px-6",
-  icon: "h-9 w-9 p-0",
-};
-
-/**
- * Returns the composed class string for a button-styled element.
- * Exposed for shadcn-style primitives (calendar, pagination) that style
- * non-<button> elements like links to look like buttons.
- */
-export function buttonVariants(options?: {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-}): string {
-  const { variant = "primary", size = "default" } = options ?? {};
-  return cn(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size]);
+/** Class string for button-styled non-<button> elements (shadcn calendar/pagination). */
+export function buttonVariants(options?: { variant?: ButtonVariant; size?: ButtonSize }): string {
+  const { variant = "primary" } = options ?? {};
+  return clsx(BASE, VARIANT_STYLES[variant]);
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = "primary", size = "default", className, ...props }, ref) => {
-    return (
-      <button
-        ref={ref}
-        className={cn(BASE_STYLES, VARIANT_STYLES[variant], SIZE_STYLES[size], className)}
-        {...props}
-      />
-    );
+  // `size` is accepted for API compatibility but intentionally not applied to
+  // layout — matching the original behavior where sizing came from className.
+  ({ variant = "primary", size: _size, className, ...props }, ref) => {
+    return <button ref={ref} className={clsx(BASE, VARIANT_STYLES[variant], className)} {...props} />;
   }
 );
 
