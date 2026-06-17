@@ -92,6 +92,13 @@ interface PanelData {
   };
 }
 
+// Live table panels fetch up to this many rows so client-side pagination works
+// even when verify.max_rows is low. Full-result export re-queries server-side at
+// a higher, server-owned cap (see resolvePanelExportMaxRows in the backend).
+const TABLE_LIVE_ROW_LIMIT = 10000;
+// Non-table panels default to this row limit when no verify.max_rows is set.
+const DEFAULT_PANEL_ROW_LIMIT = 1000;
+
 // Pie Chart Panel Component
 const PieChartPanel = ({ data }: { data: QueryResult }) => {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
@@ -614,13 +621,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     const navixyConfig = panel['x-navixy'];
 
-    // For table panels, fetch more rows (up to 10000) to allow client-side
-    // pagination, even if verify.max_rows is set low. Full-result export uses a
-    // higher cap server-side (see handleExportPanel).
+    // For table panels, fetch more rows to allow client-side pagination, even if
+    // verify.max_rows is set low. Full-result export uses a higher cap
+    // server-side (see handleExportPanel).
     const isTablePanel = panel.type === 'table';
     const rowLimit = isTablePanel
-      ? Math.max(navixyConfig?.verify?.max_rows || 0, 10000) // At least 10000 for tables
-      : (navixyConfig?.verify?.max_rows || 1000); // Default 1000 for other panels
+      ? Math.max(navixyConfig?.verify?.max_rows || 0, TABLE_LIVE_ROW_LIMIT)
+      : (navixyConfig?.verify?.max_rows || DEFAULT_PANEL_ROW_LIMIT);
 
     const result = await apiService.executeSQL({
       sql: resolved.statement,
@@ -1711,8 +1718,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // stays tiny — shipping the rows[] back is what nginx/Express rejected with
     // 413 for large tables. Fall back to cached rows for non-SQL panels.
     // displayDashboard is the same value passed to executePanelQuery for the
-    // live view; its memoized type omits a couple of Dashboard fields, so cast
-    // (resolvePanelQuery only reads optional-chained members).
+    // live view, where the same Dashboard-vs-canonicalized type clash is
+    // tolerated uncast. resolvePanelQuery only reads optional-chained members off
+    // it, so this is runtime-safe; reconciling the two Dashboard types repo-wide
+    // is out of scope for the export path.
     const resolvedQuery = resolvePanelQuery(panel, displayDashboard as unknown as Dashboard);
     if (!resolvedQuery && (!panelState?.data?.rows || !panelState?.data?.columns)) {
       toast.error('No data to export');
@@ -1734,19 +1743,21 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             })()
           : datetimePrefs.timeZone;
 
-      // Export re-runs the query server-side. Table panels get the high export
-      // ceiling (100k, matching composite reports); other panel types (CSV
-      // export is offered for all types) keep their normal row limit so e.g. a
-      // chart's CSV doesn't balloon to 100k rows. Mirrors the live rowLimit.
-      const exportMaxRows = panel.type === 'table'
-        ? Math.max(panel['x-navixy']?.verify?.max_rows || 0, 100000)
-        : (panel['x-navixy']?.verify?.max_rows || 1000);
+      // The export re-runs the query server-side, where the per-type row ceiling
+      // is owned (see resolvePanelExportMaxRows). Send only the panel type and
+      // any per-panel override (verify.max_rows); the server applies the policy.
+      const configuredMaxRows = panel['x-navixy']?.verify?.max_rows;
 
       const blob = await apiService.exportPanelData({
         title: panel.title,
         format,
         ...(resolvedQuery
-          ? { sql: resolvedQuery.statement, params: resolvedQuery.params, maxRows: exportMaxRows }
+          ? {
+              sql: resolvedQuery.statement,
+              params: resolvedQuery.params,
+              panelType: panel.type,
+              ...(configuredMaxRows ? { maxRows: configuredMaxRows } : {}),
+            }
           : { columns: panelState!.data!.columns, rows: panelState!.data!.rows }),
         ...(excelHeader && { excelHeader }),
         ...(resolvedTz && { timeZone: resolvedTz }),

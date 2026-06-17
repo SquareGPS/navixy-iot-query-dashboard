@@ -11,32 +11,9 @@ import { logger } from '../utils/logger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { resolveExportPreferences } from '../services/userPreferences.js';
+import { resolveExportTimeoutMs, resolvePanelExportMaxRows } from '../utils/exportPolicy.js';
 
 const router = Router();
-
-// Exports re-run the panel query server-side, so they are allowed far more rows
-// than the live panel view (which caps table panels at 10k for client-side
-// pagination). 100k matches the composite-report export ceiling; the hard cap
-// is a safety bound against an accidental or abusive request.
-const EXPORT_DEFAULT_MAX_ROWS = 100000;
-const EXPORT_HARD_CAP = 1000000;
-
-/**
- * Resolve the SQL statement timeout from global variables, doubled and floored
- * at 60s for exports — they legitimately run longer than interactive queries.
- * Mirrors the composite-report export path.
- */
-function resolveExportTimeoutMs(globalVars: Record<string, string>): number {
-  let base = 30000;
-  const raw = globalVars.sql_timeout_ms;
-  if (raw) {
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      base = parsed;
-    }
-  }
-  return Math.max(base * 2, 60000);
-}
 
 /**
  * POST /api/panels/export
@@ -51,7 +28,7 @@ function resolveExportTimeoutMs(globalVars: Record<string, string>): number {
  */
 router.post('/panels/export', authenticateToken, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const { title, columns, rows, format = 'csv', excelHeader, sql, params, maxRows } = req.body;
+    const { title, columns, rows, format = 'csv', excelHeader, sql, params, maxRows, panelType } = req.body;
 
     if (format !== 'xlsx' && format !== 'csv') {
       throw new CustomError('format must be "xlsx" or "csv"', 400);
@@ -72,31 +49,19 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
 
       // Merge global variables (lower priority than explicit params), mirroring
       // /api/sql-new/execute so the export reproduces what the panel displays.
-      const mergedParams: Record<string, unknown> =
-        params && typeof params === 'object' ? { ...params } : {};
-      let globalVars: Record<string, string> = {};
       const userDbUrl = req.user?.userDbUrl;
-      if (userDbUrl) {
-        try {
-          const settingsPool = dbService.getClientSettingsPool(userDbUrl);
-          globalVars = await dbService.getGlobalVariablesAsMap(settingsPool);
-          for (const [key, value] of Object.entries(globalVars)) {
-            if (!(key in mergedParams)) {
-              mergedParams[key] = value;
-            }
-          }
-        } catch (err) {
-          logger.warn('Panel export: failed to load global variables, continuing without them', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      const baseParams: Record<string, unknown> =
+        params && typeof params === 'object' ? (params as Record<string, unknown>) : {};
+      const { mergedParams, globalVars } = userDbUrl
+        ? await dbService.mergeWithGlobalVars(baseParams, dbService.getClientSettingsPool(userDbUrl))
+        : { mergedParams: { ...baseParams }, globalVars: {} as Record<string, string> };
 
-      const requestedMaxRows =
-        typeof maxRows === 'number' && Number.isFinite(maxRows) && maxRows > 0
-          ? Math.floor(maxRows)
-          : EXPORT_DEFAULT_MAX_ROWS;
-      const exportMaxRows = Math.min(requestedMaxRows, EXPORT_HARD_CAP);
+      // The per-type row ceiling is server-owned policy; the client only sends
+      // the panel type and any per-panel override (verify.max_rows).
+      const exportMaxRows = resolvePanelExportMaxRows(
+        panelType,
+        typeof maxRows === 'number' ? maxRows : undefined,
+      );
       const timeoutMs = resolveExportTimeoutMs(globalVars);
 
       const result = await dbService.executeParameterizedQuery(
@@ -108,6 +73,16 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
       );
       exportColumns = result.columns;
       exportRows = result.rows;
+
+      // Surface truncation: hitting the cap means the export may be incomplete,
+      // otherwise a clamped result looks identical to a complete one.
+      if (exportRows.length >= exportMaxRows) {
+        logger.warn('Panel export hit the row cap; result may be truncated', {
+          title,
+          rowCount: exportRows.length,
+          maxRows: exportMaxRows,
+        });
+      }
 
       logger.info('Panel export re-queried server-side', {
         title,
