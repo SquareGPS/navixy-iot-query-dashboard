@@ -632,7 +632,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const result = await apiService.executeSQL({
       sql: resolved.statement,
       params: resolved.params,
-      timeout_ms: navixyConfig?.sql?.params?.timeout_ms || 10000,
+      timeout_ms: 10000,
       row_limit: rowLimit,
     });
 
@@ -1499,7 +1499,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                 name,
               ] }
             />
-            { showLegend && legendPosition !== 'none' && (
+            { showLegend && (
               <Legend
                 verticalAlign={ legendPosition === 'bottom' ? 'bottom' : legendPosition === 'top' ? 'top' : 'middle' }
                 align={ legendPosition === 'left' ? 'left' : 'center' }
@@ -1620,7 +1620,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Find a label column (first text column that's not lat/lon)
     const labelIdx = data.columns.findIndex(
       (c, idx) => idx !== latIdx && idx !== lonIdx &&
-        (c.type === 'text' || c.type === 'varchar' || c.type === 'character varying'),
+        ['text', 'varchar', 'character varying'].includes(c.type as string),
     );
 
     return data.rows
@@ -1926,9 +1926,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       case 'timeseries':
       case 'linechart':
         panelContent = renderLineChartPanel(panel, panelState.data);
-        break;
-      case 'text':
-        panelContent = renderTextPanel(panel);
         break;
       case 'geomap':
         panelContent = renderMapPanel(panel, panelState.data);
