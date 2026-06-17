@@ -9,6 +9,7 @@ import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
+import { getTimeoutFromGlobalVars, resolveExportTimeoutMs } from '../utils/exportPolicy.js';
 import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
 
 const router = Router();
@@ -37,17 +38,6 @@ function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUr
   }
 
   return { userDbUrl, userId, iotDbUrl, sessionId };
-}
-
-// Helper to extract timeout from global variables
-function getTimeoutFromGlobalVars(globalVars: Record<string, string>, defaultTimeout: number = 30000): number {
-  if (globalVars.sql_timeout_ms) {
-    const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
-    if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
-      return parsedTimeout;
-    }
-  }
-  return defaultTimeout;
 }
 
 // All routes require authentication
@@ -272,14 +262,11 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
       return;
     }
 
-    // Get global variables for parameter substitution
-    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-    
-    // Merge global variables with provided params
-    const mergedParams = { ...globalVariables, ...params };
+    // Merge global variables with provided params (explicit params take precedence)
+    const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
 
     // Get timeout from global variables (default 30s)
-    const timeoutMs = getTimeoutFromGlobalVars(globalVariables);
+    const timeoutMs = getTimeoutFromGlobalVars(globalVars);
 
     // Execute the SQL query — no server-side pagination needed,
     // composite reports load all data at once and paginate client-side
@@ -570,10 +557,8 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const exportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,
@@ -681,10 +666,8 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const htmlExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,
@@ -795,10 +778,8 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const pdfExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,

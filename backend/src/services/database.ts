@@ -731,6 +731,29 @@ export class DatabaseService {
     }
   }
 
+  /**
+   * Load global variables and merge them into `params` as lower-priority
+   * defaults: an explicit key in `params` always wins, a global only fills a key
+   * that is absent. Returns the merged map plus the raw global variables, which
+   * callers also use to resolve the SQL timeout.
+   *
+   * `getGlobalVariablesAsMap` already degrades to an empty map if the settings
+   * DB is unreachable, so this never throws on a global-variable lookup failure.
+   */
+  async mergeWithGlobalVars(
+    params: Record<string, unknown>,
+    settingsPool: Pool,
+  ): Promise<{ mergedParams: Record<string, unknown>; globalVars: Record<string, string> }> {
+    const globalVars = await this.getGlobalVariablesAsMap(settingsPool);
+    const mergedParams: Record<string, unknown> = { ...params };
+    for (const [key, value] of Object.entries(globalVars)) {
+      if (!(key in mergedParams)) {
+        mergedParams[key] = value;
+      }
+    }
+    return { mergedParams, globalVars };
+  }
+
   // ==========================================
   // External Database Methods (for SQL queries)
   // ==========================================

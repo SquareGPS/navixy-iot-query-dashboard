@@ -142,33 +142,23 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     });
   }
 
-  // Merge global variables into params (global variables have lower priority than explicit params)
-  let mergedParams = { ...params };
+  // Merge global variables into params (global variables have lower priority than explicit params).
+  // getGlobalVariablesAsMap degrades to an empty map on failure, so this can't throw.
+  let mergedParams: Record<string, unknown> = { ...params };
   let globalTimeoutMs: number | undefined;
-  
-  try {
-    if (req.settingsPool) {
-      const dbService = getDbService();
-      const globalVars = await dbService.getGlobalVariablesAsMap(req.settingsPool);
-      
-      // Extract sql_timeout_ms from global variables if set
-      if (globalVars.sql_timeout_ms) {
-        const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
-        if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
-          globalTimeoutMs = parsedTimeout;
-        }
+
+  if (req.settingsPool) {
+    const dbService = getDbService();
+    const merged = await dbService.mergeWithGlobalVars(params ?? {}, req.settingsPool);
+    mergedParams = merged.mergedParams;
+
+    // Extract sql_timeout_ms from global variables if set
+    if (merged.globalVars.sql_timeout_ms) {
+      const parsedTimeout = parseInt(merged.globalVars.sql_timeout_ms, 10);
+      if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
+        globalTimeoutMs = parsedTimeout;
       }
-      
-      // Only add global variables that aren't already in params (explicit params take precedence)
-      Object.entries(globalVars).forEach(([key, value]) => {
-        if (!(key in mergedParams)) {
-          mergedParams[key] = value;
-        }
-      });
     }
-  } catch (error) {
-    logger.warn('Failed to load global variables, continuing without them:', error);
-    // Continue execution without global variables if there's an error
   }
 
   // Determine timeout: global variable > request limits > default (30s)
