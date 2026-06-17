@@ -480,12 +480,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   }, []);
 
   /**
-   * Execute query for a single panel
+   * Resolve a panel's effective SQL statement + bound parameters, without
+   * executing it. Shared by live execution and by export (which re-runs the
+   * query server-side at a higher row limit). Returns null for panels that
+   * have no query (e.g. text panels).
    */
-  const executePanelQuery = useCallback(async (
+  const resolvePanelQuery = useCallback((
     panel: Panel,
     dashboard: Dashboard,
-  ): Promise<QueryResult | null> => {
+  ): { statement: string; params: Record<string, unknown> } | null => {
     const navixyConfig = panel['x-navixy'];
 
     // Skip text panels - they don't need SQL queries
@@ -594,18 +597,35 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Filter parameters to only include those actually used in the (effective) SQL
     const filteredParams = filterUsedParameters(effectiveStatement, preparedParams);
 
-    // Execute SQL query using the validated endpoint
-    // For table panels, fetch more rows (up to 10000) to allow client-side pagination
-    // This ensures users can see all their data even if verify.max_rows is set low
+    return { statement: effectiveStatement, params: filteredParams };
+  }, [parameterValues, resolveParameterBindings, timeRange]);
+
+  /**
+   * Execute query for a single panel
+   */
+  const executePanelQuery = useCallback(async (
+    panel: Panel,
+    dashboard: Dashboard,
+  ): Promise<QueryResult | null> => {
+    const resolved = resolvePanelQuery(panel, dashboard);
+    if (!resolved) {
+      return null;
+    }
+
+    const navixyConfig = panel['x-navixy'];
+
+    // For table panels, fetch more rows (up to 10000) to allow client-side
+    // pagination, even if verify.max_rows is set low. Full-result export uses a
+    // higher cap server-side (see handleExportPanel).
     const isTablePanel = panel.type === 'table';
     const rowLimit = isTablePanel
-      ? Math.max(navixyConfig.verify?.max_rows || 0, 10000) // At least 10000 for tables
-      : (navixyConfig.verify?.max_rows || 1000); // Default 1000 for other panels
+      ? Math.max(navixyConfig?.verify?.max_rows || 0, 10000) // At least 10000 for tables
+      : (navixyConfig?.verify?.max_rows || 1000); // Default 1000 for other panels
 
     const result = await apiService.executeSQL({
-      sql: effectiveStatement,
-      params: filteredParams,
-      timeout_ms: navixyConfig.sql.params?.timeout_ms || 10000,
+      sql: resolved.statement,
+      params: resolved.params,
+      timeout_ms: navixyConfig?.sql?.params?.timeout_ms || 10000,
       row_limit: rowLimit,
     });
 
@@ -619,7 +639,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       rows: result.data?.rows || [],
       stats: result.data?.stats,
     };
-  }, [parameterValues, resolveParameterBindings, timeRange]);
+  }, [resolvePanelQuery]);
 
   /**
    * Refresh a single panel by executing its query
@@ -1685,7 +1705,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const handleExportPanel = async (panel: Panel, format: 'xlsx' | 'csv', excelHeader?: ExcelHeaderConfig) => {
     const panelIdStr = String(panel.id);
     const panelState = panelData[panelIdStr];
-    if (!panelState?.data?.rows || !panelState?.data?.columns) {
+
+    // Prefer re-running the query server-side so the export contains the full
+    // result set (the live table view caps at ~10k rows) and the request body
+    // stays tiny — shipping the rows[] back is what nginx/Express rejected with
+    // 413 for large tables. Fall back to cached rows for non-SQL panels.
+    // displayDashboard is the same value passed to executePanelQuery for the
+    // live view; its memoized type omits a couple of Dashboard fields, so cast
+    // (resolvePanelQuery only reads optional-chained members).
+    const resolvedQuery = resolvePanelQuery(panel, displayDashboard as unknown as Dashboard);
+    if (!resolvedQuery && (!panelState?.data?.rows || !panelState?.data?.columns)) {
       toast.error('No data to export');
       return;
     }
@@ -1705,11 +1734,16 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             })()
           : datetimePrefs.timeZone;
 
+      // Export re-runs the query server-side, so it isn't bound by the live
+      // view's ~10k-row cap. 100k matches the composite-report export ceiling.
+      const exportMaxRows = Math.max(panel['x-navixy']?.verify?.max_rows || 0, 100000);
+
       const blob = await apiService.exportPanelData({
         title: panel.title,
-        columns: panelState.data.columns,
-        rows: panelState.data.rows,
         format,
+        ...(resolvedQuery
+          ? { sql: resolvedQuery.statement, params: resolvedQuery.params, maxRows: exportMaxRows }
+          : { columns: panelState!.data!.columns, rows: panelState!.data!.rows }),
         ...(excelHeader && { excelHeader }),
         ...(resolvedTz && { timeZone: resolvedTz }),
         ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),

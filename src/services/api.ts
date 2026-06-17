@@ -811,8 +811,15 @@ class ApiService {
   // Panel Export
   async exportPanelData(options: {
     title: string;
-    columns: { name: string; type: string }[];
-    rows: unknown[][];
+    // Server-side re-query path (preferred for SQL-backed panels): the backend
+    // re-runs the query and exports the full result set. Avoids shipping rows
+    // back in a large body (rejected by nginx/Express) and the ~10k client cap.
+    sql?: string;
+    params?: Record<string, unknown>;
+    maxRows?: number;
+    // Legacy path: caller ships already-fetched rows (non-SQL panels / fallback).
+    columns?: { name: string; type: string }[];
+    rows?: unknown[][];
     format: 'xlsx' | 'csv';
     excelHeader?: {
       enabled: boolean;
