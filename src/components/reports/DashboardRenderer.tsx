@@ -1734,9 +1734,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             })()
           : datetimePrefs.timeZone;
 
-      // Export re-runs the query server-side, so it isn't bound by the live
-      // view's ~10k-row cap. 100k matches the composite-report export ceiling.
-      const exportMaxRows = Math.max(panel['x-navixy']?.verify?.max_rows || 0, 100000);
+      // Export re-runs the query server-side. Table panels get the high export
+      // ceiling (100k, matching composite reports); other panel types (CSV
+      // export is offered for all types) keep their normal row limit so e.g. a
+      // chart's CSV doesn't balloon to 100k rows. Mirrors the live rowLimit.
+      const exportMaxRows = panel.type === 'table'
+        ? Math.max(panel['x-navixy']?.verify?.max_rows || 0, 100000)
+        : (panel['x-navixy']?.verify?.max_rows || 1000);
 
       const blob = await apiService.exportPanelData({
         title: panel.title,
