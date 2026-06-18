@@ -2,11 +2,12 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { useNavigate } from 'react-router-dom';
 import { demoStorageService } from '@/services/demoStorage';
 import { isDemoMode, setDemoMode, setDemoUserId } from '@/services/demoApi';
+import type { ChartCatalog } from '@/types/chart-catalog';
 
 /**
  * Decode a JWT token without verification (for reading claims on the client side)
  */
-function decodeJwtPayload(token: string): any | null {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -183,9 +184,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null)
       ]);
 
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
       if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
@@ -202,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
-      let chartCatalog: any = null;
+      let chartCatalog: ChartCatalog | null = null;
       if (chartCatalogRes?.ok) {
         const data = await chartCatalogRes.json();
         chartCatalog = data.catalog || data.data || null;
@@ -372,16 +373,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ]);
 
       // Parse responses
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
       if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
         console.log('[AuthContext] Sections fetched from backend:', { 
           count: sections.length,
-          sectionNames: sections.map((s: any) => s.name)
+          sectionNames: sections.map((s) => s.name)
         });
       } else {
         console.warn('[AuthContext] Failed to fetch sections:', sectionsRes?.status, sectionsRes?.statusText);
@@ -392,8 +393,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         reports = data.reports || data.data || [];
         console.log('[AuthContext] Reports fetched from backend:', { 
           count: reports.length,
-          reportTitles: reports.map((r: any) => r.title),
-          reportIds: reports.map((r: any) => r.id)
+          reportTitles: reports.map((r) => r.title),
+          reportIds: reports.map((r) => r.id)
         });
       } else {
         console.warn('[AuthContext] Failed to fetch reports:', reportsRes?.status, reportsRes?.statusText);
@@ -404,13 +405,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
         console.log('[AuthContext] Global variables fetched from backend:', { 
           count: globalVariables.length,
-          labels: globalVariables.map((gv: any) => gv.label)
+          labels: globalVariables.map((gv) => gv.label)
         });
       } else {
         console.warn('[AuthContext] Failed to fetch global variables or endpoint not available');
       }
 
-      let chartCatalog: any = null;
+      let chartCatalog: ChartCatalog | null = null;
       if (chartCatalogRes?.ok) {
         const data = await chartCatalogRes.json();
         chartCatalog = data.catalog || data.data || null;
@@ -522,9 +523,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ]);
 
       // Parse responses
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
       if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
@@ -541,7 +542,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
-      let chartCatalog: any = null;
+      let chartCatalog: ChartCatalog | null = null;
       if (chartCatalogRes?.ok) {
         const data = await chartCatalogRes.json();
         chartCatalog = data.catalog || data.data || null;

@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { toErrorMeta } from '@/utils/errors';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import type { 
@@ -105,7 +106,8 @@ export default function CompositeReportEditor() {
         setDescription(report.description || '');
         setSqlQuery(report.sql_query);
         setConfig(normalizeCompositeConfig(report.config));
-      } catch (error: any) {
+      } catch (rawErr: unknown) {
+        const error = toErrorMeta(rawErr);
         toast.error(`Failed to load report: ${error.message}`);
         navigate('/');
       } finally {
@@ -146,10 +148,10 @@ export default function CompositeReportEditor() {
       const cols = response.data?.columns || [];
       
       // Determine suggestions based on column types
-      const numericCols = cols.filter((c: any) => 
+      const numericCols = cols.filter((c) => 
         ['real', 'double precision', 'numeric', 'integer', 'bigint', 'smallint'].some(t => c.type?.includes(t))
       );
-      const timeCols = cols.filter((c: any) =>
+      const timeCols = cols.filter((c) =>
         ['timestamp', 'date', 'time'].some(t => c.type?.includes(t))
       );
 
@@ -174,13 +176,13 @@ export default function CompositeReportEditor() {
         return null;
       };
 
-      const latCols = cols.filter((c: any) => getStem(c.name, latPatterns) !== null);
-      const lonCols = cols.filter((c: any) => getStem(c.name, lonPatterns) !== null);
+      const latCols = cols.filter((c) => getStem(c.name, latPatterns) !== null);
+      const lonCols = cols.filter((c) => getStem(c.name, lonPatterns) !== null);
       const gpsPairs: Array<{ latColumn: string; lonColumn: string }> = [];
       const usedLons = new Set<string>();
       for (const latCol of latCols) {
         const latStem = getStem(latCol.name, latPatterns);
-        const matchingLon = lonCols.find((c: any) => !usedLons.has(c.name) && getStem(c.name, lonPatterns) === latStem);
+        const matchingLon = lonCols.find((c) => !usedLons.has(c.name) && getStem(c.name, lonPatterns) === latStem);
         if (matchingLon) {
           gpsPairs.push({ latColumn: latCol.name, lonColumn: matchingLon.name });
           usedLons.add(matchingLon.name);
@@ -188,12 +190,12 @@ export default function CompositeReportEditor() {
       }
 
       const detectionResult: ColumnDetectionResult = {
-        columns: cols.map((c: any) => ({ name: c.name, type: c.type })),
+        columns: cols.map((c) => ({ name: c.name, type: c.type })),
         suggestions: {
           gps: gpsPairs.length > 0 ? gpsPairs[0] : null,
           gpsPairs: gpsPairs.length > 0 ? gpsPairs : undefined,
           xColumn: timeCols[0]?.name || cols[0]?.name,
-          yColumns: numericCols.slice(0, 3).map((c: any) => c.name),
+          yColumns: numericCols.slice(0, 3).map((c) => c.name),
         },
       };
 
@@ -218,7 +220,8 @@ export default function CompositeReportEditor() {
       }
 
       toast.success(`Detected ${cols.length} columns`);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to detect columns: ${error.message}`);
     } finally {
       setDetecting(false);
@@ -280,7 +283,8 @@ export default function CompositeReportEditor() {
 
       // Navigate to view page
       navigate(`/app/composite-report/${response.data.id}`);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save: ${error.message}`);
     } finally {
       setSaving(false);

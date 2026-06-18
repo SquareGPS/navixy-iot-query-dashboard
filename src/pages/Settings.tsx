@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TimezoneCombobox } from '@/components/ui/timezone-combobox';
 import { toast } from 'sonner';
+import { toErrorMeta } from '@/utils/errors';
 import { apiService, type DateFormat, type TimeFormat } from '@/services/api';
 import { detectInitialTimeFormat } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
@@ -17,13 +18,20 @@ import { Loader2, Settings as SettingsIcon, User, Plus, Trash2, Edit2, Save, X, 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
+interface GlobalVariable {
+  id: string;
+  label: string;
+  value: string | null;
+  description: string | null;
+}
+
 const Settings = () => {
   const { user, loading, demoMode, reseedDemoData } = useAuth();
   const { prefs, setPrefs: setDatetimePrefs } = useDatetimePrefs();
   const navigate = useNavigate();
   
   // Global Variables state
-  const [globalVariables, setGlobalVariables] = useState<any[]>([]);
+  const [globalVariables, setGlobalVariables] = useState<GlobalVariable[]>([]);
   const [loadingVariables, setLoadingVariables] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValues, setEditingValues] = useState<Record<string, { label: string; description: string; value: string }>>({});
@@ -86,7 +94,7 @@ const Settings = () => {
         console.error('Error fetching global variables:', response.error);
         toast.error('Failed to load global variables');
       } else {
-        setGlobalVariables(response.data || []);
+        setGlobalVariables((response.data || []) as GlobalVariable[]);
       }
     } catch (error) {
       console.error('Error fetching global variables:', error);
@@ -96,7 +104,7 @@ const Settings = () => {
     }
   };
 
-  const handleStartEdit = (variable: any) => {
+  const handleStartEdit = (variable: GlobalVariable) => {
     setEditingId(variable.id);
     setEditingValues({
       [variable.id]: {
@@ -120,7 +128,7 @@ const Settings = () => {
       const variable = globalVariables.find(v => v.id === id);
       if (!variable) return;
 
-      const updateData: any = {};
+      const updateData: Record<string, string> = {};
       if (editData.label !== variable.label) updateData.label = editData.label;
       if (editData.description !== (variable.description || '')) updateData.description = editData.description;
       if (editData.value !== (variable.value || '')) updateData.value = editData.value;
@@ -138,7 +146,8 @@ const Settings = () => {
         await fetchGlobalVariables();
         handleCancelEdit();
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error updating variable:', error);
       toast.error(error.message || 'Failed to update variable');
     }
@@ -155,7 +164,8 @@ const Settings = () => {
         toast.success('Variable deleted successfully');
         await fetchGlobalVariables();
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error deleting variable:', error);
       toast.error(error.message || 'Failed to delete variable');
     }
@@ -182,7 +192,8 @@ const Settings = () => {
         setShowNewVariable(false);
         await fetchGlobalVariables();
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error creating variable:', error);
       toast.error(error.message || 'Failed to create variable');
     }
@@ -214,7 +225,8 @@ const Settings = () => {
         });
         toast.success('Preferences saved successfully');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error saving preferences:', error);
       toast.error(error.message || 'Failed to save preferences');
     } finally {
@@ -238,7 +250,8 @@ const Settings = () => {
         // Reload the page to reflect changes
         window.location.reload();
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error resetting demo data:', error);
       toast.error(error.message || 'Failed to reset demo data');
     } finally {
