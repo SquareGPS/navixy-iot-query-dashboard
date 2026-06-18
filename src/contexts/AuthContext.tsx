@@ -177,8 +177,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await demoStorageService.clearAllData();
 
       const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
         fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null),
         fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null)
       ]);
@@ -187,12 +187,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let reports: any[] = [];
       let globalVariables: any[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
       }
@@ -365,8 +365,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
 
       const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
         fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
         fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
@@ -376,7 +376,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let reports: any[] = [];
       let globalVariables: any[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
         console.log('[AuthContext] Sections fetched from backend:', { 
@@ -384,10 +384,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sectionNames: sections.map((s: any) => s.name)
         });
       } else {
-        console.warn('[AuthContext] Failed to fetch sections:', sectionsRes.status, sectionsRes.statusText);
+        console.warn('[AuthContext] Failed to fetch sections:', sectionsRes?.status, sectionsRes?.statusText);
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
         console.log('[AuthContext] Reports fetched from backend:', { 
@@ -396,7 +396,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           reportIds: reports.map((r: any) => r.id)
         });
       } else {
-        console.warn('[AuthContext] Failed to fetch reports:', reportsRes.status, reportsRes.statusText);
+        console.warn('[AuthContext] Failed to fetch reports:', reportsRes?.status, reportsRes?.statusText);
       }
 
       if (globalVarsRes?.ok) {
@@ -515,8 +515,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
 
       const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
         fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
         fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
@@ -526,12 +526,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let reports: any[] = [];
       let globalVariables: any[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
       }

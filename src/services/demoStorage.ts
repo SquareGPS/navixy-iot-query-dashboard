@@ -254,14 +254,16 @@ export class DemoStorageService {
           await database.globalVariables.bulkAdd(globalVariables);
         }
         await database.metadata.put(metadata);
-        if (data.chartCatalog) {
-          console.log('[DemoStorage] Inserting chart preset catalog...');
-          await database.chartCatalog.put({
-            id: 'catalog',
-            schemaVersion: data.chartCatalog.schemaVersion || '1.0',
-            groups: Array.isArray(data.chartCatalog.groups) ? data.chartCatalog.groups : []
-          });
-        }
+        // Always write the catalog row (even when empty). clearAllData() unconditionally wipes
+        // chartCatalog, so a conditional insert would leave the dock stale after a re-seed where
+        // the backend fetch failed (the only case data.chartCatalog is null).
+        const catalog = data.chartCatalog ?? { schemaVersion: '1.0', groups: [] };
+        console.log('[DemoStorage] Inserting chart preset catalog...');
+        await database.chartCatalog.put({
+          id: 'catalog',
+          schemaVersion: catalog.schemaVersion || '1.0',
+          groups: Array.isArray(catalog.groups) ? catalog.groups : []
+        });
       });
       console.log('[DemoStorage] Bulk insert completed successfully');
     } catch (error) {

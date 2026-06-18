@@ -23,7 +23,7 @@ import { RowHeader } from './RowHeader';
 import { RowResizeHandle } from './RowResizeHandle';
 import { DropZone } from './DropZone';
 import { useEditorStore } from '../state/editorStore';
-import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight, cmdAddPresetPanel } from '../state/commands';
+import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight, cmdAddPresetPanel, getPresetSize } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
 import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
@@ -251,7 +251,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (activeIdStr.startsWith('preset-')) {
       const data = event.active.data.current as { panel?: ChartPresetPanel; label?: string } | undefined;
       if (data?.panel) {
-        const { w, h } = data.panel.gridPos;
+        const { w, h } = getPresetSize(data.panel);
         setDraggedPreset({ panel: data.panel, label: data.label || data.panel.title || 'Preset' });
         setDragStartPos({ x: 0, y: 0 }); // sentinel so the mousemove effect activates
         setDragPreview({ x: 0, y: 0, gridPos: { x: 0, y: 0, w, h } });
@@ -362,7 +362,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     // Handle Chart Library preset dragging — absolute position from the cursor (FR-11365)
     if (activeIdStr.startsWith('preset-')) {
       if (!draggedPreset) return;
-      const { w, h } = draggedPreset.panel.gridPos;
+      const { w, h } = getPresetSize(draggedPreset.panel);
 
       const handleMouseMove = (e: MouseEvent) => {
         if (!containerRef.current) return;
@@ -377,7 +377,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         gy = Math.max(0, gy);
 
         // Over the canvas but NOT over the dock — drop outside the canvas or over the dock = no-op.
-        // elementFromPoint sees through the DragOverlay (pointer-events: none) to the dock beneath.
+        // The DragOverlay Cards set `pointer-events: none` (dnd-kit does not by default), so
+        // elementFromPoint sees through the drag chip to the dock/canvas beneath the cursor.
         const overDock = !!document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-chart-library-dock]');
         presetInsideCanvasRef.current =
           !overDock && mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height;
@@ -1359,7 +1360,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         <DndKitDragOverlay>
           {activeId && dragPreview && activeId.toString().startsWith('panel-') ? (
             <Card
-              className="opacity-80 shadow-2xl"
+              className="pointer-events-none opacity-80 shadow-2xl"
               style={{
                 width: `${(dragPreview.gridPos.w / 24) * containerWidth}px`,
                 height: `${dragPreview.gridPos.h * GRID_UNIT_HEIGHT}px`,
@@ -1373,7 +1374,7 @@ export const Canvas: React.FC<CanvasProps> = ({
               </div>
             </Card>
           ) : activeId && activeId.toString().startsWith('preset-') && draggedPreset ? (
-            <Card className="border-blue-400 px-3 py-2 opacity-90 shadow-2xl">
+            <Card className="pointer-events-none border-blue-400 px-3 py-2 opacity-90 shadow-2xl">
               <span className="whitespace-nowrap text-sm font-medium">{draggedPreset.label}</span>
             </Card>
           ) : null}

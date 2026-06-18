@@ -12,6 +12,12 @@ import { PresetCard } from './PresetCard';
 
 const byOrder = <T extends { order?: number }>(a: T, b: T) => (a.order ?? 0) - (b.order ?? 0);
 
+/**
+ * Dock width in rem. EditToolbar imports this to offset itself by exactly this width
+ * (plus a small gap) when the dock is open, so the toolbar and dock never drift apart.
+ */
+export const CHART_DOCK_WIDTH_REM = 18; // = Tailwind w-72
+
 interface ChartLibraryPanelProps {
   onClose?: () => void;
 }
@@ -24,7 +30,8 @@ export function ChartLibraryPanel({ onClose }: ChartLibraryPanelProps) {
   return (
     <div
       data-chart-library-dock
-      className="fixed right-0 top-0 z-40 flex h-full w-72 flex-col border-l border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900"
+      className="fixed right-0 top-0 z-40 flex h-full flex-col border-l border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900"
+      style={{ width: `${CHART_DOCK_WIDTH_REM}rem` }}
     >
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Chart Library</h3>

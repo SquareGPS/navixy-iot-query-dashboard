@@ -406,6 +406,34 @@ export function cmdAddPanel(spec: {
 }
 
 /**
+ * Deep-clone a source panel's content (options / fieldConfig / x-navixy) onto a
+ * freshly placed target panel. Shared by cmdDuplicatePanel and cmdAddPresetPanel.
+ * Uses a JSON round-trip to match the cloning idiom used elsewhere in this module.
+ */
+function applyClonedContent(
+  target: Panel,
+  source: { options?: unknown; fieldConfig?: unknown; 'x-navixy'?: unknown }
+): void {
+  target.options = source.options ? JSON.parse(JSON.stringify(source.options)) : {};
+  target.fieldConfig = source.fieldConfig ? JSON.parse(JSON.stringify(source.fieldConfig)) : undefined;
+  if (source['x-navixy']) {
+    target['x-navixy'] = JSON.parse(JSON.stringify(source['x-navixy']));
+  }
+}
+
+/**
+ * Effective grid footprint for a preset panel, applying the same 6×4 fallback the
+ * drop uses. Shared with Canvas so the drag ghost and the committed panel never
+ * diverge when a catalog row omits gridPos.w/h.
+ */
+export function getPresetSize(presetPanel: ChartPresetPanel): { w: number; h: number } {
+  return {
+    w: presetPanel.gridPos?.w ?? 6,
+    h: presetPanel.gridPos?.h ?? 4,
+  };
+}
+
+/**
  * Command to duplicate a panel
  * Creates a new panel with the same type/options/fieldConfig, positioned near the original
  * Handles both top-level panels and panels inside rows
@@ -457,8 +485,7 @@ export function cmdDuplicatePanel(panelId: string | number): void {
     duplicateY = panel.gridPos.y + panel.gridPos.h;
   }
 
-  // Get next ID before placement
-  const { nextId } = require('../geometry/add');
+  // Get next ID before placement (nextId is imported at the top of this module)
   const newId = nextId(store.dashboard);
 
   // Clone panel (new id, same type/options/fieldConfig)
@@ -484,12 +511,7 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   }
 
   if (newPanel) {
-    // Deep copy options and fieldConfig
-    newPanel.options = panel.options ? JSON.parse(JSON.stringify(panel.options)) : {};
-    newPanel.fieldConfig = panel.fieldConfig ? JSON.parse(JSON.stringify(panel.fieldConfig)) : undefined;
-    if (panel['x-navixy']) {
-      newPanel['x-navixy'] = JSON.parse(JSON.stringify(panel['x-navixy']));
-    }
+    applyClonedContent(newPanel, panel);
   }
 
   store.setDashboard(newDashboard);
@@ -515,10 +537,7 @@ export function cmdAddPresetPanel(
   }
 
   const currentDashboard = store.dashboard;
-  const size = {
-    w: presetPanel.gridPos?.w ?? 6,
-    h: presetPanel.gridPos?.h ?? 4,
-  };
+  const size = getPresetSize(presetPanel);
 
   // Geometry + new id (drop at cursor position, then resolve collisions push-down)
   const newId = nextId(currentDashboard);
@@ -533,11 +552,7 @@ export function cmdAddPresetPanel(
   // Overwrite the freshly created panel with a deep clone of the preset's content
   const created = newDashboard.panels.find((p) => idEq(p.id, newId));
   if (created) {
-    created.options = presetPanel.options ? JSON.parse(JSON.stringify(presetPanel.options)) : {};
-    created.fieldConfig = presetPanel.fieldConfig ? JSON.parse(JSON.stringify(presetPanel.fieldConfig)) : undefined;
-    if (presetPanel['x-navixy']) {
-      created['x-navixy'] = JSON.parse(JSON.stringify(presetPanel['x-navixy']));
-    }
+    applyClonedContent(created, presetPanel);
   }
 
   store.setDashboard(newDashboard);
