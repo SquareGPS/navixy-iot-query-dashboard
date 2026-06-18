@@ -12,7 +12,6 @@
 export type SqlPanelLike = {
   'x-navixy'?: { sql?: { statement?: string } };
   panels?: SqlPanelLike[];
-  [key: string]: unknown;
 };
 
 /**

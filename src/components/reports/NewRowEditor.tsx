@@ -186,7 +186,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
       
       // Reset form
       setTitle('');
-      setSubtitle('');
       setLabel('');
       setSql(DEFAULT_SQL);
       setAnnotationText('');
@@ -215,7 +214,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
     onClose();
     // Reset form
     setTitle('');
-    setSubtitle('');
     setLabel('');
     setSql(DEFAULT_SQL);
     setAnnotationText('');

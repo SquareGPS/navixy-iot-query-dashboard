@@ -4,6 +4,7 @@ import { demoApiService } from './demoApi';
 import { invalidateDashboardSearchCache } from '@/lib/queryClient';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import type { DateFormat, TimeFormat } from '@/utils/datetime';
+import type { ChartCatalog } from '@/types/chart-catalog';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -168,7 +169,7 @@ class ApiService {
       requestBody.pagination = params.pagination;
     }
 
-    const response = await this.request('/api/sql-new/execute', {
+    const response = await this.request<{ columns: Array<{ name: string; type: string }>; rows: unknown[][]; stats?: { rowCount: number; elapsedMs: number }; pagination?: { page: number; pageSize: number; total: number } }>('/api/sql-new/execute', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -254,6 +255,18 @@ class ApiService {
       return { data: (response.data as any).reports };
     }
     return response as ApiResponse<any[]>;
+  }
+
+  // Chart Library preset catalog (drag-n-drop — FR-11365)
+  async getChartCatalog(): Promise<ApiResponse<ChartCatalog>> {
+    if (isDemoMode()) {
+      return demoApiService.getChartCatalog();
+    }
+    const response = await this.request('/api/chart-catalog');
+    if (response.data && (response.data as any).catalog) {
+      return { data: (response.data as any).catalog };
+    }
+    return response as ApiResponse<ChartCatalog>;
   }
 
   async getReportById(id: string): Promise<ApiResponse<any>> {

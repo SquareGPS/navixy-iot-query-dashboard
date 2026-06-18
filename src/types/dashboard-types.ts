@@ -270,6 +270,7 @@ export type PanelType =
   | 'timeseries'     // Time series panel
   | 'table'          // Table panel
   | 'text'           // Text panel
+  | 'geomap'         // Map panel (Leaflet)
   | 'row'            // Row panel (for grouping)
   // Legacy/alias types for backward compatibility
   | 'kpi'            // Alias for 'stat'
@@ -525,6 +526,7 @@ export interface CompositeChartConfig {
   type: 'timeseries' | 'bar';
   xColumn?: string;
   yColumns?: string[];
+  colorColumn?: string;
 }
 
 export interface CompositeMapConfig {
@@ -586,4 +588,5 @@ export interface CompositeReportExecutionResult {
     total: number;
   };
   gps?: GPSColumnsInfo | null;
+  gpsPairs?: Array<{ latColumn: string; lonColumn: string }>;
 }

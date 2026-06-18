@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { movePanel } from '../move';
-import type { GrafanaDashboard } from '@/types/grafana-dashboard';
+import type { Dashboard } from '@/types/dashboard-types';
 
 describe('move', () => {
-  const createDashboard = (panels: Array<{ id: number; gridPos: { x: number; y: number; w: number; h: number } }>): GrafanaDashboard => {
+  const createDashboard = (panels: Array<{ id: number; gridPos: { x: number; y: number; w: number; h: number } }>): Dashboard => {
     return {
       title: 'Test Dashboard',
       panels: panels.map((p) => ({
@@ -82,7 +82,7 @@ describe('move', () => {
   });
 
   it('should preserve unknown fields in dashboard and panels', () => {
-    const dashboard: GrafanaDashboard = {
+    const dashboard: Dashboard = {
       title: 'Test',
       uid: 'test-uid',
       panels: [

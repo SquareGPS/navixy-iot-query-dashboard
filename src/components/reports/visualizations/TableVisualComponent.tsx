@@ -78,7 +78,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
               header: col.label || col.field,
             }));
           } else if (response.data.columns && response.data.columns.length > 0) {
-            specs = response.data.columns.map((col: string) => ({ id: col, header: col }));
+            specs = response.data.columns.map((col) => ({ id: col.name, header: col.name }));
           } else if (response.data.rows.length > 0) {
             specs = Object.keys(response.data.rows[0]).map((col: string) => ({ id: col, header: col }));
           } else {

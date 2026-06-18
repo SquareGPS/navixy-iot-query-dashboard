@@ -3,7 +3,7 @@
  * Handles panel creation, ID generation, placement, and collision resolution
  */
 
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
 import { GRID_COLUMNS, clampToBounds } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
@@ -13,7 +13,7 @@ import { idEq, idIncludes } from './idUtils';
 /**
  * Visual defaults for panel types (safe seeds; extend later)
  */
-export const DEFAULT_OPTIONS_BY_TYPE: Record<string, Partial<GrafanaPanel>> = {
+export const DEFAULT_OPTIONS_BY_TYPE: Record<string, Partial<Panel>> = {
   stat: { options: { textMode: 'auto' } },
   barchart: { options: { orientation: 'vertical' } },
   bargauge: { options: { orientation: 'vertical' } },
@@ -52,10 +52,10 @@ export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
  * Get the next available panel ID
  * Returns 1 + max(id) across all panels (top-level + any row.panels)
  */
-export function nextId(dashboard: GrafanaDashboard): string | number {
+export function nextId(dashboard: Dashboard): string | number {
   const allIds = new Set<string | number>();
 
-  function collectIds(panel: GrafanaPanel) {
+  function collectIds(panel: Panel) {
     if (panel.id !== undefined && panel.id !== null) {
       allIds.add(panel.id);
     }
@@ -78,7 +78,7 @@ export function nextId(dashboard: GrafanaDashboard): string | number {
  * - Expanded row: band children at top-level (between that row's header y and the next header's y)
  */
 export function collectScopePanels(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   target: 'top' | { rowId: string | number; state: 'collapsed' | 'expanded' }
 ): Array<{ id: string | number; gridPos: GridPos }> {
   if (target === 'top') {
@@ -151,7 +151,7 @@ export function firstFit(
  * spec: { type, title?, size?, target?: 'top' | { rowId, state }, hint?: { nearPanelId?: number } }
  */
 export function placeNewPanel(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   spec: {
     type: string;
     title?: string;
@@ -159,7 +159,7 @@ export function placeNewPanel(
     target?: 'top' | { rowId: string | number; state: 'collapsed' | 'expanded' };
     hint?: { nearPanelId?: string | number; position?: { x: number; y: number } };
   }
-): GrafanaDashboard {
+): Dashboard {
   const target = spec.target || 'top';
   const panelType = spec.type;
 
@@ -221,7 +221,7 @@ export function placeNewPanel(
 
   // Create new panel with default options
   const defaultOptions = DEFAULT_OPTIONS_BY_TYPE[panelType] || {};
-  const newPanel: GrafanaPanel = {
+  const newPanel: Panel = {
     id: newId,
     type: panelType as any,
     title: spec.title || `New ${panelType}`,
@@ -235,7 +235,7 @@ export function placeNewPanel(
   };
 
   // Clone dashboard
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -271,7 +271,7 @@ export function placeNewPanel(
   );
 
   // Apply resolved positions
-  if (target === 'top' || (target !== 'top' && target.state === 'expanded')) {
+  if (target === 'top' || target.state === 'expanded') {
     // Update top-level panels
     afterCollisions.forEach((resolved) => {
       const idx = newDashboard.panels.findIndex((p) => idEq(p.id, resolved.id));

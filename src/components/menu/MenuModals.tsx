@@ -72,7 +72,7 @@ export function RenameModal({ item, onClose }: RenameModalProps) {
         if (!currentReport) {
           // Look in section reports
           for (const sectionReports of Object.values(menuTree?.sectionReports || {})) {
-            currentReport = sectionReports.find(r => r.id === item.id);
+            currentReport = (sectionReports as NonNullable<typeof currentReport>[]).find(r => r.id === item.id);
             if (currentReport) break;
           }
         }

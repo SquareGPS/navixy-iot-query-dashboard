@@ -9,15 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useDraggable } from '@dnd-kit/core';
-import type { GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Panel } from '@/types/dashboard-types';
 import { isRowPanel } from '../geometry/rows';
 import { cmdToggleRowCollapsed, cmdPackRow, cmdDeleteRow, cmdRenameRow } from '../state/commands';
 
 interface RowHeaderProps {
-  row: GrafanaPanel;
+  row: Panel;
   containerWidth: number;
   isSelected?: boolean;
-  onSelect?: (rowId: number) => void;
+  onSelect?: (rowId: string | number) => void;
   enableDrag?: boolean;
   enableEditControls?: boolean;
   isEditingLayout?: boolean;

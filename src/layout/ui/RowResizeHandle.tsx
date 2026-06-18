@@ -6,11 +6,11 @@ import React from 'react';
 import { GRID_UNIT_HEIGHT } from '../geometry/grid';
 
 interface RowResizeHandleProps {
-  rowId: number;
+  rowId: string | number;
   bandBottom: number; // Grid Y position of band bottom
   containerWidth: number;
   visible: boolean;
-  onResizeStart: (rowId: number, e: React.PointerEvent) => void;
+  onResizeStart: (rowId: string | number, e: React.PointerEvent) => void;
 }
 
 const HANDLE_SIZE = 8;

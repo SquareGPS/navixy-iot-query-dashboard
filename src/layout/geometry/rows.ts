@@ -2,7 +2,7 @@
  * Row geometry functions for Grafana-compatible row operations
  */
 
-import type { GrafanaDashboard, GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
 import { clampToBounds, GRID_COLUMNS } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
@@ -13,23 +13,23 @@ import { idEq, idIncludes, idIndexOf, naturalIdCompare } from './idUtils';
 /**
  * Extended panel type that includes row-specific fields
  */
-export interface RowPanel extends GrafanaPanel {
+export interface RowPanel extends Panel {
   type: 'row';
   collapsed?: boolean;
-  panels?: GrafanaPanel[];
+  panels?: Panel[];
 }
 
 /**
  * Check if a panel is a row
  */
-export function isRowPanel(panel: GrafanaPanel): panel is RowPanel {
+export function isRowPanel(panel: Panel): panel is RowPanel {
   return panel.type === 'row';
 }
 
 /**
  * Get all row headers from top-level panels, sorted by (y, x, id)
  */
-export function getRowHeaders(panels: GrafanaPanel[]): RowPanel[] {
+export function getRowHeaders(panels: Panel[]): RowPanel[] {
   return panels
     .filter(isRowPanel)
     .sort((a, b) => {
@@ -66,7 +66,7 @@ export interface Band {
  * - If `options.rowBandHeight` is set, use explicit height instead of extending to next row
  * - This allows explicit control over row boundaries for better drop zone positioning
  */
-export function computeBands(panels: GrafanaPanel[]): Band[] {
+export function computeBands(panels: Panel[]): Band[] {
   const rowHeaders = getRowHeaders(panels);
   const bands: Band[] = [];
 
@@ -123,7 +123,7 @@ export function computeBands(panels: GrafanaPanel[]): Band[] {
  */
 export function scopeOf(
   panelId: string | number,
-  dashboard: GrafanaDashboard
+  dashboard: Dashboard
 ): 'top-level' | { rowId: string | number; state: 'collapsed' | 'expanded' } {
   // Check if panel is in any collapsed row's panels array
   for (const panel of dashboard.panels) {
@@ -149,7 +149,7 @@ export function scopeOf(
  * Get panels in a specific scope
  */
 function getScopePanels(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   scope: 'top-level' | { rowId: string | number; state: 'collapsed' | 'expanded' }
 ): Array<{ id: string | number; gridPos: GridPos }> {
   if (scope === 'top-level') {
@@ -220,11 +220,11 @@ function firstFit(
  * Move a panel to a row (or top-level if targetRowId is null)
  */
 export function movePanelToRow(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   panelId: string | number,
   targetRowId: string | number | null,
   positionHint?: { x: number; y: number }
-): GrafanaDashboard {
+): Dashboard {
   const panelIndex = dashboard.panels.findIndex((p) => idEq(p.id, panelId));
   if (panelIndex === -1) {
     return dashboard;
@@ -234,7 +234,7 @@ export function movePanelToRow(
   const currentScope = scopeOf(panelId, dashboard);
 
   // Clone dashboard
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -313,7 +313,7 @@ export function movePanelToRow(
       // Find position in relative coordinate space (minY=0 for collapsed rows)
       const newPos = firstFit(scopePanels, { w: panelPos.w, h: panelPos.h }, panelId, 0);
       
-      const newPanel: GrafanaPanel = {
+      const newPanel: Panel = {
         ...panel,
         gridPos: { ...relativePanelPos, ...newPos }, // Use relative coordinates
       };
@@ -325,7 +325,7 @@ export function movePanelToRow(
       
       // Resolve collisions in row scope (all in relative coordinates)
       const afterCollisions = resolveCollisionsPushDown(
-        { id: panel.id!, gridPos: newPos },
+        { id: panel.id!, gridPos: { ...newPos, w: panelPos.w, h: panelPos.h } },
         getScopePanels(newDashboard, { rowId: targetRowId, state: 'collapsed' })
       );
       
@@ -386,17 +386,17 @@ export function movePanelToRow(
  * Toggle row collapsed state
  */
 export function toggleRowCollapsed(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   rowId: string | number,
   collapsed: boolean
-): GrafanaDashboard {
+): Dashboard {
   const rowIndex = dashboard.panels.findIndex((p) => isRowPanel(p) && idEq(p.id, rowId));
   if (rowIndex === -1) {
     return dashboard;
   }
 
   const row = dashboard.panels[rowIndex] as RowPanel;
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -570,10 +570,10 @@ export function toggleRowCollapsed(
  * Reorder rows by moving them to new positions
  */
 export function reorderRows(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   newRowIdOrder: Array<string | number>
-): GrafanaDashboard {
-  const newDashboard: GrafanaDashboard = {
+): Dashboard {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -663,7 +663,7 @@ export function reorderRows(
  * panels from being placed between them
  * Also ensures panels don't overlap with row headers
  */
-function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
+function ensureRowSpacing(dashboard: Dashboard): Dashboard {
   const rows = getRowHeaders(dashboard.panels);
   
   // If there's only one row or no rows, no spacing needed
@@ -671,7 +671,7 @@ function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
     return dashboard;
   }
 
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -799,10 +799,10 @@ function ensureRowSpacing(dashboard: GrafanaDashboard): GrafanaDashboard {
  * Resolves collisions with other panels
  */
 export function moveRow(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   rowId: string | number,
   newY: number
-): GrafanaDashboard {
+): Dashboard {
   const rowIndex = dashboard.panels.findIndex((p) => isRowPanel(p) && idEq(p.id, rowId));
   if (rowIndex === -1) {
     return dashboard;
@@ -817,7 +817,7 @@ export function moveRow(
     return dashboard;
   }
 
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -900,16 +900,16 @@ export function moveRow(
  * If row is collapsed, moves its nested panels to top-level
  */
 export function deleteRow(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   rowId: string | number
-): GrafanaDashboard {
+): Dashboard {
   const rowIndex = dashboard.panels.findIndex((p) => isRowPanel(p) && idEq(p.id, rowId));
   if (rowIndex === -1) {
     return dashboard;
   }
 
   const row = dashboard.panels[rowIndex] as RowPanel;
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -960,13 +960,13 @@ export function deleteRow(
 /**
  * Pack a row (auto-pack within row scope)
  */
-export function packRow(dashboard: GrafanaDashboard, rowId: string | number): GrafanaDashboard {
+export function packRow(dashboard: Dashboard, rowId: string | number): Dashboard {
   const row = dashboard.panels.find((p) => isRowPanel(p) && idEq(p.id, rowId)) as RowPanel | undefined;
   if (!row) {
     return dashboard;
   }
 
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -1012,8 +1012,8 @@ export function packRow(dashboard: GrafanaDashboard, rowId: string | number): Gr
  * Canonicalize rows to ensure Grafana JSON compatibility
  * Idempotent: calling multiple times yields the same result
  */
-export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard {
-  const newDashboard: GrafanaDashboard = {
+export function canonicalizeRows(dashboard: Dashboard): Dashboard {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
@@ -1070,7 +1070,7 @@ export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard 
   const allIds = new Set<string | number>();
   const duplicates: Array<string | number> = [];
 
-  function checkPanel(panel: GrafanaPanel) {
+  function checkPanel(panel: Panel) {
     if (panel.id) {
       if (allIds.has(panel.id)) {
         duplicates.push(panel.id);
@@ -1092,7 +1092,7 @@ export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard 
     const maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
     let nextId = maxId + 1;
 
-    function fixPanel(panel: GrafanaPanel) {
+    function fixPanel(panel: Panel) {
       if (panel.id && idIncludes(duplicates, panel.id)) {
         const oldId = panel.id;
         panel.id = nextId++;
@@ -1117,13 +1117,13 @@ export function canonicalizeRows(dashboard: GrafanaDashboard): GrafanaDashboard 
  * Create a new row at a specific Y position
  */
 export function createRow(
-  dashboard: GrafanaDashboard,
+  dashboard: Dashboard,
   insertY: number,
   title: string = 'New row'
-): GrafanaDashboard {
+): Dashboard {
   // Find next available ID
   const allIds = new Set<string | number>();
-  function collectIds(panel: GrafanaPanel) {
+  function collectIds(panel: Panel) {
     if (panel.id) allIds.add(panel.id);
     if (isRowPanel(panel) && panel.panels) {
       panel.panels.forEach(collectIds);
@@ -1163,7 +1163,7 @@ export function createRow(
     rowRect.y < p.gridPos.y + p.gridPos.h
   );
 
-  const newDashboard: GrafanaDashboard = {
+  const newDashboard: Dashboard = {
     ...dashboard,
     panels: [...dashboard.panels, rowHeader],
   };

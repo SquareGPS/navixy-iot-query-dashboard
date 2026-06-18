@@ -10,10 +10,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart3, PieChart, Table, TrendingUp, Info, Circle } from 'lucide-react';
 import { DEFAULT_SIZE_BY_TYPE } from '../geometry/add';
-import type { GrafanaPanelType } from '@/types/grafana-dashboard';
+import type { PanelType } from '@/types/dashboard-types';
 
 export interface PanelTypeOption {
-  type: GrafanaPanelType;
+  type: PanelType;
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
