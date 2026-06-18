@@ -498,7 +498,7 @@ export interface RawReportSchema {
   meta?: Record<string, unknown>;
   rows?: SchemaRow[];
   panels?: unknown[];
-  dashboard?: { title?: string; panels?: unknown[] } & Record<string, unknown>;
+  dashboard?: { title?: string; panels?: unknown[] };
   [key: string]: unknown;
 }
 

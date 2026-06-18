@@ -199,7 +199,7 @@ function SortableReportItem({ report, parentSectionId, isEditMode, onRename, onD
     }
     
     // Check if we're currently in editing mode
-    const isEditing = (window as any).__reportEditingState === true;
+    const isEditing = (window as { __reportEditingState?: boolean }).__reportEditingState === true;
     
     if (isEditing) {
       // Exit editing mode first, then navigate
@@ -451,7 +451,7 @@ export function MenuEditor() {
       
       if (activeIndex !== -1 && overIndex !== -1) {
         const reorderedSections = arrayMove(sectionsArray, activeIndex, overIndex);
-        reorderedSections.forEach((section: any, index) => {
+        reorderedSections.forEach((section, index) => {
           sections.push({
             id: section.id,
             sortOrder: (index + 1) * 1000,
@@ -471,7 +471,7 @@ export function MenuEditor() {
       if (!activeReport) {
         // Look in section reports
         for (const [sectionId, sectionReports] of Object.entries(menuTree.sectionReports || {})) {
-          activeReport = (sectionReports as any[]).find((r: any) => r.id === activeId);
+          activeReport = sectionReports.find((r) => r.id === activeId);
           if (activeReport) {
             currentParentSectionId = sectionId;
             break;
@@ -506,7 +506,7 @@ export function MenuEditor() {
           if (!targetReport) {
             // Look in section reports
             for (const [sectionId, sectionReports] of Object.entries(menuTree.sectionReports || {})) {
-              targetReport = (sectionReports as any[]).find((r: any) => r.id === overId);
+              targetReport = sectionReports.find((r) => r.id === overId);
               if (targetReport) {
                 targetParentSectionId = sectionId;
                 break;
@@ -552,15 +552,15 @@ export function MenuEditor() {
   };
 
   // Filter data based on search
-  const filteredRootReports = (menuTree?.rootReports as any[])?.filter((report: any) =>
+  const filteredRootReports = menuTree?.rootReports?.filter((report) =>
     report.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
   // Enhanced filtering logic for sections and their reports
-  const filteredSections = (menuTree?.sections as any[])?.filter((section: any) => {
+  const filteredSections = menuTree?.sections?.filter((section) => {
     const sectionMatches = section.name.toLowerCase().includes(search.toLowerCase());
     const sectionReports = menuTree?.sectionReports?.[section.id] || [];
-    const matchingReports = sectionReports.filter((report: any) => 
+    const matchingReports = sectionReports.filter((report) =>
       report.name.toLowerCase().includes(search.toLowerCase())
     );
     
@@ -574,7 +574,7 @@ export function MenuEditor() {
       const sectionMatches = section?.name.toLowerCase().includes(search.toLowerCase()) || false;
       
       // Always filter reports by search term, regardless of section name match
-      const matchingReports = (reports as any[])?.filter((report: any) => 
+      const matchingReports = reports?.filter((report) =>
         report.name.toLowerCase().includes(search.toLowerCase())
       ) || [];
       
@@ -815,13 +815,13 @@ export function MenuEditor() {
             {draggedItem.type === 'section' ? (
               <>
                 <FolderOpen className="h-4 w-4 inline mr-2" />
-                {(menuTree?.sections as any[])?.find((s: any) => s.id === draggedItem.id)?.name}
+                {menuTree?.sections?.find((s) => s.id === draggedItem.id)?.name}
               </>
             ) : (
               <>
                 <FileText className="h-4 w-4 inline mr-2" />
-                {(menuTree?.rootReports as any[])?.find((r: any) => r.id === draggedItem.id)?.name ||
-                 (Object.values(menuTree?.sectionReports || {}).flat() as any[]).find((r: any) => r.id === draggedItem.id)?.name}
+                {menuTree?.rootReports?.find((r) => r.id === draggedItem.id)?.name ||
+                 Object.values(menuTree?.sectionReports || {}).flat().find((r) => r.id === draggedItem.id)?.name}
               </>
             )}
           </div>
