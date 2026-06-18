@@ -102,7 +102,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
         }
       } catch (err) {
         console.error('Error fetching pie chart data:', err);
-        setError(err.message || 'Failed to load chart data');
+        setError(getErrorMessage(err, 'Failed to load chart data'));
       } finally {
         setLoading(false);
       }

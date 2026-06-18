@@ -159,8 +159,9 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   // values) — surfaced as a retry affordance in the control.
   const [discoveryError, setDiscoveryError] = useState<Record<string, boolean>>({});
   const discoveredRef = useRef<Set<string>>(new Set());
-  // Bumped by a manual retry to re-run the discovery effect (whose other input,
-  // multiselectFilters, only changes when the dashboard's templating changes).
+  // Bumped by a manual retry to re-run the discovery effect; the effect is
+  // otherwise driven by multiselectFilters / dashboard and de-duplicated via
+  // discoveredRef, so it won't re-query already-discovered variables.
   const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
