@@ -51,7 +51,7 @@ export interface DragItem {
   id: string;
   type: 'section' | 'report' | 'drop-zone';
   parentSectionId?: string | null;
-  dropZoneType?: 'section';
+  dropZoneType?: 'section' | 'root';
   sectionId?: string;
 }
 
@@ -62,7 +62,7 @@ export interface DropResult {
   activeType: 'section' | 'report';
   overType?: 'section' | 'report' | 'root' | 'drop-zone';
   overParentSectionId?: string | null;
-  overItem?: any;
+  overItem?: DragItem;
 }
 
 // UI state types
@@ -79,11 +79,11 @@ export interface MenuEditorState {
 export interface MenuError {
   code: string;
   message: string;
-  details?: any;
+  details?: unknown;
 }
 
 export interface OptimisticUpdate {
   type: 'reorder' | 'rename' | 'delete';
-  payload: any;
+  payload: unknown;
   rollback: () => void;
 }

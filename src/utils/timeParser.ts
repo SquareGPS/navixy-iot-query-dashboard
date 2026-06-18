@@ -85,12 +85,13 @@ export function parseTimeExpression(
         // Round to start of day in local timezone
         baseTime.setHours(0, 0, 0, 0);
         break;
-      case 'w':
+      case 'w': {
         // Round to start of week (Sunday)
         const dayOfWeek = baseTime.getDay();
         baseTime.setDate(baseTime.getDate() - dayOfWeek);
         baseTime.setHours(0, 0, 0, 0);
         break;
+      }
       case 'M':
         // Round to start of month
         baseTime.setDate(1);

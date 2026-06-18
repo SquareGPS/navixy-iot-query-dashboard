@@ -34,7 +34,7 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
         [userId, includeDeleted]
       );
 
-      let menuTree = result.rows[0].menu_tree;
+      const menuTree = result.rows[0].menu_tree;
 
       // Normalize menu tree structure to ensure rootReports exists
       // The database function may return 'reports' instead of 'rootReports'
@@ -115,7 +115,7 @@ router.get('/v1/menu/tree', authenticateToken, async (req: AuthenticatedRequest,
         }
         // Handle sectionReports (object keyed by section id: { [sectionId]: reports[] })
         if (menuTree.sectionReports && typeof menuTree.sectionReports === 'object' && !Array.isArray(menuTree.sectionReports)) {
-          for (const reports of Object.values(menuTree.sectionReports) as any[][]) {
+          for (const reports of Object.values(menuTree.sectionReports)) {
             if (Array.isArray(reports)) {
               for (const report of reports) {
                 report.type = reportTypeMap.get(report.id) || 'standard';

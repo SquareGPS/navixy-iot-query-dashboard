@@ -5,7 +5,7 @@
 import type { GridPos } from './grid';
 import { idEq, naturalIdCompare } from './idUtils';
 
-export interface Rect extends GridPos {}
+export type Rect = GridPos;
 
 /**
  * Check if two rectangles overlap

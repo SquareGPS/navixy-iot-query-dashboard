@@ -4,6 +4,7 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
+import { toErrorMeta } from '@/utils/errors';
 import type { ChartCatalog } from '@/types/chart-catalog';
 import {
   DATE_FORMAT_VALUES,
@@ -135,7 +136,8 @@ class DemoApiService {
       }
 
       return { data };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       console.error('API: Network error', {
         url,
         error: error.message,
@@ -248,7 +250,8 @@ class DemoApiService {
       }));
       
       return { data: apiSections };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -280,7 +283,8 @@ class DemoApiService {
           updated_at: section.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -317,7 +321,8 @@ class DemoApiService {
           updated_at: updated.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -352,7 +357,8 @@ class DemoApiService {
       }));
       
       return { data: apiReports };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -393,7 +399,8 @@ class DemoApiService {
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -437,7 +444,8 @@ class DemoApiService {
           updated_at: report.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -474,7 +482,8 @@ class DemoApiService {
           updated_at: report.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -517,7 +526,8 @@ class DemoApiService {
       
       const menuTree = await demoStorageService.getMenuTree(userId, includeDeleted);
       return { data: menuTree };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -539,7 +549,8 @@ class DemoApiService {
       });
       
       return { data: { ok: true, newVersions: result.newVersions } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -570,7 +581,8 @@ class DemoApiService {
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isConflict = error.message?.includes('conflict');
       return {
         error: {
@@ -602,7 +614,8 @@ class DemoApiService {
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isConflict = error.message?.includes('conflict');
       return {
         error: {
@@ -626,7 +639,8 @@ class DemoApiService {
           affectedReports: result.affectedReports
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -644,7 +658,8 @@ class DemoApiService {
       await demoStorageService.deleteReport(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -662,7 +677,8 @@ class DemoApiService {
       await demoStorageService.restoreSection(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -680,7 +696,8 @@ class DemoApiService {
       await demoStorageService.restoreReport(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -709,7 +726,8 @@ class DemoApiService {
       }));
       
       return { data: apiVariables };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -724,7 +742,8 @@ class DemoApiService {
     try {
       const catalog = await demoStorageService.getChartCatalog();
       return { data: catalog ?? { schemaVersion: '1.0', groups: [] } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -752,7 +771,8 @@ class DemoApiService {
           updated_at: variable.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isDuplicate = error.message?.includes('already exists');
       return {
         error: {
@@ -781,7 +801,8 @@ class DemoApiService {
           updated_at: variable.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isDuplicate = error.message?.includes('already exists');
       return {
         error: {
@@ -796,7 +817,8 @@ class DemoApiService {
     try {
       await demoStorageService.deleteGlobalVariable(id);
       return { data: { success: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -818,7 +840,8 @@ class DemoApiService {
         .filter(r => r.reportSchema?.type === 'composite')
         .map(r => this.demoReportToComposite(r));
       return { data: compositeReports };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite reports' }
       };
@@ -833,7 +856,8 @@ class DemoApiService {
         return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
       }
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite report' }
       };
@@ -868,7 +892,8 @@ class DemoApiService {
       });
 
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to create composite report' }
       };
@@ -906,7 +931,8 @@ class DemoApiService {
       });
 
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to update composite report' }
       };
@@ -919,7 +945,8 @@ class DemoApiService {
       if (!userId) throw new Error('User not authenticated in demo mode');
       await demoStorageService.deleteReport(id, userId);
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to delete composite report' }
       };
@@ -963,7 +990,8 @@ class DemoApiService {
           gps,
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to execute composite report' }
       };
@@ -990,7 +1018,8 @@ class DemoApiService {
 
       if (result.error) return result;
       return { data: { columns: result.data!.columns } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to detect columns' }
       };

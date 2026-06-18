@@ -97,7 +97,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
            'markdown';
   });
   const [textContent, setTextContent] = useState(() => {
-    return panel.options?.content || navixyText?.content || '';
+    return (panel.options?.content as string | undefined) || navixyText?.content || '';
   });
   
   // Local filter bindings for this panel: { [variableName]: columnName }
@@ -130,7 +130,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
         (navixyText?.format as 'markdown' | 'html' | 'text') || 
         'markdown'
       );
-      setTextContent(panel.options?.content || navixyText?.content || '');
+      setTextContent((panel.options?.content as string | undefined) || navixyText?.content || '');
       setFilterBindings(initFilterBindings(panel));
     }
   }, [panel, open]); // Update when panel changes or dialog opens

@@ -38,7 +38,7 @@
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build && npm run build:backend",
     "lint": "eslint .",
-    "lint:backend": "cd backend && npm run lint",
+    "lint:backend": "eslint backend",
     "lint:all": "npm run lint && npm run lint:backend",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "typecheck:backend": "cd backend && npx tsc --noEmit",

@@ -30,7 +30,15 @@ export const authenticateToken = async (
       throw new CustomError('Access token required', 401);
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as jwt.JwtPayload & {
+      userId: string;
+      email: string;
+      role?: string;
+      iotDbUrl: string;
+      userDbUrl: string;
+      session_id?: string | number;
+      demo?: boolean;
+    };
     
     // Validate that both database URLs are present in the token
     if (!decoded.iotDbUrl) {

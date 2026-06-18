@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
+import type { ReportApiData } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,7 +24,7 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { Dashboard, DashboardConfig, Variable } from '@/types/dashboard-types';
+import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema } from '@/types/dashboard-types';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
@@ -34,8 +35,8 @@ const ReportView = () => {
   const { user, loading: authLoading } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
-  const [schema, setSchema] = useState<any>(null);
-  const [report, setReport] = useState<any>(null);
+  const [schema, setSchema] = useState<RawReportSchema | null>(null);
+  const [report, setReport] = useState<StoredReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -205,7 +206,7 @@ const ReportView = () => {
 
         // Set Global variables
         if (globalVarsResponse.data && Array.isArray(globalVarsResponse.data)) {
-          setGlobalVariables(globalVarsResponse.data);
+          setGlobalVariables(globalVarsResponse.data as { label: string; value: string; description?: string }[]);
         }
 
         const response = reportResponse;
@@ -228,19 +229,19 @@ const ReportView = () => {
         
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
-          const reportSchema = schemaData as ReportSchema;
+          const reportSchema = schemaData as unknown as ReportSchema;
           const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-          schemaData = migratedDashboard;
+          schemaData = migratedDashboard as unknown as RawReportSchema;
         }
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
         let dashboardData: Dashboard;
         if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
           // Direct panels format with content
-          dashboardData = schemaData as Dashboard;
+          dashboardData = schemaData as unknown as Dashboard;
         } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
           // Nested dashboard format with content
-          dashboardData = schemaData.dashboard as Dashboard;
+          dashboardData = schemaData.dashboard as unknown as Dashboard;
         } else {
           // Empty or legacy format - show helpful message
           setError('Dashboard is empty. You can download a dashboard template to get started.');
@@ -331,16 +332,16 @@ const ReportView = () => {
           let dashboardData: Dashboard;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
             // Direct panels format
-            dashboardData = schemaData as Dashboard;
+            dashboardData = schemaData as unknown as Dashboard;
           } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
             // Nested dashboard format
-            dashboardData = schemaData.dashboard as Dashboard;
+            dashboardData = schemaData.dashboard as unknown as Dashboard;
           } else {
             // Legacy format - convert to dashboard
             throw new Error('Legacy schema format detected. Please use dashboard format.');
           }
           
-          setSchema(dashboardData);
+          setSchema(dashboardData as unknown as RawReportSchema);
           setEditorValue(JSON.stringify(dashboardData, null, 2));
         } catch (err: any) {
           console.error('Error reloading report:', err);
@@ -438,7 +439,7 @@ const ReportView = () => {
     // store.dashboard holds the freshest copy during layout editing (it may have
     // unsaved canvas edits that haven't flushed to local state yet). Cast away the
     // store's GrafanaDashboard typing — at runtime it is a Dashboard.
-    const base = (store.dashboard || dashboard) as Dashboard;
+    const base = (store.dashboard || dashboard) as unknown as Dashboard;
     if (!base) return;
 
     // Auto-bind new/changed value filters to their source panel and prune
@@ -635,7 +636,7 @@ const ReportView = () => {
       
       // Update the annotation options
       visual.options = {
-        ...visual.options,
+        ...(visual.options as Record<string, unknown>),
         section_name: annotation.section_name,
         subtitle: annotation.subtitle,
         text: annotation.text,
@@ -1159,12 +1160,13 @@ const ReportView = () => {
       let finalDashboard = updatedDashboard;
       let finalSchema = updatedSchema;
       
-      if (response.data?.report?.report_schema) {
-        const savedSchema = response.data.report.report_schema;
+      const savedReport = (response.data as ReportApiData | undefined)?.report;
+      if (savedReport?.report_schema) {
+        const savedSchema = savedReport.report_schema;
         const savedDashboard = savedSchema.dashboard || savedSchema;
         
         // Use the saved dashboard from the API response
-        finalDashboard = savedDashboard;
+        finalDashboard = savedDashboard as unknown as Dashboard;
         
         // Reconstruct schema with saved dashboard
         if (schema.dashboard) {
@@ -1316,9 +1318,9 @@ const ReportView = () => {
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
           console.log('🔄 Detected report schema format, migrating to dashboard format...');
-          const reportSchema = schemaData as ReportSchema;
+          const reportSchema = schemaData as unknown as ReportSchema;
           const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
-          schemaData = dashboardData;
+          schemaData = dashboardData as unknown as RawReportSchema;
           console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
@@ -1371,17 +1373,17 @@ const ReportView = () => {
             
             // Check if this is a report schema format (with rows) and migrate to dashboard format
             if (loadedSchema.rows && Array.isArray(loadedSchema.rows) && loadedSchema.rows.length > 0) {
-              const reportSchema = loadedSchema as ReportSchema;
+              const reportSchema = loadedSchema as unknown as ReportSchema;
               const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-              loadedSchema = migratedDashboard;
+              loadedSchema = migratedDashboard as unknown as RawReportSchema;
             }
             
             // Extract dashboard from schema data
             let dashboardData: Dashboard;
             if (loadedSchema.panels && Array.isArray(loadedSchema.panels) && loadedSchema.panels.length > 0) {
-              dashboardData = loadedSchema as Dashboard;
+              dashboardData = loadedSchema as unknown as Dashboard;
             } else if (loadedSchema.dashboard && loadedSchema.dashboard.panels && Array.isArray(loadedSchema.dashboard.panels) && loadedSchema.dashboard.panels.length > 0) {
-              dashboardData = loadedSchema.dashboard as Dashboard;
+              dashboardData = loadedSchema.dashboard as unknown as Dashboard;
             } else {
               throw new Error('Dashboard schema is missing panels');
             }
@@ -1466,9 +1468,9 @@ const ReportView = () => {
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (exampleSchema.rows && Array.isArray(exampleSchema.rows) && exampleSchema.rows.length > 0) {
           console.log('🔄 Detected report schema format, migrating to dashboard format...');
-          const reportSchema = exampleSchema as ReportSchema;
+          const reportSchema = exampleSchema as unknown as ReportSchema;
           const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
-          exampleSchema = dashboardData;
+          exampleSchema = dashboardData as unknown as RawReportSchema;
           console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
@@ -1525,9 +1527,9 @@ const ReportView = () => {
             // Check if this is a report schema format (with rows) and migrate to dashboard format
             if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
               console.log('🔄 Detected report schema format in refresh, migrating to dashboard format...');
-              const reportSchema = schemaData as ReportSchema;
+              const reportSchema = schemaData as unknown as ReportSchema;
               const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-              schemaData = migratedDashboard;
+              schemaData = migratedDashboard as unknown as RawReportSchema;
               console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
             }
             
@@ -1535,10 +1537,10 @@ const ReportView = () => {
             let dashboardData: Dashboard;
             if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
               // Direct panels format
-              dashboardData = schemaData as Dashboard;
+              dashboardData = schemaData as unknown as Dashboard;
             } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
               // Nested dashboard format
-              dashboardData = schemaData.dashboard as Dashboard;
+              dashboardData = schemaData.dashboard as unknown as Dashboard;
             } else {
               throw new Error('Dashboard schema is missing panels');
             }
@@ -1642,7 +1644,7 @@ const ReportView = () => {
           // Handle dashboard format
           const schemaData = reportData.report_schema;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            const dashboardData = schemaData as Dashboard;
+            const dashboardData = schemaData as unknown as Dashboard;
             setDashboard(dashboardData);
             setSchema(schemaData); // Set schema for compatibility
             

@@ -468,7 +468,7 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
     logger.info('GET /sections response', {
       userId: req.user?.userId,
       count: sections.length,
-      sectionNames: sections.map((s: any) => s.name)
+      sectionNames: sections.map((s: Record<string, unknown>) => s.name)
     });
 
     res.json({
@@ -493,7 +493,7 @@ router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res,
     logger.info('GET /reports response', {
       userId: req.user?.userId,
       count: reports.length,
-      reportTitles: reports.map((r: any) => r.title)
+      reportTitles: reports.map((r: Record<string, unknown>) => r.title)
     });
 
     res.json({

@@ -374,8 +374,8 @@ export function MenuEditor() {
     } else {
       // Dropped on empty space or drop zone
       const overElement = over.id as string;
-      const overData = over.data.current;
-      
+      const overData = over.data.current as DragItem | undefined;
+
       // Check if dropped on a drop zone
       if (overData?.type === 'drop-zone') {
         const dropZoneType = overData.dropZoneType;

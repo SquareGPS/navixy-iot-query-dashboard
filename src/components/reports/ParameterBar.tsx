@@ -632,7 +632,7 @@ function renderParameterInput(
         </Select>
       );
 
-    case 'datetime':
+    case 'datetime': {
       const dateValue = value instanceof Date ? value : (value ? new Date(String(value)) : new Date());
       return (
         <Input
@@ -642,6 +642,7 @@ function renderParameterInput(
           className="h-8 w-48 text-xs"
         />
       );
+    }
 
     default:
       return (

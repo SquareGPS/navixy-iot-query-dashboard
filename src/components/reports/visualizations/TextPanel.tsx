@@ -19,7 +19,7 @@ export function TextPanel({ panel }: TextPanelProps) {
   // 2. x-navixy format: x-navixy.text.format and x-navixy.text.content
   const navixyText = panel['x-navixy']?.text;
   const mode = panel.options?.mode || navixyText?.format || 'markdown';
-  const content = panel.options?.content || navixyText?.content || '';
+  const content = (panel.options?.content as string | undefined) || navixyText?.content || '';
 
   // Configure marked options for safe rendering
   marked.setOptions({

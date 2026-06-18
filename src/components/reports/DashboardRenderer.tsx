@@ -1061,7 +1061,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const value = data.rows[0][0]; // First column, first row
     return (
       <div className="text-center">
-        <div className="text-3xl font-bold text-blue-600">{ value }</div>
+        <div className="text-3xl font-bold text-blue-600">{ value as React.ReactNode }</div>
         <div className="text-sm text-gray-500 mt-1">{ panel.title }</div>
       </div>
     );

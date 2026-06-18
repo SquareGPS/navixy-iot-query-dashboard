@@ -350,7 +350,7 @@ export class DemoStorageService {
 
   async getSections(userId?: string): Promise<DemoSection[]> {
     const database = getDb();
-    let query = database.sections.where('isDeleted').equals(0); // IndexedDB stores booleans as 0/1
+    const query = database.sections.where('isDeleted').equals(0); // IndexedDB stores booleans as 0/1
     
     // Dexie doesn't support compound where on different fields well, so filter in memory
     let sections = await database.sections.toArray();
@@ -431,7 +431,7 @@ export class DemoStorageService {
       .filter(r => r.sectionId === id && !r.isDeleted)
       .toArray();
 
-    let affectedReports = childReports.length;
+    const affectedReports = childReports.length;
 
     await database.transaction('rw', [database.sections, database.reports], async () => {
       if (strategy === 'move_children_to_root') {

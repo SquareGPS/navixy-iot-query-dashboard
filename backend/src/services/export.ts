@@ -384,7 +384,7 @@ export class ExportService {
           return;
         }
 
-        let value = row[idx];
+        const value = row[idx];
 
         if (value === null || value === undefined) {
           rowData[col.name] = '';
@@ -516,7 +516,7 @@ export class ExportService {
           return;
         }
 
-        let value = row[idx];
+        const value = row[idx];
 
         if (value === null || value === undefined) {
           csvRow.push('');
