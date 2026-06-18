@@ -20,6 +20,7 @@ import type { Dashboard, Panel, NavixyPanelConfig, NavixyParam, NavixyColumnType
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
+import { getErrorMessage } from '@/utils/errors';
 
 /**
  * Maps panel type to default dataset shape
@@ -163,7 +164,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
           ...panel,
           title: title.trim(),
           description: description.trim() || undefined,
-          type: panelType as any,
+          type: panelType,
           options: {
             ...panel.options,
             mode: textMode,
@@ -258,7 +259,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
         ...panel,
         title: title.trim(),
         description: description.trim() || undefined,
-        type: panelType as any,
+        type: panelType,
         'x-navixy': updatedNavixyConfig
       };
 
@@ -346,9 +347,9 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
           });
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Unexpected error executing query:', err);
-      const errorMsg = err.message || 'Failed to execute query';
+      const errorMsg = getErrorMessage(err, 'Failed to execute query');
       toast({
         title: 'Error',
         description: errorMsg,

@@ -7,6 +7,7 @@ import { Pencil } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } from 'recharts';
 import type { PieVisual } from '@/types/report-schema';
 import { chartColors } from '@/lib/chartColors';
+import { getErrorMessage } from '@/utils/errors';
 
 interface PieChartComponentProps {
   visual: PieVisual;
@@ -16,7 +17,10 @@ interface PieChartComponentProps {
 }
 
 // Active shape for hover effect - enlarges slice
-const renderActiveShape = (props: any) => {
+const renderActiveShape = (props: {
+  cx: number; cy: number; innerRadius: number; outerRadius: number;
+  startAngle: number; endAngle: number; fill: string;
+}) => {
   const {
     cx,
     cy,
@@ -44,7 +48,7 @@ const renderActiveShape = (props: any) => {
 };
 
 export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartComponentProps) {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<Array<{ name: string; value: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -67,7 +71,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
         }
 
         if (response.data?.rows && response.data.rows.length > 0) {
-          let processedData = response.data.rows.map((row: any) => ({
+          let processedData = response.data.rows.map((row) => ({
             name: String(row[visual.options.category_field]),
             value: Number(row[visual.options.value_field]) || 0,
           }));
@@ -96,7 +100,7 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
         } else {
           setData([]);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching pie chart data:', err);
         setError(err.message || 'Failed to load chart data');
       } finally {
@@ -133,7 +137,11 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
   const endAngle = startAngle - 360;
 
   // Custom tooltip content with position adjustment to avoid center
-  const renderTooltipContent = (props: any) => {
+  const renderTooltipContent = (props: {
+    active?: boolean;
+    payload?: Array<{ value: number; name: string }>;
+    coordinate?: { cx?: number; cy?: number; x?: number; y?: number };
+  }) => {
     if (!props.active || !props.payload || props.payload.length === 0) {
       return null;
     }
@@ -192,13 +200,15 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
   };
 
   // Custom legend renderer for right-side vertical alignment with bold labels
-  const renderCustomLegend = (props: any) => {
+  const renderCustomLegend = (props: {
+    payload?: Array<{ value: number; color?: string; name?: string }>;
+  }) => {
     const { payload } = props;
     if (!payload || payload.length === 0) return null;
 
     return (
       <div className="flex flex-col gap-3 ml-6 pr-2">
-        {payload.map((entry: any, index: number) => {
+        {payload.map((entry, index: number) => {
           const percent = ((entry.value / total) * 100).toFixed(1);
           return (
             <div key={`legend-${index}`} className="flex items-start gap-2">

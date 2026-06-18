@@ -223,7 +223,7 @@ export function placeNewPanel(
   const defaultOptions = DEFAULT_OPTIONS_BY_TYPE[panelType] || {};
   const newPanel: Panel = {
     id: newId,
-    type: panelType as any,
+    type: panelType as Panel['type'],
     title: spec.title || `New ${panelType}`,
     gridPos: clampedPos,
     options: defaultOptions.options || {},

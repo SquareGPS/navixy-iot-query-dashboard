@@ -225,7 +225,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     const unsubscribe = useEditorStore.subscribe((state) => {
       // Skip auto-save if we're in the middle of a panel save operation
-      if ((window as any).__skipDashboardAutoSave) {
+      if ((window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave) {
         console.log('Canvas: Skipping onDashboardChange - panel save in progress');
         return;
       }
@@ -992,7 +992,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           bottomRowBandBottom = Math.max(bottomBand.top, maxPanelBottom);
         } else {
           // No panels in row - check if row has explicit height
-          const explicitHeight = (bottomRow.options as any)?.rowBandHeight;
+          const explicitHeight = (bottomRow.options as { rowBandHeight?: number })?.rowBandHeight;
           if (explicitHeight !== undefined && explicitHeight !== null) {
             bottomRowBandBottom = bottomRow.gridPos.y + bottomRow.gridPos.h + explicitHeight;
           } else {

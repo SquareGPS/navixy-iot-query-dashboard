@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
 
 interface SqlEditorProps {
@@ -13,9 +13,9 @@ interface SqlEditorProps {
 
 export function SqlEditor({ value, onChange, onExecute, height = '300px', readOnly = false, language = 'sql' }: SqlEditorProps) {
   const { theme } = useTheme();
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
 
     // Define custom themes that match the application's design system
@@ -102,8 +102,9 @@ export function SqlEditor({ value, onChange, onExecute, height = '300px', readOn
     };
 
     // Register the custom themes
-    monaco.editor.defineTheme('app-light', lightTheme);
-    monaco.editor.defineTheme('app-dark', darkTheme);
+    type ThemeData = Parameters<typeof monaco.editor.defineTheme>[1];
+    monaco.editor.defineTheme('app-light', lightTheme as ThemeData);
+    monaco.editor.defineTheme('app-dark', darkTheme as ThemeData);
 
     // Set the theme based on the current theme
     const currentTheme = theme === 'dark' ? 'app-dark' : 'app-light';

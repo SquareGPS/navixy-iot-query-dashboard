@@ -119,7 +119,7 @@ export function cmdResizeRowHeight(
   }
 
   const row = store.dashboard.panels[rowIndex];
-  const currentBandHeight = (row.options as any)?.rowBandHeight;
+  const currentBandHeight = (row.options as { rowBandHeight?: number })?.rowBandHeight;
   
   // Calculate new band height in grid units
   // deltaY is in pixels, convert to grid units
@@ -504,7 +504,7 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   if (target === 'top') {
     newPanel = newDashboard.panels.find((p) => idEq(p.id, newId));
   } else {
-    const row = newDashboard.panels.find((p) => p.type === 'row' && idEq(p.id, target.rowId)) as any;
+    const row = newDashboard.panels.find((p) => p.type === 'row' && idEq(p.id, target.rowId));
     if (row && row.panels) {
       newPanel = row.panels.find((p: Panel) => idEq(p.id, newId));
     }
