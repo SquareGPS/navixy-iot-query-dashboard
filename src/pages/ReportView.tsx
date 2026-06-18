@@ -280,6 +280,9 @@ const ReportView = () => {
     };
 
     fetchReport();
+    // Re-fetch only when the report id changes; user/isEditing are read for the
+    // config snapshot but shouldn't trigger a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
 
   const handleSaveSchema = async () => {
@@ -865,7 +868,7 @@ const ReportView = () => {
     } finally {
       setSaving(false);
     }
-  }, [schema, editingRowTitle, tempRowTitle, reportId]);
+  }, [schema, editingRowTitle, tempRowTitle, reportId, report?.title]);
 
   const handleCancelEditRowTitle = useCallback(() => {
     setEditingRowTitle(null);

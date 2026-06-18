@@ -450,7 +450,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       });
 
     return { ...canonicalized, panels: withIds(canonicalized.panels) };
-  }, [dashboard, storeDashboard, isEditingLayout]);
+  }, [dashboard, storeDashboard]);
 
   const showParameterBar = React.useMemo(() => {
     const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
@@ -461,7 +461,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return control === 'daterange' || control === 'multiselect';
     });
     return hasExplicitParams || hasTimeRange || hasInferredParams || hasFilterVariables;
-  }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time, dashboard.templating]);
+  }, [dashboard]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -1005,7 +1005,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {

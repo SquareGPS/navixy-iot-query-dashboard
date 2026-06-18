@@ -83,6 +83,7 @@ export function useParameterUrlSync(
       // Otherwise, initialize with defaults (but don't update URL yet)
       onChange(defaults);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
   // Update URL when parameter values change (but skip initial load to avoid loops)

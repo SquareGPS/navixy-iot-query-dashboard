@@ -430,6 +430,8 @@ export function MenuEditor() {
     console.log('Final drop result:', dropResult);
     // Process the drop
     processDrop(dropResult);
+    // processDrop is a stable useCallback defined just below; referencing it here would hit the TDZ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuTree]);
 
   const processDrop = useCallback((dropResult: DropResult) => {

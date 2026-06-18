@@ -123,6 +123,9 @@ export default function CompositeReportEditor() {
     if (!loading) {
       setHasChanges(true);
     }
+    // `loading` is intentionally excluded: flag changes only when the editable
+    // fields change, not when the initial load completes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, description, sqlQuery, config]);
 
   // Detect columns from SQL query

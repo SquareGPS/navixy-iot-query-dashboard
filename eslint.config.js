@@ -30,4 +30,14 @@ export default tseslint.config(
       globals: globals.node,
     },
   },
+  {
+    // shadcn/ui primitives intentionally co-locate cva variant helpers (e.g.
+    // buttonVariants) and hooks (useFormField, useSidebar) with their component,
+    // and context files co-locate their provider with the consumer hook. This is
+    // a deliberate, conventional pattern; the Fast Refresh hint doesn't apply.
+    files: ["src/components/ui/**/*.tsx", "src/contexts/**/*.tsx"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
 );

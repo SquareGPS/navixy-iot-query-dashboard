@@ -328,6 +328,9 @@ export default function CompositeReportView() {
       if (!chartYColumn) setChartYColumn(defaultY);
       if (!chartColorColumn) setChartColorColumn(defaultGroup);
     }
+    // Chart column selections are intentionally excluded: initialise defaults from
+    // the data/config only; re-adding them would override the user's later choices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [execution.data?.columns, report?.config.chart]);
 
   // Extract GPS points for map
@@ -429,6 +432,8 @@ export default function CompositeReportView() {
     };
 
     geocodeCoordinates();
+    // geocodedAddresses is set by this effect; including it would cause a re-geocode loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geocodeEnabled, gpsPairs, rowObjects]);
 
   // Get address for coordinates
@@ -527,7 +532,7 @@ export default function CompositeReportView() {
         return point;
       });
     }
-  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups]);
+  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups, datetimePrefs]);
 
   // Save SQL query
   const handleSaveSql = async (): Promise<boolean> => {

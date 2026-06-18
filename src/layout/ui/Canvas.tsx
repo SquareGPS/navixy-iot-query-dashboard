@@ -707,7 +707,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       setDragStartPos(null);
       setDragOverTarget(null);
     },
-    [dashboard, dragPreview, dragStartPos, activeId, draggedPreset]
+    [dashboard, dragPreview, draggedPreset]
   );
 
   // Cancel any in-flight drag (Esc / abort): clear all drag state without applying (FR-11365)

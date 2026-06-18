@@ -67,10 +67,10 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   const { prefs: datetimePrefs } = useDatetimePrefs();
 
   // Get declared parameters from x-navixy.params
-  const declaredParams = dashboard['x-navixy']?.params || [];
+  const declaredParams = useMemo(() => dashboard['x-navixy']?.params || [], [dashboard]);
 
   // Get time range from dashboard.time
-  const defaultTimeRange = dashboard.time || { from: 'now-24h', to: 'now' };
+  const defaultTimeRange = useMemo(() => dashboard.time || { from: 'now-24h', to: 'now' }, [dashboard.time]);
 
   // Get quick ranges from timepicker
   const quickRanges: TimeRangePreset[] = dashboard.timepicker?.quickRanges || [];
@@ -147,10 +147,10 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   }, [declaredParams, inferredParams, dashboard.time]);
 
   // Local date-range filter variables (templating.list[] with x-navixy.control = 'daterange')
-  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard.templating]);
+  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard]);
 
   // Local multiselect (column-value) filter variables
-  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard.templating]);
+  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard]);
 
   // Discovered option values per multiselect variable (from its discovery query)
   const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
@@ -212,7 +212,7 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
         setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
       }
     });
-  }, [multiselectFilters, retryNonce]);
+  }, [multiselectFilters, retryNonce, dashboard]);
 
   // Manual retry: drop this variable's discovery keys and re-run the effect. The
   // catch already deletes the failed key, but the effect won't re-fire on its own

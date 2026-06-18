@@ -71,6 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Sync demo mode state
     setDemoModeState(isDemoMode());
+    // Run once on mount to restore an existing session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const verifyToken = async (tokenToVerify: string) => {
