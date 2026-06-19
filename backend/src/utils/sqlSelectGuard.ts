@@ -251,8 +251,11 @@ export class SQLSelectGuard {
    * Check for SELECT INTO statements
    */
   private static hasSelectInto(sql: string): boolean {
-    const upperSql = sql.toUpperCase();
-    return /\bSELECT\b.*\bINTO\b/i.test(sql) && !upperSql.includes('INTO TEMP');
+    // Strip string literals so a stray INTO inside a literal isn't matched.
+    // Any SELECT ... INTO <target> (including INTO TEMP/UNLOGGED TABLE) creates
+    // a relation and must be blocked.
+    const scanSql = this.stripStringLiterals(sql);
+    return /\bSELECT\b[\s\S]*?\bINTO\b/i.test(scanSql);
   }
 
   /**
@@ -268,11 +271,13 @@ export class SQLSelectGuard {
    */
   private static validateFunctions(sql: string): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
-    const upperSql = sql.toUpperCase();
+    // Strip string literals first so a blocked keyword appearing inside a literal
+    // (e.g. the word "user" in ARRAY['admin', 'user']) is not mistaken for a call.
+    const scanSql = this.stripStringLiterals(sql);
 
     for (const func of this.BLOCKED_FUNCTIONS) {
-      const regex = new RegExp(`\\b${func.toUpperCase()}\\b`, 'i');
-      if (regex.test(sql)) {
+      const regex = new RegExp(`\\b${func}\\b`, 'i');
+      if (regex.test(scanSql)) {
         issues.push({
           code: 'BLOCKED_FUNC',
           message: `Function '${func}' is not allowed`
@@ -288,23 +293,40 @@ export class SQLSelectGuard {
    */
   private static validateCTEs(sql: string): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
-    const upperSql = sql.toUpperCase();
+    // Strip string literals so keywords inside them (e.g. SELECT 'do it') are ignored.
+    const scanSql = this.stripStringLiterals(sql);
 
     // Check for WITH clauses
-    if (upperSql.includes('WITH ')) {
-      // This is a simplified check - in a real implementation, you'd parse the CTEs
-      // For now, we'll block any WITH clause that contains non-SELECT keywords
-      const dangerousKeywords = [
-        'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
-        'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL'
+    if (/\bWITH\b/i.test(scanSql)) {
+      // This is a simplified check - a full implementation would parse each CTE body.
+      // For now, block any WITH clause that contains a non-SELECT operation.
+      // REPLACE is matched only in its statement form (REPLACE INTO) so the common
+      // REPLACE() string function is not flagged.
+      const dangerousOps: Array<{ label: string; pattern: string }> = [
+        { label: 'INSERT', pattern: 'INSERT' },
+        { label: 'UPDATE', pattern: 'UPDATE' },
+        { label: 'DELETE', pattern: 'DELETE' },
+        { label: 'CREATE', pattern: 'CREATE' },
+        { label: 'DROP', pattern: 'DROP' },
+        { label: 'ALTER', pattern: 'ALTER' },
+        { label: 'TRUNCATE', pattern: 'TRUNCATE' },
+        { label: 'GRANT', pattern: 'GRANT' },
+        { label: 'REVOKE', pattern: 'REVOKE' },
+        { label: 'COPY', pattern: 'COPY' },
+        { label: 'EXECUTE', pattern: 'EXECUTE' },
+        { label: 'CALL', pattern: 'CALL' },
+        { label: 'MERGE', pattern: 'MERGE' },
+        { label: 'UPSERT', pattern: 'UPSERT' },
+        { label: 'DO', pattern: 'DO' },
+        { label: 'REPLACE', pattern: 'REPLACE\\s+INTO' }
       ];
 
-      for (const keyword of dangerousKeywords) {
-        const regex = new RegExp(`\\bWITH\\b[\\s\\S]*?\\b${keyword}\\b`, 'i');
-        if (regex.test(sql)) {
+      for (const op of dangerousOps) {
+        const regex = new RegExp(`\\bWITH\\b[\\s\\S]*?\\b${op.pattern}\\b`, 'i');
+        if (regex.test(scanSql)) {
           issues.push({
             code: 'NON_SELECT_CTE',
-            message: `CTE contains prohibited operation: ${keyword}`
+            message: `CTE contains prohibited operation: ${op.label}`
           });
           break; // Only report the first violation
         }
@@ -420,6 +442,14 @@ export class SQLSelectGuard {
       /XML/i,
       /RANGE/i,
       /MULTIRANGE/i,
+      // EXCEPT set operation (node-sql-parser cannot parse it in any dialect)
+      /\bEXCEPT\b/i,
+      // JSON/JSONB and array operators node-sql-parser cannot parse
+      /->>?/, // -> and ->>
+      /#>>?/, // #> and #>>
+      /@>|<@/, // containment
+      /\?[|&]?/, // jsonb key existence: ? ?| ?&
+      /&&/, // array overlap
       // Schema-qualified table names (schema.table)
       /\w+\.\w+/i,
     ];
@@ -432,20 +462,35 @@ export class SQLSelectGuard {
    * This method is used for validation purposes only
    */
   private static cleanSql(sql: string): string {
-    // Remove SQL comments more carefully
+    // Remove SQL comments more carefully. Replace each comment with a SPACE,
+    // not an empty string: a block comment is a token separator in SQL
+    // (`INSERT/**/INTO` is two tokens), so collapsing it to nothing would merge
+    // adjacent tokens (`INSERTINTO`) and hide keywords from the scans below.
     let cleanSql = sql
       // Remove single-line comments that are on their own lines
-      .replace(/^\s*--[^\n]*$/gm, '')
+      .replace(/^\s*--[^\n]*$/gm, ' ')
       // Remove block comments
-      .replace(/\/\*[\s\S]*?\*\//g, '');
+      .replace(/\/\*[\s\S]*?\*\//g, ' ');
     
     // Normalize whitespace
     cleanSql = cleanSql.replace(/\s+/g, ' ').trim();
     
     // Remove trailing semicolon
     cleanSql = cleanSql.replace(/;$/, '');
-    
+
     return cleanSql;
+  }
+
+  /**
+   * Replace SQL string literals with a single space so keyword/operator scans
+   * never match text that lives inside a quoted value. Handles dollar-quoted
+   * blocks ($$...$$ / $tag$...$tag$) and single-quoted strings (with '' escapes).
+   * Template placeholders (${var}) and positional params ($1) are left intact.
+   */
+  private static stripStringLiterals(sql: string): string {
+    return sql
+      .replace(/\$([A-Za-z_]\w*)?\$[\s\S]*?\$\1\$/g, ' ')
+      .replace(/'(?:''|[^'])*'/g, ' ');
   }
 
   /**

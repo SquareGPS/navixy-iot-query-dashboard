@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampToBounds, GRID_COLUMNS } from './grid';
+import { clampToBounds, GRID_COLUMNS } from '../grid';
 
 describe('grid', () => {
   describe('clampToBounds', () => {

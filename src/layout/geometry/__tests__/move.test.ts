@@ -61,9 +61,10 @@ describe('move', () => {
     const panel2 = result.panels.find((p) => p.id === 2);
     const panel3 = result.panels.find((p) => p.id === 3);
 
-    // Panel 1 should be at new position (clamped and snapped)
+    // Panel 1 keeps its snapped/clamped x. Auto-pack then floats it up to the
+    // top of its column (nothing sits above it), so its y compacts from 1 to 0.
     expect(panel1!.gridPos.x).toBe(2);
-    expect(panel1!.gridPos.y).toBe(1);
+    expect(panel1!.gridPos.y).toBe(0);
 
     // Panel 2 should be pushed down below panel 1
     expect(panel2!.gridPos.y).toBeGreaterThanOrEqual(panel1!.gridPos.y + panel1!.gridPos.h);
