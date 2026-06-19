@@ -4,6 +4,11 @@
  * Catch bindings are `unknown` under `strict`/`useUnknownInCatchVariables`.
  * Network/runtime errors commonly carry these fields; casting a caught value to
  * this interface lets call sites read them without resorting to `any`.
+ *
+ * A parallel `ErrorWithMeta` lives in `backend/src/utils/errors.ts` with
+ * backend-specific fields (pg `detail`/`hint`/`position`, `statusCode`). The two
+ * are intentionally kept separate — different runtimes, different error shapes,
+ * and independent build targets — rather than unified into a shared package.
  */
 export interface ErrorWithMeta {
   name?: string;
@@ -18,6 +23,11 @@ export interface ErrorWithMeta {
 
 /** Narrow an unknown caught value to {@link ErrorWithMeta}. */
 export function toErrorMeta(error: unknown): ErrorWithMeta {
+  if (import.meta.env.DEV && (error === null || error === undefined)) {
+    // A caught value should never be nullish — surface the suspicious call in
+    // dev so the empty-object fallback below doesn't silently swallow it.
+    console.warn('[toErrorMeta] received a null/undefined error; defaulting to empty meta.');
+  }
   return (error ?? {}) as ErrorWithMeta;
 }
 

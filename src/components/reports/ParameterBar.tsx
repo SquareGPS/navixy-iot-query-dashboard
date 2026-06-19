@@ -360,7 +360,12 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     if (!hasInitializedDefaults.current) {
       hasInitializedDefaults.current = true;
     }
-  }, [defaultValues]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Intentionally keyed on `defaultValues` only. The effect reads `values` to
+    // fill in params that don't have a value yet, but including it would loop:
+    // the effect calls `onChange`, which updates `values`. `onChange` is the
+    // parent setter and is treated as stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultValues]);
 
   // Check if pending values have changed from current values
   const hasPendingChanges = useMemo(() => {

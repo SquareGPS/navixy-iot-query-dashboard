@@ -20,6 +20,10 @@ const router = Router();
  * returns loosely-typed rows (`Record<string, unknown>`); we narrow to this
  * structure at the read sites. The index signature keeps it assignable from the
  * generic row type.
+ *
+ * Source of truth for the columns is the SELECT in
+ * `DatabaseService.getCompositeReports` / `getCompositeReportById`
+ * (`backend/src/services/database.ts`) — keep this interface in sync with those.
  */
 interface CompositeReportRecord {
   id: string;

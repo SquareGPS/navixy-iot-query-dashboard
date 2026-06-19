@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
+import { asDashboard } from '@/types/schema-conversions';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
@@ -1728,8 +1729,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // live view, where the same Dashboard-vs-canonicalized type clash is
     // tolerated uncast. resolvePanelQuery only reads optional-chained members off
     // it, so this is runtime-safe; reconciling the two Dashboard types repo-wide
-    // is out of scope for the export path.
-    const resolvedQuery = resolvePanelQuery(panel, displayDashboard as unknown as Dashboard);
+    // is out of scope for the export path. asDashboard centralizes the assertion.
+    const resolvedQuery = resolvePanelQuery(panel, asDashboard(displayDashboard));
     if (!resolvedQuery && (!panelState?.data?.rows || !panelState?.data?.columns)) {
       toast.error('No data to export');
       return;
