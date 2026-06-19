@@ -67,10 +67,10 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   const { prefs: datetimePrefs } = useDatetimePrefs();
 
   // Get declared parameters from x-navixy.params
-  const declaredParams = dashboard['x-navixy']?.params || [];
+  const declaredParams = useMemo(() => dashboard['x-navixy']?.params || [], [dashboard]);
 
   // Get time range from dashboard.time
-  const defaultTimeRange = dashboard.time || { from: 'now-24h', to: 'now' };
+  const defaultTimeRange = useMemo(() => dashboard.time || { from: 'now-24h', to: 'now' }, [dashboard.time]);
 
   // Get quick ranges from timepicker
   const quickRanges: TimeRangePreset[] = dashboard.timepicker?.quickRanges || [];
@@ -147,10 +147,10 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   }, [declaredParams, inferredParams, dashboard.time]);
 
   // Local date-range filter variables (templating.list[] with x-navixy.control = 'daterange')
-  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard.templating]);
+  const dateRangeFilters = useMemo(() => getDateRangeFilters(dashboard), [dashboard]);
 
   // Local multiselect (column-value) filter variables
-  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard.templating]);
+  const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard]);
 
   // Discovered option values per multiselect variable (from its discovery query)
   const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
@@ -159,8 +159,9 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   // values) — surfaced as a retry affordance in the control.
   const [discoveryError, setDiscoveryError] = useState<Record<string, boolean>>({});
   const discoveredRef = useRef<Set<string>>(new Set());
-  // Bumped by a manual retry to re-run the discovery effect (whose other input,
-  // multiselectFilters, only changes when the dashboard's templating changes).
+  // Bumped by a manual retry to re-run the discovery effect; the effect is
+  // otherwise driven by multiselectFilters / dashboard and de-duplicated via
+  // discoveredRef, so it won't re-query already-discovered variables.
   const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
@@ -212,7 +213,7 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
         setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
       }
     });
-  }, [multiselectFilters, retryNonce]);
+  }, [multiselectFilters, retryNonce, dashboard]);
 
   // Manual retry: drop this variable's discovery keys and re-run the effect. The
   // catch already deletes the failed key, but the effect won't re-fire on its own
@@ -359,7 +360,12 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
     if (!hasInitializedDefaults.current) {
       hasInitializedDefaults.current = true;
     }
-  }, [defaultValues]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Intentionally keyed on `defaultValues` only. The effect reads `values` to
+    // fill in params that don't have a value yet, but including it would loop:
+    // the effect calls `onChange`, which updates `values`. `onChange` is the
+    // parent setter and is treated as stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultValues]);
 
   // Check if pending values have changed from current values
   const hasPendingChanges = useMemo(() => {
@@ -632,7 +638,7 @@ function renderParameterInput(
         </Select>
       );
 
-    case 'datetime':
+    case 'datetime': {
       const dateValue = value instanceof Date ? value : (value ? new Date(String(value)) : new Date());
       return (
         <Input
@@ -642,6 +648,7 @@ function renderParameterInput(
           className="h-8 w-48 text-xs"
         />
       );
+    }
 
     default:
       return (

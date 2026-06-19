@@ -42,7 +42,10 @@ export const errorHandler = (
   });
 
   // Don't leak error details in production
-  const errorResponse = {
+  const errorResponse: {
+    error: { code: string; message: string };
+    details?: { stack?: string | undefined; originalMessage: string };
+  } = {
     error: {
       code: statusCode >= 500 ? 'INTERNAL_ERROR' : 'CLIENT_ERROR',
       message: statusCode >= 500 ? 'Internal server error' : message,
@@ -51,7 +54,7 @@ export const errorHandler = (
 
   // Add error details in development
   if (process.env.NODE_ENV === 'development') {
-    (errorResponse as any).details = {
+    errorResponse.details = {
       stack: error.stack,
       originalMessage: message,
     };
@@ -60,7 +63,9 @@ export const errorHandler = (
   res.status(statusCode).json(errorResponse);
 };
 
-export const asyncHandler = (fn: Function) => {
+export const asyncHandler = (
+  fn: (req: Request, res: Response, next: NextFunction) => unknown
+) => {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };

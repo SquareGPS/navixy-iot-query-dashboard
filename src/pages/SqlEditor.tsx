@@ -14,11 +14,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Icon } from '@/components/ui/icon';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 
+interface TabResults {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  columnTypes: Record<string, string>;
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 interface QueryTab {
   id: string;
   name: string;
   sql: string;
-  results: any;
+  results: TabResults | null;
   error: string | null;
   executing: boolean;
   executionTime: number | null;
@@ -256,7 +265,7 @@ LIMIT 10;`,
     const csvHeader = columns.join(',');
     
     // Create CSV rows
-    const csvRows = rows.map((row: any) => {
+    const csvRows = rows.map((row: Record<string, unknown>) => {
       return columns.map((col: string) => {
         const value = row[col];
         // Escape quotes and wrap in quotes if contains comma or quote

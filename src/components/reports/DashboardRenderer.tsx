@@ -27,8 +27,10 @@ import {
 import { toast } from 'sonner';
 import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
+import { asDashboard } from '@/types/schema-conversions';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
+import { getErrorMessage } from '@/utils/errors';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
@@ -146,7 +148,10 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   );
 
   // Active shape for hover effect
-  const renderActiveShape = (props: any) => {
+  const renderActiveShape = (props: {
+    cx: number; cy: number; innerRadius: number; outerRadius: number;
+    startAngle: number; endAngle: number; fill: string;
+  }) => {
     const {
       cx,
       cy,
@@ -171,7 +176,11 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   };
 
   // Custom tooltip content with position adjustment to avoid center
-  const renderTooltipContent = (props: any) => {
+  const renderTooltipContent = (props: {
+    active?: boolean;
+    payload?: Array<{ value: number; name: string }>;
+    coordinate?: { cx?: number; cy?: number; x?: number; y?: number };
+  }) => {
     if (!props.active || !props.payload || props.payload.length === 0) {
       return null;
     }
@@ -442,7 +451,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       });
 
     return { ...canonicalized, panels: withIds(canonicalized.panels) };
-  }, [dashboard, storeDashboard, isEditingLayout]);
+  }, [dashboard, storeDashboard]);
 
   const showParameterBar = React.useMemo(() => {
     const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
@@ -453,7 +462,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return control === 'daterange' || control === 'multiselect';
     });
     return hasExplicitParams || hasTimeRange || hasInferredParams || hasFilterVariables;
-  }, [dashboard, dashboard.panels, dashboard['x-navixy']?.params, dashboard.time, dashboard.templating]);
+  }, [dashboard]);
 
   // Track the previous dashboard to prevent unnecessary query re-executions
   const prevDashboardRef = useRef<string | null>(null);
@@ -466,8 +475,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     bindings: Record<string, string> | undefined,
     dashboard: Dashboard,
     timeRange: { from: string; to: string },
-  ): Record<string, any> => {
-    const resolved: Record<string, any> = {};
+  ): Record<string, unknown> => {
+    const resolved: Record<string, unknown> = {};
 
     if (!bindings) return resolved;
 
@@ -508,7 +517,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     // Prepare parameters - start with ParameterBar values (highest priority)
-    const params: Record<string, any> = {};
+    const params: Record<string, unknown> = {};
 
     // Use parameter values from ParameterBar (user-selected values)
     Object.entries(parameterValues).forEach(([key, value]) => {
@@ -697,14 +706,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           lastUpdated: Date.now(),
         },
       }));
-    } catch (err: any) {
+    } catch (err) {
       setPanelData(prev => ({
         ...prev,
         [panelIdStr]: {
           data: null,
           loading: false,
           refreshing: false,
-          error: err.message || 'Query execution failed',
+          error: getErrorMessage(err, 'Query execution failed'),
         },
       }));
     }
@@ -894,14 +903,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             ...prev,
             [panelIdStr]: newPanelData[panelIdStr],
           }));
-        } catch (err: any) {
+        } catch (err) {
           console.error(`Error executing query for panel ${ panel.title } (${panelIdStr}):`, err);
           const existingData = panelDataRef.current[panelIdStr];
           newPanelData[panelIdStr] = {
             data: existingData?.data || null, // Preserve old data on error during refresh
             loading: false,
             refreshing: false, // Always clear refreshing even on error
-            error: err.message || 'Query execution failed',
+            error: getErrorMessage(err, 'Query execution failed'),
             lastUpdated: existingData?.lastUpdated,
           };
 
@@ -997,7 +1006,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -1061,7 +1070,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const value = data.rows[0][0]; // First column, first row
     return (
       <div className="text-center">
-        <div className="text-3xl font-bold text-blue-600">{ value }</div>
+        <div className="text-3xl font-bold text-blue-600">{ value as React.ReactNode }</div>
         <div className="text-sm text-gray-500 mt-1">{ panel.title }</div>
       </div>
     );
@@ -1090,7 +1099,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const valueColumnIndex = 1;
 
     // Process data
-    let chartData: any[] = [];
+    let chartData: Array<Record<string, number | string>> = [];
     let seriesNames: string[] = [];
 
     if (seriesColumnIndex !== null) {
@@ -1115,7 +1124,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
       // Convert to chart data format
       chartData = Object.keys(groupedData).map(category => {
-        const item: any = { category };
+        const item: Record<string, number | string> = { category };
         seriesNames.forEach(series => {
           item[series] = groupedData[category][series] || 0;
         });
@@ -1125,10 +1134,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       // Normalize to percentages if percent stacking
       if (stacking === 'percent') {
         chartData = chartData.map(item => {
-          const total = seriesNames.reduce((sum, series) => sum + (item[series] || 0), 0);
-          const normalized: any = { category: item.category };
+          const total = seriesNames.reduce((sum, series) => sum + (Number(item[series]) || 0), 0);
+          const normalized: Record<string, number | string> = { category: item.category };
           seriesNames.forEach(series => {
-            normalized[series] = total > 0 ? ((item[series] || 0) / total) * 100 : 0;
+            normalized[series] = total > 0 ? ((Number(item[series]) || 0) / total) * 100 : 0;
           });
           return normalized;
         });
@@ -1148,10 +1157,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       const hasMultipleSeries = seriesColumnIndex !== null;
       chartData.sort((a, b) => {
         const aVal = hasMultipleSeries
-          ? Object.values(a).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
+          ? Object.values(a).filter((v, i) => i > 0).reduce((sum: number, v) => sum + (Number(v) || 0), 0)
           : a.value;
         const bVal = hasMultipleSeries
-          ? Object.values(b).filter((v, i) => i > 0).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
+          ? Object.values(b).filter((v, i) => i > 0).reduce((sum: number, v) => sum + (Number(v) || 0), 0)
           : b.value;
 
         if (sortOrder === 'asc') {
@@ -1175,7 +1184,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         valueAxisDomain = [0, 100];
       } else {
         const values = seriesColumnIndex === null
-          ? chartData.map(d => d.value)
+          ? chartData.map(d => Number(d.value) || 0)
           : chartData.flatMap(d =>
             seriesNames.map(series => Number(d[series]) || 0),
           );
@@ -1244,7 +1253,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               borderRadius: '8px',
               color: 'var(--text-primary)',
             } }
-            formatter={ (value: any, name: string) => {
+            formatter={ (value: number | string, name: string) => {
               if (stacking === 'percent') {
                 return [`${ Number(value).toFixed(1) }%`, name];
               }
@@ -1271,7 +1280,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                 { showValues && (
                   <LabelList
                     position="top"
-                    formatter={ (value: any) => {
+                    formatter={ (value: number | string) => {
                       if (stacking === 'percent') {
                         return `${ Number(value).toFixed(1) }%`;
                       }
@@ -1292,7 +1301,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               { showValues && (
                 <LabelList
                   position="top"
-                  formatter={ (value: any) => value.toLocaleString() }
+                  formatter={ (value: number | string) => value.toLocaleString() }
                   style={ { fill: 'var(--text-primary)', fontSize: 12 } }
                 />
               ) }
@@ -1352,7 +1361,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Shared detector so the same query groups identically in bar and line (DO-273).
     const seriesColumnIndex = detectSeriesColumnIndex(columns, data.rows);
 
-    let chartData: any[] = [];
+    let chartData: Array<Record<string, unknown>> = [];
     let seriesNames: string[] = [];
 
     if (seriesColumnIndex !== null) {
@@ -1361,7 +1370,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       seriesNames = Array.from(
         new Set(data.rows.map((row) => String(row[seriesColumnIndex]))),
       );
-      const byX = new Map<string, any>();
+      const byX = new Map<string, Record<string, unknown>>();
       data.rows.forEach((row) => {
         const xId = String(row[0]);
         if (!byX.has(xId)) byX.set(xId, { [xKey]: row[0] });
@@ -1372,7 +1381,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     } else {
       // Wide format: first column is x, each remaining column is its own series.
       chartData = data.rows.map((row) => {
-        const dataPoint: any = { [xKey]: row[0] };
+        const dataPoint: Record<string, unknown> = { [xKey]: row[0] };
         if (columns.length > 0) {
           for (let i = 1; i < row.length && i < columns.length; i++) {
             const colName = columns[i]?.name || `series${ i }`;
@@ -1399,8 +1408,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Sort data by x value (assuming it's a date/timestamp)
     chartData.sort((a, b) => {
-      const aVal = a[xKey];
-      const bVal = b[xKey];
+      const aVal = a[xKey] as string | number;
+      const bVal = b[xKey] as string | number;
       const aDate = new Date(aVal);
       const bDate = new Date(bVal);
       if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
@@ -1439,7 +1448,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && chartData.length <= 50);
 
     // Format x-axis labels (try to format as dates)
-    const formatXAxisLabel = (value: any) => {
+    const formatXAxisLabel = (value: string | number) => {
       const parsedDate = parse(String(value), 'yyyy-MM-dd', new Date());
 
       if (isValid(parsedDate) && format(parsedDate, 'yyyy-MM-dd') === String(value)) {
@@ -1494,7 +1503,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                 color: 'var(--text-primary)',
               } }
               labelFormatter={ (value) => formatXAxisLabel(value) }
-              formatter={ (value: any, name: string) => [
+              formatter={ (value: number | string, name: string) => [
                 value?.toLocaleString() || '0',
                 name,
               ] }
@@ -1720,8 +1729,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // live view, where the same Dashboard-vs-canonicalized type clash is
     // tolerated uncast. resolvePanelQuery only reads optional-chained members off
     // it, so this is runtime-safe; reconciling the two Dashboard types repo-wide
-    // is out of scope for the export path.
-    const resolvedQuery = resolvePanelQuery(panel, displayDashboard as unknown as Dashboard);
+    // is out of scope for the export path. asDashboard centralizes the assertion.
+    const resolvedQuery = resolvePanelQuery(panel, asDashboard(displayDashboard));
     if (!resolvedQuery && (!panelState?.data?.rows || !panelState?.data?.columns)) {
       toast.error('No data to export');
       return;
@@ -1777,8 +1786,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       } else {
         throw new Error('Export failed');
       }
-    } catch (error: any) {
-      toast.error(`Export failed: ${ error.message }`);
+    } catch (error) {
+      toast.error(`Export failed: ${ getErrorMessage(error) }`);
     }
   };
 
@@ -1991,7 +2000,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               </div>
             ) }
             onDashboardChange={ async (updatedDashboard) => {
-              if ((window as any).__skipDashboardAutoSave) {
+              if ((window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave) {
                 console.log('Skipping auto-save - panel save in progress');
                 return;
               }

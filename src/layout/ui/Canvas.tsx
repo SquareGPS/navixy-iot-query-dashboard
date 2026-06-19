@@ -225,7 +225,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     const unsubscribe = useEditorStore.subscribe((state) => {
       // Skip auto-save if we're in the middle of a panel save operation
-      if ((window as any).__skipDashboardAutoSave) {
+      if ((window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave) {
         console.log('Canvas: Skipping onDashboardChange - panel save in progress');
         return;
       }
@@ -707,7 +707,7 @@ export const Canvas: React.FC<CanvasProps> = ({
       setDragStartPos(null);
       setDragOverTarget(null);
     },
-    [dashboard, dragPreview, dragStartPos, activeId, draggedPreset]
+    [dashboard, dragPreview, draggedPreset]
   );
 
   // Cancel any in-flight drag (Esc / abort): clear all drag state without applying (FR-11365)
@@ -911,6 +911,34 @@ export const Canvas: React.FC<CanvasProps> = ({
     };
   }, [resizeHandle, resizePanelId, resizeStartPos, containerWidth, dashboard]);
 
+  const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
+    setPlacingPanelSpec({ type, size });
+    setIsPlacingPanel(true);
+    setShowPanelGallery(false);
+  }, []);
+
+  const handleGhostPlace = useCallback((x: number, y: number) => {
+    if (!placingPanelSpec || !dashboard) return;
+
+    // Determine target scope (for now, always top-level)
+    // TODO: Support row targeting when hovering row headers
+    cmdAddPanel({
+      type: placingPanelSpec.type,
+      size: placingPanelSpec.size,
+      target: 'top',
+      hint: { position: { x, y } },
+    });
+
+    setIsPlacingPanel(false);
+    setPlacingPanelSpec(null);
+  }, [placingPanelSpec, dashboard]);
+
+  const handleGhostCancel = useCallback(() => {
+    setIsPlacingPanel(false);
+    setPlacingPanelSpec(null);
+  }, []);
+
+  // Hooks must run before any early return, so the guard below comes after them.
   if (!dashboard || !isEditingLayout) {
     return null;
   }
@@ -964,7 +992,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           bottomRowBandBottom = Math.max(bottomBand.top, maxPanelBottom);
         } else {
           // No panels in row - check if row has explicit height
-          const explicitHeight = (bottomRow.options as any)?.rowBandHeight;
+          const explicitHeight = (bottomRow.options as { rowBandHeight?: number })?.rowBandHeight;
           if (explicitHeight !== undefined && explicitHeight !== null) {
             bottomRowBandBottom = bottomRow.gridPos.y + bottomRow.gridPos.h + explicitHeight;
           } else {
@@ -998,33 +1026,6 @@ export const Canvas: React.FC<CanvasProps> = ({
       ? (bottomRowBandBottom * GRID_UNIT_HEIGHT) + 80 + resizePadding // Extra space for drop zone + resize padding
       : (maxY + 2) * GRID_UNIT_HEIGHT + resizePadding
   );
-
-  const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
-    setPlacingPanelSpec({ type, size });
-    setIsPlacingPanel(true);
-    setShowPanelGallery(false);
-  }, []);
-
-  const handleGhostPlace = useCallback((x: number, y: number) => {
-    if (!placingPanelSpec || !dashboard) return;
-
-    // Determine target scope (for now, always top-level)
-    // TODO: Support row targeting when hovering row headers
-    cmdAddPanel({
-      type: placingPanelSpec.type,
-      size: placingPanelSpec.size,
-      target: 'top',
-      hint: { position: { x, y } },
-    });
-
-    setIsPlacingPanel(false);
-    setPlacingPanelSpec(null);
-  }, [placingPanelSpec, dashboard]);
-
-  const handleGhostCancel = useCallback(() => {
-    setIsPlacingPanel(false);
-    setPlacingPanelSpec(null);
-  }, []);
 
   return (
     <DndContext

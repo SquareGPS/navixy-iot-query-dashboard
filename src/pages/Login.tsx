@@ -136,7 +136,15 @@ const Login = () => {
     setIsTestingConnection(true);
     setTestResult(null);
 
-    let testSettings: any;
+    let testSettings: {
+      db_url?: string;
+      db_host?: string;
+      db_port?: number | string;
+      db_name?: string;
+      db_user?: string;
+      db_password?: string;
+      db_ssl?: boolean;
+    };
     
     if (connectionMethod === 'url') {
       if (!connection.url || !connection.url.trim()) {
@@ -209,7 +217,15 @@ const Login = () => {
     setIsTestingUserDbConnection(true);
     setUserDbTestResult(null);
 
-    let testSettings: any;
+    let testSettings: {
+      db_url?: string;
+      db_host?: string;
+      db_port?: number | string;
+      db_name?: string;
+      db_user?: string;
+      db_password?: string;
+      db_ssl?: boolean;
+    };
     
     if (userDbConnectionMethod === 'url') {
       if (!userDbConnection.url || !userDbConnection.url.trim()) {

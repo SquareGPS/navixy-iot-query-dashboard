@@ -171,7 +171,7 @@ export function detectGPSColumns(columns: ColumnInfo[]): GPSColumns | null {
  * @returns true if at least one row has valid GPS coordinates
  */
 export function validateGPSData(
-  rows: Record<string, any>[],
+  rows: Record<string, unknown>[],
   gpsColumns: GPSColumns
 ): boolean {
   if (!rows || rows.length === 0) {
@@ -180,8 +180,8 @@ export function validateGPSData(
 
   // Check if at least one row has valid coordinates
   return rows.some(row => {
-    const lat = parseFloat(row[gpsColumns.latColumn]);
-    const lon = parseFloat(row[gpsColumns.lonColumn]);
+    const lat = parseFloat(String(row[gpsColumns.latColumn]));
+    const lon = parseFloat(String(row[gpsColumns.lonColumn]));
     
     // Valid GPS range: lat -90 to 90, lon -180 to 180
     return (
@@ -204,22 +204,22 @@ export function validateGPSData(
  * @returns Array of GPS points with lat, lon, and optional label
  */
 export function extractGPSPoints(
-  rows: Record<string, any>[],
+  rows: Record<string, unknown>[],
   gpsColumns: GPSColumns,
   labelColumn?: string
-): Array<{ lat: number; lon: number; label?: string | undefined; data: Record<string, any> }> {
-  const points: Array<{ lat: number; lon: number; label?: string | undefined; data: Record<string, any> }> = [];
+): Array<{ lat: number; lon: number; label?: string | undefined; data: Record<string, unknown> }> {
+  const points: Array<{ lat: number; lon: number; label?: string | undefined; data: Record<string, unknown> }> = [];
 
   for (const row of rows) {
-    const lat = parseFloat(row[gpsColumns.latColumn]);
-    const lon = parseFloat(row[gpsColumns.lonColumn]);
+    const lat = parseFloat(String(row[gpsColumns.latColumn]));
+    const lon = parseFloat(String(row[gpsColumns.lonColumn]));
 
     // Skip invalid coordinates
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       continue;
     }
 
-    const point: { lat: number; lon: number; label?: string | undefined; data: Record<string, any> } = {
+    const point: { lat: number; lon: number; label?: string | undefined; data: Record<string, unknown> } = {
       lat,
       lon,
       data: row,

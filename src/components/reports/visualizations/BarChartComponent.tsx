@@ -6,6 +6,7 @@ import { apiService } from '@/services/api';
 import { Pencil } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import type { BarVisual } from '@/types/report-schema';
+import { getErrorMessage } from '@/utils/errors';
 
 interface BarChartComponentProps {
   visual: BarVisual;
@@ -17,7 +18,7 @@ interface BarChartComponentProps {
 const DEFAULT_COLORS = ['#3AA3FF', '#22D3EE', '#8B9DB8', '#6B778C', '#B6C3D8'];
 
 export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartComponentProps) {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<Array<{ category: unknown; value: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -39,7 +40,7 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
         }
 
         if (response.data?.rows && response.data.rows.length > 0) {
-          let processedData = response.data.rows.map((row: any) => ({
+          let processedData = response.data.rows.map((row) => ({
             category: row[visual.options.category_field],
             value: Number(row[visual.options.value_field]) || 0,
           }));
@@ -77,9 +78,9 @@ export function BarChartComponent({ visual, title, editMode, onEdit }: BarChartC
         } else {
           setData([]);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching bar chart data:', err);
-        setError(err.message || 'Failed to load chart data');
+        setError(getErrorMessage(err, 'Failed to load chart data'));
       } finally {
         setLoading(false);
       }

@@ -3,11 +3,29 @@
  * Validates dashboard JSON structure and configuration
  */
 
+/** Loosely-typed view of a parsed dashboard for validation purposes. */
+export interface ValidatorPanel {
+  title?: string;
+  type?: string;
+  gridPos?: { x?: number; y?: number; w?: number; h?: number };
+  'x-navixy'?: { sql?: { statement?: string }; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface ValidatorDashboard {
+  uid?: string;
+  title?: string;
+  time?: unknown;
+  panels?: ValidatorPanel[];
+  'x-navixy'?: { schemaVersion?: unknown; execution?: unknown; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 export interface ValidationRule {
   name: string;
   description: string;
   severity: 'error' | 'warning' | 'info';
-  check: (dashboard: any) => ValidationResult[];
+  check: (dashboard: ValidatorDashboard) => ValidationResult[];
 }
 
 export interface ValidationResult {
@@ -42,7 +60,7 @@ export class DashboardValidator {
    * Validate a dashboard JSON
    */
   validate(dashboardJson: string | object): ValidationReport {
-    let dashboard: any;
+    let dashboard: ValidatorDashboard;
     
     try {
       dashboard = typeof dashboardJson === 'string' 
@@ -240,7 +258,7 @@ export class DashboardValidator {
         const results: ValidationResult[] = [];
         
         if (dashboard.panels) {
-          dashboard.panels.forEach((panel: any, index: number) => {
+          dashboard.panels.forEach((panel: ValidatorPanel, index: number) => {
             if (panel['x-navixy'] && !panel['x-navixy'].sql && panel.type !== 'text') {
               results.push({
                 rule: 'panel-has-navixy-sql',
@@ -265,7 +283,7 @@ export class DashboardValidator {
         const results: ValidationResult[] = [];
         
         if (dashboard.panels) {
-          dashboard.panels.forEach((panel: any, index: number) => {
+          dashboard.panels.forEach((panel: ValidatorPanel, index: number) => {
             if (panel['x-navixy']?.sql && !panel['x-navixy'].sql.statement) {
               results.push({
                 rule: 'panel-sql-has-statement',
@@ -291,7 +309,7 @@ export class DashboardValidator {
         const results: ValidationResult[] = [];
         
         if (dashboard.panels) {
-          dashboard.panels.forEach((panel: any, index: number) => {
+          dashboard.panels.forEach((panel: ValidatorPanel, index: number) => {
             if (!panel.title || panel.title.trim().length === 0) {
               results.push({
                 rule: 'panel-has-title',
@@ -316,7 +334,7 @@ export class DashboardValidator {
         const results: ValidationResult[] = [];
         
         if (dashboard.panels) {
-          dashboard.panels.forEach((panel: any, index: number) => {
+          dashboard.panels.forEach((panel: ValidatorPanel, index: number) => {
             if (!panel.gridPos) {
               results.push({
                 rule: 'panel-has-gridpos',
@@ -342,7 +360,7 @@ export class DashboardValidator {
         const results: ValidationResult[] = [];
         
         if (dashboard.panels) {
-          dashboard.panels.forEach((panel: any, index: number) => {
+          dashboard.panels.forEach((panel: ValidatorPanel, index: number) => {
             const sql = panel['x-navixy']?.sql?.statement;
             if (sql && !sql.includes(':')) {
               results.push({

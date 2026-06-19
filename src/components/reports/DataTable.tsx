@@ -26,9 +26,9 @@ import {
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
-interface DataTableProps {
-  data: any[];
-  columns: ColumnDef<any>[];
+interface DataTableProps<TData> {
+  data: TData[];
+  columns: ColumnDef<TData>[];
   loading?: boolean;
   columnTypes?: Record<string, string>;
   pagination?: {
@@ -40,7 +40,7 @@ interface DataTableProps {
   };
 }
 
-export function DataTable({ data, columns, loading, columnTypes, pagination }: DataTableProps) {
+export function DataTable<TData,>({ data, columns, loading, columnTypes, pagination }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const table = useReactTable({

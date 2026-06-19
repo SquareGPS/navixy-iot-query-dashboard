@@ -4,7 +4,11 @@
  * IoT database queries (SQL execution) still go to the real backend - only settings storage is local.
  */
 import { demoStorageService } from './demoStorage';
+import type { DemoReport } from './demoStorage';
+import { toErrorMeta } from '@/utils/errors';
 import type { ChartCatalog } from '@/types/chart-catalog';
+import type { MenuTree, ReorderResponse, RenameResponse, DeleteSectionResponse, DeleteReportResponse } from '@/types/menu-editor';
+import type { CompositeReport, CompositeReportExecutionResult, StoredReport } from '@/types/dashboard-types';
 import {
   DATE_FORMAT_VALUES,
   TIME_FORMAT_VALUES,
@@ -13,6 +17,7 @@ import {
 import type { DateFormat, TimeFormat } from '@/utils/datetime';
 import type {
   ApiResponse,
+  ReportApiData,
   TableQueryParams,
   TableQueryResult,
   TileQueryParams,
@@ -135,7 +140,8 @@ class DemoApiService {
       }
 
       return { data };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       console.error('API: Network error', {
         url,
         error: error.message,
@@ -189,7 +195,7 @@ class DemoApiService {
       total: number;
     };
   }>> {
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       dialect: 'postgresql',
       statement: params.sql,
       params: params.params || {},
@@ -210,7 +216,7 @@ class DemoApiService {
     });
   }
 
-  async testConnection(): Promise<ApiResponse<{ success: boolean; message: string; result: any }>> {
+  async testConnection(): Promise<ApiResponse<{ success: boolean; message: string; result: unknown }>> {
     return this.realRequest('/api/sql/test-connection', {
       method: 'POST',
     });
@@ -222,7 +228,7 @@ class DemoApiService {
     });
   }
 
-  async getHealthStatus(): Promise<ApiResponse<any>> {
+  async getHealthStatus(): Promise<ApiResponse<unknown>> {
     return this.realRequest('/health');
   }
 
@@ -230,7 +236,7 @@ class DemoApiService {
   // Sections (Demo mode uses IndexedDB)
   // ==========================================
 
-  async getSections(): Promise<ApiResponse<any[]>> {
+  async getSections(): Promise<ApiResponse<unknown[]>> {
     try {
       const userId = getDemoUserId();
       const sections = await demoStorageService.getSections(userId ?? undefined);
@@ -248,7 +254,8 @@ class DemoApiService {
       }));
       
       return { data: apiSections };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -258,7 +265,7 @@ class DemoApiService {
     }
   }
 
-  async createSection(name: string, sortOrder?: number): Promise<ApiResponse<any>> {
+  async createSection(name: string, sortOrder?: number): Promise<ApiResponse<unknown>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -280,7 +287,8 @@ class DemoApiService {
           updated_at: section.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -290,7 +298,7 @@ class DemoApiService {
     }
   }
 
-  async updateSection(id: string, name: string): Promise<ApiResponse<any>> {
+  async updateSection(id: string, name: string): Promise<ApiResponse<unknown>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -317,7 +325,8 @@ class DemoApiService {
           updated_at: updated.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -331,7 +340,7 @@ class DemoApiService {
   // Reports (Demo mode uses IndexedDB)
   // ==========================================
 
-  async getReports(): Promise<ApiResponse<any[]>> {
+  async getReports(): Promise<ApiResponse<unknown[]>> {
     try {
       const userId = getDemoUserId();
       const reports = await demoStorageService.getReports(userId ?? undefined);
@@ -352,7 +361,8 @@ class DemoApiService {
       }));
       
       return { data: apiReports };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -362,7 +372,7 @@ class DemoApiService {
     }
   }
 
-  async getReportById(id: string): Promise<ApiResponse<any>> {
+  async getReportById(id: string): Promise<ApiResponse<ReportApiData>> {
     try {
       const userId = getDemoUserId();
       const report = await demoStorageService.getReportById(id, userId ?? undefined);
@@ -393,7 +403,8 @@ class DemoApiService {
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -408,12 +419,12 @@ class DemoApiService {
     section_id?: string | null;
     slug?: string;
     sort_order?: number;
-    report_schema: any;
-  }): Promise<ApiResponse<any>> {
+    report_schema: unknown;
+  }): Promise<ApiResponse<StoredReport>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
-      
+
       const report = await demoStorageService.createReport({
         title: reportData.title,
         sectionId: reportData.section_id,
@@ -437,7 +448,8 @@ class DemoApiService {
           updated_at: report.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -447,16 +459,17 @@ class DemoApiService {
     }
   }
 
-  async updateReport(id: string, reportData: any): Promise<ApiResponse<any>> {
+  async updateReport(id: string, reportData: unknown): Promise<ApiResponse<StoredReport>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
       
+      const rd = reportData as { title?: string; section_id?: string | null; sort_order?: number; report_schema?: unknown };
       const report = await demoStorageService.updateReport(id, {
-        title: reportData.title,
-        sectionId: reportData.section_id,
-        sortOrder: reportData.sort_order,
-        reportSchema: reportData.report_schema,
+        title: rd.title,
+        sectionId: rd.section_id,
+        sortOrder: rd.sort_order,
+        reportSchema: rd.report_schema,
         userId
       });
       
@@ -474,7 +487,8 @@ class DemoApiService {
           updated_at: report.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -484,12 +498,12 @@ class DemoApiService {
     }
   }
 
-  async reorderSections(sections: Array<{ id: string; sort_index: number }>): Promise<ApiResponse<any>> {
+  async reorderSections(sections: Array<{ id: string; sort_index: number }>): Promise<ApiResponse<unknown>> {
     // This is handled through the menu reorder API
     return { data: { success: true } };
   }
 
-  async reorderReports(reports: Array<{ id: string; sort_index: number; section_id?: string | null }>): Promise<ApiResponse<any>> {
+  async reorderReports(reports: Array<{ id: string; sort_index: number; section_id?: string | null }>): Promise<ApiResponse<unknown>> {
     // This is handled through the menu reorder API
     return { data: { success: true } };
   }
@@ -498,7 +512,7 @@ class DemoApiService {
   // Schema (Always goes to real backend)
   // ==========================================
 
-  async getExampleSchema(): Promise<ApiResponse<any>> {
+  async getExampleSchema(): Promise<ApiResponse<unknown>> {
     return this.realRequest('/api/schema/example');
   }
 
@@ -510,14 +524,15 @@ class DemoApiService {
   // Menu Management API (Demo mode uses IndexedDB)
   // ==========================================
 
-  async getMenuTree(includeDeleted: boolean = false): Promise<ApiResponse<any>> {
+  async getMenuTree(includeDeleted: boolean = false): Promise<ApiResponse<MenuTree>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
       
       const menuTree = await demoStorageService.getMenuTree(userId, includeDeleted);
       return { data: menuTree };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -527,19 +542,22 @@ class DemoApiService {
     }
   }
 
-  async reorderMenu(payload: any): Promise<ApiResponse<any>> {
+  async reorderMenu(payload: unknown): Promise<ApiResponse<ReorderResponse>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
       
+      type ReorderArg = Parameters<typeof demoStorageService.reorderMenu>[0];
+      const p = payload as { sections?: ReorderArg['sections']; reports?: ReorderArg['reports'] };
       const result = await demoStorageService.reorderMenu({
-        sections: payload.sections || [],
-        reports: payload.reports || [],
+        sections: p.sections || [],
+        reports: p.reports || [],
         userId
       });
       
       return { data: { ok: true, newVersions: result.newVersions } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -549,7 +567,7 @@ class DemoApiService {
     }
   }
 
-  async renameSection(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+  async renameSection(id: string, name: string, version: number): Promise<ApiResponse<RenameResponse>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -566,11 +584,13 @@ class DemoApiService {
           section: {
             id: section.id,
             name: section.name,
+            sortOrder: section.sortOrder,
             version: section.version
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isConflict = error.message?.includes('conflict');
       return {
         error: {
@@ -581,7 +601,7 @@ class DemoApiService {
     }
   }
 
-  async renameReport(id: string, name: string, version: number): Promise<ApiResponse<any>> {
+  async renameReport(id: string, name: string, version: number): Promise<ApiResponse<RenameResponse>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -598,11 +618,14 @@ class DemoApiService {
           report: {
             id: report.id,
             name: report.title,
+            sortOrder: report.sortOrder,
+            parentSectionId: report.sectionId,
             version: report.version
           }
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isConflict = error.message?.includes('conflict');
       return {
         error: {
@@ -613,7 +636,7 @@ class DemoApiService {
     }
   }
 
-  async deleteSection(id: string, strategy: 'move_children_to_root' | 'delete_children'): Promise<ApiResponse<any>> {
+  async deleteSection(id: string, strategy: 'move_children_to_root' | 'delete_children'): Promise<ApiResponse<DeleteSectionResponse>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -626,7 +649,8 @@ class DemoApiService {
           affectedReports: result.affectedReports
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -636,7 +660,7 @@ class DemoApiService {
     }
   }
 
-  async deleteReport(id: string): Promise<ApiResponse<any>> {
+  async deleteReport(id: string): Promise<ApiResponse<DeleteReportResponse>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -644,7 +668,8 @@ class DemoApiService {
       await demoStorageService.deleteReport(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -654,7 +679,7 @@ class DemoApiService {
     }
   }
 
-  async restoreSection(id: string): Promise<ApiResponse<any>> {
+  async restoreSection(id: string): Promise<ApiResponse<{ ok: boolean }>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -662,7 +687,8 @@ class DemoApiService {
       await demoStorageService.restoreSection(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -672,7 +698,7 @@ class DemoApiService {
     }
   }
 
-  async restoreReport(id: string): Promise<ApiResponse<any>> {
+  async restoreReport(id: string): Promise<ApiResponse<{ ok: boolean }>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -680,7 +706,8 @@ class DemoApiService {
       await demoStorageService.restoreReport(id, userId);
       
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -694,7 +721,7 @@ class DemoApiService {
   // Global Variables (Demo mode uses IndexedDB)
   // ==========================================
 
-  async getGlobalVariables(): Promise<ApiResponse<any[]>> {
+  async getGlobalVariables(): Promise<ApiResponse<unknown[]>> {
     try {
       const variables = await demoStorageService.getGlobalVariables();
       
@@ -709,7 +736,8 @@ class DemoApiService {
       }));
       
       return { data: apiVariables };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -723,8 +751,9 @@ class DemoApiService {
   async getChartCatalog(): Promise<ApiResponse<ChartCatalog>> {
     try {
       const catalog = await demoStorageService.getChartCatalog();
-      return { data: catalog ?? { schemaVersion: '1.0', groups: [] } };
-    } catch (error: any) {
+      return { data: (catalog ?? { schemaVersion: '1.0', groups: [] }) as ChartCatalog };
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -738,7 +767,7 @@ class DemoApiService {
     label: string;
     description?: string;
     value?: string;
-  }): Promise<ApiResponse<any>> {
+  }): Promise<ApiResponse<unknown>> {
     try {
       const variable = await demoStorageService.createGlobalVariable(data);
       
@@ -752,7 +781,8 @@ class DemoApiService {
           updated_at: variable.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isDuplicate = error.message?.includes('already exists');
       return {
         error: {
@@ -767,7 +797,7 @@ class DemoApiService {
     label?: string;
     description?: string;
     value?: string;
-  }): Promise<ApiResponse<any>> {
+  }): Promise<ApiResponse<unknown>> {
     try {
       const variable = await demoStorageService.updateGlobalVariable(id, data);
       
@@ -781,7 +811,8 @@ class DemoApiService {
           updated_at: variable.updatedAt.toISOString()
         }
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       const isDuplicate = error.message?.includes('already exists');
       return {
         error: {
@@ -792,11 +823,12 @@ class DemoApiService {
     }
   }
 
-  async deleteGlobalVariable(id: string): Promise<ApiResponse<any>> {
+  async deleteGlobalVariable(id: string): Promise<ApiResponse<unknown>> {
     try {
       await demoStorageService.deleteGlobalVariable(id);
       return { data: { success: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: {
           code: 'DEMO_ERROR',
@@ -810,7 +842,7 @@ class DemoApiService {
   // Composite Reports (Demo mode uses IndexedDB for metadata, real SQL for execution)
   // ==========================================
 
-  async getCompositeReports(): Promise<ApiResponse<any[]>> {
+  async getCompositeReports(): Promise<ApiResponse<unknown[]>> {
     try {
       const userId = getDemoUserId();
       const reports = await demoStorageService.getReports(userId ?? undefined);
@@ -818,14 +850,15 @@ class DemoApiService {
         .filter(r => r.reportSchema?.type === 'composite')
         .map(r => this.demoReportToComposite(r));
       return { data: compositeReports };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite reports' }
       };
     }
   }
 
-  async getCompositeReportById(id: string): Promise<ApiResponse<any>> {
+  async getCompositeReportById(id: string): Promise<ApiResponse<CompositeReport>> {
     try {
       const userId = getDemoUserId();
       const report = await demoStorageService.getReportById(id, userId ?? undefined);
@@ -833,7 +866,8 @@ class DemoApiService {
         return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
       }
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to get composite report' }
       };
@@ -847,8 +881,8 @@ class DemoApiService {
     section_id?: string | null;
     sort_order?: number;
     sql_query: string;
-    config: any;
-  }): Promise<ApiResponse<any>> {
+    config?: unknown;
+  }): Promise<ApiResponse<CompositeReport>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -868,7 +902,8 @@ class DemoApiService {
       });
 
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to create composite report' }
       };
@@ -882,8 +917,8 @@ class DemoApiService {
     section_id?: string | null;
     sort_order?: number;
     sql_query?: string;
-    config?: any;
-  }): Promise<ApiResponse<any>> {
+    config?: unknown;
+  }): Promise<ApiResponse<CompositeReport>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
@@ -892,7 +927,7 @@ class DemoApiService {
       if (!existing) throw new Error('Composite report not found');
 
       const existingSchema = existing.reportSchema || {};
-      const updatedSchema: any = { ...existingSchema, type: 'composite' };
+      const updatedSchema: Record<string, unknown> = { ...existingSchema, type: 'composite' };
       if (data.description !== undefined) updatedSchema.description = data.description;
       if (data.sql_query !== undefined) updatedSchema.sqlQuery = data.sql_query;
       if (data.config !== undefined) updatedSchema.config = data.config;
@@ -906,20 +941,22 @@ class DemoApiService {
       });
 
       return { data: this.demoReportToComposite(report) };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to update composite report' }
       };
     }
   }
 
-  async deleteCompositeReport(id: string): Promise<ApiResponse<any>> {
+  async deleteCompositeReport(id: string): Promise<ApiResponse<unknown>> {
     try {
       const userId = getDemoUserId();
       if (!userId) throw new Error('User not authenticated in demo mode');
       await demoStorageService.deleteReport(id, userId);
       return { data: { ok: true } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to delete composite report' }
       };
@@ -930,7 +967,7 @@ class DemoApiService {
     page?: number;
     pageSize?: number;
     params?: Record<string, unknown>;
-  }): Promise<ApiResponse<any>> {
+  }): Promise<ApiResponse<CompositeReportExecutionResult>> {
     try {
       const userId = getDemoUserId();
       const report = await demoStorageService.getReportById(id, userId ?? undefined);
@@ -938,19 +975,19 @@ class DemoApiService {
         return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
       }
 
-      const sqlQuery = report.reportSchema?.sqlQuery;
+      const sqlQuery = (report.reportSchema as { sqlQuery?: string })?.sqlQuery;
       if (!sqlQuery) {
         return { error: { code: 'VALIDATION_ERROR', message: 'Report has no SQL query' } };
       }
 
-      const maxRows = params?.pageSize || report.reportSchema?.config?.table?.maxRows || 10000;
+      const maxRows = params?.pageSize || (report.reportSchema as { config?: { table?: { maxRows?: number } } })?.config?.table?.maxRows || 10000;
       const result = await this.executeSQL({
         sql: sqlQuery,
         params: params?.params,
         row_limit: maxRows,
       });
 
-      if (result.error) return result;
+      if (result.error) return { error: result.error };
 
       const data = result.data!;
       const gps = this.detectGPSColumns(data.columns);
@@ -961,16 +998,17 @@ class DemoApiService {
           rows: data.rows,
           stats: data.stats || { rowCount: data.rows.length, elapsedMs: 0 },
           gps,
-        }
+        } as unknown as CompositeReportExecutionResult
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to execute composite report' }
       };
     }
   }
 
-  async detectCompositeReportColumns(id: string): Promise<ApiResponse<any>> {
+  async detectCompositeReportColumns(id: string): Promise<ApiResponse<unknown>> {
     try {
       const userId = getDemoUserId();
       const report = await demoStorageService.getReportById(id, userId ?? undefined);
@@ -978,7 +1016,7 @@ class DemoApiService {
         return { error: { code: 'NOT_FOUND', message: 'Composite report not found' } };
       }
 
-      const sqlQuery = report.reportSchema?.sqlQuery;
+      const sqlQuery = (report.reportSchema as { sqlQuery?: string })?.sqlQuery;
       if (!sqlQuery) {
         return { error: { code: 'VALIDATION_ERROR', message: 'Report has no SQL query' } };
       }
@@ -990,35 +1028,34 @@ class DemoApiService {
 
       if (result.error) return result;
       return { data: { columns: result.data!.columns } };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       return {
         error: { code: 'DEMO_ERROR', message: error.message || 'Failed to detect columns' }
       };
     }
   }
 
-  private demoReportToComposite(r: any) {
+  private demoReportToComposite(r: DemoReport): CompositeReport {
+    const schema = (r.reportSchema || {}) as { description?: string; sqlQuery?: string; config?: unknown };
     return {
       id: r.id,
       title: r.title,
-      description: r.reportSchema?.description || '',
+      description: schema.description || '',
       slug: r.slug,
-      section_id: r.sectionId ?? r.section_id ?? null,
-      sort_order: r.sortOrder ?? r.sort_order ?? 0,
+      section_id: r.sectionId ?? null,
+      sort_order: r.sortOrder ?? 0,
       version: r.version,
       type: 'composite',
-      sql_query: r.reportSchema?.sqlQuery || '',
-      config: r.reportSchema?.config || {},
+      sql_query: schema.sqlQuery || '',
+      config: schema.config || {},
       report_schema: r.reportSchema,
-      user_id: r.userId ?? r.user_id,
-      is_deleted: r.isDeleted ?? r.is_deleted ?? false,
-      created_at: (r.createdAt ?? r.created_at) instanceof Date
-        ? r.createdAt.toISOString()
-        : r.created_at ?? new Date().toISOString(),
-      updated_at: (r.updatedAt ?? r.updated_at) instanceof Date
-        ? r.updatedAt.toISOString()
-        : r.updated_at ?? new Date().toISOString(),
-    };
+      user_id: r.userId,
+      created_by: r.createdBy,
+      is_deleted: r.isDeleted ?? false,
+      created_at: r.createdAt instanceof Date ? r.createdAt.toISOString() : (r.createdAt ?? new Date().toISOString()),
+      updated_at: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : (r.updatedAt ?? new Date().toISOString()),
+    } as unknown as CompositeReport;
   }
 
   private detectGPSColumns(columns: Array<{ name: string; type: string }>) {
@@ -1080,15 +1117,15 @@ class DemoApiService {
   // App Settings (Not applicable in demo mode)
   // ==========================================
 
-  async getAppSettings(): Promise<ApiResponse<any>> {
+  async getAppSettings(): Promise<ApiResponse<unknown>> {
     return { data: {} };
   }
 
-  async updateAppSettings(settings: any): Promise<ApiResponse<any>> {
+  async updateAppSettings(settings: unknown): Promise<ApiResponse<unknown>> {
     return { data: settings };
   }
 
-  async testDatabaseConnection(settings: any): Promise<ApiResponse<any>> {
+  async testDatabaseConnection(settings: unknown): Promise<ApiResponse<unknown>> {
     // Forward to real API for testing IoT connection
     return this.realRequest('/api/auth/test-iot-connection', {
       method: 'POST',

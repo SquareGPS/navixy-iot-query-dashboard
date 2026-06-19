@@ -5,7 +5,7 @@
 export type SqlErrorLike = {
   code?: string;
   message?: string;
-  details?: Record<string, unknown>;
+  details?: unknown;
 };
 
 function normalizeMessage(message: string): string {
@@ -23,7 +23,7 @@ export function interpretSqlError(error: SqlErrorLike | string | undefined | nul
   const rawMessage = typeof error === 'string' ? error : (error.message || '');
   const message = normalizeMessage(rawMessage);
   const code = typeof error === 'string' ? undefined : error.code;
-  const sqlCode = typeof error === 'string' ? undefined : (error.details?.sqlCode as string | undefined);
+  const sqlCode = typeof error === 'string' ? undefined : ((error.details as Record<string, unknown> | undefined)?.sqlCode as string | undefined);
   const lowered = message.toLowerCase();
 
   if (sqlCode === '22P02' || lowered.includes('invalid input syntax')) {

@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
+import { getErrorMessage } from '@/utils/errors';
 
 interface ElementEditorProps {
   open: boolean;
@@ -18,9 +19,9 @@ interface ElementEditorProps {
   element: {
     label: string;
     sql: string;
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
   };
-  onSave: (sql: string, params?: Record<string, any>) => void;
+  onSave: (sql: string, params?: Record<string, unknown>) => void;
   onDelete?: () => void;
 }
 
@@ -63,8 +64,8 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
         if (typeof parsedParams !== 'object' || parsedParams === null || Array.isArray(parsedParams)) {
           throw new Error('Parameters must be a JSON object');
         }
-      } catch (err: any) {
-        const errorMsg = err.message || 'Invalid JSON in parameters';
+      } catch (err) {
+        const errorMsg = getErrorMessage(err, 'Invalid JSON in parameters');
         console.error('Failed to parse parameters:', err);
         toast({
           title: 'Invalid Parameters',
@@ -94,11 +95,11 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
       if (result?.pagination) {
         setPagination(result.pagination);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Unexpected error executing query:', err);
       toast({
         title: 'Error',
-        description: err.message || 'Failed to execute query',
+        description: getErrorMessage(err, 'Failed to execute query'),
         variant: 'destructive',
       });
     }
@@ -186,11 +187,11 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
         title: 'Success',
         description: 'Element deleted successfully',
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting element:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to delete element',
+        description: getErrorMessage(error, 'Failed to delete element'),
         variant: 'destructive',
       });
     } finally {

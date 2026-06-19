@@ -3,6 +3,11 @@
  * This provides a local database for demo mode that persists across browser sessions
  */
 import Dexie, { type Table } from 'dexie';
+import type { RawReportSchema } from '@/types/dashboard-types';
+
+/** Coerce an unknown backend date value (ISO string / epoch / Date) to a Date. */
+const toDate = (value: unknown): Date =>
+  value instanceof Date ? value : new Date((value as string | number) ?? Date.now());
 
 // ==========================================
 // Type Definitions
@@ -28,7 +33,7 @@ export interface DemoReport {
   slug: string;
   sortOrder: number;
   version: number;
-  reportSchema: any;
+  reportSchema: RawReportSchema;
   isDeleted: boolean;
   userId: string;
   createdBy: string;
@@ -49,7 +54,7 @@ export interface DemoGlobalVariable {
 export interface DemoMetadata {
   id: string;
   key: string;
-  value: any;
+  value: unknown;
 }
 
 // ==========================================
@@ -61,7 +66,7 @@ class DemoDatabase extends Dexie {
   reports!: Table<DemoReport, string>;
   globalVariables!: Table<DemoGlobalVariable, string>;
   metadata!: Table<DemoMetadata, string>;
-  chartCatalog!: Table<{ id: string; schemaVersion: string; groups: any[] }, string>;
+  chartCatalog!: Table<{ id: string; schemaVersion: string; groups: unknown[] }, string>;
 
   constructor() {
     super('NavixyDemoDatabase');
@@ -118,10 +123,10 @@ export class DemoStorageService {
    * Seed the demo database with data from the backend
    */
   async seedFromBackend(data: {
-    sections: any[];
-    reports: any[];
-    globalVariables: any[];
-    chartCatalog?: { schemaVersion?: string; groups?: any[] } | null;
+    sections: Record<string, unknown>[];
+    reports: Record<string, unknown>[];
+    globalVariables: Record<string, unknown>[];
+    chartCatalog?: { schemaVersion?: string; groups?: unknown[] } | null;
     userId: string;
   }): Promise<void> {
     console.log('[DemoStorage] seedFromBackend called with:', {
@@ -163,7 +168,7 @@ export class DemoStorageService {
     await this.clearAllData();
 
     // Seed sections
-    const sections: DemoSection[] = data.sections.map(s => ({
+    const sections = data.sections.map(s => ({
       id: s.id,
       name: s.name,
       sortOrder: s.sort_order ?? s.sortOrder ?? 0,
@@ -172,9 +177,9 @@ export class DemoStorageService {
       userId: s.user_id ?? s.userId ?? data.userId,
       createdBy: s.created_by ?? s.createdBy ?? data.userId,
       updatedBy: s.updated_by ?? s.updatedBy ?? data.userId,
-      createdAt: new Date(s.created_at ?? s.createdAt ?? new Date()),
-      updatedAt: new Date(s.updated_at ?? s.updatedAt ?? new Date())
-    }));
+      createdAt: toDate(s.created_at ?? s.createdAt),
+      updatedAt: toDate(s.updated_at ?? s.updatedAt)
+    })) as DemoSection[];
 
     console.log('[DemoStorage] Transformed sections for IndexedDB:', sections.map(s => ({
       id: s.id,
@@ -184,11 +189,11 @@ export class DemoStorageService {
     })));
 
     // Seed reports
-    const reports: DemoReport[] = data.reports.map(r => ({
+    const reports = data.reports.map(r => ({
       id: r.id,
       title: r.title,
       sectionId: r.section_id ?? r.sectionId ?? null,
-      slug: r.slug ?? r.title.toLowerCase().replace(/\s+/g, '-'),
+      slug: r.slug ?? String(r.title).toLowerCase().replace(/\s+/g, '-'),
       sortOrder: r.sort_order ?? r.sortOrder ?? 0,
       version: r.version ?? 1,
       reportSchema: r.report_schema ?? r.reportSchema ?? {},
@@ -196,9 +201,9 @@ export class DemoStorageService {
       userId: r.user_id ?? r.userId ?? data.userId,
       createdBy: r.created_by ?? r.createdBy ?? data.userId,
       updatedBy: r.updated_by ?? r.updatedBy ?? data.userId,
-      createdAt: new Date(r.created_at ?? r.createdAt ?? new Date()),
-      updatedAt: new Date(r.updated_at ?? r.updatedAt ?? new Date())
-    }));
+      createdAt: toDate(r.created_at ?? r.createdAt),
+      updatedAt: toDate(r.updated_at ?? r.updatedAt)
+    })) as DemoReport[];
 
     console.log('[DemoStorage] Transformed reports for IndexedDB:', reports.map(r => ({
       id: r.id,
@@ -210,14 +215,14 @@ export class DemoStorageService {
     })));
 
     // Seed global variables
-    const globalVariables: DemoGlobalVariable[] = data.globalVariables.map(gv => ({
+    const globalVariables = data.globalVariables.map(gv => ({
       id: gv.id,
       label: gv.label,
       description: gv.description ?? null,
       value: gv.value ?? null,
-      createdAt: new Date(gv.created_at ?? gv.createdAt ?? new Date()),
-      updatedAt: new Date(gv.updated_at ?? gv.updatedAt ?? new Date())
-    }));
+      createdAt: toDate(gv.created_at ?? gv.createdAt),
+      updatedAt: toDate(gv.updated_at ?? gv.updatedAt)
+    })) as DemoGlobalVariable[];
 
     console.log('[DemoStorage] Transformed global variables for IndexedDB:', globalVariables.map(gv => ({
       id: gv.id,
@@ -337,7 +342,7 @@ export class DemoStorageService {
   // Chart Library preset catalog (FR-11365)
   // ==========================================
 
-  async getChartCatalog(): Promise<{ schemaVersion: string; groups: any[] } | null> {
+  async getChartCatalog(): Promise<{ schemaVersion: string; groups: unknown[] } | null> {
     const database = getDb();
     const row = await database.chartCatalog.get('catalog');
     if (!row) return null;
@@ -350,7 +355,7 @@ export class DemoStorageService {
 
   async getSections(userId?: string): Promise<DemoSection[]> {
     const database = getDb();
-    let query = database.sections.where('isDeleted').equals(0); // IndexedDB stores booleans as 0/1
+    const query = database.sections.where('isDeleted').equals(0); // IndexedDB stores booleans as 0/1
     
     // Dexie doesn't support compound where on different fields well, so filter in memory
     let sections = await database.sections.toArray();
@@ -431,7 +436,7 @@ export class DemoStorageService {
       .filter(r => r.sectionId === id && !r.isDeleted)
       .toArray();
 
-    let affectedReports = childReports.length;
+    const affectedReports = childReports.length;
 
     await database.transaction('rw', [database.sections, database.reports], async () => {
       if (strategy === 'move_children_to_root') {
@@ -534,7 +539,7 @@ export class DemoStorageService {
     sectionId?: string | null;
     slug?: string;
     sortOrder?: number;
-    reportSchema: any;
+    reportSchema: unknown;
     userId: string;
   }): Promise<DemoReport> {
     const database = getDb();
@@ -546,7 +551,7 @@ export class DemoStorageService {
       slug: data.slug ?? data.title.toLowerCase().replace(/\s+/g, '-'),
       sortOrder: data.sortOrder ?? 0,
       version: 1,
-      reportSchema: data.reportSchema,
+      reportSchema: data.reportSchema as RawReportSchema,
       isDeleted: false,
       userId: data.userId,
       createdBy: data.userId,
@@ -564,7 +569,7 @@ export class DemoStorageService {
     subtitle?: string;
     sectionId?: string | null;
     sortOrder?: number;
-    reportSchema?: any;
+    reportSchema?: unknown;
     userId: string;
     version?: number;
   }): Promise<DemoReport> {
@@ -589,7 +594,7 @@ export class DemoStorageService {
     if (data.title !== undefined) updated.title = data.title;
     if (data.sectionId !== undefined) updated.sectionId = data.sectionId;
     if (data.sortOrder !== undefined) updated.sortOrder = data.sortOrder;
-    if (data.reportSchema !== undefined) updated.reportSchema = data.reportSchema;
+    if (data.reportSchema !== undefined) updated.reportSchema = data.reportSchema as RawReportSchema;
 
     await database.reports.update(id, updated);
     

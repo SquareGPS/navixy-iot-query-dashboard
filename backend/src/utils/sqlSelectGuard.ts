@@ -1,5 +1,6 @@
 import { createRequire } from 'module';
 import { logger } from './logger.js';
+import { toErrorMeta } from './errors.js';
 
 const require = createRequire(import.meta.url);
 const { Parser } = require('node-sql-parser');
@@ -185,12 +186,12 @@ export class SQLSelectGuard {
         const astIssues = this.validateAST(ast);
         issues.push(...astIssues);
         
-      } catch (parseError: any) {
+      } catch (parseError) {
         // Check if it's PostgreSQL-specific syntax that we should allow
         if (!this.isPostgreSQLSyntax(cleanSql)) {
           issues.push({
             code: 'PARSE_ERROR',
-            message: `Invalid SQL syntax: ${parseError.message}`
+            message: `Invalid SQL syntax: ${toErrorMeta(parseError).message}`
           });
         }
       }
@@ -317,7 +318,7 @@ export class SQLSelectGuard {
    * Validate AST for additional security checks
    * Properly traverses the AST structure to detect dangerous operations
    */
-  private static validateAST(ast: any): ValidationIssue[] {
+  private static validateAST(ast: unknown): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
     const dangerousTypes = [
       'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE',
@@ -326,14 +327,15 @@ export class SQLSelectGuard {
     ];
     
     // Recursively traverse the AST to find statement types
-    const traverse = (node: any): void => {
+    const traverse = (node: unknown): void => {
       if (!node || typeof node !== 'object') {
         return;
       }
+      const record = node as Record<string, unknown>;
 
       // Check if this node represents a statement type
-      if (node.type && typeof node.type === 'string') {
-        const nodeType = node.type.toUpperCase();
+      if (typeof record.type === 'string') {
+        const nodeType = record.type.toUpperCase();
         if (dangerousTypes.includes(nodeType)) {
           issues.push({
             code: 'DANGEROUS_OPERATION',
@@ -344,21 +346,22 @@ export class SQLSelectGuard {
       }
 
       // Recursively traverse all properties
-      for (const key in node) {
+      for (const key in record) {
         // Skip certain properties that might contain keywords as string values (like column names)
         // but still traverse objects and arrays
-        if ((key === 'name' || key === 'alias' || key === 'value') && typeof node[key] === 'string') {
+        if ((key === 'name' || key === 'alias' || key === 'value') && typeof record[key] === 'string') {
           // These might contain keywords as identifiers (e.g., column named "order"), skip
           continue;
         }
 
         // Traverse arrays and objects
-        if (Array.isArray(node[key])) {
-          for (const item of node[key]) {
+        const child = record[key];
+        if (Array.isArray(child)) {
+          for (const item of child) {
             traverse(item);
           }
-        } else if (typeof node[key] === 'object' && node[key] !== null) {
-          traverse(node[key]);
+        } else if (typeof child === 'object' && child !== null) {
+          traverse(child);
         }
       }
     };

@@ -43,7 +43,7 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
   const totalsRowData = useMemo(() => {
     if (!showTotals) return null;
     
-    const totals: Record<string, any> = {};
+    const totals: Record<string, number | string> = {};
     data.columns.forEach((col, colIndex) => {
       if (col.type === 'number' || col.type === 'integer' || col.type === 'numeric' || col.type === 'decimal') {
         const sum = data.rows.reduce((acc, row) => {

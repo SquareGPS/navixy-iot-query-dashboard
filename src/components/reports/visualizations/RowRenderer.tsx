@@ -19,7 +19,7 @@ interface RowRendererProps {
     visualIndex: number;
     label: string;
     sql: string;
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
   }) => void;
   onEditAnnotation?: (annotation: {
     rowIndex: number;
@@ -231,8 +231,8 @@ export function RowRenderer({
               return (
                 <UnsupportedVisualComponent 
                   key={visualIdx}
-                  type={(visual as any).kind || 'unknown'}
-                  label={(visual as any).label || 'Unknown'}
+                  type={(visual as { kind?: string }).kind || 'unknown'}
+                  label={(visual as { label?: string }).label || 'Unknown'}
                 />
               );
             })}
@@ -244,8 +244,8 @@ export function RowRenderer({
       // Unsupported type - show warning
       return (
         <UnsupportedVisualComponent 
-          type={(row as any).type || 'unknown'} 
-          label={(row as any).title || (row as any).label}
+          type={(row as { type?: string }).type || 'unknown'}
+          label={(row as { title?: string; label?: string }).title || (row as { title?: string; label?: string }).label}
         />
       );
   }

@@ -1,10 +1,11 @@
 import { Pool } from 'pg';
-import type { PoolClient } from 'pg';
+import type { PoolClient, FieldDef } from 'pg';
 import { logger } from '../utils/logger.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { SQLSelectGuard } from '../utils/sqlSelectGuard.js';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
+import { toErrorMeta, type ErrorWithMeta } from '../utils/errors.js';
 
 export interface DatabaseConfig {
   user: string;
@@ -18,7 +19,7 @@ export interface DatabaseConfig {
 
 export interface QueryResult {
   columns: string[];
-  rows: any[];
+  rows: unknown[];
   columnTypes: Record<string, string>;
   total: number;
   page: number;
@@ -51,8 +52,8 @@ export interface User {
   created_at: string;
   updated_at: string;
   last_sign_in_at?: string;
-  raw_user_meta_data?: any;
-  raw_app_meta_data?: any;
+  raw_user_meta_data?: Record<string, unknown>;
+  raw_app_meta_data?: Record<string, unknown>;
   is_super_admin: boolean;
 }
 
@@ -298,7 +299,7 @@ export class DatabaseService {
       
       try {
         // Check if user exists in client database (match by email)
-        let result = await client.query(
+        const result = await client.query(
           'SELECT * FROM dashboard_studio_meta_data.users WHERE email = $1',
           [email]
         );
@@ -368,7 +369,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // Log detailed error information for debugging
       logger.error('Passwordless authentication error:', {
         errorCode: error?.code,
@@ -525,13 +527,14 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // Don't throw - this is a best-effort operation
       logger.warn('Could not ensure default global variables:', error.message);
     }
   }
 
-  async getGlobalVariables(pool: Pool): Promise<any[]> {
+  async getGlobalVariables(pool: Pool): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -557,12 +560,13 @@ export class DatabaseService {
           'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
         );
 
-        logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: any) => r.label) });
+        logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: Record<string, unknown>) => r.label) });
         return result.rows;
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // If table doesn't exist, return empty array instead of error
       if (error.code === '42P01') { // undefined_table
         logger.warn('global_variables table does not exist:', error.message);
@@ -579,7 +583,7 @@ export class DatabaseService {
    * jsonb holds { schemaVersion, groups }. Returns null (not an error) when the
    * table/row is missing so the endpoint can serve an empty catalog.
    */
-  async getChartPresetCatalog(pool: Pool): Promise<{ schemaVersion: string; groups: any[] } | null> {
+  async getChartPresetCatalog(pool: Pool): Promise<{ schemaVersion: string; groups: unknown[] } | null> {
     try {
       const client = await pool.connect();
 
@@ -618,7 +622,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // If table doesn't exist, return null instead of error
       if (error.code === '42P01') { // undefined_table
         logger.warn('chart_preset_catalog table does not exist:', error.message);
@@ -629,7 +634,7 @@ export class DatabaseService {
     }
   }
 
-  async getGlobalVariableById(id: string, pool: Pool): Promise<any | null> {
+  async getGlobalVariableById(id: string, pool: Pool): Promise<Record<string, unknown> | null> {
     try {
       const client = await pool.connect();
       
@@ -653,7 +658,7 @@ export class DatabaseService {
     label: string;
     description?: string;
     value?: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -669,7 +674,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A variable with this label already exists', 409);
       }
@@ -682,7 +688,7 @@ export class DatabaseService {
     label?: string;
     description?: string;
     value?: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -694,7 +700,7 @@ export class DatabaseService {
         }
 
         const updateFields: string[] = [];
-        const updateValues: any[] = [];
+        const updateValues: unknown[] = [];
         let paramIndex = 1;
 
         // Allow updating all fields
@@ -737,7 +743,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A variable with this label already exists', 409);
       }
@@ -775,7 +782,7 @@ export class DatabaseService {
       
       variables.forEach(variable => {
         if (variable.value !== null && variable.value !== undefined) {
-          map[variable.label] = variable.value;
+          map[variable.label as string] = variable.value as string;
         }
       });
 
@@ -862,7 +869,15 @@ export class DatabaseService {
   /**
    * Test database connection with provided settings
    */
-  async testDatabaseConnection(settings: any): Promise<void> {
+  async testDatabaseConnection(settings: {
+    external_db_url?: string;
+    external_db_host?: string;
+    external_db_port?: string | number;
+    external_db_name?: string;
+    external_db_user?: string;
+    external_db_password?: string;
+    external_db_ssl?: boolean;
+  }): Promise<void> {
     try {
       let config: DatabaseConfig;
 
@@ -874,7 +889,7 @@ export class DatabaseService {
           password: settings.external_db_password || '',
           database: settings.external_db_name,
           hostname: settings.external_db_host,
-          port: settings.external_db_port || 5432,
+          port: Number(settings.external_db_port) || 5432,
           ssl: settings.external_db_ssl || false,
         };
       } else {
@@ -930,7 +945,7 @@ export class DatabaseService {
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorCode = (error as any)?.code;
+        const errorCode = toErrorMeta(error).code;
         
         logger.error('Database connection test failed - detailed error:', {
           host: config.hostname,
@@ -1092,8 +1107,8 @@ export class DatabaseService {
       const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0]) : [];
       
       // Convert BigInt values to strings for JSON serialization
-      const rows = (result.rows || []).map((row: any) => {
-        const convertedRow: Record<string, any> = {};
+      const rows = (result.rows || []).map((row: Record<string, unknown>) => {
+        const convertedRow: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(row)) {
           convertedRow[key] = typeof value === 'bigint' ? value.toString() : value;
         }
@@ -1103,7 +1118,7 @@ export class DatabaseService {
       // Get column types from the result metadata
       const columnTypes: Record<string, string> = {};
       if (result.fields) {
-        result.fields.forEach((field: any) => {
+        result.fields.forEach((field: FieldDef) => {
           const typeName = field.dataTypeID ? this.getPostgresTypeName(field.dataTypeID) : 'unknown';
           columnTypes[field.name] = typeName;
         });
@@ -1125,7 +1140,8 @@ export class DatabaseService {
         page,
         pageSize: effectiveLimit,
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Database query error:', {
         error: error.message,
         sql: sql.substring(0, 100) + '...',
@@ -1134,7 +1150,7 @@ export class DatabaseService {
       });
 
       // Build detailed error message for user
-      let userMessage = error.message;
+      let userMessage = error.message || 'Database error';
       if (error.code) {
         userMessage = `[${error.code}] ${userMessage}`;
       }
@@ -1203,7 +1219,8 @@ export class DatabaseService {
       });
 
       return { value };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Database tile query error:', {
         error: error.message,
         sql: sql.substring(0, 100) + '...',
@@ -1212,7 +1229,7 @@ export class DatabaseService {
       });
 
       // Build detailed error message for user
-      let userMessage = error.message;
+      let userMessage = error.message || 'Database error';
       if (error.code) {
         userMessage = `[${error.code}] ${userMessage}`;
       }
@@ -1232,7 +1249,7 @@ export class DatabaseService {
   // App Data Methods (Reports, Sections, etc.)
   // ==========================================
 
-  async getSections(pool: Pool, userId?: string): Promise<any[]> {
+  async getSections(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1274,7 +1291,7 @@ export class DatabaseService {
     }
   }
 
-  async getReports(pool: Pool, userId?: string): Promise<any[]> {
+  async getReports(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1322,7 +1339,7 @@ export class DatabaseService {
     }
   }
 
-  async getReportById(id: string, pool: Pool, userId?: string): Promise<any> {
+  async getReportById(id: string, pool: Pool, userId?: string): Promise<Record<string, unknown> | null> {
     try {
       const client = await pool.connect();
       
@@ -1383,18 +1400,18 @@ export class DatabaseService {
   /**
    * Transform a report row from the database into a composite report format
    */
-  private transformToCompositeReport(report: any): any {
+  private transformToCompositeReport(report: Record<string, unknown>): Record<string, unknown> {
     // Parse report_schema if it's a string
-    let schema = report.report_schema;
-    if (schema && typeof schema === 'string') {
+    let schemaRaw = report.report_schema;
+    if (schemaRaw && typeof schemaRaw === 'string') {
       try {
-        schema = JSON.parse(schema);
+        schemaRaw = JSON.parse(schemaRaw);
       } catch (parseError) {
         logger.warn('Failed to parse report_schema JSON:', parseError);
-        schema = {};
+        schemaRaw = {};
       }
     }
-    schema = schema || {};
+    const schema = (schemaRaw || {}) as Record<string, unknown>;
 
     return {
       id: report.id,
@@ -1420,7 +1437,7 @@ export class DatabaseService {
     };
   }
 
-  async getCompositeReports(pool: Pool, userId?: string): Promise<any[]> {
+  async getCompositeReports(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1450,13 +1467,14 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Error getting composite reports:', error);
       throw new CustomError('Failed to get composite reports', 500);
     }
   }
 
-  async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<any | null> {
+  async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<Record<string, unknown> | null> {
     try {
       const client = await pool.connect();
       
@@ -1503,11 +1521,11 @@ export class DatabaseService {
     section_id?: string;
     sort_order?: number;
     sql_query: string;
-    config: Record<string, any>;
-    report_schema?: Record<string, any>;
+    config: Record<string, unknown>;
+    report_schema?: Record<string, unknown>;
     user_id: string;
     created_by: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -1542,7 +1560,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A composite report with this slug already exists', 409);
       }
@@ -1558,10 +1577,10 @@ export class DatabaseService {
     section_id?: string | null;
     sort_order?: number;
     sql_query?: string;
-    config?: Record<string, any>;
-    report_schema?: Record<string, any>;
+    config?: Record<string, unknown>;
+    report_schema?: Record<string, unknown>;
     updated_by: string;
-  }, pool: Pool, userId?: string): Promise<any> {
+  }, pool: Pool, userId?: string): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -1573,7 +1592,7 @@ export class DatabaseService {
         }
 
         // Build the updated report_schema
-        const existingSchema = existing.report_schema || {};
+        const existingSchema = (existing.report_schema || {}) as Record<string, unknown>;
         const updatedSchema = {
           ...existingSchema,
           type: 'composite',
@@ -1584,7 +1603,7 @@ export class DatabaseService {
         };
 
         const updateFields: string[] = [];
-        const updateValues: any[] = [];
+        const updateValues: unknown[] = [];
         let paramIndex = 1;
 
         if (data.title !== undefined) {
@@ -1637,7 +1656,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A composite report with this slug already exists', 409);
       }
@@ -1736,7 +1756,7 @@ export class DatabaseService {
       const hasParameters = Object.keys(params).length > 0;
       
       let processedStatement = statement;
-      let paramValues: unknown[] = [];
+      const paramValues: unknown[] = [];
       let usedParamCount = 0;
 
       if (hasParameters) {
@@ -1772,7 +1792,7 @@ export class DatabaseService {
 
       let total = 0;
       let finalStatement = processedStatement;
-      let finalParamValues = paramValues;
+      const finalParamValues = paramValues;
       let effectivePageSize = pagination?.pageSize;
 
       // Handle pagination if requested
@@ -1874,7 +1894,8 @@ export class DatabaseService {
 
       return resultData;
 
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Parameterized query error:', {
         error: error.message,
         statement: statement.substring(0, 100) + '...',

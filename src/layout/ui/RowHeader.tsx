@@ -32,12 +32,9 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   enableEditControls = true,
   isEditingLayout = false,
 }) => {
-  if (!isRowPanel(row) || !row.id) {
-    return null;
-  }
-
-  // Always call useDraggable (hooks must be called unconditionally)
-  // Use disabled prop to disable drag when not needed
+  // Hooks must run unconditionally and in the same order on every render, so all
+  // hook calls precede the early return below. useDraggable uses the `disabled`
+  // prop rather than being skipped when drag is off.
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `row-${row.id}`,
     data: {
@@ -94,6 +91,10 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showMenu]);
+
+  if (!isRowPanel(row) || !row.id) {
+    return null;
+  }
 
   const handleToggleCollapse = (e: React.MouseEvent) => {
     e.stopPropagation();

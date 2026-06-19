@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiService } from '@/services/api';
+import type { ReportApiData } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,9 +24,11 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import type { Dashboard, DashboardConfig, Variable } from '@/types/dashboard-types';
+import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
+import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow } from '@/types/schema-conversions';
+import { toErrorMeta } from '@/utils/errors';
 import { ReportMigration } from '@/renderer-core/utils/migration';
-import type { ReportSchema } from '@/types/report-schema';
+import type { ReportSchema, Row } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
 import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp } from '@/layout/state/commands';
 
@@ -34,8 +37,8 @@ const ReportView = () => {
   const { user, loading: authLoading } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
-  const [schema, setSchema] = useState<any>(null);
-  const [report, setReport] = useState<any>(null);
+  const [schema, setSchema] = useState<RawReportSchema | null>(null);
+  const [report, setReport] = useState<StoredReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -57,7 +60,7 @@ const ReportView = () => {
     visualIndex: number;
     label: string;
     sql: string;
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
   } | null>(null);
   const [editingAnnotation, setEditingAnnotation] = useState<{
     rowIndex: number;
@@ -69,7 +72,7 @@ const ReportView = () => {
       markdown?: boolean;
     };
   } | null>(null);
-  const [editingPanel, setEditingPanel] = useState<any>(null);
+  const [editingPanel, setEditingPanel] = useState<Panel | null>(null);
   const [editingRowTitle, setEditingRowTitle] = useState<number | null>(null);
   const [tempRowTitle, setTempRowTitle] = useState('');
   const [editingBreadcrumb, setEditingBreadcrumb] = useState<'section' | 'report' | null>(null);
@@ -101,7 +104,7 @@ const ReportView = () => {
   // Track editing state globally for menu navigation interception
   useEffect(() => {
     // Store editing state on window for menu component to access
-    (window as any).__reportEditingState = isEditing;
+    (window as { __reportEditingState?: boolean }).__reportEditingState = isEditing;
     
     // Dispatch custom events for editing state changes
     if (isEditing) {
@@ -135,14 +138,14 @@ const ReportView = () => {
       if (prevIsEditingLayout && !state.isEditingLayout && state.dashboard) {
         // Update local state with store values immediately
         // This ensures the dashboard prop updates so DashboardRenderer can see the changes
-        let updatedSchema: any;
+        let updatedSchema: RawReportSchema;
         if (schema?.dashboard) {
           updatedSchema = {
             ...schema,
             dashboard: state.dashboard
           };
         } else if (schema?.panels) {
-          updatedSchema = state.dashboard;
+          updatedSchema = asRawReportSchema(state.dashboard);
         } else {
           updatedSchema = {
             dashboard: state.dashboard
@@ -205,7 +208,7 @@ const ReportView = () => {
 
         // Set Global variables
         if (globalVarsResponse.data && Array.isArray(globalVarsResponse.data)) {
-          setGlobalVariables(globalVarsResponse.data);
+          setGlobalVariables(globalVarsResponse.data as { label: string; value: string; description?: string }[]);
         }
 
         const response = reportResponse;
@@ -228,19 +231,19 @@ const ReportView = () => {
         
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
-          const reportSchema = schemaData as ReportSchema;
+          const reportSchema = asReportSchema(schemaData);
           const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-          schemaData = migratedDashboard;
+          schemaData = asRawReportSchema(migratedDashboard);
         }
         
         // Check for direct panels (old format) or nested dashboard.panels (new format)
         let dashboardData: Dashboard;
         if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
           // Direct panels format with content
-          dashboardData = schemaData as Dashboard;
+          dashboardData = asDashboard(schemaData);
         } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
           // Nested dashboard format with content
-          dashboardData = schemaData.dashboard as Dashboard;
+          dashboardData = asDashboard(schemaData.dashboard);
         } else {
           // Empty or legacy format - show helpful message
           setError('Dashboard is empty. You can download a dashboard template to get started.');
@@ -268,7 +271,8 @@ const ReportView = () => {
         setDashboardConfig(config);
         setEditorValue(JSON.stringify(dashboardData, null, 2));
         
-      } catch (err: any) {
+      } catch (rawErr: unknown) {
+        const err = toErrorMeta(rawErr);
         console.error('❌ Error fetching report:', err);
         setError(err.message || 'Failed to load report');
       } finally {
@@ -277,6 +281,9 @@ const ReportView = () => {
     };
 
     fetchReport();
+    // Re-fetch only when the report id changes; user/isEditing are read for the
+    // config snapshot but shouldn't trigger a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
 
   const handleSaveSchema = async () => {
@@ -331,25 +338,27 @@ const ReportView = () => {
           let dashboardData: Dashboard;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
             // Direct panels format
-            dashboardData = schemaData as Dashboard;
+            dashboardData = asDashboard(schemaData);
           } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
             // Nested dashboard format
-            dashboardData = schemaData.dashboard as Dashboard;
+            dashboardData = asDashboard(schemaData.dashboard);
           } else {
             // Legacy format - convert to dashboard
             throw new Error('Legacy schema format detected. Please use dashboard format.');
           }
           
-          setSchema(dashboardData);
+          setSchema(asRawReportSchema(dashboardData));
           setEditorValue(JSON.stringify(dashboardData, null, 2));
-        } catch (err: any) {
+        } catch (rawErr: unknown) {
+          const err = toErrorMeta(rawErr);
           console.error('Error reloading report:', err);
           setError(err.message || 'Failed to reload report');
         }
       };
       
       fetchReport();
-    } catch (err: any) {
+    } catch (rawErr: unknown) {
+      const err = toErrorMeta(rawErr);
       console.error('Error saving schema:', err);
       toast({
         title: 'Error',
@@ -369,7 +378,7 @@ const ReportView = () => {
 
     try {
       // Preserve the existing schema structure
-      let updatedSchema: any;
+      let updatedSchema: RawReportSchema;
       
       if (schema.dashboard) {
         // Schema has nested dashboard property
@@ -379,7 +388,7 @@ const ReportView = () => {
         };
       } else if (schema.panels) {
         // Schema is direct Dashboard format
-        updatedSchema = updatedDashboard;
+        updatedSchema = asRawReportSchema(updatedDashboard);
       } else {
         // Fallback: wrap in dashboard property
         updatedSchema = {
@@ -417,7 +426,8 @@ const ReportView = () => {
       //   title: 'Success',
       //   description: 'Panel layout updated successfully',
       // });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error saving dashboard changes:', error);
       toast({
         title: 'Error',
@@ -438,7 +448,7 @@ const ReportView = () => {
     // store.dashboard holds the freshest copy during layout editing (it may have
     // unsaved canvas edits that haven't flushed to local state yet). Cast away the
     // store's GrafanaDashboard typing — at runtime it is a Dashboard.
-    const base = (store.dashboard || dashboard) as Dashboard;
+    const base = asDashboard(store.dashboard || dashboard);
     if (!base) return;
 
     // Auto-bind new/changed value filters to their source panel and prune
@@ -452,11 +462,11 @@ const ReportView = () => {
     };
 
     // Preserve the existing schema structure (same pattern as handleSaveDashboard)
-    let updatedSchema: any;
+    let updatedSchema: RawReportSchema;
     if (schema.dashboard) {
       updatedSchema = { ...schema, dashboard: updatedDashboard };
     } else if (schema.panels) {
-      updatedSchema = updatedDashboard;
+      updatedSchema = asRawReportSchema(updatedDashboard);
     } else {
       updatedSchema = { dashboard: updatedDashboard };
     }
@@ -472,7 +482,7 @@ const ReportView = () => {
     }
 
     // Sync both local state and the editor store (guard the canvas auto-save).
-    (window as any).__skipDashboardAutoSave = true;
+    (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = true;
     try {
       store.setDashboard(updatedDashboard);
       setDashboard(updatedDashboard);
@@ -482,7 +492,7 @@ const ReportView = () => {
         setDashboardConfig({ ...dashboardConfig, dashboard: updatedDashboard });
       }
     } finally {
-      (window as any).__skipDashboardAutoSave = false;
+      (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
     }
   }, [reportId, schema, report, dashboard, dashboardConfig]);
 
@@ -554,7 +564,7 @@ const ReportView = () => {
     setEditingTitle(true);
   };
 
-  const handleSaveElement = async (sql: string, params?: Record<string, any>) => {
+  const handleSaveElement = async (sql: string, params?: Record<string, unknown>) => {
     if (!editingElement || !schema) {
       return;
     }
@@ -598,7 +608,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Element updated successfully',
       });
-    } catch (err: any) {
+    } catch (rawErr: unknown) {
+      const err = toErrorMeta(rawErr);
       console.error('Error saving element:', err);
       toast({
         title: 'Error',
@@ -635,7 +646,7 @@ const ReportView = () => {
       
       // Update the annotation options
       visual.options = {
-        ...visual.options,
+        ...(visual.options as Record<string, unknown>),
         section_name: annotation.section_name,
         subtitle: annotation.subtitle,
         text: annotation.text,
@@ -681,7 +692,8 @@ const ReportView = () => {
       });
       
       console.log('=== handleSaveAnnotation completed successfully ===');
-    } catch (err: any) {
+    } catch (rawErr: unknown) {
+      const err = toErrorMeta(rawErr);
       console.error('=== Error saving annotation ===', err);
       toast({
         title: 'Error',
@@ -728,7 +740,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Element deleted successfully',
       });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error deleting element:', error);
       toast({
         title: 'Error',
@@ -764,7 +777,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Annotation deleted successfully',
       });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error deleting annotation:', error);
       toast({
         title: 'Error',
@@ -793,7 +807,8 @@ const ReportView = () => {
       
       // Navigate back to the reports list
       window.location.href = '/app';
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error deleting report:', error);
       toast({
         title: 'Error',
@@ -854,7 +869,7 @@ const ReportView = () => {
     } finally {
       setSaving(false);
     }
-  }, [schema, editingRowTitle, tempRowTitle, reportId]);
+  }, [schema, editingRowTitle, tempRowTitle, reportId, report?.title]);
 
   const handleCancelEditRowTitle = useCallback(() => {
     setEditingRowTitle(null);
@@ -906,7 +921,8 @@ const ReportView = () => {
         title: 'Success',
         description: `${editingBreadcrumb === 'section' ? 'Section' : 'Dashboard'} updated successfully`,
       });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error(`Error updating ${editingBreadcrumb}:`, error);
       toast({
         title: 'Error',
@@ -992,7 +1008,7 @@ const ReportView = () => {
     setShowNewRowEditor(true);
   };
 
-  const handleSaveNewRow = async (newRow: any) => {
+  const handleSaveNewRow = async (newRow: Row) => {
     if (!schema || !reportId) return;
 
     try {
@@ -1000,9 +1016,9 @@ const ReportView = () => {
       
       // Insert the new row at the specified position
       if (insertAfterIndex !== undefined) {
-        updatedSchema.rows.splice(insertAfterIndex + 1, 0, newRow);
+        updatedSchema.rows.splice(insertAfterIndex + 1, 0, asSchemaRow(newRow));
       } else {
-        updatedSchema.rows.push(newRow);
+        updatedSchema.rows.push(asSchemaRow(newRow));
       }
 
       // Update timestamp
@@ -1032,7 +1048,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Row added successfully',
       });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('Error adding row:', error);
       toast({
         title: 'Error',
@@ -1042,7 +1059,7 @@ const ReportView = () => {
     }
   };
 
-  const handleSavePanel = async (updatedPanel: any) => {
+  const handleSavePanel = async (updatedPanel: Panel) => {
     if (!dashboard || !reportId || !schema) {
       return;
     }
@@ -1127,7 +1144,7 @@ const ReportView = () => {
       }
       
       // Preserve the existing schema structure (same pattern as handleSaveDashboard)
-      let updatedSchema: any;
+      let updatedSchema: RawReportSchema;
       
       if (schema.dashboard) {
         // Schema has nested dashboard property
@@ -1137,7 +1154,7 @@ const ReportView = () => {
         };
       } else if (schema.panels) {
         // Schema is direct Dashboard format
-        updatedSchema = updatedDashboard;
+        updatedSchema = asRawReportSchema(updatedDashboard);
       } else {
         // Fallback: wrap in dashboard property
         updatedSchema = {
@@ -1159,12 +1176,13 @@ const ReportView = () => {
       let finalDashboard = updatedDashboard;
       let finalSchema = updatedSchema;
       
-      if (response.data?.report?.report_schema) {
-        const savedSchema = response.data.report.report_schema;
+      const savedReport = (response.data as ReportApiData | undefined)?.report;
+      if (savedReport?.report_schema) {
+        const savedSchema = savedReport.report_schema;
         const savedDashboard = savedSchema.dashboard || savedSchema;
         
         // Use the saved dashboard from the API response
-        finalDashboard = savedDashboard;
+        finalDashboard = asDashboard(savedDashboard);
         
         // Reconstruct schema with saved dashboard
         if (schema.dashboard) {
@@ -1184,15 +1202,15 @@ const ReportView = () => {
       // Update editorStore and local state
       // Prevent Canvas from triggering another save during this update
       const storeAfterSave = useEditorStore.getState();
-      (window as any).__skipDashboardAutoSave = true;
+      (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = true;
       
       try {
         storeAfterSave.setDashboard(finalDashboard);
         setDashboard(finalDashboard);
         setSchema(finalSchema);
-        (window as any).__skipDashboardAutoSave = false;
+        (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
       } catch (error) {
-        (window as any).__skipDashboardAutoSave = false;
+        (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
         throw error;
       }
       
@@ -1237,7 +1255,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Panel updated successfully',
       });
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       console.error('❌ Error saving panel:', error);
       toast({
         title: 'Error',
@@ -1316,9 +1335,9 @@ const ReportView = () => {
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
           console.log('🔄 Detected report schema format, migrating to dashboard format...');
-          const reportSchema = schemaData as ReportSchema;
+          const reportSchema = asReportSchema(schemaData);
           const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
-          schemaData = dashboardData;
+          schemaData = asRawReportSchema(dashboardData);
           console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
@@ -1371,17 +1390,17 @@ const ReportView = () => {
             
             // Check if this is a report schema format (with rows) and migrate to dashboard format
             if (loadedSchema.rows && Array.isArray(loadedSchema.rows) && loadedSchema.rows.length > 0) {
-              const reportSchema = loadedSchema as ReportSchema;
+              const reportSchema = asReportSchema(loadedSchema);
               const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-              loadedSchema = migratedDashboard;
+              loadedSchema = asRawReportSchema(migratedDashboard);
             }
             
             // Extract dashboard from schema data
             let dashboardData: Dashboard;
             if (loadedSchema.panels && Array.isArray(loadedSchema.panels) && loadedSchema.panels.length > 0) {
-              dashboardData = loadedSchema as Dashboard;
+              dashboardData = asDashboard(loadedSchema);
             } else if (loadedSchema.dashboard && loadedSchema.dashboard.panels && Array.isArray(loadedSchema.dashboard.panels) && loadedSchema.dashboard.panels.length > 0) {
-              dashboardData = loadedSchema.dashboard as Dashboard;
+              dashboardData = asDashboard(loadedSchema.dashboard);
             } else {
               throw new Error('Dashboard schema is missing panels');
             }
@@ -1407,7 +1426,8 @@ const ReportView = () => {
             };
             setDashboardConfig(config);
             setEditorValue(JSON.stringify(dashboardData, null, 2));
-          } catch (err: any) {
+          } catch (rawErr: unknown) {
+            const err = toErrorMeta(rawErr);
             console.error('Error fetching report:', err);
             setError(err.message);
           } finally {
@@ -1423,7 +1443,8 @@ const ReportView = () => {
           title: 'Success',
           description: 'Schema uploaded and saved successfully',
         });
-      } catch (err: any) {
+      } catch (rawErr: unknown) {
+        const err = toErrorMeta(rawErr);
         console.error('Error uploading schema:', err);
         toast({
           title: 'Error',
@@ -1466,9 +1487,9 @@ const ReportView = () => {
         // Check if this is a report schema format (with rows) and migrate to dashboard format
         if (exampleSchema.rows && Array.isArray(exampleSchema.rows) && exampleSchema.rows.length > 0) {
           console.log('🔄 Detected report schema format, migrating to dashboard format...');
-          const reportSchema = exampleSchema as ReportSchema;
+          const reportSchema = asReportSchema(exampleSchema);
           const dashboardData = ReportMigration.migrateToGrafana(reportSchema);
-          exampleSchema = dashboardData;
+          exampleSchema = asRawReportSchema(dashboardData);
           console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
@@ -1525,9 +1546,9 @@ const ReportView = () => {
             // Check if this is a report schema format (with rows) and migrate to dashboard format
             if (schemaData.rows && Array.isArray(schemaData.rows) && schemaData.rows.length > 0) {
               console.log('🔄 Detected report schema format in refresh, migrating to dashboard format...');
-              const reportSchema = schemaData as ReportSchema;
+              const reportSchema = asReportSchema(schemaData);
               const migratedDashboard = ReportMigration.migrateToGrafana(reportSchema);
-              schemaData = migratedDashboard;
+              schemaData = asRawReportSchema(migratedDashboard);
               console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
             }
             
@@ -1535,10 +1556,10 @@ const ReportView = () => {
             let dashboardData: Dashboard;
             if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
               // Direct panels format
-              dashboardData = schemaData as Dashboard;
+              dashboardData = asDashboard(schemaData);
             } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
               // Nested dashboard format
-              dashboardData = schemaData.dashboard as Dashboard;
+              dashboardData = asDashboard(schemaData.dashboard);
             } else {
               throw new Error('Dashboard schema is missing panels');
             }
@@ -1565,7 +1586,8 @@ const ReportView = () => {
             setDashboardConfig(config);
             setEditorValue(JSON.stringify(dashboardData, null, 2));
             console.log('✅ Fresh report data loaded successfully');
-          } catch (err: any) {
+          } catch (rawErr: unknown) {
+            const err = toErrorMeta(rawErr);
             console.error('❌ Error fetching fresh report:', err);
             setError(err.message);
           } finally {
@@ -1642,7 +1664,7 @@ const ReportView = () => {
           // Handle dashboard format
           const schemaData = reportData.report_schema;
           if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            const dashboardData = schemaData as Dashboard;
+            const dashboardData = asDashboard(schemaData);
             setDashboard(dashboardData);
             setSchema(schemaData); // Set schema for compatibility
             
@@ -1666,7 +1688,8 @@ const ReportView = () => {
           } else {
             throw new Error('Invalid dashboard format');
           }
-        } catch (err: any) {
+        } catch (rawErr: unknown) {
+          const err = toErrorMeta(rawErr);
           console.error('Error fetching report:', err);
           setError(err.message);
         } finally {
@@ -1682,7 +1705,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Dashboard downloaded and saved successfully',
       });
-    } catch (err: any) {
+    } catch (rawErr: unknown) {
+      const err = toErrorMeta(rawErr);
       console.error('Error downloading schema:', err);
       toast({
         title: 'Error',
@@ -1767,7 +1791,7 @@ const ReportView = () => {
       }
       
       // Update local state
-      setDashboard(blankDashboard as any);
+      setDashboard(asDashboard(blankDashboard));
       setSchema(blankDashboard);
       setEditorValue(JSON.stringify(blankDashboard, null, 2));
       setError(null);
@@ -1779,7 +1803,8 @@ const ReportView = () => {
         title: 'Success',
         description: 'Blank dashboard created. You can now add panels.',
       });
-    } catch (err: any) {
+    } catch (rawErr: unknown) {
+      const err = toErrorMeta(rawErr);
       console.error('Error creating blank dashboard:', err);
       toast({
         title: 'Error',

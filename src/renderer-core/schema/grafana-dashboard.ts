@@ -66,7 +66,7 @@ export interface Panel {
   gridPos: GridPosition;
   targets: Target[];
   fieldConfig: FieldConfig;
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
   "x-navixy"?: NavixyPanelExt;
 }
 
@@ -104,7 +104,7 @@ export interface FieldConfig {
 
 export interface FieldConfigDefaults {
   color?: FieldColor;
-  custom?: Record<string, any>;
+  custom?: Record<string, unknown>;
   mappings?: ValueMapping[];
   thresholds?: ThresholdsConfig;
   unit?: string;
@@ -149,12 +149,12 @@ export interface FieldConfigOverride {
 
 export interface MatcherConfig {
   id: string;
-  options?: any;
+  options?: unknown;
 }
 
 export interface FieldConfigOverrideProperty {
   id: string;
-  value?: any;
+  value?: unknown;
 }
 
 export interface Annotations {
@@ -248,7 +248,7 @@ export interface VerifySpec {
 
 export interface TransformStep {
   type: "sort" | "limit" | "rename" | "calc" | "pivot" | "unpivot";
-  config: Record<string, any>;
+  config: Record<string, unknown>;
 }
 
 // Data Types

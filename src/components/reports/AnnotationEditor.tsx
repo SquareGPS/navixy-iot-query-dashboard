@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
+import { getErrorMessage } from '@/utils/errors';
 
 interface AnnotationEditorProps {
   open: boolean;
@@ -81,11 +82,11 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
         title: 'Success',
         description: 'Annotation deleted successfully',
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting annotation:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to delete annotation',
+        description: getErrorMessage(error, 'Failed to delete annotation'),
         variant: 'destructive',
       });
     } finally {

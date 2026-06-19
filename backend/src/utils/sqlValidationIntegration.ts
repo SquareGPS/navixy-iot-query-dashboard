@@ -45,7 +45,7 @@ export function validateSQLQuery(req: Request, res: Response, next: NextFunction
   } catch (error) {
     if (error instanceof SelectValidationError) {
       logger.warn('SQL validation failed:', {
-        userId: (req as any).user?.userId,
+        userId: (req as { user?: { userId?: string } }).user?.userId,
         sql: sql.substring(0, 100) + '...',
         issues: error.issues
       });
@@ -64,7 +64,7 @@ export function validateSQLQuery(req: Request, res: Response, next: NextFunction
     }
 
     logger.error('Unexpected SQL validation error:', {
-      userId: (req as any).user?.userId,
+      userId: (req as { user?: { userId?: string } }).user?.userId,
       sql: sql.substring(0, 100) + '...',
       error: error instanceof Error ? error.message : String(error)
     });
@@ -159,10 +159,11 @@ export function createValidationErrorResponse(issues: Array<{ code: string; mess
 /**
  * Check if a response is a validation error
  */
-export function isValidationErrorResponse(response: any): response is ValidationErrorResponse {
-  return response?.error?.code === 'SQL_VALIDATION_ERROR' && 
-         response?.error?.details?.issues &&
-         Array.isArray(response.error.details.issues);
+export function isValidationErrorResponse(response: unknown): response is ValidationErrorResponse {
+  const r = response as { error?: { code?: string; details?: { issues?: unknown } } } | null | undefined;
+  return r?.error?.code === 'SQL_VALIDATION_ERROR' &&
+         !!r?.error?.details?.issues &&
+         Array.isArray(r.error.details.issues);
 }
 
 /**

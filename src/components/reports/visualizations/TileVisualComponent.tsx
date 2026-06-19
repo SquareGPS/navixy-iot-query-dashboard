@@ -3,6 +3,7 @@ import { MetricTile } from '@/components/reports/MetricTile';
 import { apiService } from '@/services/api';
 import { Pencil, AlertCircle } from 'lucide-react';
 import type { TileVisual } from '@/types/report-schema';
+import { getErrorMessage } from '@/utils/errors';
 
 interface TileVisualComponentProps {
   visual: TileVisual;
@@ -37,9 +38,9 @@ export function TileVisualComponent({ visual, editMode, onEdit }: TileVisualComp
         
         const newValue = response.data?.rows?.[0]?.[0] !== undefined ? Number(response.data.rows[0][0]) : null;
         setValue(newValue);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching tile value:', err);
-        setError(err.message || 'Query failed');
+        setError(getErrorMessage(err, 'Query failed'));
         setValue(null);
       } finally {
         setLoading(false);

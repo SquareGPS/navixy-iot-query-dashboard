@@ -81,7 +81,7 @@ export function computeBands(panels: Panel[]): Band[] {
     const top = row.gridPos.y + 1; // Band starts below row header
     
     // Check if row has explicit band height set
-    const explicitHeight = (row.options as any)?.rowBandHeight;
+    const explicitHeight = (row.options as { rowBandHeight?: number })?.rowBandHeight;
     let bottom: number;
     
     if (explicitHeight !== undefined && explicitHeight !== null) {

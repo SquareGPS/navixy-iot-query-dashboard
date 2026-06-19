@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
+import { toErrorMeta } from '@/utils/errors';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -223,7 +224,8 @@ export default function CompositeReportView() {
           setEditMaxRows(tableConfig.maxRows || 10000);
           setEditShowTotals(tableConfig.showTotals || false);
         }
-      } catch (error: any) {
+      } catch (rawErr: unknown) {
+        const error = toErrorMeta(rawErr);
         toast.error(`Failed to load report: ${error.message}`);
         navigate('/');
       } finally {
@@ -283,7 +285,8 @@ export default function CompositeReportView() {
         lastExecuted: new Date(),
       });
       setTablePage(1);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       setExecution({
         loading: false,
         error: error.message || 'Query execution failed',
@@ -325,6 +328,9 @@ export default function CompositeReportView() {
       if (!chartYColumn) setChartYColumn(defaultY);
       if (!chartColorColumn) setChartColorColumn(defaultGroup);
     }
+    // Chart column selections are intentionally excluded: initialise defaults from
+    // the data/config only; re-adding them would override the user's later choices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [execution.data?.columns, report?.config.chart]);
 
   // Extract GPS points for map
@@ -426,6 +432,8 @@ export default function CompositeReportView() {
     };
 
     geocodeCoordinates();
+    // geocodedAddresses is set by this effect; including it would cause a re-geocode loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geocodeEnabled, gpsPairs, rowObjects]);
 
   // Get address for coordinates
@@ -524,7 +532,7 @@ export default function CompositeReportView() {
         return point;
       });
     }
-  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups]);
+  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups, datetimePrefs]);
 
   // Save SQL query
   const handleSaveSql = async (): Promise<boolean> => {
@@ -565,7 +573,8 @@ export default function CompositeReportView() {
       });
       toast.success('SQL query saved');
       return true;
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save: ${error.message}`);
       return false;
     } finally {
@@ -630,7 +639,8 @@ export default function CompositeReportView() {
 
       setReport(response.data);
       toast.success('Chart settings saved');
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save chart settings: ${error.message}`);
     } finally {
       setSavingChartConfig(false);
@@ -684,7 +694,8 @@ export default function CompositeReportView() {
         setPendingExecute(true);
       }
       toast.success('Table settings saved');
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save table settings: ${error.message}`);
     } finally {
       setSavingTableConfig(false);
@@ -729,7 +740,8 @@ export default function CompositeReportView() {
 
       setReport(response.data);
       toast.success(`Map ${enabled ? 'enabled' : 'disabled'}`);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       setReport(previousReport);
       toast.error(`Failed to update map setting: ${error.message}`);
     } finally {
@@ -808,7 +820,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('Export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Export failed: ${error.message}`);
     } finally {
       setExporting(null);
@@ -874,7 +887,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('Export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Export failed: ${error.message}`);
     } finally {
       setExporting(null);
@@ -908,7 +922,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('PDF export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`PDF export failed: ${error.message}`);
     } finally {
       setExporting(null);

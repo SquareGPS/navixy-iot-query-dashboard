@@ -12,6 +12,8 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
 import crypto from 'crypto';
+import type { Pool } from 'pg';
+import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
 // Initialize services lazily to avoid issues with environment variables
@@ -60,7 +62,7 @@ interface QueryResponse {
   error?: {
     code: string;
     message: string;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -206,7 +208,8 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     });
 
     return res.json(result);
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Parameterized query error:', {
       userId: req.user?.userId,
       error: error.message,
@@ -216,9 +219,9 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
 
     return res.status(200).json({
       error: {
-        code: error.statusCode >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
+        code: (error.statusCode ?? 0) >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
         message: error.message,
-        details: error.statusCode >= 500 ? undefined : {
+        details: (error.statusCode ?? 0) >= 500 ? undefined : {
           sqlCode: error.code,
           position: error.position,
         }
@@ -228,7 +231,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
 }));
 
 // Helper function to get timeout from global variables
-async function getGlobalTimeoutMs(settingsPool: any): Promise<number> {
+async function getGlobalTimeoutMs(settingsPool: Pool | null | undefined): Promise<number> {
   const defaultTimeout = 30000;
   if (!settingsPool) {
     logger.info('SQL timeout: using default (no settings pool)', { timeout: defaultTimeout });
@@ -295,7 +298,8 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     });
 
     return res.json(result);
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Legacy table query error:', {
       userId: req.user?.userId,
       error: error.message,
@@ -304,9 +308,9 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
 
     return res.status(200).json({
       error: {
-        code: error.statusCode >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
+        code: (error.statusCode ?? 0) >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
         message: error.message,
-        details: error.statusCode >= 500 ? undefined : {
+        details: (error.statusCode ?? 0) >= 500 ? undefined : {
           sqlCode: error.code,
           position: error.position,
         }
@@ -356,7 +360,8 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     });
 
     return res.json(result);
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Legacy tile query error:', {
       userId: req.user?.userId,
       error: error.message,
@@ -365,9 +370,9 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
 
     return res.status(200).json({
       error: {
-        code: error.statusCode >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
+        code: (error.statusCode ?? 0) >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
         message: error.message,
-        details: error.statusCode >= 500 ? undefined : {
+        details: (error.statusCode ?? 0) >= 500 ? undefined : {
           sqlCode: error.code,
           position: error.position,
         }
