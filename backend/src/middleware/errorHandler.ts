@@ -27,6 +27,30 @@ export const errorHandler = (
 ) => {
   const { statusCode = 500, message } = error;
 
+  // If the response has already started (e.g. a streamed export that failed
+  // mid-flight), we can't write a JSON error body — the status/headers are
+  // gone. Delegate to Express's default handler, which aborts the connection
+  // so the client sees a broken download rather than a hung request.
+  if (res.headersSent) {
+    // A client cancelling a large streamed download is routine, not a server
+    // fault — log it at warn (no stack) so it doesn't pollute error alerting.
+    const code = (error as AppError & { code?: string }).code;
+    const isClientAbort =
+      code === 'ECONNRESET' ||
+      code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+      /aborted|premature close/i.test(message ?? '');
+    if (isClientAbort) {
+      logger.warn('Client aborted in-flight response', { message, code, url: req.url });
+    } else {
+      logger.error('Error after response started; aborting stream', {
+        message,
+        url: req.url,
+        stack: error.stack,
+      });
+    }
+    return next(error);
+  }
+
   logger.error('Error occurred:', {
     error: {
       message,

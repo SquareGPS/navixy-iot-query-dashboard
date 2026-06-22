@@ -126,14 +126,13 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
 
       res.send(csvBuffer);
     } else {
-      const excelBuffer = await exportService.generateExcel(exportOptions);
       const filename = `${(title || 'panel').replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.xlsx`;
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Content-Length', excelBuffer.length);
-
-      res.send(excelBuffer);
+      // Streamed in chunks (no Content-Length): keeps memory flat on large
+      // exports and starts bytes flowing immediately. See ExportService.streamExcel.
+      await exportService.streamExcel(exportOptions, res);
     }
 
     logger.info('Panel data exported', { title, format, rowCount: exportRows.length });
