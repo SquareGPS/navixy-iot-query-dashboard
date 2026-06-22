@@ -38,7 +38,7 @@ import { PanelFilterIndicator } from './PanelFilterIndicator';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { canonicalizeRows } from '@/layout/geometry/rows';
+import { normalizeDashboardLayout } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
@@ -419,9 +419,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return; // Early return to prevent overwriting store during editing
     }
 
-    // Only update if we're not in edit mode, or if we haven't initialized yet
-    // Canonicalize rows to ensure expanded rows have children in main panels array
-    const canonicalizedDashboard = canonicalizeRows(dashboard);
+    // Only update if we're not in edit mode, or if we haven't initialized yet.
+    // Normalize hoists row children, then strips accumulated empty vertical space
+    // so content isn't pushed off-screen (DO-279). Idempotent + a no-op on healthy
+    // dashboards, so it's safe to run on every (re)initialization.
+    const canonicalizedDashboard = normalizeDashboardLayout(dashboard);
     setDashboard(canonicalizedDashboard);
     dashboardInitializedRef.current = true;
     // When in editing mode and already initialized, ignore prop changes
@@ -434,8 +436,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Otherwise use the prop dashboard
     const dashboardToUse = storeDashboard || dashboard;
 
-    // Canonicalize the dashboard
-    const canonicalized = canonicalizeRows(dashboardToUse);
+    // Normalize the dashboard: hoist row children and collapse any accumulated
+    // empty vertical space (DO-279) so panels with large/gappy Y coordinates still
+    // render in view. Idempotent, so re-running it on the store stays stable.
+    const canonicalized = normalizeDashboardLayout(dashboardToUse);
 
     // Ensure every panel has a unique ID — return new objects instead of mutating
     const withIds = (panels: Panel[]): Panel[] =>

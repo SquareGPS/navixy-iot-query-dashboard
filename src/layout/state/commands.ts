@@ -17,9 +17,9 @@ import {
   moveRow,
   deleteRow,
   isRowPanel,
+  normalizeDashboardLayout,
 } from '../geometry/rows';
 import { placeNewPanel, nextId } from '../geometry/add';
-import { tidyUp } from '../geometry/tidyUp';
 import { idEq } from '../geometry/idUtils';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { ChartPresetPanel } from '@/types/chart-catalog';
@@ -571,8 +571,11 @@ export function cmdTidyUp(): void {
   }
 
   const currentDashboard = store.dashboard;
-  const newDashboard = tidyUp(store.dashboard);
-  
+  // normalizeDashboardLayout is row-aware: it shifts row headers together with the
+  // panels in their band (the old tidyUp skipped row panels entirely) and leaves
+  // the layout in the same stable form the renderer produces.
+  const newDashboard = normalizeDashboardLayout(store.dashboard);
+
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);
 }
