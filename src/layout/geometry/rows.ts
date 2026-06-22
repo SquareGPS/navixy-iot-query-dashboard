@@ -4,7 +4,7 @@
 
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { GridPos } from './grid';
-import { clampToBounds, GRID_COLUMNS } from './grid';
+import { clampToBounds, GRID_COLUMNS, GRID_UNIT_HEIGHT } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import { autoPack } from './autopack';
 import { pixelsToGrid } from './grid';
@@ -1114,6 +1114,26 @@ export function canonicalizeRows(dashboard: Dashboard): Dashboard {
 }
 
 /**
+ * IDs of panels nested inside collapsed rows. They render relative to their header
+ * (not on the top-level grid), so vertical-layout passes must ignore them. IDs are
+ * stringified (per idUtils) because a nested child may carry a numeric id while a
+ * top-level duplicate is a UUID string.
+ */
+function collapsedRowChildIds(dashboard: Dashboard): Set<string> {
+  const ids = new Set<string>();
+  for (const panel of dashboard.panels) {
+    if (isRowPanel(panel) && panel.collapsed === true && panel.panels) {
+      panel.panels.forEach((child) => {
+        if (child.id !== undefined && child.id !== null) {
+          ids.add(String(child.id));
+        }
+      });
+    }
+  }
+  return ids;
+}
+
+/**
  * Compact vertical gaps by removing dead (fully-empty) grid rows.
  *
  * The 24-column grid renders every panel at an absolute `y * GRID_UNIT_HEIGHT`
@@ -1139,26 +1159,20 @@ export function canonicalizeRows(dashboard: Dashboard): Dashboard {
  *   `normalizeDashboardLayout`, so that case never reaches production.)
  * - Children of collapsed rows live in `row.panels[]` with relative coordinates
  *   and move with their header automatically, so they are left untouched.
+ * - Corrupt coordinates are sanitized rather than trusted: a panel parked above
+ *   the grid (negative `y`) is pulled back on-screen so the result's minimum `y`
+ *   is 0, and a non-positive `h` is counted as occupying one row so neighbours
+ *   never compact on top of a zero-height panel. Both are reachable through the
+ *   same imported/accumulated coordinates this pass exists to heal.
  *
  * Idempotent and a no-op for already-compact dashboards (returns the same
  * reference), so it is safe to run on every load/render.
  */
 export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
-  // Children nested inside collapsed rows are not laid out on the top-level
-  // grid — they render relative to their header — so exclude them from both the
-  // occupancy scan and the shift. IDs are normalized to string (per idUtils)
-  // because a nested child may carry a numeric id while a top-level duplicate is
-  // a UUID string.
-  const collapsedChildIds = new Set<string>();
-  for (const panel of dashboard.panels) {
-    if (isRowPanel(panel) && panel.collapsed === true && panel.panels) {
-      panel.panels.forEach((child) => {
-        if (child.id !== undefined && child.id !== null) {
-          collapsedChildIds.add(String(child.id));
-        }
-      });
-    }
-  }
+  // Children nested inside collapsed rows are not laid out on the top-level grid —
+  // they render relative to their header — so exclude them from both the occupancy
+  // scan and the shift.
+  const collapsedChildIds = collapsedRowChildIds(dashboard);
 
   // A collapsed-row child is the ONLY thing we skip. Every plain top-level panel
   // is included — even one still missing an id, because the renderer compacts
@@ -1174,28 +1188,41 @@ export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
     return dashboard;
   }
 
+  // Corrupt/imported layouts can carry coordinates the occupancy scan must not
+  // take at face value:
+  //   * negative `y` — content parked above the viewport, and
+  //   * non-positive `h` — a zero/negative-height panel.
+  // Work in a coordinate space shifted by `base` so the topmost element sits at
+  // row 0 (no negative indices), and treat every element as covering at least one
+  // row. Without this a negative-y panel would keep its off-screen y and a
+  // zero-height panel would be invisible to occupancy, letting neighbours compact
+  // on top of it — the very off-screen/overlap symptoms DO-279 exists to cure.
+  const heightOf = (p: Panel): number => Math.max(1, p.gridPos.h);
+  const base = Math.min(0, ...elements.map((p) => p.gridPos.y)); // <= 0
+  const topOf = (p: Panel): number => p.gridPos.y - base; // normalized, always >= 0
+
   // Mark every grid row occupied by a top-level element, and which rows are the
   // top edge of a row header (those keep a 1-row gap above them).
-  const maxBottom = Math.max(...elements.map((p) => p.gridPos.y + p.gridPos.h));
+  const maxBottom = Math.max(...elements.map((p) => topOf(p) + heightOf(p)));
   if (maxBottom <= 0) {
     return dashboard;
   }
   const occupied = new Array<boolean>(maxBottom).fill(false);
   const isRowHeaderTop = new Array<boolean>(maxBottom).fill(false);
   for (const p of elements) {
-    const start = Math.max(0, p.gridPos.y);
-    const end = Math.min(maxBottom, p.gridPos.y + p.gridPos.h);
+    const start = topOf(p);
+    const end = Math.min(maxBottom, start + heightOf(p));
     for (let y = start; y < end; y++) {
       occupied[y] = true;
     }
-    if (isRowPanel(p) && p.gridPos.y >= 0 && p.gridPos.y < maxBottom) {
-      isRowHeaderTop[p.gridPos.y] = true;
+    if (isRowPanel(p)) {
+      isRowHeaderTop[start] = true;
     }
   }
 
-  // shiftAt[y] = how far up an element starting at grid row y should move.
-  // Walk top-down accumulating removed rows; when an empty run ends, drop all of
-  // it except a single row kept above a non-leading row header.
+  // shiftAt[y] = how far up an element starting at (normalized) grid row y should
+  // move. Walk top-down accumulating removed rows; when an empty run ends, drop all
+  // of it except a single row kept above a non-leading row header.
   const shiftAt = new Array<number>(maxBottom + 1).fill(0);
   let removed = 0;
   let pendingEmpty = 0;
@@ -1215,8 +1242,9 @@ export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
   }
   shiftAt[maxBottom] = removed;
 
-  // Nothing removed -> already compact, keep the same reference.
-  if (removed === 0) {
+  // Already compact: no dead rows to remove and nothing parked above row 0 (base
+  // === 0). Keep the same reference so callers can rely on no-op equality.
+  if (removed === 0 && base === 0) {
     return dashboard;
   }
 
@@ -1226,8 +1254,11 @@ export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
       if (isCollapsedChild(panel)) {
         return panel;
       }
-      const clampedY = Math.min(Math.max(panel.gridPos.y, 0), maxBottom);
-      const newY = panel.gridPos.y - shiftAt[clampedY];
+      // `start` is the normalized top row (occupied, so shiftAt[start] <= start);
+      // subtracting the removed-row count keeps newY >= 0, pulling negative-y
+      // content back on-screen and holding the min-y === 0 invariant.
+      const start = topOf(panel);
+      const newY = start - shiftAt[start];
       if (newY === panel.gridPos.y) {
         return panel;
       }
@@ -1237,24 +1268,68 @@ export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
 }
 
 /**
- * Normalize a dashboard's vertical layout into a stable, gap-free form.
- *
- * This is the canonical "heal the layout" pass used when a dashboard is loaded
- * for rendering (and on explicit "Tidy up"). It canonicalizes rows (hoisting row
- * children, deduping ids, enforcing row shape) and then strips accumulated dead
- * vertical space so content can't be pushed off-screen (DO-279).
+ * Normalize a dashboard's vertical layout into a stable, gap-free form, compacting
+ * unconditionally. It canonicalizes rows (hoisting row children, deduping ids,
+ * enforcing row shape) and then strips ALL accumulated dead vertical space.
  *
  * Both steps are idempotent and `compactVerticalGaps` preserves the minimum row
  * spacing `canonicalizeRows` expects, so the whole composition is a fixed point:
- * re-running it on the output reproduces it exactly. That matters because the
- * renderer canonicalizes again on every render.
+ * re-running it on the output reproduces it exactly.
  *
- * It is intentionally NOT folded into canonicalizeRows (which runs after every
- * editor mutation): compaction must not fight a user who is deliberately
- * dragging panels apart mid-edit. It only runs on load and on explicit "Tidy up".
+ * This is the explicit "Tidy up" behaviour — the user asked to clean up, so even
+ * intentional spacing is removed. The load/render path uses
+ * `normalizeDashboardForRender` instead, which only compacts a layout that is
+ * actually pushed off-screen. Neither is folded into canonicalizeRows (which runs
+ * after every editor mutation): compaction must not fight a user dragging panels
+ * apart mid-edit.
  */
 export function normalizeDashboardLayout(dashboard: Dashboard): Dashboard {
   return compactVerticalGaps(canonicalizeRows(dashboard));
+}
+
+// A large empty band above the first element is the DO-279 "looks empty on open"
+// symptom: content is parked below the first screen (or, when y is negative, above
+// it). ~600px of dead space is roughly a viewport, and at GRID_UNIT_HEIGHT (30px)
+// that is 20 grid rows — comfortably above any plausible intentional top padding,
+// yet well under the real corrupt gaps (the HW Asset dashboard's first row sat 56
+// rows down).
+const OFF_SCREEN_LEADING_ROWS = Math.round(600 / GRID_UNIT_HEIGHT);
+
+/**
+ * Heuristic gate for load-time auto-compaction: true when the layout's top-level
+ * content is parked off the first screen — either above the viewport (negative y)
+ * or below a leading gap taller than ~one screen. That is the DO-279 "renders
+ * empty" symptom and always worth healing.
+ *
+ * A modest top margin or a deliberate gap *between* sections leaves the first
+ * element near the top, so this returns false and the spacing is preserved. The
+ * explicit "Tidy up" button bypasses this gate (see `normalizeDashboardLayout`).
+ */
+export function isLayoutPushedOffScreen(dashboard: Dashboard): boolean {
+  // Collapsed-row children render relative to their header, not on the top-level
+  // grid, so they don't count toward the leading gap (same exclusion compaction uses).
+  const collapsedChildIds = collapsedRowChildIds(dashboard);
+  const tops = dashboard.panels
+    .filter((p) => !(p.id !== undefined && p.id !== null && collapsedChildIds.has(String(p.id))))
+    .map((p) => p.gridPos.y);
+  if (tops.length === 0) {
+    return false;
+  }
+  const leadingGap = Math.min(...tops);
+  return leadingGap < 0 || leadingGap >= OFF_SCREEN_LEADING_ROWS;
+}
+
+/**
+ * Load/render-time layout normalization. Always canonicalizes rows (needed for a
+ * correct render), but only strips dead vertical space when the layout is actually
+ * pushed off-screen (`isLayoutPushedOffScreen`). A healthy layout — including one
+ * with deliberate spacing — is returned canonicalized but otherwise untouched, so
+ * reopening a dashboard never silently eats intentional gaps. Explicit "Tidy up"
+ * (`normalizeDashboardLayout`) still compacts unconditionally.
+ */
+export function normalizeDashboardForRender(dashboard: Dashboard): Dashboard {
+  const canonical = canonicalizeRows(dashboard);
+  return isLayoutPushedOffScreen(canonical) ? compactVerticalGaps(canonical) : canonical;
 }
 
 /**

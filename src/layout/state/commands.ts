@@ -560,8 +560,10 @@ export function cmdAddPresetPanel(
 }
 
 /**
- * Command to tidy up the dashboard layout
- * Removes empty vertical spaces, distributes horizontal space evenly, and fixes overlaps
+ * Command to tidy up the dashboard layout.
+ * Runs normalizeDashboardLayout: hoists row children, canonicalizes row shape, and
+ * removes accumulated empty vertical space (DO-279) so content can't sit off-screen.
+ * It does not redistribute horizontal space.
  */
 export function cmdTidyUp(): void {
   const store = useEditorStore.getState();

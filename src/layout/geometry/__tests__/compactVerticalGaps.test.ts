@@ -1,19 +1,34 @@
-import { describe, it, expect } from 'vitest';
-import { compactVerticalGaps, normalizeDashboardLayout, canonicalizeRows } from '../rows';
-import type { Dashboard, Panel } from '@/types/dashboard-types';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  compactVerticalGaps,
+  normalizeDashboardLayout,
+  normalizeDashboardForRender,
+  isLayoutPushedOffScreen,
+  canonicalizeRows,
+} from '../rows';
+import { cmdTidyUp } from '../../state/commands';
+import { useEditorStore } from '../../state/editorStore';
+import type { Dashboard, Panel, PanelType } from '@/types/dashboard-types';
 
-// Minimal helpers for building dashboard fixtures without the full schema noise.
+// Minimal but fully-typed fixtures — `id`, `collapsed` and `panels` are all real
+// optional Panel fields, so no `as unknown as Panel` cast is needed (matching the
+// sibling geometry tests).
 function panel(
   id: string | number,
-  type: string,
+  type: PanelType,
   pos: { x: number; y: number; w: number; h: number },
-  extra: Partial<Panel> & { collapsed?: boolean; panels?: Panel[] } = {}
+  extra: { collapsed?: boolean; panels?: Panel[] } = {}
 ): Panel {
-  return { id, type, title: String(id), gridPos: pos, ...extra } as unknown as Panel;
+  return { id, type, title: String(id), gridPos: pos, ...extra };
+}
+
+// A top-level panel that has not been assigned an id yet (id is an optional field).
+function idless(pos: { x: number; y: number; w: number; h: number }): Panel {
+  return { type: 'text', title: 'no-id', gridPos: pos };
 }
 
 function dash(panels: Panel[]): Dashboard {
-  return { title: 'test', time: { from: '', to: '' }, panels } as Dashboard;
+  return { title: 'test', time: { from: '', to: '' }, panels };
 }
 
 const yById = (d: Dashboard, id: string | number) =>
@@ -122,12 +137,35 @@ describe('compactVerticalGaps', () => {
     expect(row.panels?.[0].gridPos).toEqual({ x: 0, y: 0, w: 12, h: 6 });
   });
 
+  // DO-279 regression: corrupt/imported coordinates can be negative (content parked
+  // above the viewport). The healer must pull them on-screen, not leave them there.
+  it('pulls negative-y panels back on-screen and never leaves min-y below 0', () => {
+    const out = compactVerticalGaps(dash([
+      panel(1, 'text', { x: 0, y: -5, w: 24, h: 8 }), // starts above the grid
+      panel(2, 'table', { x: 0, y: 50, w: 24, h: 8 }),
+    ]));
+    // Invariant of the function: nothing is left above row 0.
+    expect(Math.min(...out.panels.map((p) => p.gridPos.y))).toBe(0);
+    expect(yById(out, 1)).toBe(0);
+    expect(yById(out, 2)).toBe(8); // packed directly under panel 1 — no overlap introduced
+    expect(hasNoOverlaps(out)).toBe(true);
+  });
+
+  // DO-279 regression: a non-positive height must still occupy a row, otherwise the
+  // occupancy scan can't see it and a neighbour compacts on top of it.
+  it('counts a zero-height panel in occupancy so a neighbour never buries it', () => {
+    const out = compactVerticalGaps(dash([
+      panel(1, 'text', { x: 0, y: 10, w: 24, h: 0 }), // zero height, above its neighbour
+      panel(2, 'table', { x: 0, y: 30, w: 24, h: 5 }),
+    ]));
+    // Relative order is preserved and the neighbour packs just below, not onto it.
+    expect(yById(out, 1)).toBe(0);
+    expect(yById(out, 2)).toBe(1);
+  });
+
   // The renderer compacts BEFORE `withIds` backfills uuids, so id-less top-level
   // panels reach this function. They must take part in compaction like any other
   // panel — DO-279 regression guard.
-  const idless = (pos: { x: number; y: number; w: number; h: number }): Panel =>
-    ({ type: 'text', title: 'no-id', gridPos: pos } as unknown as Panel);
-
   it('compacts id-less top-level panels instead of stranding them at a large y', () => {
     const out = compactVerticalGaps(dash([
       panel(1, 'table', { x: 0, y: 5, w: 24, h: 5 }),
@@ -159,5 +197,84 @@ describe('normalizeDashboardLayout', () => {
     expect(hasNoOverlaps(out)).toBe(true);
     // Idempotent: re-normalizing reproduces it exactly.
     expect(ys(normalizeDashboardLayout(out))).toEqual(ys(out));
+  });
+});
+
+describe('isLayoutPushedOffScreen (auto-heal gate)', () => {
+  it('is true when content sits below a large leading gap (DO-279)', () => {
+    expect(isLayoutPushedOffScreen(corrupt())).toBe(true);
+  });
+
+  it('is true when content is parked above the viewport (negative y)', () => {
+    expect(isLayoutPushedOffScreen(dash([
+      panel(1, 'text', { x: 0, y: -3, w: 24, h: 4 }),
+    ]))).toBe(true);
+  });
+
+  it('is false for a healthy top-aligned layout', () => {
+    expect(isLayoutPushedOffScreen(dash([
+      panel(1, 'row', { x: 0, y: 0, w: 24, h: 1 }, { collapsed: false }),
+      panel(2, 'table', { x: 0, y: 1, w: 12, h: 8 }),
+    ]))).toBe(false);
+  });
+
+  it('is false when the first element is at the top despite a large gap below it', () => {
+    // A deliberate gap *between* sections leaves the first element near the top, so
+    // the dashboard does not render empty — this is the spacing we must preserve.
+    expect(isLayoutPushedOffScreen(dash([
+      panel(1, 'text', { x: 0, y: 0, w: 24, h: 4 }),
+      panel(2, 'table', { x: 0, y: 50, w: 24, h: 8 }),
+    ]))).toBe(false);
+  });
+});
+
+describe('normalizeDashboardForRender (gated load-time heal)', () => {
+  it('heals a layout whose content is pushed off-screen (DO-279)', () => {
+    const out = normalizeDashboardForRender(corrupt());
+    expect(Math.min(...out.panels.map((p) => p.gridPos.y))).toBe(0);
+    expect(hasNoOverlaps(out)).toBe(true);
+  });
+
+  it('preserves deliberate spacing in a healthy, top-aligned layout', () => {
+    const out = normalizeDashboardForRender(dash([
+      panel(1, 'text', { x: 0, y: 0, w: 24, h: 4 }),   // banner pinned to the top
+      panel(2, 'table', { x: 0, y: 50, w: 24, h: 8 }),  // deliberately far below
+    ]));
+    // First element already at the top → not "off-screen" → the gap is left intact
+    // (unlike the explicit Tidy Up / normalizeDashboardLayout path, which compacts it).
+    expect(yById(out, 1)).toBe(0);
+    expect(yById(out, 2)).toBe(50);
+  });
+});
+
+// Integration coverage for the real call site (the geometry tests above invoke the
+// pure functions directly; this exercises the command + editor-store wiring,
+// including the canonicalize→compact ordering and the undo-history push).
+describe('cmdTidyUp (editor-store integration)', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset();
+  });
+
+  it('heals the store dashboard and records the previous layout for undo', () => {
+    useEditorStore.getState().setDashboard(corrupt());
+
+    cmdTidyUp();
+
+    const after = useEditorStore.getState();
+    // The store now holds the healed layout: content on-screen, no overlaps.
+    expect(Math.min(...after.dashboard!.panels.map((p) => p.gridPos.y))).toBe(0);
+    expect(hasNoOverlaps(after.dashboard!)).toBe(true);
+
+    // The pre-tidy layout is on the undo stack and undo restores it verbatim.
+    expect(after.canUndo()).toBe(true);
+    after.undo();
+    const restored = useEditorStore.getState().dashboard!;
+    expect(Math.min(...restored.panels.map((p) => p.gridPos.y))).toBeGreaterThan(0);
+    expect(ys(restored)).toBe(ys(corrupt()));
+  });
+
+  it('is a safe no-op when the store has no dashboard', () => {
+    expect(() => cmdTidyUp()).not.toThrow();
+    expect(useEditorStore.getState().dashboard).toBeNull();
   });
 });
