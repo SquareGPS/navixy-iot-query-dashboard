@@ -38,7 +38,7 @@ import { PanelFilterIndicator } from './PanelFilterIndicator';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { canonicalizeRows } from '@/layout/geometry/rows';
+import { normalizeDashboardForRender } from '@/layout/geometry/rows';
 import { ParameterBar, ParameterValues } from './ParameterBar';
 import { parseTimeExpression, formatDateToISO } from '@/utils/timeParser';
 import { prepareParametersForBinding } from '@/utils/parameterBinder';
@@ -419,9 +419,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return; // Early return to prevent overwriting store during editing
     }
 
-    // Only update if we're not in edit mode, or if we haven't initialized yet
-    // Canonicalize rows to ensure expanded rows have children in main panels array
-    const canonicalizedDashboard = canonicalizeRows(dashboard);
+    // Only update if we're not in edit mode, or if we haven't initialized yet.
+    // Normalize hoists row children, then strips accumulated empty vertical space
+    // ONLY when content is pushed off-screen (DO-279) — a healthy layout's
+    // intentional spacing is preserved. Idempotent, so it's safe on every (re)init.
+    const canonicalizedDashboard = normalizeDashboardForRender(dashboard);
     setDashboard(canonicalizedDashboard);
     dashboardInitializedRef.current = true;
     // When in editing mode and already initialized, ignore prop changes
@@ -430,12 +432,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   // Use canonicalized dashboard for rendering
   const displayDashboard = React.useMemo(() => {
-    // Use store dashboard if available (it gets updated when collapsing/expanding rows)
-    // Otherwise use the prop dashboard
-    const dashboardToUse = storeDashboard || dashboard;
-
-    // Canonicalize the dashboard
-    const canonicalized = canonicalizeRows(dashboardToUse);
+    // The init effect above already normalized the dashboard before putting it in
+    // the store, and editor commands keep it canonical, so trust the store as-is;
+    // only the prop fallback (store not yet hydrated) needs the heal pass. Re-running
+    // canonicalize/compact on the store every render would re-allocate panel objects
+    // each frame mid-edit for no benefit — and compaction is intentionally kept out
+    // of the per-edit path so it must not re-run here while the user is dragging.
+    const canonicalized = storeDashboard ?? normalizeDashboardForRender(dashboard);
 
     // Ensure every panel has a unique ID — return new objects instead of mutating
     const withIds = (panels: Panel[]): Panel[] =>
