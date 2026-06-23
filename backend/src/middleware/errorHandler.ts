@@ -19,6 +19,37 @@ export class CustomError extends Error implements AppError {
   }
 }
 
+const CLIENT_ABORT_CODES = new Set([
+  'ECONNRESET',
+  'EPIPE',
+  'ERR_STREAM_PREMATURE_CLOSE',
+  'ERR_STREAM_DESTROYED',
+  'ERR_STREAM_WRITE_AFTER_END',
+]);
+
+const CLIENT_ABORT_MESSAGE_RE = /aborted|premature close|write after end|ECONNRESET|EPIPE/i;
+
+/**
+ * Decide whether an error that surfaced *after the response started* is a
+ * routine client disconnect (a cancelled download) rather than a server fault.
+ *
+ * When a client cancels a large streamed export, the response socket emits a
+ * low-level error (ECONNRESET / EPIPE / premature close). That error is often
+ * re-thrown wrapped — e.g. ExcelJS's `WorkbookWriter.commit()` rejection, or a
+ * stream-pipeline wrapper — and the wrapper can drop the original `code` from
+ * its top-level object. So we walk the `cause` chain (bounded) and match on a
+ * known code or message at any level, instead of trusting only the top error.
+ */
+export function isClientAbortError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current != null && depth < 5; depth++) {
+    const e = current as { code?: unknown; message?: unknown; cause?: unknown };
+    if (typeof e.code === 'string' && CLIENT_ABORT_CODES.has(e.code)) return true;
+    if (typeof e.message === 'string' && CLIENT_ABORT_MESSAGE_RE.test(e.message)) return true;
+    current = e.cause;
+  }
+  return false;
+}
+
 export const errorHandler = (
   error: AppError,
   req: Request,
@@ -35,11 +66,7 @@ export const errorHandler = (
     // A client cancelling a large streamed download is routine, not a server
     // fault — log it at warn (no stack) so it doesn't pollute error alerting.
     const code = (error as AppError & { code?: string }).code;
-    const isClientAbort =
-      code === 'ECONNRESET' ||
-      code === 'ERR_STREAM_PREMATURE_CLOSE' ||
-      /aborted|premature close/i.test(message ?? '');
-    if (isClientAbort) {
+    if (isClientAbortError(error)) {
       logger.warn('Client aborted in-flight response', { message, code, url: req.url });
     } else {
       logger.error('Error after response started; aborting stream', {
@@ -50,6 +77,16 @@ export const errorHandler = (
     }
     return next(error);
   }
+
+  // A handler may have optimistically set download headers (an xlsx Content-Type
+  // and `Content-Disposition: attachment; filename=*.xlsx`) before a streamed
+  // export failed on its very first byte — at which point headersSent is still
+  // false and we fall through to the JSON error path below. Strip them so the
+  // browser receives the error as JSON, not as an attachment it saves as a
+  // corrupt `.xlsx`. (res.json/res.send only set Content-Type when it is unset,
+  // so the stale xlsx type must be cleared explicitly.)
+  res.removeHeader('Content-Disposition');
+  res.removeHeader('Content-Type');
 
   logger.error('Error occurred:', {
     error: {

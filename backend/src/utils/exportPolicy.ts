@@ -84,3 +84,41 @@ export function resolvePanelExportMaxRows(
       : (configured ?? EXPORT_OTHER_MAX_ROWS);
   return Math.min(cap, EXPORT_HARD_CAP);
 }
+
+/** Result of clamping a row array to {@link EXPORT_HARD_CAP}. */
+export interface HardCapClampResult<T> {
+  /** The original array when within the cap, otherwise the first EXPORT_HARD_CAP rows. */
+  rows: T[];
+  truncated: boolean;
+  /** Row count before clamping — for truncation logging. */
+  originalCount: number;
+  /** The cap that was applied (always EXPORT_HARD_CAP). */
+  cap: number;
+}
+
+/**
+ * Clamp the rows handed to the streaming Excel exporter to EXPORT_HARD_CAP.
+ *
+ * Both export entry points can receive an unbounded row array: the composite
+ * path may be handed client-supplied `cachedData`, and the panel "legacy" (non
+ * SQL) path is handed client `rows` straight through, bypassing the server-side
+ * per-type row cap. Streaming keeps memory flat, but a single .xlsx of millions
+ * of rows is still a multi-hundred-MB file and minutes of CPU, so the hard cap
+ * bounds it everywhere. The SQL panel path already clamps to a per-type ceiling
+ * (<= EXPORT_HARD_CAP), so this is a harmless no-op there.
+ *
+ * Logging is left to the caller (passing the truncation back) so each route can
+ * keep its own context — report id vs panel title. Centralizing the clamp here
+ * keeps the policy in one shape instead of an inline `.slice()` per route.
+ */
+export function clampRowsToHardCap<T>(rows: T[]): HardCapClampResult<T> {
+  if (rows.length <= EXPORT_HARD_CAP) {
+    return { rows, truncated: false, originalCount: rows.length, cap: EXPORT_HARD_CAP };
+  }
+  return {
+    rows: rows.slice(0, EXPORT_HARD_CAP),
+    truncated: true,
+    originalCount: rows.length,
+    cap: EXPORT_HARD_CAP,
+  };
+}

@@ -335,15 +335,25 @@ export class ExportService {
     // rows to auto-fit after the fact).
     const colCount = columns.length;
     const nonEmpty = new Array<boolean>(colCount).fill(false);
-    const maxLen = columns.map(col => col.name.length);
+    // Date cells render as the formatted display string (e.g. "23/06/2026 14:30"),
+    // not the raw ISO/Date source value — which can be ~30 chars as an ISO string
+    // or ~60 as a Date.toString(). Size date columns from that display width so
+    // the auto-fit isn't blown out by the long source; a sample formatted with
+    // the export's own date prefs keeps long-month formats ("3 September 2026")
+    // honest. Non-date columns measure their raw value as before.
+    const colIsDate = columns.map(isDateColumnByType);
+    const dateDisplayWidth = formatDateWithPrefs(executedAt, timeZone, dateFormat, timeFormat).length;
+    const maxLen = columns.map((col, idx) =>
+      colIsDate[idx]! ? Math.max(col.name.length, dateDisplayWidth) : col.name.length,
+    );
     for (const row of rows) {
       for (let idx = 0; idx < colCount; idx++) {
         const val = row[idx];
-        if (val !== null && val !== undefined && val !== '') {
-          nonEmpty[idx] = true;
-          const len = typeof val === 'string' ? val.length : String(val).length;
-          if (len > maxLen[idx]!) maxLen[idx] = len;
-        }
+        if (val === null || val === undefined || val === '') continue;
+        nonEmpty[idx] = true;
+        if (colIsDate[idx]!) continue; // width already fixed to the formatted display
+        const len = typeof val === 'string' ? val.length : String(val).length;
+        if (len > maxLen[idx]!) maxLen[idx] = len;
       }
     }
     const visibleIdx: number[] = [];
@@ -377,12 +387,19 @@ export class ExportService {
     // The writer pipes the zip into `out` (the response) immediately — before
     // `workbook.commit()` is awaited. If the client disconnects mid-download,
     // `out` emits 'error' (e.g. ECONNRESET); without a listener that event is
-    // unhandled and can crash the whole process. Log and swallow it here. The
-    // pending commit() then rejects and the route aborts the response; any late
-    // write after a pre-flush failure also lands here harmlessly.
+    // unhandled and can crash the whole process. Capture + log it here. The
+    // captured error is re-thrown once commit() settles (below) so the route
+    // treats the aborted download as the failure it is — and because it keeps
+    // the original socket `code` (ECONNRESET/EPIPE), the errorHandler classifies
+    // it as a client abort rather than relying on ExcelJS's wrapper, which can
+    // drop that code.
+    let streamError: Error | null = null;
     out.on('error', (err: unknown) => {
+      if (!streamError) {
+        streamError = err instanceof Error ? err : new Error(String(err));
+      }
       logger.warn('Export output stream error (client disconnected?)', {
-        message: err instanceof Error ? err.message : String(err),
+        message: streamError.message,
       });
     });
 
@@ -497,8 +514,23 @@ export class ExportService {
     addInfo('Total Columns', columns.length);
     infoSheet.commit();
 
-    // Finalize the zip and end the output stream.
-    await workbook.commit();
+    // Finalize the zip and end the output stream. Prefer the captured socket
+    // error over a commit() rejection: a client abort makes ExcelJS reject with
+    // a wrapper that may have dropped the original ECONNRESET/EPIPE code, while
+    // `streamError` still carries it (so the route/errorHandler log a clean
+    // client abort, not a server error with a stack).
+    try {
+      await workbook.commit();
+    } catch (commitErr) {
+      throw streamError ?? commitErr;
+    }
+    // commit() can *resolve* even though the output stream already failed:
+    // ExcelJS finished writing to its end of the pipe, but the bytes never
+    // reached the aborted client. Surface that as a failure rather than logging
+    // a success for a download nobody received.
+    if (streamError) {
+      throw streamError;
+    }
 
     logger.info('Streamed Excel export', {
       title,
@@ -537,15 +569,26 @@ export class ExportService {
       return { value: timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue, isDate: true };
     }
     if (isNumeric) {
-      const num = typeof value === 'string' ? parseFloat(value) : value;
-      // A numeric-typed column can still carry a non-numeric sentinel ('N/A',
-      // '-', …); parseFloat yields NaN there. Writing NaN gives an empty/odd
-      // cell, so fall back to the raw value — matching the CSV path, which
-      // keeps the original text.
-      if (typeof num === 'number' && Number.isNaN(num)) {
+      // A numeric-typed column can carry string-encoded numbers (pg returns
+      // numeric/bigint as strings to preserve precision) or a non-numeric
+      // sentinel ('N/A', '3 days', …). Parse a string only when it is numeric
+      // *in full*: parseFloat('3 days') → 3 would silently store a truncated
+      // number, diverging from the CSV/text path, which keeps '3 days' verbatim.
+      // Number() rejects trailing garbage; the empty-string guard keeps blanks
+      // blank (Number('') === 0). Non-numeric strings — and a NaN number — fall
+      // back to the raw value.
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const num = trimmed === '' ? NaN : Number(trimmed);
+        if (Number.isNaN(num)) {
+          return { value: value as ExcelJS.CellValue, isDate: false };
+        }
+        return { value: num, isDate: false };
+      }
+      if (typeof value === 'number' && Number.isNaN(value)) {
         return { value: value as ExcelJS.CellValue, isDate: false };
       }
-      return { value: num as ExcelJS.CellValue, isDate: false };
+      return { value: value as ExcelJS.CellValue, isDate: false };
     }
     return { value: value as ExcelJS.CellValue, isDate: false };
   }

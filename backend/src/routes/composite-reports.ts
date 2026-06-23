@@ -9,7 +9,7 @@ import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
-import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, EXPORT_HARD_CAP } from '../utils/exportPolicy.js';
+import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
 import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
 import { toErrorMeta } from '../utils/errors.js';
 
@@ -614,16 +614,15 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     // Bound the rows fed to the (streaming) exporter. The re-query path is
     // capped by config.maxRows, but a client-supplied `cachedData` array — or a
     // very high config.maxRows — is otherwise unbounded; the panel export path
-    // already clamps to EXPORT_HARD_CAP. Truncate + log rather than stream an
-    // unbounded multi-hundred-MB workbook.
-    let exportRows = rows;
-    if (rows.length > EXPORT_HARD_CAP) {
+    // clamps the same way. Truncate + log rather than stream an unbounded
+    // multi-hundred-MB workbook.
+    const { rows: exportRows, truncated: rowsTruncated, originalCount, cap } = clampRowsToHardCap(rows);
+    if (rowsTruncated) {
       logger.warn('Composite export exceeded row hard cap; truncating', {
         id,
-        rowCount: rows.length,
-        cap: EXPORT_HARD_CAP,
+        rowCount: originalCount,
+        cap,
       });
-      exportRows = rows.slice(0, EXPORT_HARD_CAP);
     }
 
     const exportService = ExportService.getInstance();

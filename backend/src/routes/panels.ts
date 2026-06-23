@@ -11,7 +11,7 @@ import { logger } from '../utils/logger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { resolveExportPreferences } from '../services/userPreferences.js';
-import { resolveExportTimeoutMs, resolvePanelExportMaxRows } from '../utils/exportPolicy.js';
+import { resolveExportTimeoutMs, resolvePanelExportMaxRows, clampRowsToHardCap } from '../utils/exportPolicy.js';
 
 const router = Router();
 
@@ -100,6 +100,20 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
     if (!exportRows || !Array.isArray(exportRows)) {
       throw new CustomError('rows is required and must be an array', 400);
     }
+
+    // Bound the rows fed to the streaming exporter. The SQL path above already
+    // clamps to a per-type ceiling (<= EXPORT_HARD_CAP), but the legacy path
+    // takes client-supplied `rows` straight through — clamp both uniformly so
+    // neither can stream an unbounded workbook (matches the composite path).
+    const { rows: cappedRows, truncated: rowsTruncated, originalCount, cap } = clampRowsToHardCap(exportRows);
+    if (rowsTruncated) {
+      logger.warn('Panel export exceeded row hard cap; truncating', {
+        title,
+        rowCount: originalCount,
+        cap,
+      });
+    }
+    exportRows = cappedRows;
 
     const exportPrefs = await resolveExportPreferences(req, req.body);
 
