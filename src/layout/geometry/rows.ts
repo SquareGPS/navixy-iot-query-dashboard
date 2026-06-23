@@ -1015,7 +1015,19 @@ export function packRow(dashboard: Dashboard, rowId: string | number): Dashboard
 export function canonicalizeRows(dashboard: Dashboard): Dashboard {
   const newDashboard: Dashboard = {
     ...dashboard,
-    panels: dashboard.panels.map((p) => ({ ...p })),
+    // A zero/negative height is a structural defect: a panel must occupy at least
+    // one grid row. Repair it here — canonicalization is the one pass that fixes a
+    // panel's *shape* without moving it (only `h` changes; `y` is preserved, so the
+    // relative arrangement is untouched). Doing it here, rather than as a clamp
+    // local to the occupancy scan in `compactVerticalGaps`, means every downstream
+    // consumer (overlap checks, the renderer, persistence) sees a real >= 1 height
+    // instead of a phantom — a neighbour can never compact on top of a "0-row"
+    // panel because no such panel survives canonicalization. Mirrors the row-header
+    // clamp below.
+    panels: dashboard.panels.map((p) => ({
+      ...p,
+      gridPos: { ...p.gridPos, h: Math.max(1, p.gridPos.h || 1) },
+    })),
   };
 
   const rows = getRowHeaders(newDashboard.panels);
@@ -1161,9 +1173,10 @@ function collapsedRowChildIds(dashboard: Dashboard): Set<string> {
  *   and move with their header automatically, so they are left untouched.
  * - Corrupt coordinates are sanitized rather than trusted: a panel parked above
  *   the grid (negative `y`) is pulled back on-screen so the result's minimum `y`
- *   is 0, and a non-positive `h` is counted as occupying one row so neighbours
- *   never compact on top of a zero-height panel. Both are reachable through the
- *   same imported/accumulated coordinates this pass exists to heal.
+ *   is 0. A non-positive `h` is repaired upstream in `canonicalizeRows` (which both
+ *   production entry points run first); the local `heightOf` clamp below is only
+ *   belt-and-suspenders for a direct, un-canonicalized caller. Both are reachable
+ *   through the same imported/accumulated coordinates this pass exists to heal.
  *
  * Idempotent and a no-op for already-compact dashboards (returns the same
  * reference), so it is safe to run on every load/render.
@@ -1188,15 +1201,16 @@ export function compactVerticalGaps(dashboard: Dashboard): Dashboard {
     return dashboard;
   }
 
-  // Corrupt/imported layouts can carry coordinates the occupancy scan must not
-  // take at face value:
-  //   * negative `y` — content parked above the viewport, and
-  //   * non-positive `h` — a zero/negative-height panel.
-  // Work in a coordinate space shifted by `base` so the topmost element sits at
-  // row 0 (no negative indices), and treat every element as covering at least one
-  // row. Without this a negative-y panel would keep its off-screen y and a
-  // zero-height panel would be invisible to occupancy, letting neighbours compact
-  // on top of it — the very off-screen/overlap symptoms DO-279 exists to cure.
+  // Corrupt/imported layouts can carry a negative `y` — content parked above the
+  // viewport. Work in a coordinate space shifted by `base` so the topmost element
+  // sits at row 0 (no negative indices); without this a negative-y panel would keep
+  // its off-screen y, the very symptom DO-279 exists to cure.
+  //
+  // `heightOf` clamps to >= 1 purely as defense-in-depth: a non-positive height is
+  // already repaired by `canonicalizeRows`, which both production callers
+  // (`normalizeDashboardLayout`, `normalizeDashboardForRender`) run before this. So
+  // in production every height is a real >= 1 here and the clamp is a no-op; it only
+  // bites if some future caller invokes this directly on un-canonicalized input.
   const heightOf = (p: Panel): number => Math.max(1, p.gridPos.h);
   const base = Math.min(0, ...elements.map((p) => p.gridPos.y)); // <= 0
   const topOf = (p: Panel): number => p.gridPos.y - base; // normalized, always >= 0

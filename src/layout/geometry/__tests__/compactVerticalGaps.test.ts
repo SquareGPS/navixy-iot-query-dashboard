@@ -151,16 +151,39 @@ describe('compactVerticalGaps', () => {
     expect(hasNoOverlaps(out)).toBe(true);
   });
 
-  // DO-279 regression: a non-positive height must still occupy a row, otherwise the
-  // occupancy scan can't see it and a neighbour compacts on top of it.
-  it('counts a zero-height panel in occupancy so a neighbour never buries it', () => {
-    const out = compactVerticalGaps(dash([
+  // DO-279 regression: a non-positive height is a structural defect, not a layout
+  // gap. The production heal path (canonicalizeRows -> compactVerticalGaps, i.e.
+  // normalizeDashboardLayout) repairs it to a real h=1 so the panel genuinely
+  // occupies a row and a neighbour can never compact on top of it. This is a
+  // sanitization, not a preservation: the height changes (0 -> 1). Relative order is
+  // still kept — panel 1 stays above panel 2, which packs just below it, never onto
+  // it. (compactVerticalGaps then removes the leading gap, pulling panel 1 to row 0.)
+  it('sanitizes a zero-height panel to a real h=1 and keeps its neighbour below it', () => {
+    const out = normalizeDashboardLayout(dash([
       panel(1, 'text', { x: 0, y: 10, w: 24, h: 0 }), // zero height, above its neighbour
       panel(2, 'table', { x: 0, y: 30, w: 24, h: 5 }),
     ]));
-    // Relative order is preserved and the neighbour packs just below, not onto it.
+    // Height repaired to a genuine 1 row — not a clamp local to the occupancy scan —
+    // so hasNoOverlaps reflects the real geometry rather than a phantom rect.
+    expect(out.panels.find((p) => p.id === 1)!.gridPos.h).toBe(1);
+    expect(yById(out, 1)).toBe(0); // leading gap removed, pulled to the top
+    expect(yById(out, 2)).toBe(1); // neighbour packs directly below, not onto it
+    expect(hasNoOverlaps(out)).toBe(true);
+  });
+
+  // Defense-in-depth only: the *authoritative* h<=0 repair lives in canonicalizeRows
+  // (covered above), which both production callers run first — so in production this
+  // function only ever sees real >= 1 heights. This guards the local `heightOf` clamp
+  // for a hypothetical direct, un-canonicalized caller: the zero-height panel must
+  // still occupy a row so a neighbour can't compact on top of it. It does NOT define
+  // where the height gets sanitized.
+  it('defensively counts a raw zero-height panel in occupancy (un-canonicalized input)', () => {
+    const out = compactVerticalGaps(dash([
+      panel(1, 'text', { x: 0, y: 10, w: 24, h: 0 }),
+      panel(2, 'table', { x: 0, y: 30, w: 24, h: 5 }),
+    ]));
     expect(yById(out, 1)).toBe(0);
-    expect(yById(out, 2)).toBe(1);
+    expect(yById(out, 2)).toBe(1); // packed below, never onto the zero-height panel
   });
 
   // The renderer compacts BEFORE `withIds` backfills uuids, so id-less top-level
@@ -187,6 +210,22 @@ describe('compactVerticalGaps', () => {
     // Without counting the id-less panel, panel 1 would compact to y=0 and overlap it.
     expect(hasNoOverlaps(out)).toBe(true);
     expect(out.panels.find((p) => p.id === 1)!.gridPos.y).toBe(10);
+  });
+});
+
+describe('canonicalizeRows (height sanitization)', () => {
+  // A zero/negative height is repaired at the structural layer — only `h` changes,
+  // the panel is never moved — so every downstream pass sees a real >= 1 height.
+  it('repairs a non-positive panel height to 1 without moving the panel', () => {
+    const out = canonicalizeRows(dash([
+      panel(1, 'text', { x: 0, y: 10, w: 24, h: 0 }),    // zero height
+      panel(2, 'table', { x: 0, y: 30, w: 12, h: -4 }),  // negative height
+      panel(3, 'table', { x: 12, y: 30, w: 12, h: 5 }),  // healthy — left untouched
+    ]));
+    // x / y / w preserved; only h is lifted to the 1-row minimum.
+    expect(out.panels.find((p) => p.id === 1)!.gridPos).toEqual({ x: 0, y: 10, w: 24, h: 1 });
+    expect(out.panels.find((p) => p.id === 2)!.gridPos).toEqual({ x: 0, y: 30, w: 12, h: 1 });
+    expect(out.panels.find((p) => p.id === 3)!.gridPos).toEqual({ x: 12, y: 30, w: 12, h: 5 });
   });
 });
 
