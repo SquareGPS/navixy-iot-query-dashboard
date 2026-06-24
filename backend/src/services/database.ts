@@ -3,9 +3,10 @@ import type { PoolClient, FieldDef } from 'pg';
 import { logger } from '../utils/logger.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { SQLSelectGuard } from '../utils/sqlSelectGuard.js';
+import { RedisService } from './redis.js';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
-import { toErrorMeta, type ErrorWithMeta } from '../utils/errors.js';
+import { toErrorMeta, isTransientDbError, type ErrorWithMeta } from '../utils/errors.js';
 
 export interface DatabaseConfig {
   user: string;
@@ -67,6 +68,11 @@ export class DatabaseService {
   private static instance: DatabaseService;
   private clientSettingsPools: Map<string, { pool: Pool; password: string }> = new Map();
   private externalPools: Map<string, { pool: Pool; password: string }> = new Map();
+  // Pool -> its tenant pool key (user@host:port/database). Used to build a
+  // per-tenant cache key without depending on pg's internal `pool.options`,
+  // which is empty when a pool is built from a connectionString and would
+  // otherwise collapse every tenant onto one cache entry.
+  private settingsPoolKeys: WeakMap<Pool, string> = new WeakMap();
 
   constructor() {
     logger.info('Database service initialized (client settings mode)');
@@ -247,7 +253,11 @@ export class DatabaseService {
       logger.info('Reusing existing client settings pool', { poolKey });
     }
 
-    return this.clientSettingsPools.get(poolKey)!.pool;
+    const pool = this.clientSettingsPools.get(poolKey)!.pool;
+    // Record the tenant identity for this pool instance so per-tenant caching
+    // (e.g. global variables) can key off it reliably.
+    this.settingsPoolKeys.set(pool, poolKey);
+    return pool;
   }
 
   /**
@@ -494,6 +504,59 @@ export class DatabaseService {
     }
   ];
 
+  // Global variables change rarely (admin action) but are read on every panel
+  // execution and composite-report load. Cache them per tenant for a short
+  // window; mutations invalidate the key explicitly, so staleness is bounded by
+  // this TTL only across backend instances that didn't perform the write.
+  private static readonly GLOBAL_VARS_CACHE_TTL_SECONDS = 60;
+
+  /**
+   * Run a settings-DB read, retrying a couple of times with small backoff when
+   * the failure is a transient connection error (see {@link isTransientDbError}
+   * — the DO-287 symptom). Idempotent reads only — do not wrap writes with this.
+   * A non-transient error (bad SQL, missing column, 0 rows) throws immediately.
+   */
+  private async withSettingsDbRetry<T>(label: string, op: () => Promise<T>): Promise<T> {
+    const maxAttempts = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await op();
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isTransientDbError(error)) throw error;
+        const delayMs = attempt * 150;
+        logger.warn('Transient settings-DB error; retrying', {
+          label, attempt, maxAttempts, delayMs, error: toErrorMeta(error).message,
+        });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * Per-tenant Redis key for the global-variables cache. Returns null when the
+   * pool's tenant identity is unknown (it wasn't created via
+   * getClientSettingsPool) — callers then skip the cache entirely rather than
+   * risk serving one tenant's variables to another.
+   */
+  private globalVarsCacheKey(pool: Pool): string | null {
+    const tenantKey = this.settingsPoolKeys.get(pool);
+    return tenantKey ? `global_vars:${tenantKey}` : null;
+  }
+
+  /** Drop the cached global variables for a tenant after a mutation. Best-effort. */
+  async invalidateGlobalVarsCache(pool: Pool): Promise<void> {
+    const cacheKey = this.globalVarsCacheKey(pool);
+    if (!cacheKey) return;
+    try {
+      await RedisService.getInstance().del(cacheKey);
+    } catch (error) {
+      logger.warn('Failed to invalidate global variables cache', { error: toErrorMeta(error).message });
+    }
+  }
+
   async ensureDefaultGlobalVariables(pool: Pool): Promise<void> {
     try {
       const client = await pool.connect();
@@ -535,36 +598,66 @@ export class DatabaseService {
   }
 
   async getGlobalVariables(pool: Pool): Promise<Record<string, unknown>[]> {
-    try {
-      const client = await pool.connect();
-      
+    const cacheKey = this.globalVarsCacheKey(pool);
+    const redis = RedisService.getInstance();
+
+    // Best-effort cache read — a miss, an unknown tenant, or any Redis error
+    // just falls through to the DB (Redis is optional; the backend runs without
+    // it).
+    if (cacheKey) {
       try {
-        // Check if table exists first (in dashboard_studio_meta_data schema)
-        const tableExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'dashboard_studio_meta_data' 
-            AND table_name = 'global_variables'
-          )
-        `);
-
-        if (!tableExists.rows[0].exists) {
-          logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
-          return [];
-        }
-
-        // Ensure default variables exist before fetching
-        await this.ensureDefaultGlobalVariables(pool);
-
-        const result = await client.query(
-          'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
-        );
-
-        logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: Record<string, unknown>) => r.label) });
-        return result.rows;
-      } finally {
-        client.release();
+        const cached = await redis.get(cacheKey);
+        if (cached) return JSON.parse(cached) as Record<string, unknown>[];
+      } catch (error) {
+        logger.warn('Global variables cache read failed; querying DB', { error: toErrorMeta(error).message });
       }
+    }
+
+    try {
+      const rows = await this.withSettingsDbRetry('getGlobalVariables', async () => {
+        const client = await pool.connect();
+
+        try {
+          // Check if table exists first (in dashboard_studio_meta_data schema)
+          const tableExists = await client.query(`
+            SELECT EXISTS (
+              SELECT FROM information_schema.tables
+              WHERE table_schema = 'dashboard_studio_meta_data'
+              AND table_name = 'global_variables'
+            )
+          `);
+
+          if (!tableExists.rows[0].exists) {
+            logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
+            return [] as Record<string, unknown>[];
+          }
+
+          // Ensure default variables exist before fetching. This runs only on a
+          // cache miss now (previously every read), so a plain read no longer
+          // depends on a write succeeding — important when the settings DB is
+          // briefly routed to a read-only standby.
+          await this.ensureDefaultGlobalVariables(pool);
+
+          const result = await client.query(
+            'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
+          );
+
+          logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: Record<string, unknown>) => r.label) });
+          return result.rows as Record<string, unknown>[];
+        } finally {
+          client.release();
+        }
+      });
+
+      // Best-effort cache write (only when the tenant is identifiable).
+      if (cacheKey) {
+        try {
+          await redis.set(cacheKey, JSON.stringify(rows), DatabaseService.GLOBAL_VARS_CACHE_TTL_SECONDS);
+        } catch (error) {
+          logger.warn('Global variables cache write failed', { error: toErrorMeta(error).message });
+        }
+      }
+      return rows;
     } catch (rawError: unknown) {
       const error = toErrorMeta(rawError);
       // If table doesn't exist, return empty array instead of error
@@ -1476,38 +1569,40 @@ export class DatabaseService {
 
   async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<Record<string, unknown> | null> {
     try {
-      const client = await pool.connect();
-      
-      try {
-        let result;
-        if (userId) {
-          result = await client.query(
-            `SELECT r.*, s.name as section_name 
-             FROM dashboard_studio_meta_data.reports r 
-             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
-             WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE
-               AND r.report_schema->>'type' = 'composite'`,
-            [id, userId]
-          );
-        } else {
-          result = await client.query(
-            `SELECT r.*, s.name as section_name 
-             FROM dashboard_studio_meta_data.reports r 
-             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
-             WHERE r.id = $1 AND r.is_deleted = FALSE
-               AND r.report_schema->>'type' = 'composite'`,
-            [id]
-          );
-        }
+      return await this.withSettingsDbRetry('getCompositeReportById', async () => {
+        const client = await pool.connect();
 
-        if (result.rows.length === 0) {
-          return null;
-        }
+        try {
+          let result;
+          if (userId) {
+            result = await client.query(
+              `SELECT r.*, s.name as section_name
+               FROM dashboard_studio_meta_data.reports r
+               LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id
+               WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE
+                 AND r.report_schema->>'type' = 'composite'`,
+              [id, userId]
+            );
+          } else {
+            result = await client.query(
+              `SELECT r.*, s.name as section_name
+               FROM dashboard_studio_meta_data.reports r
+               LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id
+               WHERE r.id = $1 AND r.is_deleted = FALSE
+                 AND r.report_schema->>'type' = 'composite'`,
+              [id]
+            );
+          }
 
-        return this.transformToCompositeReport(result.rows[0]);
-      } finally {
-        client.release();
-      }
+          if (result.rows.length === 0) {
+            return null;
+          }
+
+          return this.transformToCompositeReport(result.rows[0]);
+        } finally {
+          client.release();
+        }
+      });
     } catch (error) {
       logger.error('Error getting composite report:', error);
       throw new CustomError('Failed to get composite report', 500);
