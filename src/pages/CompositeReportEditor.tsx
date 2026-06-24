@@ -11,6 +11,7 @@ import {
   Save,
   Play,
   Loader2,
+  RefreshCw,
   AlertCircle,
   Table as TableIcon,
   LineChart,
@@ -83,6 +84,9 @@ export default function CompositeReportEditor() {
 
   // UI state
   const [loading, setLoading] = useState(!isNew);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by the inline "Retry" button to re-run the load effect.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [columns, setColumns] = useState<ColumnDetectionResult | null>(null);
@@ -99,6 +103,7 @@ export default function CompositeReportEditor() {
 
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
 
     async function loadReport() {
       try {
@@ -116,8 +121,10 @@ export default function CompositeReportEditor() {
       } catch (rawErr: unknown) {
         if (cancelled) return;
         const error = toErrorMeta(rawErr);
-        toast.error(`Failed to load report: ${error.message}`);
-        navigate('/');
+        // Show a recoverable inline error with Retry instead of a toast +
+        // forced redirect home — a transient settings-DB blip (DO-287) should
+        // not eject the user from the editor and lose their context.
+        setLoadError(error.message || 'Failed to load report');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -127,7 +134,7 @@ export default function CompositeReportEditor() {
     return () => {
       cancelled = true;
     };
-  }, [id, navigate]);
+  }, [id, reloadNonce]);
 
   // Track changes
   useEffect(() => {
@@ -335,6 +342,27 @@ export default function CompositeReportEditor() {
       <AppLayout>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center h-full gap-4">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <p className="text-muted-foreground">{loadError}</p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setReloadNonce((n) => n + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );

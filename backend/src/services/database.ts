@@ -509,6 +509,10 @@ export class DatabaseService {
   // window; mutations invalidate the key explicitly, so staleness is bounded by
   // this TTL only across backend instances that didn't perform the write.
   private static readonly GLOBAL_VARS_CACHE_TTL_SECONDS = 60;
+  // Delay before the second (race-closing) cache eviction after a mutation —
+  // see invalidateGlobalVarsCache. Long enough to outlast a concurrent reader's
+  // cache-miss fetch tail, short enough to bound any stale window to this.
+  private static readonly GLOBAL_VARS_CACHE_INVALIDATION_DELAY_MS = 500;
 
   /**
    * Run a settings-DB read, retrying a couple of times with small backoff when
@@ -546,27 +550,58 @@ export class DatabaseService {
     return tenantKey ? `global_vars:${tenantKey}` : null;
   }
 
-  /** Drop the cached global variables for a tenant after a mutation. Best-effort. */
+  /**
+   * Drop the cached global variables for a tenant after a mutation. Best-effort.
+   *
+   * Evicts immediately and then once more after a short delay (the delayed
+   * double-delete pattern). The second eviction removes a stale entry that a
+   * reader which had *already* fetched pre-mutation rows could write back
+   * *after* the first delete — closing the read-populate vs. invalidate race
+   * that would otherwise leave stale variables cached until the TTL expires.
+   */
   async invalidateGlobalVarsCache(pool: Pool): Promise<void> {
     const cacheKey = this.globalVarsCacheKey(pool);
     if (!cacheKey) return;
+    const redis = RedisService.getInstance();
     try {
-      await RedisService.getInstance().del(cacheKey);
+      await redis.del(cacheKey);
     } catch (error) {
       logger.warn('Failed to invalidate global variables cache', { error: toErrorMeta(error).message });
     }
+    // Second, delayed eviction to catch a racing reader's stale write-back.
+    const timer = setTimeout(() => {
+      redis.del(cacheKey).catch((error) => {
+        logger.warn('Delayed global variables cache eviction failed', { error: toErrorMeta(error).message });
+      });
+    }, DatabaseService.GLOBAL_VARS_CACHE_INVALIDATION_DELAY_MS);
+    // Don't keep the event loop alive solely for this best-effort timer.
+    if (typeof timer.unref === 'function') timer.unref();
   }
 
-  async ensureDefaultGlobalVariables(pool: Pool): Promise<void> {
+  /**
+   * Insert the default global variables (idempotent upserts). Best-effort.
+   *
+   * Pass `existingClient` to reuse a connection the caller already holds — the
+   * cache-miss path in {@link getGlobalVariables} does this so a single read
+   * uses one pool connection (not two overlapping ones) and skips the
+   * table-existence check it has already performed. Called standalone (no
+   * client), it acquires its own connection and verifies the table itself.
+   */
+  async ensureDefaultGlobalVariables(pool: Pool, existingClient?: PoolClient): Promise<void> {
+    let client: PoolClient | null = existingClient ?? null;
     try {
-      const client = await pool.connect();
-      
-      try {
-        // Check if table exists
+      if (!client) {
+        client = await pool.connect();
+      }
+
+      // A standalone call must confirm the table exists first; the cache-miss
+      // caller already verified it and reuses its client, so skip the redundant
+      // check (and the extra round-trip) in that path.
+      if (!existingClient) {
         const tableExists = await client.query(`
           SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'dashboard_studio_meta_data' 
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'dashboard_studio_meta_data'
             AND table_name = 'global_variables'
           )
         `);
@@ -575,25 +610,26 @@ export class DatabaseService {
           logger.warn('global_variables table does not exist, cannot ensure defaults');
           return;
         }
-
-        // Insert default variables if they don't exist
-        for (const variable of DatabaseService.DEFAULT_GLOBAL_VARIABLES) {
-          await client.query(
-            `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (label) DO NOTHING`,
-            [variable.label, variable.description, variable.value]
-          );
-        }
-
-        logger.info('Ensured default global variables exist');
-      } finally {
-        client.release();
       }
+
+      // Insert default variables if they don't exist
+      for (const variable of DatabaseService.DEFAULT_GLOBAL_VARIABLES) {
+        await client.query(
+          `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (label) DO NOTHING`,
+          [variable.label, variable.description, variable.value]
+        );
+      }
+
+      logger.info('Ensured default global variables exist');
     } catch (rawError: unknown) {
       const error = toErrorMeta(rawError);
       // Don't throw - this is a best-effort operation
       logger.warn('Could not ensure default global variables:', error.message);
+    } finally {
+      // Only release a connection we acquired here — never the caller's.
+      if (!existingClient && client) client.release();
     }
   }
 
@@ -635,8 +671,9 @@ export class DatabaseService {
           // Ensure default variables exist before fetching. This runs only on a
           // cache miss now (previously every read), so a plain read no longer
           // depends on a write succeeding — important when the settings DB is
-          // briefly routed to a read-only standby.
-          await this.ensureDefaultGlobalVariables(pool);
+          // briefly routed to a read-only standby. Reuse this client so the read
+          // uses a single pool connection rather than opening a second one.
+          await this.ensureDefaultGlobalVariables(pool, client);
 
           const result = await client.query(
             'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
