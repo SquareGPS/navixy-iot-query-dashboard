@@ -89,14 +89,21 @@ export default function CompositeReportEditor() {
   const [activeTab, setActiveTab] = useState('query');
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Load existing report
+  // Load existing report.
+  //
+  // Guard against a superseded load (navigating between editors, or unmount)
+  // resolving late and calling setState / navigate on a stale view — the same
+  // switching race as the viewer (DO-287).
   useEffect(() => {
-    async function loadReport() {
-      if (!id) return;
+    if (!id) return;
 
-      setLoading(true);
+    let cancelled = false;
+    setLoading(true);
+
+    async function loadReport() {
       try {
         const response = await apiService.getCompositeReportById(id);
+        if (cancelled) return;
         if (response.error) {
           throw new Error(response.error.message);
         }
@@ -107,15 +114,19 @@ export default function CompositeReportEditor() {
         setSqlQuery(report.sql_query);
         setConfig(normalizeCompositeConfig(report.config));
       } catch (rawErr: unknown) {
+        if (cancelled) return;
         const error = toErrorMeta(rawErr);
         toast.error(`Failed to load report: ${error.message}`);
         navigate('/');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadReport();
+    return () => {
+      cancelled = true;
+    };
   }, [id, navigate]);
 
   // Track changes

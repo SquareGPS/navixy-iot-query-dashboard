@@ -130,6 +130,9 @@ export default function CompositeReportView() {
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by the inline "Retry" button to re-run the load effect.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [execution, setExecution] = useState<ExecutionState>({
     loading: false,
     error: null,
@@ -186,17 +189,29 @@ export default function CompositeReportView() {
     [report?.sql_query],
   );
 
-  // Load report
+  // Load report.
+  //
+  // Switching between reports re-runs this with a new `id` while a previous
+  // load may still be in flight. Without a guard, a late or failed response for
+  // the *previous* report would call setState / navigate on the now-current
+  // view — the race behind DO-287, where a transient settings-DB blip while
+  // switching surfaced as "Composite report not found" plus a redirect home.
+  // `cancelled` makes any superseded (or unmounted) load fully inert, and a
+  // failure now shows a recoverable inline error instead of a toast + redirect.
   useEffect(() => {
-    async function loadReport() {
-      if (!id) return;
+    if (!id) return;
 
-      setLoading(true);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+
+    async function loadReport() {
       try {
         const [response, globalVarsResponse] = await Promise.all([
           apiService.getCompositeReportById(id),
           apiService.getGlobalVariables().catch(() => ({ data: [] as { label: string; value: string }[] })),
         ]);
+        if (cancelled) return;
         if (response.error) {
           throw new Error(response.error.message);
         }
@@ -225,16 +240,19 @@ export default function CompositeReportView() {
           setEditShowTotals(tableConfig.showTotals || false);
         }
       } catch (rawErr: unknown) {
+        if (cancelled) return;
         const error = toErrorMeta(rawErr);
-        toast.error(`Failed to load report: ${error.message}`);
-        navigate('/');
+        setLoadError(error.message || 'Failed to load report');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadReport();
-  }, [id, navigate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reloadNonce]);
 
   // Execute query when report loads
   useEffect(() => {
@@ -941,16 +959,22 @@ export default function CompositeReportView() {
     );
   }
 
-  if (!report) {
+  if (loadError || !report) {
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <AlertCircle className="h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">Report not found</p>
-          <Button variant="outline" onClick={() => navigate('/app')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Home
-          </Button>
+          <p className="text-muted-foreground">{loadError || 'Report not found'}</p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setReloadNonce((n) => n + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );
