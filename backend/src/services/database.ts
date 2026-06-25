@@ -558,6 +558,13 @@ export class DatabaseService {
    * reader which had *already* fetched pre-mutation rows could write back
    * *after* the first delete — closing the read-populate vs. invalidate race
    * that would otherwise leave stale variables cached until the TTL expires.
+   *
+   * Trade-off (intentional): the delayed delete can't distinguish that stale
+   * write-back from a *fresh* post-mutation populate, so it may also evict an
+   * already-correct entry. The only cost is one extra DB read on the next
+   * request (re-populated from up-to-date rows) within the ~500 ms after a rare
+   * admin mutation — correctness is never affected, so the cheap blanket second
+   * delete is preferred over versioning/locking the cache.
    */
   async invalidateGlobalVarsCache(pool: Pool): Promise<void> {
     const cacheKey = this.globalVarsCacheKey(pool);

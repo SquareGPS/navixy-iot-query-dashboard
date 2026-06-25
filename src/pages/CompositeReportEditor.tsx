@@ -93,6 +93,29 @@ export default function CompositeReportEditor() {
   const [activeTab, setActiveTab] = useState('query');
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Reset the per-report form + load state *synchronously* when the route's
+  // `id` changes (including edit ↔ new). React Router reuses this component
+  // instance across the switch, so the first render afterwards still holds the
+  // previous report's fields with `loading` false — and because the load effect
+  // runs only *after* paint, that render would paint one stale frame of the old
+  // form under the new URL. Mirroring a fresh mount here (React's
+  // "reset-on-prop-change" idiom) makes the switch atomic and guarantees a new
+  // or different report never briefly shows the prior report's data. `loading`
+  // stays gated so this reset can't spuriously trip change-tracking; the load
+  // effect below still drives the fetch for an existing `id`. (DO-287.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setLoadError(null);
+    setLoading(!!id); // existing report loads (spinner); a new one shows at once
+    setColumns(null);
+    setHasChanges(false);
+    setTitle(id ? '' : (initialTitle || ''));
+    setDescription('');
+    setSqlQuery('');
+    setConfig(normalizeCompositeConfig(DEFAULT_CONFIG));
+  }
+
   // Load existing report.
   //
   // Guard against a superseded load (navigating between editors, or unmount)

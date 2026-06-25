@@ -133,6 +133,24 @@ export default function CompositeReportView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Bumped by the inline "Retry" button to re-run the load effect.
   const [reloadNonce, setReloadNonce] = useState(0);
+
+  // Reset the per-report load state *synchronously* when the `id` param changes.
+  // React Router reuses this component instance across a report switch, so the
+  // first render after the switch still holds the previous `report` with
+  // `loading` false — and since the load effect runs only *after* paint, that
+  // render would paint one stale frame of the previous report under the new URL
+  // before the spinner appears. Adjusting state during render (React's
+  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
+  // discards this render and re-renders with `loading` true before committing to
+  // the screen. The load effect below still drives the actual fetch. (DO-287.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setReport(null);
+    setLoadError(null);
+    setLoading(true);
+  }
+
   const [execution, setExecution] = useState<ExecutionState>({
     loading: false,
     error: null,
