@@ -11,6 +11,7 @@ import {
   Save,
   Play,
   Loader2,
+  RefreshCw,
   AlertCircle,
   Table as TableIcon,
   LineChart,
@@ -83,20 +84,54 @@ export default function CompositeReportEditor() {
 
   // UI state
   const [loading, setLoading] = useState(!isNew);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by the inline "Retry" button to re-run the load effect.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [columns, setColumns] = useState<ColumnDetectionResult | null>(null);
   const [activeTab, setActiveTab] = useState('query');
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Load existing report
-  useEffect(() => {
-    async function loadReport() {
-      if (!id) return;
+  // Reset the per-report form + load state *synchronously* when the route's
+  // `id` changes (including edit ↔ new). React Router reuses this component
+  // instance across the switch, so the first render afterwards still holds the
+  // previous report's fields with `loading` false — and because the load effect
+  // runs only *after* paint, that render would paint one stale frame of the old
+  // form under the new URL. Mirroring a fresh mount here (React's
+  // "reset-on-prop-change" idiom) makes the switch atomic and guarantees a new
+  // or different report never briefly shows the prior report's data. `loading`
+  // stays gated so this reset can't spuriously trip change-tracking; the load
+  // effect below still drives the fetch for an existing `id`. (DO-287.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setLoadError(null);
+    setLoading(!!id); // existing report loads (spinner); a new one shows at once
+    setColumns(null);
+    setHasChanges(false);
+    setTitle(id ? '' : (initialTitle || ''));
+    setDescription('');
+    setSqlQuery('');
+    setConfig(normalizeCompositeConfig(DEFAULT_CONFIG));
+  }
 
-      setLoading(true);
+  // Load existing report.
+  //
+  // Guard against a superseded load (navigating between editors, or unmount)
+  // resolving late and calling setState / navigate on a stale view — the same
+  // switching race as the viewer (DO-287).
+  useEffect(() => {
+    if (!id) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+
+    async function loadReport() {
       try {
         const response = await apiService.getCompositeReportById(id);
+        if (cancelled) return;
         if (response.error) {
           throw new Error(response.error.message);
         }
@@ -107,16 +142,22 @@ export default function CompositeReportEditor() {
         setSqlQuery(report.sql_query);
         setConfig(normalizeCompositeConfig(report.config));
       } catch (rawErr: unknown) {
+        if (cancelled) return;
         const error = toErrorMeta(rawErr);
-        toast.error(`Failed to load report: ${error.message}`);
-        navigate('/');
+        // Show a recoverable inline error with Retry instead of a toast +
+        // forced redirect home — a transient settings-DB blip (DO-287) should
+        // not eject the user from the editor and lose their context.
+        setLoadError(error.message || 'Failed to load report');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadReport();
-  }, [id, navigate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reloadNonce]);
 
   // Track changes
   useEffect(() => {
@@ -324,6 +365,27 @@ export default function CompositeReportEditor() {
       <AppLayout>
         <div className="flex items-center justify-center h-full">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center justify-center h-full gap-4">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+          <p className="text-muted-foreground">{loadError}</p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setReloadNonce((n) => n + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );

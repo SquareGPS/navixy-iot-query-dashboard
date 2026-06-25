@@ -382,6 +382,7 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
       description,
       value
     }, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable created by ${req.user?.email}: ${label}`);
 
@@ -413,6 +414,7 @@ router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req:
       description,
       value
     }, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable updated by ${req.user?.email}: ${variable.label}`);
 
@@ -439,6 +441,7 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 
     const dbService = DatabaseService.getInstance();
     await dbService.deleteGlobalVariable(id as string, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
 
