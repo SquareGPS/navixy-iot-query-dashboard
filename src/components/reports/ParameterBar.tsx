@@ -49,6 +49,13 @@ interface ParameterBarProps {
   onChange: (values: ParameterValues) => void;
   className?: string;
   globalVariables?: Array<{ label: string; value: string; description?: string }>;
+  /** When provided, multiselect filter discovery is driven by DashboardRenderer (runs before panel SQL). */
+  multiselectDiscovery?: {
+    options: Record<string, string[]>;
+    loading: Record<string, boolean>;
+    error: Record<string, boolean>;
+    onRetry: (variableName: string) => void;
+  };
 }
 
 interface TimeRangePreset {
@@ -62,7 +69,8 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   values,
   onChange,
   className,
-  globalVariables = []
+  globalVariables = [],
+  multiselectDiscovery,
 }) => {
   const { prefs: datetimePrefs } = useDatetimePrefs();
 
@@ -153,78 +161,104 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
   const multiselectFilters = useMemo(() => getMultiselectFilters(dashboard), [dashboard]);
 
   // Discovered option values per multiselect variable (from its discovery query)
-  const [discoveredOptions, setDiscoveredOptions] = useState<Record<string, string[]>>({});
-  const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
-  // Variables whose last discovery attempt failed (vs. genuinely returned no
-  // values) — surfaced as a retry affordance in the control.
-  const [discoveryError, setDiscoveryError] = useState<Record<string, boolean>>({});
+  const [internalDiscoveredOptions, setInternalDiscoveredOptions] = useState<Record<string, string[]>>({});
+  const [internalOptionsLoading, setInternalOptionsLoading] = useState<Record<string, boolean>>({});
+  const [internalDiscoveryError, setInternalDiscoveryError] = useState<Record<string, boolean>>({});
   const discoveredRef = useRef<Set<string>>(new Set());
-  // Bumped by a manual retry to re-run the discovery effect; the effect is
-  // otherwise driven by multiselectFilters / dashboard and de-duplicated via
-  // discoveredRef, so it won't re-query already-discovered variables.
   const [retryNonce, setRetryNonce] = useState(0);
 
+  const discoveredOptions = multiselectDiscovery?.options ?? internalDiscoveredOptions;
+  const optionsLoading = multiselectDiscovery?.loading ?? internalOptionsLoading;
+  const discoveryError = multiselectDiscovery?.error ?? internalDiscoveryError;
+
   useEffect(() => {
-    multiselectFilters.forEach(async (variable) => {
-      // Static options take precedence and need no discovery
-      const staticOpts = multiselectStaticOptions(variable);
-      if (staticOpts.length > 0) {
-        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: staticOpts }));
-        return;
-      }
-      if (!variable.query) return;
-      // Key by name + query so editing the filter's column (which changes the
-      // derived discovery query) re-runs discovery without a full reload.
-      const discoveryKey = `${variable.name}:${variable.query}`;
-      if (discoveredRef.current.has(discoveryKey)) return;
-      discoveredRef.current.add(discoveryKey);
-      setOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
-      try {
-        // The derived discovery query wraps the SQL of every panel the filter
-        // applies to; those panels may reference ${__from}/${__to}, other
-        // template variables, or panel/dashboard bindings — merge all their
-        // default parameter contexts, like executePanelQuery does per panel.
-        const filterPanels = findFilterPanels(variable, dashboard.panels);
-        const merged: Record<string, unknown> = {};
-        for (const p of filterPanels.length > 0 ? filterPanels : [undefined]) {
-          const resolved = resolveDefaultPanelParams(dashboard, p);
-          for (const [key, value] of Object.entries(resolved)) {
-            if (!(key in merged)) merged[key] = value;
+    if (multiselectDiscovery) return;
+
+    let cancelled = false;
+
+    const runDiscovery = async () => {
+      for (const variable of multiselectFilters) {
+        if (cancelled) return;
+
+        const staticOpts = multiselectStaticOptions(variable);
+        if (staticOpts.length > 0) {
+          setInternalDiscoveredOptions((prev) => ({ ...prev, [variable.name]: staticOpts }));
+          continue;
+        }
+        if (!variable.query) continue;
+
+        const discoveryKey = `${variable.name}:${variable.query}`;
+        if (discoveredRef.current.has(discoveryKey)) continue;
+        discoveredRef.current.add(discoveryKey);
+        setInternalOptionsLoading((prev) => ({ ...prev, [variable.name]: true }));
+
+        try {
+          const needsPanelContext = /\$\{[^}]+\}/.test(variable.query);
+          const merged: Record<string, unknown> = {};
+          if (needsPanelContext) {
+            const filterPanels = findFilterPanels(variable, dashboard.panels);
+            for (const p of filterPanels.length > 0 ? filterPanels : [undefined]) {
+              const resolved = resolveDefaultPanelParams(dashboard, p);
+              for (const [key, value] of Object.entries(resolved)) {
+                if (!(key in merged)) merged[key] = value;
+              }
+            }
+          }
+          const params = filterUsedParameters(variable.query, merged);
+          const res = await apiService.executeSQL({
+            sql: variable.query,
+            params,
+            row_limit: 1000,
+            timeout_ms: 30000,
+          });
+          if (cancelled) return;
+          if (res.error) {
+            throw new Error(res.error.message || 'Discovery query failed');
+          }
+          const rows = res.data?.rows || [];
+          const values = [
+            ...new Set(
+              rows
+                .map((r: unknown[]) => r[0])
+                .filter((x) => x !== null && x !== undefined)
+                .map(String)
+            ),
+          ];
+          setInternalDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
+          setInternalDiscoveryError((prev) =>
+            prev[variable.name] ? { ...prev, [variable.name]: false } : prev
+          );
+        } catch (err) {
+          if (cancelled) return;
+          console.error(`Discovery query for filter "${variable.name}" failed:`, err);
+          setInternalDiscoveryError((prev) => ({ ...prev, [variable.name]: true }));
+          discoveredRef.current.delete(discoveryKey);
+        } finally {
+          if (!cancelled) {
+            setInternalOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
           }
         }
-        const params = filterUsedParameters(variable.query, merged);
-        const res = await apiService.executeSQL({ sql: variable.query, params, row_limit: 1000 });
-        // executeSQL reports SQL failures as a 200 + {error} payload, not a throw
-        if (res.error) {
-          throw new Error(res.error.message || 'Discovery query failed');
-        }
-        const rows = res.data?.rows || [];
-        const values = [...new Set(rows.map((r: unknown[]) => r[0]).filter((x) => x !== null && x !== undefined).map(String))];
-        setDiscoveredOptions((prev) => ({ ...prev, [variable.name]: values }));
-        setDiscoveryError((prev) => (prev[variable.name] ? { ...prev, [variable.name]: false } : prev));
-      } catch (err) {
-        console.error(`Discovery query for filter "${variable.name}" failed:`, err);
-        // Flag the error (rather than caching [] as "no values") and drop the key
-        // so a manual retry re-runs it. Don't overwrite any options from a prior
-        // successful load.
-        setDiscoveryError((prev) => ({ ...prev, [variable.name]: true }));
-        discoveredRef.current.delete(discoveryKey);
-      } finally {
-        setOptionsLoading((prev) => ({ ...prev, [variable.name]: false }));
       }
-    });
-  }, [multiselectFilters, retryNonce, dashboard]);
+    };
 
-  // Manual retry: drop this variable's discovery keys and re-run the effect. The
-  // catch already deletes the failed key, but the effect won't re-fire on its own
-  // (multiselectFilters keeps the same identity), so we bump retryNonce here.
+    void runDiscovery();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [multiselectDiscovery, multiselectFilters, retryNonce, dashboard]);
+
   const retryDiscovery = useCallback((name: string) => {
+    if (multiselectDiscovery) {
+      multiselectDiscovery.onRetry(name);
+      return;
+    }
     for (const key of Array.from(discoveredRef.current)) {
       if (key === name || key.startsWith(`${name}:`)) discoveredRef.current.delete(key);
     }
-    setDiscoveryError((prev) => ({ ...prev, [name]: false }));
+    setInternalDiscoveryError((prev) => ({ ...prev, [name]: false }));
     setRetryNonce((n) => n + 1);
-  }, []);
+  }, [multiselectDiscovery]);
 
   // SQL parameter names owned by local filters (date: period_from/period_to;
   // multiselect: the variable name itself). These are rendered by dedicated
@@ -369,26 +403,32 @@ export const ParameterBar: React.FC<ParameterBarProps> = ({
 
   // Check if pending values have changed from current values
   const hasPendingChanges = useMemo(() => {
+    const paramValuesEqual = (a: unknown, b: unknown): boolean => {
+      if (a instanceof Date && b instanceof Date) {
+        return a.getTime() === b.getTime();
+      }
+      if (Array.isArray(a) && Array.isArray(b)) {
+        if (a.length !== b.length) return false;
+        const left = [...a].map(String).sort();
+        const right = [...b].map(String).sort();
+        return left.every((v, i) => v === right[i]);
+      }
+      return a === b;
+    };
+
     for (const [key, pendingValue] of Object.entries(pendingValues)) {
       const currentValue = values[key];
-      
-      // Handle Date comparisons
-      if (pendingValue instanceof Date && currentValue instanceof Date) {
-        if (pendingValue.getTime() !== currentValue.getTime()) {
-          return true;
-        }
-      } else if (pendingValue !== currentValue) {
+      if (!paramValuesEqual(pendingValue, currentValue)) {
         return true;
       }
     }
-    
-    // Check if any current values don't exist in pending (removed values)
+
     for (const key of Object.keys(values)) {
       if (!(key in pendingValues)) {
         return true;
       }
     }
-    
+
     return false;
   }, [pendingValues, values]);
 

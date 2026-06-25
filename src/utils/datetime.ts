@@ -269,8 +269,7 @@ function formatTimeWithPattern(
   timeZone?: string,
 ): string {
   const hour12 = fmt === 'h12';
-  // Prefer Intl so AM/PM follows locale conventions ("PM" vs "п.п." vs "下午"
-  // depending on locale); fall back to a manual render if Intl rejects the
+  // Prefer Intl so AM/PM follows locale conventions; fall back to a manual render if Intl rejects the
   // zone or locale.
   try {
     return new Intl.DateTimeFormat(prefs.locale, {

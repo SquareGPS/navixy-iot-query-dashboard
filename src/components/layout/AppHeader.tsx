@@ -24,9 +24,13 @@ export function AppHeader() {
       <div className="flex items-center justify-between h-full px-6 relative z-[60]">
         <div className="flex items-center gap-4">
           <SidebarTrigger className="hover:bg-surface-3 transition-colors relative z-[60]" />
-          <div className="hidden md:block">
-            <h1 className="text-lg font-semibold text-text-primary">Navixy Reports</h1>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/app')}
+            className="text-left rounded-md px-2 py-1 -ml-2 hover:bg-surface-3 transition-colors"
+          >
+            <h1 className="text-base sm:text-lg font-semibold text-text-primary">Navixy Reports</h1>
+          </button>
         </div>
         
         {/* Global search bar */}

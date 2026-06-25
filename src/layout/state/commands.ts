@@ -19,6 +19,7 @@ import {
   isRowPanel,
   normalizeDashboardLayout,
 } from '../geometry/rows';
+import { tidyUp } from '../geometry/tidyUp';
 import { placeNewPanel, nextId } from '../geometry/add';
 import { idEq } from '../geometry/idUtils';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
@@ -561,9 +562,8 @@ export function cmdAddPresetPanel(
 
 /**
  * Command to tidy up the dashboard layout.
- * Runs normalizeDashboardLayout: hoists row children, canonicalizes row shape, and
- * removes accumulated empty vertical space (DO-279) so content can't sit off-screen.
- * It does not redistribute horizontal space.
+ * Applies type-aware panel placement (KPI rows, bar pairs, full-width tables/maps),
+ * then canonicalizes rows and compacts vertical gaps (DO-279).
  */
 export function cmdTidyUp(): void {
   const store = useEditorStore.getState();
@@ -573,10 +573,7 @@ export function cmdTidyUp(): void {
   }
 
   const currentDashboard = store.dashboard;
-  // normalizeDashboardLayout is row-aware: it shifts row headers together with the
-  // panels in their band (the old tidyUp skipped row panels entirely) and leaves
-  // the layout in the same stable form the renderer produces.
-  const newDashboard = normalizeDashboardLayout(store.dashboard);
+  const newDashboard = normalizeDashboardLayout(tidyUp(store.dashboard));
 
   store.setDashboard(newDashboard);
   store.pushToHistory(currentDashboard);

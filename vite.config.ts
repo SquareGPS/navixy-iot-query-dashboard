@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@schemas": path.resolve(__dirname, "./schemas"),
     },
   },
 }));

@@ -32,8 +32,11 @@ import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
-import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
-import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
+import { filterUsedParameters, dashboardPanelsHaveTemplateParameters, walkSqlPanels } from '@/utils/sqlParameterExtractor';
+import { applyPanelFilters, getActivePanelFilters, getMultiselectFilters, multiselectStaticOptions, resolveBindingExpression } from '@/utils/filterVariables';
+import { discoverMultiselectFilterOptions } from '@/utils/filterDiscovery';
+import { normalizeWizardScopeFilters } from '@/features/dashboard-wizard/scopeFilter';
+import { applyWizardScopeInputFilters } from '@/utils/scopeInputFilter';
 import { PanelFilterIndicator } from './PanelFilterIndicator';
 import { Canvas } from '@/layout/ui/Canvas';
 import { PanelGrid } from '@/layout/ui/PanelGrid';
@@ -381,6 +384,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
+  const filterDiscoveryCacheRef = useRef<Set<string>>(new Set());
+  const [filterDiscoveredOptions, setFilterDiscoveredOptions] = useState<Record<string, string[]>>({});
+  const [filterDiscoveryLoading, setFilterDiscoveryLoading] = useState<Record<string, boolean>>({});
+  const [filterDiscoveryError, setFilterDiscoveryError] = useState<Record<string, boolean>>({});
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -453,8 +460,19 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         };
       });
 
-    return { ...canonicalized, panels: withIds(canonicalized.panels) };
+    return normalizeWizardScopeFilters({
+      ...canonicalized,
+      panels: withIds(canonicalized.panels),
+    });
   }, [dashboard, storeDashboard]);
+
+  const collectExecutablePanels = useCallback((dash: Dashboard): Panel[] => {
+    const panels: Panel[] = [];
+    walkSqlPanels(dash.panels, (p) => {
+      panels.push(p as Panel);
+    });
+    return panels;
+  }, []);
 
   const showParameterBar = React.useMemo(() => {
     const hasExplicitParams = !!(dashboard['x-navixy']?.params && dashboard['x-navixy'].params.length > 0);
@@ -602,11 +620,20 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // Prepare parameters for binding (convert Dates, etc.)
     const preparedParams = prepareParametersForBinding(params);
 
+    // Wizard scope multiselects (Group, Department, …) filter KPI/stat panels at
+    // the SQL source; breakdown panels use output-column bindings below.
+    const scopeFilteredStatement = applyWizardScopeInputFilters(
+      navixyConfig.sql.statement,
+      dashboard,
+      params,
+      navixyConfig.filters,
+    );
+
     // Apply this panel's local filter bindings (e.g. a date filter mapped to a
     // result column) by wrapping the statement. Non-destructive: the stored
     // sql.statement is unchanged; the wrap only happens at execution time.
     const effectiveStatement = applyPanelFilters(
-      navixyConfig.sql.statement,
+      scopeFilteredStatement,
       navixyConfig.filters,
       dashboard,
       params, // multiselect filters only apply when something is selected
@@ -664,7 +691,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
    */
   const refreshPanel = useCallback(async (panelId: string | number, dashboardOverride?: Dashboard) => {
     const dashboardToUse = dashboardOverride || displayDashboard;
-    const panel = dashboardToUse.panels.find(p => p.id === panelId);
+    let panel: Panel | undefined;
+    walkSqlPanels(dashboardToUse.panels, (p) => {
+      if (String((p as Panel).id) === String(panelId)) {
+        panel = p as Panel;
+        return false;
+      }
+    });
     if (!panel) {
       return;
     }
@@ -803,6 +836,53 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       const isAutoRefresh = isAutoRefreshRef.current;
       isAutoRefreshRef.current = false; // Reset flag
 
+      // Multiselect filter discovery runs before any panel SQL so filter queries
+      // always get database connections first.
+      const multiselectVars = getMultiselectFilters(displayDashboard);
+      if (multiselectVars.length > 0) {
+        const pendingNames = multiselectVars.filter((v) => {
+          if (multiselectStaticOptions(v).length > 0) return false;
+          if (!v.query) return false;
+          const key = `${v.name}:${v.query}`;
+          return !filterDiscoveryCacheRef.current.has(key);
+        }).map((v) => v.name);
+
+        if (pendingNames.length > 0) {
+          setFilterDiscoveryLoading((prev) => {
+            const next = { ...prev };
+            for (const name of pendingNames) next[name] = true;
+            return next;
+          });
+        }
+
+        const discovery = await discoverMultiselectFilterOptions(displayDashboard, {
+          cachedKeys: filterDiscoveryCacheRef.current,
+          onVariableStart: (name) =>
+            setFilterDiscoveryLoading((prev) => ({ ...prev, [name]: true })),
+          onVariableEnd: (name, values, error) => {
+            if (error) {
+              setFilterDiscoveryError((prev) => ({ ...prev, [name]: true }));
+            } else {
+              setFilterDiscoveredOptions((prev) => ({ ...prev, [name]: values }));
+              setFilterDiscoveryError((prev) =>
+                prev[name] ? { ...prev, [name]: false } : prev
+              );
+            }
+            setFilterDiscoveryLoading((prev) => ({ ...prev, [name]: false }));
+          },
+        });
+
+        for (const key of discovery.discoveredKeys) {
+          filterDiscoveryCacheRef.current.add(key);
+        }
+        if (Object.keys(discovery.options).length > 0) {
+          setFilterDiscoveredOptions((prev) => ({ ...prev, ...discovery.options }));
+        }
+        if (Object.keys(discovery.errors).length > 0) {
+          setFilterDiscoveryError((prev) => ({ ...prev, ...discovery.errors }));
+        }
+      }
+
       // Only set global loading for initial load, not auto-refresh
       if (!isAutoRefresh) {
         setLoading(true);
@@ -813,7 +893,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       const LOADING_THRESHOLD_MS = 500; // Show loading spinner if refresh takes longer than this
 
       // Initialize panel data - preserve old data during auto-refresh
-      displayDashboard.panels.forEach(panel => {
+      const executablePanels = collectExecutablePanels(displayDashboard);
+      executablePanels.forEach(panel => {
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
         const panelIdStr = String(panel.id);
@@ -860,8 +941,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       });
       setPanelData(newPanelData);
 
-      // Execute queries for each panel
-      for (const panel of displayDashboard.panels) {
+      // Execute queries for each SQL panel (including nested row children)
+      for (const panel of executablePanels) {
         const panelIdStr = String(panel.id);
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
@@ -1009,7 +1090,72 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery, collectExecutablePanels]);
+
+  const retryFilterDiscovery = useCallback(
+    async (variableName: string) => {
+      const variable = getMultiselectFilters(displayDashboard).find((v) => v.name === variableName);
+      if (!variable?.query) return;
+
+      for (const key of Array.from(filterDiscoveryCacheRef.current)) {
+        if (key === variableName || key.startsWith(`${variableName}:`)) {
+          filterDiscoveryCacheRef.current.delete(key);
+        }
+      }
+      setFilterDiscoveryError((prev) => ({ ...prev, [variableName]: false }));
+      setFilterDiscoveryLoading((prev) => ({ ...prev, [variableName]: true }));
+
+      const discovery = await discoverMultiselectFilterOptions(displayDashboard, {
+        cachedKeys: filterDiscoveryCacheRef.current,
+        onVariableStart: (name) =>
+          setFilterDiscoveryLoading((prev) => ({ ...prev, [name]: true })),
+        onVariableEnd: (name, values, error) => {
+          if (error) {
+            setFilterDiscoveryError((prev) => ({ ...prev, [name]: true }));
+          } else {
+            setFilterDiscoveredOptions((prev) => ({ ...prev, [name]: values }));
+            setFilterDiscoveryError((prev) =>
+              prev[name] ? { ...prev, [name]: false } : prev
+            );
+          }
+          setFilterDiscoveryLoading((prev) => ({ ...prev, [name]: false }));
+        },
+      });
+
+      for (const key of discovery.discoveredKeys) {
+        filterDiscoveryCacheRef.current.add(key);
+      }
+      if (discovery.options[variableName]) {
+        setFilterDiscoveredOptions((prev) => ({
+          ...prev,
+          ...discovery.options,
+        }));
+      }
+      if (discovery.errors[variableName]) {
+        setFilterDiscoveryError((prev) => ({
+          ...prev,
+          ...discovery.errors,
+        }));
+      }
+    },
+    [displayDashboard]
+  );
+
+  const multiselectDiscoveryKey = React.useMemo(
+    () =>
+      getMultiselectFilters(displayDashboard)
+        .map((v) => `${v.name}:${v.query ?? ''}`)
+        .join('|'),
+    [displayDashboard]
+  );
+
+  useEffect(() => {
+    filterDiscoveryCacheRef.current.clear();
+    setFilterDiscoveredOptions({});
+    setFilterDiscoveryLoading({});
+    setFilterDiscoveryError({});
+    prevDashboardRef.current = null;
+  }, [displayDashboard.uid, displayDashboard.id, multiselectDiscoveryKey]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -1980,6 +2126,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
               setRefreshTrigger(prev => prev + 1);
             } }
             globalVariables={ globalVariables }
+            multiselectDiscovery={ {
+              options: filterDiscoveredOptions,
+              loading: filterDiscoveryLoading,
+              error: filterDiscoveryError,
+              onRetry: retryFilterDiscovery,
+            } }
           />
         ) : null }
         <div className="space-y-4">
@@ -2035,6 +2187,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             setRefreshTrigger(prev => prev + 1);
           } }
           globalVariables={ globalVariables }
+          multiselectDiscovery={ {
+            options: filterDiscoveredOptions,
+            loading: filterDiscoveryLoading,
+            error: filterDiscoveryError,
+            onRetry: retryFilterDiscovery,
+          } }
         />
       ) : null }
 

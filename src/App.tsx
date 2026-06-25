@@ -17,6 +17,8 @@ import NotFound from "./pages/NotFound";
 import LineChartTest from "./pages/LineChartTest";
 import CompositeReportView from "./pages/CompositeReportView";
 import CompositeReportEditor from "./pages/CompositeReportEditor";
+import OnboardingPage from "./pages/Onboarding";
+import DashboardWizardPage from "./pages/DashboardWizard";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -40,6 +42,8 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/app" element={<AppPage />} />
+                <Route path="/app/onboarding" element={<OnboardingPage />} />
+                <Route path="/app/dashboard-wizard" element={<DashboardWizardPage />} />
                 <Route path="/app/report/:reportId" element={<ReportView />} />
                 <Route path="/app/settings" element={<Settings />} />
                 <Route path="/app/sql-editor" element={<SqlEditor />} />
