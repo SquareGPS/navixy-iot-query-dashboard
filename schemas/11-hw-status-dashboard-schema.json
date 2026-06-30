@@ -1,0 +1,712 @@
+{
+  "id": null,
+  "uid": "hw-status-dashboard",
+  "tags": [
+    "hw-status",
+    "telematics",
+    "sensors"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-72h"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "HW Status Dashboard",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Total Registered Objects",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [],
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT count(distinct o.device_id) FROM raw_business_data.objects o WHERE o.is_deleted IS FALSE"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      },
+      "datasource": null,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Moving",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.moving_status = 'moving'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Stopped",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, now()::timestamp AS time_to, now()::timestamp - interval '1 hour' AS time_from), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o WHERE o.is_deleted IS NOT TRUE), last_tdc AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.speed FROM raw_telematics_data.tracking_data_core tdc JOIN params p ON TRUE JOIN device_list dl ON dl.device_id = tdc.device_id WHERE tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time >= p.time_from AND tdc.device_time < p.time_to ORDER BY tdc.device_id, tdc.device_time DESC), statuses AS (SELECT t.device_id, t.device_time, CASE WHEN (t.speed / 100.0) > p.max_idle_speed THEN 'moving' ELSE 'stopped' END AS moving_status, CASE WHEN extract(epoch from (p.time_to - t.device_time)) / 60 <= p.gps_not_updated_min THEN 'online' WHEN extract(epoch from (p.time_to - t.device_time)) / 60 <= p.gps_not_updated_max THEN 'standby' ELSE 'offline' END AS connection_status FROM last_tdc t JOIN params p ON TRUE) SELECT count(*) AS moving_count FROM statuses WHERE moving_status = 'stopped'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "moving_count": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "kpi",
+      "title": "Parked",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.moving_status = 'parked'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "kpi",
+      "title": "No Signal",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.connection_status = 'no signal'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "Online",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.connection_status = 'online'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "kpi",
+      "title": "Standby",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.connection_status = 'standby'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "kpi",
+      "title": "Offline",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN NULL WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT true AND ld.connection_status = 'offline'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "piechart",
+      "title": "Movement Status Distribution",
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no data' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT ld.moving_status, count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT TRUE GROUP BY ld.moving_status"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "piechart",
+      "title": "Connection Status Distribution",
+      "gridPos": {
+        "h": 11,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no data' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT ld.connection_status, count(o.object_label) FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id WHERE o.is_deleted IS NOT TRUE GROUP BY ld.connection_status"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {}
+        }
+      }
+    },
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Device Overview",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Device Overview"
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Device Status Table",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT 2 AS max_idle_speed, 3 AS min_idle_detection, 1 AS gps_not_updated_min, 3 AS gps_not_updated_max, NULL::text[] AS object_labels_filter, NOW()::timestamp AS time_to), time_params AS (SELECT p.*, p.time_to - INTERVAL '2 hours' AS time_from, DATE_TRUNC('day', p.time_to) AS start_of_selected_day, DATE_TRUNC('day', p.time_to) - INTERVAL '2 hours' AS previous_day FROM params p), device_list AS (SELECT DISTINCT o.device_id FROM raw_business_data.objects o CROSS JOIN time_params tp WHERE o.is_deleted IS NOT TRUE AND (tp.object_labels_filter IS NULL OR o.object_label = ANY(tp.object_labels_filter))), daily_snapshots AS (SELECT dds.device_id, dds.device_time, dds.platform_time, dds.latitude, dds.longitude, dds.speed, dds.altitude, dds.event_id, dds.satellites, dds.gps_fix_type, dds.hdop, 'parked' AS moving_status, 'offline' AS connection_status, to_char(dds.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM processed_common_data.device_daily_snapshots dds CROSS JOIN time_params tp WHERE dds.device_id IN (SELECT dl.device_id FROM device_list dl) AND dds.device_time < tp.start_of_selected_day), tracking_data_core AS (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time, tdc.platform_time, tdc.latitude, tdc.longitude, tdc.speed, tdc.altitude, tdc.event_id, tdc.satellites, tdc.gps_fix_type, tdc.hdop FROM raw_telematics_data.tracking_data_core tdc CROSS JOIN time_params tp WHERE tdc.device_id IN (SELECT dl.device_id FROM device_list dl) AND tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time < tp.time_to AND tdc.device_time >= tp.time_from ORDER BY tdc.device_id, tdc.device_time DESC), recent_states AS (SELECT DISTINCT ON (s.device_id) s.device_id, s.event_id, s.device_time, s.record_added_at, s.state_name, CAST(s.value AS integer) AS is_moving FROM raw_telematics_data.states s CROSS JOIN time_params tp WHERE s.device_id IN (SELECT dl.device_id FROM device_list dl) AND s.device_time < tp.time_to AND s.device_time >= tp.time_from AND s.event_id IN (2, 802, 803, 804, 811) AND s.state_name = 'moving' ORDER BY s.device_id, s.device_time DESC), combined_data AS (SELECT dl.device_id, COALESCE(tdc.event_id, ds.event_id) AS event_id, COALESCE(tdc.platform_time, ds.platform_time) AS platform_time, COALESCE(tdc.speed, ds.speed, 0) / 100 AS speed, COALESCE(tdc.latitude, ds.latitude) / 1e7 AS latitude, COALESCE(tdc.longitude, ds.longitude) / 1e7 AS longitude, COALESCE(tdc.altitude, ds.altitude) / 1e7 AS altitude, COALESCE(tdc.satellites, ds.satellites) AS satellites, COALESCE(tdc.gps_fix_type, ds.gps_fix_type) AS gps_fix_type, COALESCE(tdc.hdop, ds.hdop) AS hdop, COALESCE(tdc.device_time, ds.device_time) AS device_time, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no data' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN (COALESCE(tdc.speed, ds.speed, 0) / 100 > tp.max_idle_speed AND EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection) OR rs.is_moving = 1 THEN 'moving' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 < tp.min_idle_detection THEN 'stopped' ELSE 'parked' END ELSE ds.moving_status END AS moving_status, CASE WHEN COALESCE(tdc.device_time, ds.device_time) IS NULL THEN 'no signal' WHEN tdc.device_id IS NOT NULL THEN CASE WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_min THEN 'online' WHEN EXTRACT(EPOCH FROM (tp.time_to - COALESCE(tdc.device_time, ds.device_time))) / 60 <= tp.gps_not_updated_max THEN 'standby' ELSE 'offline' END ELSE ds.connection_status END AS connection_status, to_char(COALESCE(tdc.device_time, ds.device_time), 'YYYY-MM-DD HH24:MI:SS') AS last_connect_formatted FROM time_params tp CROSS JOIN device_list dl LEFT JOIN daily_snapshots ds ON dl.device_id = ds.device_id LEFT JOIN tracking_data_core tdc ON dl.device_id = tdc.device_id LEFT JOIN recent_states rs ON dl.device_id = rs.device_id AND COALESCE(tdc.device_time, ds.device_time) = rs.device_time), latest_data AS (SELECT DISTINCT ON (device_id) * FROM combined_data ORDER BY device_id, device_time DESC NULLS LAST) SELECT DISTINCT ON (o.object_id) o.object_label, COALESCE(e.first_name || ' ' || e.last_name, '—') AS driver_name, ld.moving_status, ld.connection_status, ld.last_connect_formatted, CASE WHEN ld.device_time IS NULL THEN 'no data' WHEN EXTRACT(EPOCH FROM (NOW() - ld.device_time)) / 60 < 60 THEN ROUND(EXTRACT(EPOCH FROM (NOW() - ld.device_time)) / 60)::integer || ' min' WHEN EXTRACT(EPOCH FROM (NOW() - ld.device_time)) / 3600 < 24 THEN ROUND(EXTRACT(EPOCH FROM (NOW() - ld.device_time)) / 3600, 1) || ' h' ELSE ROUND(EXTRACT(EPOCH FROM (NOW() - ld.device_time)) / 86400, 1) || ' d' END AS freshness, ROUND(ld.latitude::numeric, 6) AS latitude, ROUND(ld.longitude::numeric, 6) AS longitude, 'https://maps.google.com/?q=' || ld.latitude || ',' || ld.longitude AS google_maps_link, COALESCE(ld.satellites, 0) AS satellites, ld.gps_fix_type, ld.hdop FROM raw_business_data.objects AS o LEFT JOIN latest_data ld ON o.device_id = ld.device_id LEFT JOIN raw_business_data.employees AS e ON o.object_id = e.object_id WHERE o.is_deleted IS NOT TRUE ORDER BY o.object_id"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "hdop": {
+              "type": "integer"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "freshness": {
+              "type": "string"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "satellites": {
+              "type": "integer"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "gps_fix_type": {
+              "type": "integer"
+            },
+            "object_label": {
+              "type": "string"
+            },
+            "moving_status": {
+              "type": "string"
+            },
+            "google_maps_link": {
+              "type": "string"
+            },
+            "connection_status": {
+              "type": "string"
+            },
+            "last_connect_formatted": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Last 20 Telemetry Events per Device",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Last 20 Telemetry Events per Device"
+      }
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Last 20 Telemetry Events",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ranked_events AS (SELECT tdc.device_id, tdc.event_id, tdc.device_time, tdc.latitude / 1e7 AS latitude, tdc.longitude / 1e7 AS longitude, tdc.satellites, ROW_NUMBER() OVER (PARTITION BY tdc.device_id ORDER BY tdc.device_time DESC) AS rn FROM raw_telematics_data.tracking_data_core tdc WHERE tdc.event_id IN (2, 802, 803, 804, 811) AND tdc.device_time >= NOW() - INTERVAL '7 days' AND tdc.device_time < NOW() AND EXISTS (SELECT 1 FROM raw_business_data.objects o WHERE o.device_id = tdc.device_id AND o.is_deleted IS NOT TRUE)) SELECT o.object_label, COALESCE(e.first_name || ' ' || e.last_name, '—') AS driver_name, re.device_id, re.event_id, to_char(re.device_time, 'YYYY-MM-DD HH24:MI:SS') AS event_time, ROUND(re.latitude::numeric, 6) AS latitude, ROUND(re.longitude::numeric, 6) AS longitude, re.satellites FROM ranked_events re JOIN raw_business_data.objects o ON o.device_id = re.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id WHERE re.rn <= 20 ORDER BY o.object_label, re.device_time DESC LIMIT 5000"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "event_id": {
+              "type": "integer"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "satellites": {
+              "type": "integer"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 300,
+      "type": "text",
+      "title": "Sensor Data",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Current Sensor Reading"
+      }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Current Sensor Reading (last 1 hour)",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT lcs.device_id, COALESCE(o.object_label, 'device_' || lcs.device_id) AS object_label, lcs.sensor_label, lcs.sensor_type, ROUND(lcs.calibrated_volume::numeric, 2) AS calibrated_value, COALESCE(lcs.sensor_units, '') AS units, to_char(lcs.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_updated FROM processed_common_data.latest_calibrated_sensors lcs JOIN raw_business_data.objects o ON o.device_id = lcs.device_id AND o.is_deleted IS NOT TRUE WHERE NOT EXISTS (SELECT 1 FROM raw_business_data.sensor_description sd WHERE sd.device_id = lcs.device_id AND sd.input_label = lcs.input_label AND sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL) ORDER BY o.object_label, lcs.sensor_type, lcs.sensor_label LIMIT 5000"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "units": {
+              "type": "string"
+            },
+            "device_id": {
+              "type": "integer"
+            },
+            "sensor_type": {
+              "type": "string"
+            },
+            "last_updated": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            },
+            "sensor_label": {
+              "type": "string"
+            },
+            "calibrated_value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 400,
+      "type": "text",
+      "title": "Boolean Sensors",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 77
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Boolean Sensors — Activation & Duration"
+      }
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Boolean Activation Table (current state)",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 79
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH bool_sensors AS (SELECT lcs.device_id, lcs.sensor_label, lcs.input_label, lcs.sensor_type, lcs.value, lcs.device_time, sd.parameters FROM processed_common_data.latest_calibrated_sensors lcs JOIN raw_business_data.sensor_description sd ON sd.device_id = lcs.device_id AND sd.input_label = lcs.input_label WHERE sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL) SELECT bs.device_id, COALESCE(o.object_label, 'device_' || bs.device_id) AS object_label, bs.sensor_label, bs.sensor_type, CASE WHEN bs.parameters->>'calc_method' = 'bit_index' THEN (SELECT vt->>'title' FROM jsonb_array_elements(bs.parameters->'value_titles') AS vt WHERE (vt->>'value')::int = ((bs.value::bigint >> (bs.parameters->>'bit_index')::int) & 1)::int LIMIT 1) ELSE CASE WHEN bs.value >= 1 THEN 'Active' ELSE 'Inactive' END END AS current_state, to_char(bs.device_time, 'YYYY-MM-DD HH24:MI:SS') AS last_updated FROM bool_sensors bs JOIN raw_business_data.objects o ON o.device_id = bs.device_id AND o.is_deleted IS NOT TRUE ORDER BY o.object_label, bs.sensor_label LIMIT 5000"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "device_id": {
+              "type": "integer"
+            },
+            "sensor_type": {
+              "type": "string"
+            },
+            "last_updated": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            },
+            "sensor_label": {
+              "type": "string"
+            },
+            "current_state": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "barchart",
+      "title": "Boolean Active Duration (7d) — hours ON",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 93
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH bool_meta AS (SELECT sd.device_id, sd.sensor_id, sd.sensor_label, COALESCE((sd.parameters->>'bit_index')::int, 0) AS bit_index, COALESCE(sd.parameters->>'calc_method', 'direct') AS calc_method FROM raw_business_data.sensor_description sd WHERE sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL), hourly_states AS (SELECT s.device_id, s.object_label, bm.sensor_label, s.hour_bucket, MAX(CASE WHEN bm.calc_method = 'bit_index' THEN ((s.value_max::bigint >> bm.bit_index) & 1)::int ELSE CASE WHEN s.value_max >= 1 THEN 1 ELSE 0 END END) AS is_active FROM processed_common_data.sensors_data_by_hours s JOIN bool_meta bm ON bm.device_id = s.device_id AND bm.sensor_id = s.sensor_id WHERE s.hour_bucket >= NOW() - INTERVAL '7 days' AND s.hour_bucket < NOW() GROUP BY s.device_id, s.object_label, bm.sensor_label, s.hour_bucket) SELECT COALESCE(hs.object_label, 'device_' || hs.device_id) || ' — ' || hs.sensor_label AS object_sensor_label, SUM(hs.is_active) AS active_hours FROM hourly_states hs GROUP BY hs.device_id, hs.object_label, hs.sensor_label HAVING SUM(hs.is_active) > 0 ORDER BY active_hours DESC LIMIT 50"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "active_hours": {
+              "type": "number"
+            },
+            "object_sensor_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "barchart",
+      "title": "Boolean Active % (7d)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 93
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH bool_meta AS (SELECT sd.device_id, sd.sensor_id, sd.sensor_label, COALESCE((sd.parameters->>'bit_index')::int, 0) AS bit_index, COALESCE(sd.parameters->>'calc_method', 'direct') AS calc_method FROM raw_business_data.sensor_description sd WHERE sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL), hourly_states AS (SELECT s.device_id, s.object_label, bm.sensor_label, s.hour_bucket, MAX(CASE WHEN bm.calc_method = 'bit_index' THEN ((s.value_max::bigint >> bm.bit_index) & 1)::int ELSE CASE WHEN s.value_max >= 1 THEN 1 ELSE 0 END END) AS is_active FROM processed_common_data.sensors_data_by_hours s JOIN bool_meta bm ON bm.device_id = s.device_id AND bm.sensor_id = s.sensor_id WHERE s.hour_bucket >= NOW() - INTERVAL '7 days' AND s.hour_bucket < NOW() GROUP BY s.device_id, s.object_label, bm.sensor_label, s.hour_bucket) SELECT COALESCE(hs.object_label, 'device_' || hs.device_id) || ' — ' || hs.sensor_label AS object_sensor_label, ROUND(100.0 * SUM(hs.is_active) / NULLIF(COUNT(*), 0), 1) AS active_pct FROM hourly_states hs GROUP BY hs.device_id, hs.object_label, hs.sensor_label HAVING COUNT(*) > 0 ORDER BY active_pct DESC LIMIT 50"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "active_pct": {
+              "type": "number"
+            },
+            "object_sensor_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "1m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 30000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "HW Status dashboard. Panels: 8 KPI counters (Total/Moving/Stopped/Parked/NoSignal/Online/Standby/Offline), 2 pie charts (movement + connection status), device overview table (driver, statuses, location, freshness, satellites), last 20 telemetry events per device, current sensor readings, boolean activation table, boolean active duration + percentage bar charts.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

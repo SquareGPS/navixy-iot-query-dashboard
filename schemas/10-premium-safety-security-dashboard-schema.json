@@ -1,0 +1,1659 @@
+{
+  "id": null,
+  "uid": "premium-safety-security-dashboard",
+  "tags": [
+    "premium",
+    "safety",
+    "security",
+    "expo"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-24h"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Safety & Security",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Geofence crossings (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Overspeed trips (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id\nWHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n  AND t.max_speed IS NOT NULL\n  AND t.max_speed > COALESCE(v.max_speed, 70)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Driver performance braking (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.driver_performance_events\nWHERE device_time >= NOW() - INTERVAL '24 hours' AND device_time < NOW()\n  AND event_type IN ('Driver performance braking', 'Driver performance braking and turn')"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "kpi",
+      "title": "Driver performance acceleration (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.driver_performance_events\nWHERE device_time >= NOW() - INTERVAL '24 hours' AND device_time < NOW()\n  AND event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn')"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "kpi",
+      "title": "Temp excursions (25–75°C)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ti AS MATERIALIZED (\n  SELECT i.device_id, i.value::numeric AS v\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  sd.sensor_type = 'temperature'\n  OR LOWER(COALESCE(sd.input_label, '')) LIKE '%temp%'\n  OR sd.sensor_units IN ('°С', '°F', '°C')\n)\n    AND NOT ((LOWER(TRIM(COALESCE(sd.sensor_label, ''))) = 'reefer temperature'))\n    AND i.value ~ '^-?[0-9]+\\.?[0-9]*$'\n)\nSELECT COUNT(DISTINCT device_id)::numeric AS value FROM ti\nWHERE v NOT BETWEEN 25 AND 75"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "GNSS degraded (<3 sats, moving)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM raw_telematics_data.tracking_data_core c\nWHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n  AND c.event_id IN (2,802,803,804,811)\n  AND COALESCE(c.satellites, 0) < 3\n  AND c.speed/100.0 > 5"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "kpi",
+      "title": "Door events / alarm 969 (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH di AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n    AND i.value ~ '^[1-9]'\n  UNION ALL\n  SELECT c.device_id FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW() AND c.event_id = 969\n)\nSELECT COUNT(*)::numeric AS value FROM di"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "kpi",
+      "title": "Panic / SOS (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH sb AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND sd.sensor_type = 'sos_button'\n)\nSELECT COUNT(*)::numeric AS value FROM sb"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "barchart",
+      "title": "Security — zone crossings by zone (top 15)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(z.zone_label, 'Zone ' || zv.zone_id::text) AS zone_label, COUNT(*)::numeric AS crossing_count\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\nGROUP BY z.zone_label, zv.zone_id\nORDER BY crossing_count DESC\nLIMIT 15"
+        },
+        "verify": {
+          "max_rows": 15
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "crossing_count": {
+              "type": "number"
+            },
+            "zone_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "piechart",
+      "title": "Security — risk-tagged vs other zone visits",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "/* Risk zones: prefer tag_links (entity_type=1, entity_id=zone_id) + tags.tag_label='risk'. ILIKE on zone_label is a legacy heuristic until all zones are tagged. */ SELECT CASE WHEN (\n  z.zone_id IN (\n    SELECT tl.entity_id\n    FROM raw_business_data.tag_links tl\n    JOIN raw_business_data.tags t ON t.tag_id = tl.tag_id\n    WHERE tl.entity_type = 1 AND t.tag_label = 'risk'\n  )\n  OR (z.zone_label ILIKE '%risk%' OR z.zone_label ILIKE '%theft%' OR z.zone_label ILIKE '%robbery%')\n)\n            THEN 'Risk (tag or heuristic)' ELSE 'Other' END AS risk_category,\n       COUNT(*)::numeric AS visit_count\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\nGROUP BY 1"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "visit_count": {
+              "type": "number"
+            },
+            "risk_category": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Security — hourly GNSS degraded (<3 sats, moving)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "legend": {
+          "placement": "bottom",
+          "showLegend": true,
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH hourly AS (\n  SELECT date_trunc('hour', c.device_time) AS hr,\n         COUNT(*)::numeric AS degraded_points\n  FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n    AND c.event_id IN (2,802,803,804,811)\n    AND COALESCE(c.satellites, 0) < 3\n    AND c.speed/100.0 > 5\n  GROUP BY hr\n)\nSELECT to_char(hr, 'MM-DD HH24') AS event_hour, degraded_points\nFROM hourly\nORDER BY hr"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {
+            "event_hour": {
+              "type": "string"
+            },
+            "degraded_points": {
+              "type": "number"
+            }
+          }
+        },
+        "visualization": {
+          "lineStyle": "solid",
+          "colorPalette": "modern",
+          "interpolation": "linear",
+          "legendPosition": "top"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "barchart",
+      "title": "Safety — top vehicles by overspeed trips",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || t.device_id::text) AS object_label, COUNT(*)::numeric AS overspeed_trip_count\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id\nWHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n  AND t.max_speed IS NOT NULL\n  AND t.max_speed > COALESCE(v.max_speed, 70)\nGROUP BY o.object_label, t.device_id\nORDER BY overspeed_trip_count DESC\nLIMIT 15"
+        },
+        "verify": {
+          "max_rows": 15
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "overspeed_trip_count": {
+              "type": "number"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Safety — hourly overspeed trips vs driver performance events",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "options": {
+        "legend": {
+          "placement": "bottom",
+          "showLegend": true,
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH lim AS (\n  SELECT o.device_id, COALESCE(v.max_speed, 70) AS max_lim\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id\n  WHERE o.is_deleted IS NOT TRUE\n), over_h AS (\n  SELECT date_trunc('hour', t.trip_start_time) AS hr, COUNT(*)::numeric AS n\n  FROM processed_common_data.trips t\n  JOIN lim ON lim.device_id = t.device_id\n  WHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n    AND t.max_speed IS NOT NULL\n    AND t.max_speed > lim.max_lim\n  GROUP BY hr\n), perf_h AS (\n  SELECT date_trunc('hour', hde.device_time) AS hr, COUNT(*)::numeric AS n\n  FROM processed_common_data.driver_performance_events hde\n  WHERE hde.device_time >= NOW() - INTERVAL '24 hours' AND hde.device_time < NOW()\n  GROUP BY date_trunc('hour', hde.device_time)\n)\nSELECT to_char(COALESCE(o.hr, h.hr), 'MM-DD HH24') AS event_hour,\n  COALESCE(o.n, 0) AS overspeed_trips,\n  COALESCE(h.n, 0) AS perf_events\nFROM over_h o\nFULL OUTER JOIN perf_h h ON o.hr = h.hr\nORDER BY COALESCE(o.hr, h.hr)"
+        },
+        "verify": {
+          "max_rows": 1000
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {
+            "event_hour": {
+              "type": "string"
+            },
+            "perf_events": {
+              "type": "number"
+            },
+            "overspeed_trips": {
+              "type": "number"
+            }
+          }
+        },
+        "visualization": {
+          "lineStyle": "solid",
+          "colorPalette": "modern",
+          "interpolation": "linear",
+          "legendPosition": "top"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "linechart",
+      "title": "Security — hourly avg satellites (moving)",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH hourly AS (\n  SELECT date_trunc('hour', c.device_time) AS hr,\n         ROUND(AVG(COALESCE(c.satellites, 0))::numeric, 2) AS avg_satellites\n  FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n    AND c.event_id IN (2,802,803,804,811)\n    AND c.speed/100.0 > 5\n  GROUP BY hr\n)\nSELECT to_char(hr, 'MM-DD HH24') AS trip_day, avg_satellites\nFROM hourly\nORDER BY hr"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {
+            "trip_day": {
+              "type": "string"
+            },
+            "avg_satellites": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "linechart",
+      "title": "Condition — hourly avg temperature (non-reefer)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH hourly AS (\n  SELECT date_trunc('hour', i.device_time) AS hr,\n         ROUND(AVG(i.value::numeric), 2) AS avg_temp\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  sd.sensor_type = 'temperature'\n  OR LOWER(COALESCE(sd.input_label, '')) LIKE '%temp%'\n  OR sd.sensor_units IN ('°С', '°F', '°C')\n)\n    AND NOT ((LOWER(TRIM(COALESCE(sd.sensor_label, ''))) = 'reefer temperature'))\n    AND i.value ~ '^-?[0-9]+\\.?[0-9]*$'\n  GROUP BY hr\n)\nSELECT to_char(hr, 'MM-DD HH24') AS trip_day, avg_temp\nFROM hourly\nORDER BY hr"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {
+            "avg_temp": {
+              "type": "number"
+            },
+            "trip_day": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "barchart",
+      "title": "Cargo — door events by vehicle (top 15)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || d.device_id::text) AS object_label,\n       COUNT(*)::numeric AS door_event_count\nFROM (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n    AND i.value ~ '^[1-9]'\n  UNION ALL\n  SELECT c.device_id FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW() AND c.event_id = 969\n) d\nJOIN raw_business_data.objects o ON o.device_id = d.device_id AND o.is_deleted IS NOT TRUE\nGROUP BY o.object_label, d.device_id\nORDER BY door_event_count DESC\nLIMIT 15"
+        },
+        "verify": {
+          "max_rows": 15
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "door_event_count": {
+              "type": "number"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Security",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Security"
+      }
+    },
+    {
+      "id": 501,
+      "type": "kpi",
+      "title": "Geofence violation (crossings)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 66
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 502,
+      "type": "kpi",
+      "title": "Risk zone exposure (h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 66
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "/* Risk zones: prefer tag_links (entity_type=1, entity_id=zone_id) + tags.tag_label='risk'. ILIKE on zone_label is a legacy heuristic until all zones are tagged. */ SELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM COALESCE(zv.duration, NOW() - zv.enter_time))) / 3600.0, 2), 0)::numeric AS value\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\n  AND (\n  z.zone_id IN (\n    SELECT tl.entity_id\n    FROM raw_business_data.tag_links tl\n    JOIN raw_business_data.tags t ON t.tag_id = tl.tag_id\n    WHERE tl.entity_type = 1 AND t.tag_label = 'risk'\n  )\n  OR (z.zone_label ILIKE '%risk%' OR z.zone_label ILIKE '%theft%' OR z.zone_label ILIKE '%robbery%')\n)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 503,
+      "type": "kpi",
+      "title": "After-hours trips (08–19)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 66
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE\nWHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n  AND NOT (t.trip_start_time::time >= TIME '08:00:00' AND t.trip_start_time::time < TIME '19:00:00')"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 504,
+      "type": "kpi",
+      "title": "Unplanned stops ≥20 min",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 66
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH gaps AS (\n  SELECT EXTRACT(EPOCH FROM (\n    LEAD(trip_start_time) OVER (PARTITION BY device_id ORDER BY trip_start_time) - trip_end_time\n  )) / 60 AS gap_min\n  FROM processed_common_data.trips t\n  WHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n)\nSELECT COUNT(*)::numeric AS value FROM gaps WHERE gap_min >= 20"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 505,
+      "type": "kpi",
+      "title": "Risk zone dwell >15 min",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 71
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "/* Risk zones: prefer tag_links (entity_type=1, entity_id=zone_id) + tags.tag_label='risk'. ILIKE on zone_label is a legacy heuristic until all zones are tagged. */ SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\n  AND (\n  z.zone_id IN (\n    SELECT tl.entity_id\n    FROM raw_business_data.tag_links tl\n    JOIN raw_business_data.tags t ON t.tag_id = tl.tag_id\n    WHERE tl.entity_type = 1 AND t.tag_label = 'risk'\n  )\n  OR (z.zone_label ILIKE '%risk%' OR z.zone_label ILIKE '%theft%' OR z.zone_label ILIKE '%robbery%')\n)\n  AND EXTRACT(EPOCH FROM COALESCE(zv.duration, NOW() - zv.enter_time)) / 60.0 > 15"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 506,
+      "type": "kpi",
+      "title": "Stale GPS >30 min",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 71
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_gps AS (\n  SELECT device_id, MAX(device_time) AS last_seen\n  FROM raw_telematics_data.tracking_data_core\n  WHERE device_time >= NOW() - INTERVAL '48 hours' AND device_time < NOW()\n    AND event_id IN (2,802,803,804,811) AND latitude <> 0 AND longitude <> 0\n  GROUP BY device_id\n)\nSELECT COUNT(*)::numeric AS value FROM raw_business_data.objects o\nJOIN last_gps lg ON lg.device_id = o.device_id\nWHERE o.is_deleted IS NOT TRUE AND lg.last_seen < NOW() - INTERVAL '30 minutes'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 507,
+      "type": "kpi",
+      "title": "External power anomalies",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 71
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH pw AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND ((\n  sd.sensor_type IN ('power')\n  OR sd.sensor_units = 'kW'\n  OR LOWER(COALESCE(sd.sensor_label, '')) = 'voltage'\n))\n    AND i.value ~ '^[0-9]+\\.?[0-9]*$'\n    AND i.value::numeric < 12\n)\nSELECT COUNT(*)::numeric AS value FROM pw"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 508,
+      "type": "kpi",
+      "title": "Battery-only (TBD)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 71
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT 0::numeric AS value\n/* Battery-only: definition pending stakeholder — placeholder zero. */"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 509,
+      "type": "kpi",
+      "title": "GNSS degraded (<3 sats)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 76
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM raw_telematics_data.tracking_data_core c\nWHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n  AND c.event_id IN (2,802,803,804,811)\n  AND COALESCE(c.satellites, 0) < 3\n  AND c.speed/100.0 > 5"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 510,
+      "type": "kpi",
+      "title": "GPS gaps >15 min",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 76
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH eligible_devices AS MATERIALIZED (\n  SELECT DISTINCT device_id FROM raw_business_data.sensor_description WHERE sensor_type IN ('speed','acceleration')\n), spd AS MATERIALIZED (\n  SELECT c.device_id, c.device_time,\n  LAG(c.device_time) OVER (PARTITION BY c.device_id ORDER BY c.device_time) AS prev_t\n  FROM raw_telematics_data.tracking_data_core c\n  INNER JOIN eligible_devices ed ON ed.device_id = c.device_id\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n    AND c.event_id IN (2,802,803,804,811)\n)\nSELECT COUNT(*)::numeric AS value FROM spd WHERE prev_t IS NOT NULL\n  AND EXTRACT(EPOCH FROM (device_time - prev_t)) > 900"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 511,
+      "type": "table",
+      "title": "Security — detail (zones & GNSS degraded rows)",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 81
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT to_char(ts, 'HH24:MI') AS event_time,\n  vehicle, zone_name, metric\nFROM (\n  SELECT zv.enter_time AS ts,\n    COALESCE(o.object_label, 'device_' || zv.device_id::text) AS vehicle,\n    COALESCE(z.zone_label, 'Zone ' || zv.zone_id::text) AS zone_name,\n    'zone_visit' AS metric\n  FROM processed_common_data.zone_visits zv\n  JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\n  LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\n  WHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\n  UNION ALL\n  SELECT c.device_time AS ts,\n    COALESCE(o.object_label, 'device_' || c.device_id::text) AS vehicle,\n    'satellites=' || COALESCE(c.satellites::text, '?') AS zone_name,\n    'gnss_degraded' AS metric\n  FROM raw_telematics_data.tracking_data_core c\n  JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n    AND c.event_id IN (2,802,803,804,811)\n    AND COALESCE(c.satellites, 0) < 3 AND c.speed/100.0 > 5\n) q\nORDER BY ts DESC\nLIMIT 300"
+        },
+        "verify": {
+          "max_rows": 300
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "metric": {
+              "type": "string"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "zone_name": {
+              "type": "string"
+            },
+            "event_time": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Safety",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Safety"
+      }
+    },
+    {
+      "id": 601,
+      "type": "kpi",
+      "title": "Overspeed trips (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 101
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id\nWHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n  AND t.max_speed IS NOT NULL\n  AND t.max_speed > COALESCE(v.max_speed, 70)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 602,
+      "type": "kpi",
+      "title": "Overspeed time (min)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 101
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COALESCE(ROUND(SUM(t.trip_duration_seconds) FILTER (\n  WHERE t.max_speed > COALESCE(v.max_speed, 70)) / 60.0, 1), 0)::numeric AS value\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id\nWHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n  AND t.max_speed IS NOT NULL"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 603,
+      "type": "kpi",
+      "title": "Driver performance braking (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 101
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.driver_performance_events\nWHERE device_time >= NOW() - INTERVAL '24 hours' AND device_time < NOW()\n  AND event_type IN ('Driver performance braking', 'Driver performance braking and turn')"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 604,
+      "type": "kpi",
+      "title": "Driver performance acceleration (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 101
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.driver_performance_events\nWHERE device_time >= NOW() - INTERVAL '24 hours' AND device_time < NOW()\n  AND event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn')"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 605,
+      "type": "kpi",
+      "title": "High-risk zone visits",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 106
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "/* Risk zones: prefer tag_links (entity_type=1, entity_id=zone_id) + tags.tag_label='risk'. ILIKE on zone_label is a legacy heuristic until all zones are tagged. */ SELECT COUNT(*)::numeric AS value\nFROM processed_common_data.zone_visits zv\nJOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE\nLEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\nWHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\n  AND (\n  z.zone_id IN (\n    SELECT tl.entity_id\n    FROM raw_business_data.tag_links tl\n    JOIN raw_business_data.tags t ON t.tag_id = tl.tag_id\n    WHERE tl.entity_type = 1 AND t.tag_label = 'risk'\n  )\n  OR (z.zone_label ILIKE '%risk%' OR z.zone_label ILIKE '%theft%' OR z.zone_label ILIKE '%robbery%')\n)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 606,
+      "type": "kpi",
+      "title": "Night driving (23–05h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 106
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH eligible_devices AS MATERIALIZED (\n  SELECT DISTINCT device_id FROM raw_business_data.sensor_description WHERE sensor_type IN ('speed','acceleration')\n), gps AS MATERIALIZED (\n  SELECT DISTINCT c.device_id FROM raw_telematics_data.tracking_data_core c\n  INNER JOIN eligible_devices ed ON ed.device_id = c.device_id\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW()\n    AND c.event_id IN (2,802,803,804,811) AND c.speed/100.0 > 10\n    AND (EXTRACT(HOUR FROM c.device_time) >= 23 OR EXTRACT(HOUR FROM c.device_time) < 5)\n)\nSELECT COUNT(*)::numeric AS value FROM gps"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 607,
+      "type": "kpi",
+      "title": "Driver panic button (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 106
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH sb AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND sd.sensor_type = 'sos_button'\n)\nSELECT COUNT(*)::numeric AS value FROM sb"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 608,
+      "type": "kpi",
+      "title": "Driver inactive >3h",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 106
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH last_gps AS (\n  SELECT device_id, MAX(device_time) AS last_seen\n  FROM raw_telematics_data.tracking_data_core\n  WHERE device_time >= NOW() - INTERVAL '24 hours' AND device_time < NOW()\n    AND event_id IN (2,802,803,804,811)\n  GROUP BY device_id\n)\nSELECT COUNT(*)::numeric AS value FROM raw_business_data.objects o\nJOIN last_gps lg ON lg.device_id = o.device_id\nWHERE o.is_deleted IS NOT TRUE AND lg.last_seen < NOW() - INTERVAL '3 hours'"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 609,
+      "type": "table",
+      "title": "Safety — speeding & driver performance events",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 111
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH veh_max AS (\n  SELECT o.device_id, COALESCE(v.max_speed, 70) AS max_speed\n  FROM raw_business_data.objects o\n  LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE o.is_deleted IS NOT TRUE\n), obj AS (\n  SELECT device_id, object_label FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE\n), ev AS (\n  SELECT t.trip_start_time AS device_time, t.device_id, 'Overspeed (trip)' AS ev,\n    'Trip max ' || ROUND(t.max_speed::numeric, 1) || ' km/h, limit ' || vm.max_speed::int::text AS detail\n  FROM processed_common_data.trips t\n  JOIN veh_max vm ON vm.device_id = t.device_id\n  WHERE t.trip_start_time >= NOW() - INTERVAL '24 hours' AND t.trip_start_time < NOW()\n    AND t.max_speed IS NOT NULL\n    AND t.max_speed > vm.max_speed\n  UNION ALL\n  SELECT hde.device_time, hde.device_id, hde.event_type AS ev,\n    ROUND(hde.speed_kmh, 1)::text || ' km/h' AS detail\n  FROM processed_common_data.driver_performance_events hde\n  WHERE hde.device_time >= NOW() - INTERVAL '24 hours' AND hde.device_time < NOW()\n)\nSELECT to_char(ev.device_time, 'HH24:MI') AS event_time,\n  COALESCE(o.object_label, 'device_' || ev.device_id::text) AS vehicle,\n  ev.ev AS event_type, ev.detail\nFROM ev JOIN obj o ON o.device_id = ev.device_id\nORDER BY ev.device_time DESC LIMIT 300"
+        },
+        "verify": {
+          "max_rows": 300
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "detail": {
+              "type": "string"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 300,
+      "type": "text",
+      "title": "Condition",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 129
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Condition"
+      }
+    },
+    {
+      "id": 701,
+      "type": "kpi",
+      "title": "Temp excursions (25–75°C)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 131
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH ti AS MATERIALIZED (\n  SELECT i.device_id, i.value::numeric AS v\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  sd.sensor_type = 'temperature'\n  OR LOWER(COALESCE(sd.input_label, '')) LIKE '%temp%'\n  OR sd.sensor_units IN ('°С', '°F', '°C')\n)\n    AND NOT ((LOWER(TRIM(COALESCE(sd.sensor_label, ''))) = 'reefer temperature'))\n    AND i.value ~ '^-?[0-9]+\\.?[0-9]*$'\n)\nSELECT COUNT(DISTINCT device_id)::numeric AS value FROM ti\nWHERE v NOT BETWEEN 25 AND 75"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 702,
+      "type": "kpi",
+      "title": "Reefer out-of-band (unique objects)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 131
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "/* Reefer: sensor_label = 'Reefer Temperature'; out-of-band heuristic until product thresholds. */ WITH ti AS MATERIALIZED (\n  SELECT DISTINCT i.device_id\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND ((LOWER(TRIM(COALESCE(sd.sensor_label, ''))) = 'reefer temperature'))\n    AND sd.sensor_type = 'temperature'\n    AND i.value ~ '^-?[0-9]+\\.?[0-9]*$'\n    AND (i.value::numeric < -18 OR i.value::numeric > 15)\n)\nSELECT COUNT(*)::numeric AS value FROM ti"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 703,
+      "type": "kpi",
+      "title": "Battery voltage drop",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 131
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH pw AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (sd.sensor_type IN ('bat_capacity','power','charge') OR LOWER(sd.sensor_label) = 'voltage')\n    AND i.value ~ '^[0-9]+\\.?[0-9]*$'\n    AND i.value::numeric < 11\n)\nSELECT COUNT(*)::numeric AS value FROM pw"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 704,
+      "type": "kpi",
+      "title": "Engine temperature alerts",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 131
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH eng AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND sd.sensor_type = 'engine'\n    AND i.value ~ '^[0-9]+\\.?[0-9]*$' AND i.value::numeric > 105\n)\nSELECT COUNT(*)::numeric AS value FROM eng"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 705,
+      "type": "table",
+      "title": "Condition — sensor readings",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 136
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT to_char(i.device_time, 'HH24:MI') AS event_time,\n  COALESCE(o.object_label, 'device_' || i.device_id::text) AS vehicle,\n  sd.sensor_type AS sensor_class,\n  sd.sensor_label AS sensor,\n  i.value AS raw_value\nFROM raw_telematics_data.inputs i\nJOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\nJOIN raw_business_data.objects o ON o.device_id = i.device_id AND o.is_deleted IS NOT TRUE\nWHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n  AND (\n    (\n  sd.sensor_type = 'temperature'\n  OR LOWER(COALESCE(sd.input_label, '')) LIKE '%temp%'\n  OR sd.sensor_units IN ('°С', '°F', '°C')\n)\n    OR sd.sensor_type IN ('engine','bat_capacity','power','charge')\n    OR ((\n  sd.sensor_type IN ('power')\n  OR sd.sensor_units = 'kW'\n  OR LOWER(COALESCE(sd.sensor_label, '')) = 'voltage'\n))\n  )\nORDER BY i.device_time DESC\nLIMIT 300"
+        },
+        "verify": {
+          "max_rows": 300
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "sensor": {
+              "type": "string"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "raw_value": {
+              "type": "string"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "sensor_class": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 400,
+      "type": "text",
+      "title": "Cargo security",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 154
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Cargo security"
+      }
+    },
+    {
+      "id": 801,
+      "type": "kpi",
+      "title": "Door open events (24h)",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 156
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH di AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n    AND i.value ~ '^[1-9]'\n  UNION ALL\n  SELECT c.device_id FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW() AND c.event_id = 969\n)\nSELECT COUNT(*)::numeric AS value FROM di"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 802,
+      "type": "kpi",
+      "title": "Unauthorized door open",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 156
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH hub_visitors AS (\n  SELECT DISTINCT zv.device_id\n  FROM processed_common_data.zone_visits zv\n  LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id\n  WHERE zv.enter_time >= NOW() - INTERVAL '24 hours' AND zv.enter_time < NOW()\n    AND (COALESCE(z.zone_label, '') ILIKE '%hub%' OR COALESCE(z.zone_label, '') ILIKE '%depot%' OR COALESCE(z.zone_label, '') ILIKE '%delivery%')\n), di AS MATERIALIZED (\n  SELECT i.device_id FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n    AND i.value ~ '^[1-9]'\n  UNION ALL\n  SELECT c.device_id FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW() AND c.event_id = 969\n)\nSELECT COUNT(*)::numeric AS value FROM di WHERE device_id NOT IN (SELECT device_id FROM hub_visitors)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 803,
+      "type": "kpi",
+      "title": "Door open duration (min)",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 156
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH di AS MATERIALIZED (\n  SELECT i.device_id, i.device_time, i.value,\n  LEAD(i.device_time) OVER (PARTITION BY i.device_id ORDER BY i.device_time) AS next_t\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n)\nSELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (next_t - device_time))) FILTER (\n  WHERE value ~ '^[1-9]' AND next_t IS NOT NULL) / 60.0, 1), 0)::numeric AS value FROM di"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 804,
+      "type": "table",
+      "title": "Cargo — door timeline",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 161
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH merged AS (\n  SELECT i.device_time, i.device_id, i.value AS door_signal\n  FROM raw_telematics_data.inputs i\n  JOIN raw_business_data.sensor_description sd ON i.device_id = sd.device_id AND i.sensor_name = sd.input_label\n  WHERE i.device_time >= NOW() - INTERVAL '24 hours' AND i.device_time < NOW()\n    AND (\n  LOWER(COALESCE(sd.input_label, '')) IN ('can_door_state', 'door_state', 'door', 'doors_state')\n)\n  UNION ALL\n  SELECT c.device_time, c.device_id, '1'::text AS door_signal\n  FROM raw_telematics_data.tracking_data_core c\n  WHERE c.device_time >= NOW() - INTERVAL '24 hours' AND c.device_time < NOW() AND c.event_id = 969\n), di AS MATERIALIZED (\n  SELECT device_time, device_id, door_signal,\n  LEAD(device_time) OVER (PARTITION BY device_id ORDER BY device_time) AS next_t\n  FROM merged\n)\nSELECT to_char(di.device_time, 'HH24:MI') AS event_time,\n  COALESCE(o.object_label, 'device_' || di.device_id::text) AS vehicle,\n  di.door_signal,\n  CASE WHEN di.next_t IS NOT NULL THEN ROUND(EXTRACT(EPOCH FROM (di.next_t - di.device_time)) / 60.0, 2) END AS until_next_min\nFROM di\nJOIN raw_business_data.objects o ON o.device_id = di.device_id AND o.is_deleted IS NOT TRUE\nWHERE di.door_signal ~ '^[1-9]' OR di.door_signal = '1'\nORDER BY di.device_time DESC\nLIMIT 300"
+        },
+        "verify": {
+          "max_rows": 300
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "vehicle": {
+              "type": "string"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "door_signal": {
+              "type": "string"
+            },
+            "until_next_min": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 60000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Premium Safety & Security: 8 summary KPI, 8 charts (deduped: bar/pie/timeseries/line). Overspeed from trips.max_speed vs vehicles.max_speed; temp excursions 25–75°C non-reefer by unique device; reefer by sensor_label + heuristic, unique devices.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

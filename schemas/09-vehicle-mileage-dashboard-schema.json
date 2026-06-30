@@ -29,14 +29,21 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH time_classified_tracks AS (SELECT t.track_distance_meters, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE) SELECT time_category AS category, round(SUM(track_distance_meters) / 1000.0, 0) AS value FROM time_classified_tracks GROUP BY time_category ORDER BY time_category"
+          "statement": "WITH time_classified_trips AS (SELECT t.trip_distance_meters, CASE WHEN EXTRACT(DOW FROM t.trip_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.trip_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE) SELECT time_category AS time_category, round(SUM(trip_distance_meters) / 1000.0, 0) AS mileage_km FROM time_classified_trips GROUP BY time_category ORDER BY time_category"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
           "shape": "pie",
-          "columns": {}
+          "columns": {
+            "time_category": {
+              "type": "string"
+            },
+            "mileage_km": {
+              "type": "number"
+            }
+          }
         }
       }
     },
@@ -59,14 +66,24 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH time_classified_tracks AS (SELECT t.track_distance_meters, DATE_TRUNC('week', t.track_start_time)::DATE AS week_start_date, CASE WHEN EXTRACT(DOW FROM t.track_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.track_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE) SELECT week_start_date AS category, ROUND(SUM(track_distance_meters) / 1000.0, 0) AS value, time_category AS series FROM time_classified_tracks GROUP BY week_start_date, time_category ORDER BY week_start_date, time_category"
+          "statement": "WITH time_classified_trips AS (SELECT t.trip_distance_meters, DATE_TRUNC('week', t.trip_start_time)::DATE AS week_start_date, CASE WHEN EXTRACT(DOW FROM t.trip_start_time) IN (0, 6) THEN 'weekend' WHEN EXTRACT(HOUR FROM t.trip_start_time) BETWEEN 9 AND 17 THEN 'work_time' ELSE 'non_work_time' END AS time_category FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE) SELECT week_start_date AS week_start_date, ROUND(SUM(trip_distance_meters) / 1000.0, 0) AS mileage_km, time_category AS time_category FROM time_classified_trips GROUP BY week_start_date, time_category ORDER BY week_start_date, time_category"
         },
         "verify": {
           "max_rows": 10
         },
         "dataset": {
           "shape": "category_value",
-          "columns": {}
+          "columns": {
+            "week_start_date": {
+              "type": "string"
+            },
+            "mileage_km": {
+              "type": "number"
+            },
+            "time_category": {
+              "type": "string"
+            }
+          }
         },
         "visualization": {
           "stacking": "stacked",
@@ -91,7 +108,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH vehicle_mileage AS (SELECT t.device_id, SUM(t.track_distance_meters) / 1000.0 AS total_km FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE GROUP BY t.device_id) SELECT ROUND(AVG(total_km), 0) AS value FROM vehicle_mileage"
+          "statement": "WITH vehicle_mileage AS (SELECT t.device_id, SUM(t.trip_distance_meters) / 1000.0 AS total_km FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE GROUP BY t.device_id) SELECT ROUND(AVG(total_km), 0) AS value FROM vehicle_mileage"
         },
         "verify": {
           "max_rows": 1000
@@ -126,7 +143,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(SUM(t.track_distance_meters) / 1000.0, 0) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE"
+          "statement": "SELECT ROUND(SUM(t.trip_distance_meters) / 1000.0, 0) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1
@@ -166,7 +183,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH daily_mileage_by_department AS (SELECT DATE(t.track_start_time) AS track_date, COALESCE(d.department_label, 'Unknown') AS department_label, SUM(t.track_distance_meters) / 1000.0 AS distance_km FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON t.device_id = o.device_id LEFT JOIN raw_business_data.employees e ON o.object_id = e.object_id LEFT JOIN raw_business_data.departments d ON d.department_id = e.department_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE GROUP BY DATE(t.track_start_time), d.department_label) SELECT track_date AS timestamp, ROUND(SUM(CASE WHEN department_label = 'Drivers' THEN distance_km ELSE 0 END), 0) AS \"Drivers\", ROUND(SUM(CASE WHEN department_label = 'Logistics' THEN distance_km ELSE 0 END), 0) AS \"Logistics\", ROUND(SUM(CASE WHEN department_label = 'Sales' THEN distance_km ELSE 0 END), 0) AS \"Sales\" FROM daily_mileage_by_department GROUP BY track_date ORDER BY track_date"
+          "statement": "WITH daily_mileage_by_department AS (SELECT DATE(t.trip_start_time) AS track_date, COALESCE(d.department_label, 'Unknown') AS department_label, SUM(t.trip_distance_meters) / 1000.0 AS distance_km FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON t.device_id = o.device_id LEFT JOIN raw_business_data.employees e ON o.object_id = e.object_id LEFT JOIN raw_business_data.departments d ON d.department_id = e.department_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE GROUP BY DATE(t.trip_start_time), d.department_label) SELECT track_date AS track_date, ROUND(SUM(CASE WHEN department_label = 'Drivers' THEN distance_km ELSE 0 END), 0) AS \"Drivers\", ROUND(SUM(CASE WHEN department_label = 'Logistics' THEN distance_km ELSE 0 END), 0) AS \"Logistics\", ROUND(SUM(CASE WHEN department_label = 'Sales' THEN distance_km ELSE 0 END), 0) AS \"Sales\" FROM daily_mileage_by_department GROUP BY track_date ORDER BY track_date"
         },
         "verify": {
           "max_rows": 1000

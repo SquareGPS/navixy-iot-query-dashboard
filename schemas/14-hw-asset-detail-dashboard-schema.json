@@ -1,0 +1,347 @@
+{
+  "id": null,
+  "uid": "hw-asset-detail-dashboard",
+  "tags": [
+    "hw-status",
+    "asset"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-24h"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "HW Asset Detail Dashboard",
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Single asset detail — pick the asset in the target CTE",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Single asset detail\n\nThis dashboard shows ONE asset, selected via the **Asset** variable (`${object_label}`) in the top bar. Each query's `target` CTE resolves that label to a `device_id` from `raw_business_data.objects`.\n\nTimeseries / pie use the dashboard **time picker** (top-right) — default 24h, switch to 7d/etc. there. Alarm state is shown with a Unicode circle (🔴 shutdown / 🟠 warning / 🟢 ok)."
+      }
+    },
+    {
+      "id": 1,
+      "type": "geomap",
+      "title": "Current location",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 3
+      },
+      "options": {},
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), last_pt AS MATERIALIZED (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.latitude/1e7 AS lat, tdc.longitude/1e7 AS lon, tdc.device_time FROM raw_telematics_data.tracking_data_core tdc JOIN target t ON t.device_id = tdc.device_id WHERE tdc.device_time >= NOW() - INTERVAL '7 days' AND tdc.device_time < NOW() AND tdc.event_id IN (2,802,803,804,811) AND tdc.latitude <> 0 AND tdc.longitude <> 0 ORDER BY tdc.device_id, tdc.device_time DESC) SELECT lp.lat, lp.lon, o.object_label, to_char(lp.device_time,'YYYY-MM-DD HH24:MI') AS last_seen FROM last_pt lp JOIN raw_business_data.objects o ON o.device_id = lp.device_id"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "lat": {
+              "type": "number"
+            },
+            "lon": {
+              "type": "number"
+            },
+            "object_label": {
+              "type": "string"
+            },
+            "last_seen": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Current alarm state & key readings",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 3
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH params AS (SELECT ARRAY[]::text[] AS shutdown_boolean_labels, 20.0 AS warn_battery_threshold, ARRAY[1,3,5]::int[] AS running_mode_values, 'OPERATING_MODE_LABEL'::text AS mode_sensor_label), target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), last_tdc AS MATERIALIZED (SELECT DISTINCT ON (tdc.device_id) tdc.device_id, tdc.device_time FROM raw_telematics_data.tracking_data_core tdc JOIN target t ON t.device_id=tdc.device_id WHERE tdc.device_time >= NOW() - INTERVAL '25 hours' AND tdc.device_time < NOW() AND tdc.event_id IN (2,802,803,804,811) ORDER BY tdc.device_id, tdc.device_time DESC), bat AS (SELECT DISTINCT ON (lcs.device_id) lcs.device_id, ROUND(lcs.calibrated_volume::numeric,1) AS bat_pct FROM processed_common_data.latest_calibrated_sensors lcs JOIN target t ON t.device_id=lcs.device_id JOIN raw_business_data.sensor_description sd ON sd.device_id=lcs.device_id AND sd.input_label=lcs.input_label WHERE LOWER(sd.sensor_label) LIKE '%batt%charge%' OR sd.sensor_type IN ('charge','bat_capacity') ORDER BY lcs.device_id, lcs.device_time DESC), shutdown_lbl AS (SELECT lcs.device_id, string_agg(sd.sensor_label, ', ') AS active_labels FROM processed_common_data.latest_calibrated_sensors lcs JOIN target t ON t.device_id=lcs.device_id JOIN raw_business_data.sensor_description sd ON sd.device_id=lcs.device_id AND sd.input_label=lcs.input_label CROSS JOIN params p WHERE sd.sensor_label = ANY(p.shutdown_boolean_labels) AND lcs.value >= 1 GROUP BY lcs.device_id) SELECT o.object_label, CASE WHEN sl.device_id IS NOT NULL THEN '🔴 shutdown' WHEN b.bat_pct IS NOT NULL AND b.bat_pct < p.warn_battery_threshold THEN '🟠 warning' WHEN lt.device_time IS NULL OR lt.device_time < NOW() - INTERVAL '24 hours' THEN '⚪ offline' ELSE '🟢 ok' END AS alarm_state, COALESCE(sl.active_labels, '—') AS triggering_sensor, COALESCE(b.bat_pct::text || '%','N/A') AS battery, to_char(lt.device_time,'YYYY-MM-DD HH24:MI') AS last_seen FROM target t JOIN raw_business_data.objects o ON o.device_id=t.device_id CROSS JOIN params p LEFT JOIN last_tdc lt ON lt.device_id=t.device_id LEFT JOIN bat b ON b.device_id=t.device_id LEFT JOIN shutdown_lbl sl ON sl.device_id=t.device_id WHERE o.is_deleted IS NOT TRUE"
+        },
+        "verify": {
+          "max_rows": 10
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "object_label": {
+              "type": "string"
+            },
+            "alarm_state": {
+              "type": "string"
+            },
+            "triggering_sensor": {
+              "type": "string"
+            },
+            "battery": {
+              "type": "string"
+            },
+            "last_seen": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Sensor readings (hourly, uses time picker)",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "placement": "bottom",
+          "showLegend": true,
+          "displayMode": "list"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), sens AS (SELECT s.hour_bucket, s.value_max, sd.sensor_label FROM processed_common_data.sensors_data_by_hours s JOIN target t ON t.device_id = s.device_id JOIN raw_business_data.sensor_description sd ON sd.device_id = s.device_id AND sd.sensor_id = s.sensor_id WHERE s.hour_bucket >= NOW() - INTERVAL '24 hours' AND s.hour_bucket < NOW() AND sd.sensor_type IN ('temperature','charge','power','rpm','fuel','voltage','instant_consumption','humidity','bat_capacity')) SELECT to_char(hour_bucket, 'MM-DD HH24:MI') AS device_time_fmt, value_max AS value_max, sensor_label AS sensor_label FROM sens ORDER BY hour_bucket"
+        },
+        "verify": {
+          "max_rows": 5000
+        },
+        "dataset": {
+          "shape": "time_value",
+          "columns": {}
+        },
+        "visualization": {
+          "lineStyle": "solid",
+          "colorPalette": "modern",
+          "interpolation": "linear",
+          "legendPosition": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Boolean active % (last 7 days)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "options": {
+        "orientation": "horizontal"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), bool_meta AS (SELECT sd.device_id, sd.sensor_id, sd.sensor_label, COALESCE((sd.parameters->>'bit_index')::int, 0) AS bit_index, COALESCE(sd.parameters->>'calc_method','direct') AS calc_method FROM raw_business_data.sensor_description sd JOIN target t ON t.device_id = sd.device_id WHERE sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL), hourly AS (SELECT s.sensor_id, bm.sensor_label, s.hour_bucket, MAX(CASE WHEN bm.calc_method='bit_index' THEN ((s.value_max::bigint >> bm.bit_index) & 1)::int ELSE CASE WHEN s.value_max >= 1 THEN 1 ELSE 0 END END) AS is_active FROM processed_common_data.sensors_data_by_hours s JOIN bool_meta bm ON bm.device_id = s.device_id AND bm.sensor_id = s.sensor_id WHERE s.hour_bucket >= NOW() - INTERVAL '7 days' AND s.hour_bucket < NOW() GROUP BY s.sensor_id, bm.sensor_label, s.hour_bucket) SELECT sensor_label AS sensor_label, ROUND(100.0 * SUM(is_active) / NULLIF(COUNT(*),0), 1) AS active_pct FROM hourly GROUP BY sensor_label HAVING COUNT(*) > 0 ORDER BY active_pct DESC LIMIT 50"
+        },
+        "verify": {
+          "max_rows": 100
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "sensor_label": {
+              "type": "string"
+            },
+            "active_pct": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Boolean state transitions (hourly — when active/inactive, approx.)",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), bool_meta AS (SELECT sd.device_id, sd.sensor_id, sd.sensor_label, COALESCE((sd.parameters->>'bit_index')::int, 0) AS bit_index, COALESCE(sd.parameters->>'calc_method','direct') AS calc_method FROM raw_business_data.sensor_description sd JOIN target t ON t.device_id = sd.device_id WHERE sd.parameters IS NOT NULL AND sd.parameters->>'calc_method' IS NOT NULL), hourly AS (SELECT bm.sensor_label, s.hour_bucket, MAX(CASE WHEN bm.calc_method='bit_index' THEN ((s.value_max::bigint >> bm.bit_index) & 1)::int ELSE CASE WHEN s.value_max >= 1 THEN 1 ELSE 0 END END) AS is_active FROM processed_common_data.sensors_data_by_hours s JOIN bool_meta bm ON bm.device_id = s.device_id AND bm.sensor_id = s.sensor_id WHERE s.hour_bucket >= NOW() - INTERVAL '7 days' AND s.hour_bucket < NOW() GROUP BY bm.sensor_label, s.hour_bucket), changes AS (SELECT sensor_label, hour_bucket, is_active, LAG(is_active) OVER (PARTITION BY sensor_label ORDER BY hour_bucket) AS prev_active FROM hourly) SELECT sensor_label, to_char(hour_bucket,'YYYY-MM-DD HH24:00') AS changed_at, CASE WHEN is_active = 1 THEN '🟢 became active' ELSE '⚪ became inactive' END AS transition FROM changes WHERE prev_active IS NULL OR is_active <> prev_active ORDER BY hour_bucket DESC, sensor_label LIMIT 200"
+        },
+        "verify": {
+          "max_rows": 200
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "sensor_label": {
+              "type": "string"
+            },
+            "changed_at": {
+              "type": "string"
+            },
+            "transition": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Last 20 events",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH target AS (SELECT device_id FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE), ev AS MATERIALIZED (SELECT tdc.device_id, tdc.event_id, tdc.device_time, tdc.latitude/1e7 AS lat, tdc.longitude/1e7 AS lon, tdc.satellites, ROW_NUMBER() OVER (PARTITION BY tdc.device_id ORDER BY tdc.device_time DESC) AS rn FROM raw_telematics_data.tracking_data_core tdc JOIN target t ON t.device_id = tdc.device_id WHERE tdc.event_id IN (2,802,803,804,811) AND tdc.device_time >= NOW() - INTERVAL '7 days' AND tdc.device_time < NOW()) SELECT o.object_label, ev.event_id, to_char(ev.device_time,'YYYY-MM-DD HH24:MI:SS') AS event_time, ROUND(ev.lat::numeric,6) AS latitude, ROUND(ev.lon::numeric,6) AS longitude, ev.satellites, 'https://maps.google.com/?q=' || ev.lat || ',' || ev.lon AS location_link FROM ev JOIN raw_business_data.objects o ON o.device_id = ev.device_id WHERE ev.rn <= 20 ORDER BY ev.device_time DESC"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "object_label": {
+              "type": "string"
+            },
+            "event_id": {
+              "type": "integer"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "satellites": {
+              "type": "integer"
+            },
+            "location_link": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "1m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 60000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "enable": true,
+    "list": [
+      {
+        "name": "object_label",
+        "type": "query",
+        "label": "Asset",
+        "query": "SELECT object_label FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE ORDER BY object_label",
+        "datasource": null,
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "14d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "HW Asset Detail dashboard. Shows ONE asset selected via the ${object_label} template variable (Asset dropdown); the target CTE maps the label to a device_id from raw_business_data.objects. Panels: current location (geomap), current alarm state + triggering sensor (Unicode circle), sensor timeseries (hourly via sensors_data_by_hours, controlled by the time picker), boolean active % (7d), boolean state transitions (hourly approximation, like equipment working time), last 20 events. Alarm rules come from the params CTE (shutdown_boolean_labels placeholder, warn_battery_threshold=20). No UI dropdowns/parameters because runtime SQL params raise a syntax error in this Studio version.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

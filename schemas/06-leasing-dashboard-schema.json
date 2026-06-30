@@ -1,6 +1,6 @@
 {
   "id": null,
-  "uid": "hello-world",
+  "uid": "leasing-dashboard",
   "tags": [
     "example",
     "getting-started"
@@ -29,7 +29,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT CASE WHEN (DATE(e.driver_license_valid_till) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' ELSE 'Others' END AS category, COUNT(*) AS value FROM raw_business_data.employees e WHERE e.driver_license_valid_till IS NOT NULL GROUP BY category ORDER BY category"
+          "statement": "SELECT CASE WHEN (DATE(e.driver_license_valid_till) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' ELSE 'Others' END AS license_status, COUNT(*) AS driver_count FROM raw_business_data.employees e WHERE e.driver_license_valid_till IS NOT NULL GROUP BY license_status ORDER BY license_status"
         },
         "verify": {
           "max_rows": 1000
@@ -37,10 +37,10 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
+            "driver_count": {
               "type": "integer"
             },
-            "category": {
+            "license_status": {
               "type": "string"
             }
           }
@@ -63,7 +63,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH expiry_data AS (SELECT CASE WHEN v.free_insurance_valid_till_date IS NOT NULL AND (v.liability_insurance_valid_till IS NULL OR v.free_insurance_valid_till_date <= v.liability_insurance_valid_till) THEN v.free_insurance_valid_till_date WHEN v.liability_insurance_valid_till IS NOT NULL THEN v.liability_insurance_valid_till ELSE NULL END AS nearest_expiry_date FROM raw_business_data.vehicles v), categorized_data AS (SELECT CASE WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER >= 0 AND (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 30 THEN 'Expires within 30 days' ELSE 'Others' END AS category FROM expiry_data WHERE nearest_expiry_date IS NOT NULL) SELECT category, COUNT(*) AS value FROM categorized_data GROUP BY category ORDER BY CASE category WHEN 'Expired' THEN 1 WHEN 'Expires within 30 days' THEN 2 WHEN 'Others' THEN 3 END"
+          "statement": "WITH expiry_data AS (SELECT CASE WHEN v.free_insurance_valid_till_date IS NOT NULL AND (v.liability_insurance_valid_till IS NULL OR v.free_insurance_valid_till_date <= v.liability_insurance_valid_till) THEN v.free_insurance_valid_till_date WHEN v.liability_insurance_valid_till IS NOT NULL THEN v.liability_insurance_valid_till ELSE NULL END AS nearest_expiry_date FROM raw_business_data.vehicles v), categorized_data AS (SELECT CASE WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 0 THEN 'Expired' WHEN (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER >= 0 AND (DATE(nearest_expiry_date) - CURRENT_DATE)::INTEGER < 30 THEN 'Expires within 30 days' ELSE 'Others' END AS insurance_status FROM expiry_data WHERE nearest_expiry_date IS NOT NULL) SELECT insurance_status, COUNT(*) AS vehicle_count FROM categorized_data GROUP BY insurance_status ORDER BY CASE insurance_status WHEN 'Expired' THEN 1 WHEN 'Expires within 30 days' THEN 2 WHEN 'Others' THEN 3 END"
         },
         "verify": {
           "max_rows": 1000
@@ -71,10 +71,10 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
+            "vehicle_count": {
               "type": "integer"
             },
-            "category": {
+            "insurance_status": {
               "type": "string"
             }
           }
@@ -84,9 +84,9 @@
     {
       "id": 13,
       "type": "barchart",
-      "title": "Harsh Braking Events",
+      "title": "Driver Performance Braking Events",
       "gridPos": {
-        "h": 11,
+        "h": 14,
         "w": 24,
         "x": 0,
         "y": 12
@@ -97,7 +97,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core WHERE 1=1), decels AS (SELECT device_id, device_time, (prev_kmh - kmh) / NULLIF(dt_sec, 0) AS decel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(d.device_time) AS category, CASE WHEN d.decel_kmh_per_sec >= 80 THEN 'Critical' WHEN d.decel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM decels d WHERE d.decel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+          "statement": "SELECT TO_CHAR(DATE(hde.device_time), 'DD-MM') AS event_date, COUNT(*) AS event_count, CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END AS severity FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '72 hours' AND hde.device_time < NOW() AND hde.event_type IN ('Driver performance braking', 'Driver performance braking and turn') GROUP BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END ORDER BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END"
         },
         "verify": {
           "max_rows": 1000
@@ -105,14 +105,14 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "event_count": {
               "type": "integer"
             },
-            "series": {
+            "severity": {
               "type": "string"
             },
-            "category": {
-              "type": "date"
+            "event_date": {
+              "type": "string"
             }
           }
         },
@@ -125,12 +125,12 @@
     {
       "id": 14,
       "type": "table",
-      "title": "Total Harsh Events",
+      "title": "Total Driver Performance Events",
       "gridPos": {
         "h": 20,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 60
       },
       "options": {
         "orientation": "vertical"
@@ -138,14 +138,45 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "-- =============================================================================\r\n-- Report: Harsh acceleration & braking events (unified)\r\n-- =============================================================================\r\n-- Detects tracking points where acceleration or deceleration exceeds threshold;\r\n-- returns one row per event with event type (determined by data), unit, date/time,\r\n-- and location. Parameters: :date_from, :date_to (optional, default last 30 days)\r\n-- =============================================================================\r\n\r\nWITH params AS (\r\n    SELECT\r\n         CURRENT_DATE - INTERVAL '30 days' AS date_from,\r\n        CURRENT_TIMESTAMP AS date_to\r\n),\r\nspd AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        speed / 100.0 AS kmh,\r\n        LAG(speed / 100.0) OVER (\r\n            PARTITION BY device_id\r\n            ORDER BY device_time\r\n        ) AS prev_kmh,\r\n        EXTRACT(\r\n            EPOCH FROM (\r\n                device_time\r\n                - LAG(device_time) OVER (\r\n                    PARTITION BY device_id\r\n                    ORDER BY device_time\r\n                )\r\n            )\r\n        ) AS dt_sec\r\n    FROM raw_telematics_data.tracking_data_core c\r\n    CROSS JOIN params p\r\n    WHERE c.device_time >= p.date_from\r\n      AND c.device_time <= p.date_to\r\n      AND c.speed IS NOT NULL\r\n      AND c.latitude IS NOT NULL\r\n      AND c.longitude IS NOT NULL\r\n      AND c.latitude <> 0\r\n      AND c.longitude <> 0\r\n),\r\nrates AS (\r\n    SELECT\r\n        device_id,\r\n        device_time,\r\n        (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec,\r\n        (prev_kmh - kmh) / NULLIF(dt_sec, 0) AS decel_kmh_per_sec\r\n    FROM spd\r\n    WHERE prev_kmh IS NOT NULL\r\n),\r\nevents_with_severity AS (\r\n    SELECT\r\n        r.device_id,\r\n        r.device_time,\r\n        r.accel_kmh_per_sec,\r\n        r.decel_kmh_per_sec,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 60 THEN 'Harsh Acceleration'\r\n            WHEN r.decel_kmh_per_sec >= 60 THEN 'Harsh Braking'\r\n        END AS event_type,\r\n        CASE\r\n            WHEN r.accel_kmh_per_sec >= 80 OR r.decel_kmh_per_sec >= 80 THEN 'Critical'\r\n            WHEN r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60 THEN 'Warning'\r\n            ELSE 'Normal'\r\n        END AS series\r\n    FROM rates r\r\n    WHERE r.accel_kmh_per_sec >= 60 OR r.decel_kmh_per_sec >= 60\r\n),\r\nevents_with_place AS (\r\n    SELECT\r\n        e.device_id,\r\n        e.device_time,\r\n        e.event_type,\r\n        e.series,\r\n        CASE WHEN e.event_type = 'Harsh Acceleration' THEN e.accel_kmh_per_sec ELSE e.decel_kmh_per_sec END AS rate_kmh_per_sec,\r\n        c.latitude / 1e7 AS latitude,\r\n        c.longitude / 1e7 AS longitude,\r\n        zg.place_zone,\r\n        zg.place_address\r\n    FROM events_with_severity e\r\n    JOIN raw_telematics_data.tracking_data_core c\r\n        ON c.device_id = e.device_id AND c.device_time = e.device_time\r\n    LEFT JOIN LATERAL (\r\n        SELECT\r\n            zg.zone_label AS place_zone,\r\n            zg.address AS place_address\r\n        FROM business_data.zones_geom zg\r\n        WHERE ST_Within(\r\n            ST_SetSRID(ST_MakePoint(c.longitude / 1e7, c.latitude / 1e7), 4326),\r\n            zg.zone_geom::geometry\r\n        )\r\n        LIMIT 1\r\n    ) zg ON true\r\n)\r\nSELECT\r\n    ep.event_type,\r\n    o.object_label AS unit,\r\n    ep.device_time AS event_datetime,\r\n    DATE(ep.device_time) AS event_date,\r\n    ep.device_time::time AS event_time,\r\n    ROUND(ep.latitude::numeric, 6) AS latitude,\r\n    ROUND(ep.longitude::numeric, 6) AS longitude,\r\n    COALESCE(ep.place_zone, ep.place_address, ep.latitude::text || ', ' || ep.longitude::text) AS place,\r\n    ep.series AS severity,\r\n    ROUND(ep.rate_kmh_per_sec::numeric, 2) AS rate_kmh_per_sec\r\nFROM events_with_place ep\r\nJOIN raw_business_data.objects o ON o.device_id = ep.device_id AND o.is_deleted IS NOT TRUE\r\nORDER BY ep.device_time DESC;"
+          "statement": "SELECT hde.event_type, o.object_label AS unit, to_char(hde.device_time, 'YYYY-MM-DD HH24:MI:SS') AS event_datetime, DATE(hde.device_time) AS event_date, hde.device_time::time AS event_time, ROUND(hde.latitude::numeric, 6) AS latitude, ROUND(hde.longitude::numeric, 6) AS longitude, COALESCE(zg.zone_label, ROUND(hde.latitude::numeric, 4)::text || ', ' || ROUND(hde.longitude::numeric, 4)::text) AS place, CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END AS severity, ROUND(hde.speed_kmh, 1) AS speed_kmh FROM processed_common_data.driver_performance_events hde JOIN raw_business_data.objects o ON o.device_id = hde.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN LATERAL (SELECT zg.zone_label FROM processed_common_data.zones_geom zg WHERE ST_Within(ST_SetSRID(ST_MakePoint(hde.longitude, hde.latitude), 4326), zg.zone_geom::geometry) LIMIT 1) zg ON true WHERE hde.device_time >= NOW() - INTERVAL '72 hours' AND hde.device_time < NOW() ORDER BY hde.device_time DESC LIMIT 1000"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
           "shape": "table",
-          "columns": {}
+          "columns": {
+            "unit": {
+              "type": "string"
+            },
+            "place": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "event_date": {
+              "type": "date"
+            },
+            "event_time": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string"
+            },
+            "event_datetime": {
+              "type": "timestamptz"
+            },
+            "rate_kmh_per_sec": {
+              "type": "number"
+            }
+          }
         },
         "visualization": {
           "colorPalette": "vibrant"
@@ -157,10 +188,10 @@
       "type": "barchart",
       "title": "Sudden Turns / Cornering",
       "gridPos": {
-        "h": 13,
+        "h": 14,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 26
       },
       "options": {
         "orientation": "vertical"
@@ -168,7 +199,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH pts AS (SELECT device_id, device_time, latitude/1e7::numeric AS lat, longitude/1e7::numeric AS lon, LAG(latitude/1e7::numeric) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_lat, LAG(longitude/1e7::numeric) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_lon, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh FROM raw_telematics_data.tracking_data_core), bearing AS (SELECT *, atan2(sin(radians(lon-prev_lon))*cos(radians(lat)), cos(radians(prev_lat))*sin(radians(lat)) - sin(radians(prev_lat))*cos(radians(lat))*cos(radians(lon-prev_lon))) * 180/pi() AS heading_change FROM pts WHERE prev_lat IS NOT NULL AND prev_lon IS NOT NULL), events_with_severity AS (SELECT DATE(b.device_time) AS category, CASE WHEN ABS(b.heading_change) >= 50 AND b.kmh >= 30 THEN 'Critical' WHEN ABS(b.heading_change) >= 30 AND b.kmh >= 30 THEN 'Warning' ELSE 'Normal' END AS series FROM bearing b) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY category, series"
+          "statement": "SELECT TO_CHAR(DATE(hde.device_time), 'DD-MM') AS event_date, COUNT(*) AS event_count, CASE WHEN hde.speed_kmh >= 80 THEN 'Critical' ELSE 'Warning' END AS severity FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '72 hours' AND hde.device_time < NOW() AND hde.event_type IN ('Driver performance turn', 'Driver performance quick lane change', 'Driver performance acceleration and turn', 'Driver performance braking and turn') GROUP BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 80 THEN 'Critical' ELSE 'Warning' END ORDER BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 80 THEN 'Critical' ELSE 'Warning' END"
         },
         "verify": {
           "max_rows": 1000
@@ -176,14 +207,14 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "event_count": {
               "type": "integer"
             },
-            "series": {
+            "severity": {
               "type": "string"
             },
-            "category": {
-              "type": "date"
+            "event_date": {
+              "type": "string"
             }
           }
         },
@@ -201,7 +232,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 51
+        "y": 55
       },
       "options": {
         "textMode": "auto"
@@ -223,12 +254,12 @@
     {
       "id": 6,
       "type": "kpi",
-      "title": "Total Idle Time",
+      "title": "Total Idle Time(min)",
       "gridPos": {
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 51
+        "y": 55
       },
       "options": {
         "textMode": "auto"
@@ -243,23 +274,19 @@
         },
         "dataset": {
           "shape": "kpi",
-          "columns": {
-            "value": {
-              "type": "number"
-            }
-          }
+          "columns": {}
         }
       }
     },
     {
       "id": 19,
       "type": "stat",
-      "title": "Average Idle Duration",
+      "title": "Average Idle Duration(min)",
       "gridPos": {
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 51
+        "y": 55
       },
       "options": {
         "textMode": "auto"
@@ -281,12 +308,12 @@
     {
       "id": 20,
       "type": "barchart",
-      "title": "Harsh Acceleration Events",
+      "title": "Driver Performance Acceleration Events",
       "gridPos": {
         "h": 15,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 40
       },
       "options": {
         "orientation": "vertical"
@@ -294,7 +321,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH spd AS (SELECT device_id, device_time, speed/100.0 AS kmh, LAG(speed/100.0) OVER (PARTITION BY device_id ORDER BY device_time) AS prev_kmh, EXTRACT(EPOCH FROM (device_time - LAG(device_time) OVER (PARTITION BY device_id ORDER BY device_time))) AS dt_sec FROM raw_telematics_data.tracking_data_core), accels AS (SELECT device_id, device_time, (kmh - prev_kmh) / NULLIF(dt_sec, 0) AS accel_kmh_per_sec FROM spd WHERE prev_kmh IS NOT NULL), events_with_severity AS (SELECT DATE(a.device_time) AS category, CASE WHEN a.accel_kmh_per_sec >= 80 THEN 'Critical' WHEN a.accel_kmh_per_sec >= 60 THEN 'Warning' ELSE 'Normal' END AS series FROM accels a WHERE a.accel_kmh_per_sec >= 60) SELECT category, COUNT(*) AS value, series FROM events_with_severity GROUP BY category, series ORDER BY series"
+          "statement": "SELECT TO_CHAR(DATE(hde.device_time), 'DD-MM') AS event_date, COUNT(*) AS event_count, CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END AS severity FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '72 hours' AND hde.device_time < NOW() AND hde.event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn') GROUP BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END ORDER BY DATE(hde.device_time), CASE WHEN hde.speed_kmh >= 100 THEN 'Critical' ELSE 'Warning' END"
         },
         "verify": {
           "max_rows": 1000
@@ -302,14 +329,14 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "series": {
+            "event_date": {
               "type": "string"
             },
-            "category": {
-              "type": "date"
+            "event_count": {
+              "type": "integer"
+            },
+            "severity": {
+              "type": "string"
             }
           }
         },

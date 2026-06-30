@@ -20,7 +20,7 @@
       "type": "text",
       "title": "Block 1 – Fleet Overview",
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 24,
         "x": 0,
         "y": 0
@@ -79,7 +79,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(COALESCE(SUM(track_distance_meters), 0) / 1000.0, 2) AS value FROM business_data.tracks WHERE track_start_time >= CURRENT_DATE - INTERVAL '30 days'"
+          "statement": "SELECT ROUND(COALESCE(SUM(trip_distance_meters), 0) / 1000.0, 2) AS value FROM processed_common_data.trips WHERE trip_start_time >= CURRENT_DATE - INTERVAL '30 days'"
         },
         "verify": {
           "max_rows": 1
@@ -174,7 +174,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT CASE WHEN lm.last_device_time >= NOW() - INTERVAL '24 hours' THEN 'Active' ELSE 'Inactive' END AS status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT status AS category, count(*) AS value FROM classified GROUP BY status ORDER BY status"
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT CASE WHEN lm.last_device_time >= NOW() - INTERVAL '24 hours' THEN 'Active' ELSE 'Inactive' END AS status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT status AS activity_status, count(*) AS object_count FROM classified GROUP BY status ORDER BY status"
         },
         "verify": {
           "max_rows": 10
@@ -182,10 +182,10 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
+            "object_count": {
               "type": "integer"
             },
-            "category": {
+            "activity_status": {
               "type": "string"
             }
           }
@@ -208,7 +208,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(o.object_label, 'device_' || t.device_id) AS category, ROUND(SUM(t.track_distance_meters) / 1000.0, 2) AS value FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY o.object_label, t.device_id ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || t.device_id) AS object_label, ROUND(SUM(t.trip_distance_meters) / 1000.0, 2) AS mileage_km FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY o.object_label, t.device_id ORDER BY mileage_km DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -216,10 +216,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "mileage_km": {
               "type": "number"
             },
-            "category": {
+            "object_label": {
               "type": "string"
             }
           }
@@ -242,7 +242,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(o.object_label, 'device_' || c.device_id) AS category, count(*) AS value FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY o.object_label, c.device_id ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || c.device_id) AS object_label, count(*) AS violation_count FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY o.object_label, c.device_id ORDER BY violation_count DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -250,10 +250,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "violation_count": {
               "type": "integer"
             },
-            "category": {
+            "object_label": {
               "type": "string"
             }
           }
@@ -276,7 +276,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_seen FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), mileage AS (SELECT device_id, ROUND(SUM(track_distance_meters) / 1000.0, 2) AS km_30d, count(*) AS trips_30d FROM business_data.tracks WHERE track_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY device_id) SELECT o.object_label AS vehicle, COALESCE(v.registration_number, '—') AS reg_number, COALESCE(v.model, '—') AS model, CASE WHEN lm.last_seen >= NOW() - INTERVAL '24 hours' THEN 'active' WHEN lm.last_seen IS NULL THEN 'no data' ELSE 'inactive' END AS status, COALESCE(mi.km_30d, 0) AS km_30d, COALESCE(mi.trips_30d, 0) AS trips_30d, to_char(lm.last_seen, 'YYYY-MM-DD HH24:MI:SS') AS last_seen FROM raw_business_data.objects o LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN last_message lm ON lm.device_id = o.device_id LEFT JOIN mileage mi ON mi.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE ORDER BY o.object_label NULLS LAST LIMIT 500"
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_seen FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), mileage AS (SELECT device_id, ROUND(SUM(trip_distance_meters) / 1000.0, 2) AS km_30d, count(*) AS trips_30d FROM processed_common_data.trips WHERE trip_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY device_id) SELECT o.object_label AS vehicle, COALESCE(v.registration_number, '—') AS reg_number, COALESCE(v.model, '—') AS model, CASE WHEN lm.last_seen >= NOW() - INTERVAL '24 hours' THEN 'active' WHEN lm.last_seen IS NULL THEN 'no data' ELSE 'inactive' END AS status, COALESCE(mi.km_30d, 0) AS km_30d, COALESCE(mi.trips_30d, 0) AS trips_30d, to_char(lm.last_seen, 'YYYY-MM-DD HH24:MI:SS') AS last_seen FROM raw_business_data.objects o LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN last_message lm ON lm.device_id = o.device_id LEFT JOIN mileage mi ON mi.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE ORDER BY o.object_label NULLS LAST LIMIT 500"
         },
         "verify": {
           "max_rows": 500
@@ -314,7 +314,7 @@
       "type": "text",
       "title": "Block 2 – Driver Performance",
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 24,
         "x": 0,
         "y": 51
@@ -405,7 +405,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH driver_mileage AS (SELECT e.employee_id, SUM(t.track_distance_meters) AS total_meters FROM raw_business_data.employees e JOIN raw_business_data.objects o ON o.object_id = e.object_id AND o.is_deleted IS NOT TRUE JOIN business_data.tracks t ON t.device_id = o.device_id WHERE e.is_deleted IS NOT TRUE AND t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY e.employee_id) SELECT ROUND(COALESCE(AVG(total_meters), 0) / 1000.0, 2) AS value FROM driver_mileage"
+          "statement": "WITH driver_mileage AS (SELECT e.employee_id, SUM(t.trip_distance_meters) AS total_meters FROM raw_business_data.employees e JOIN raw_business_data.objects o ON o.object_id = e.object_id AND o.is_deleted IS NOT TRUE JOIN processed_common_data.trips t ON t.device_id = o.device_id WHERE e.is_deleted IS NOT TRUE AND t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY e.employee_id) SELECT ROUND(COALESCE(AVG(total_meters), 0) / 1000.0, 2) AS value FROM driver_mileage"
         },
         "verify": {
           "max_rows": 1
@@ -468,7 +468,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS category, count(*) AS value FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY e.first_name, e.last_name ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS driver_name, count(*) AS violation_count FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY e.first_name, e.last_name ORDER BY violation_count DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -476,10 +476,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "violation_count": {
               "type": "integer"
             },
-            "category": {
+            "driver_name": {
               "type": "string"
             }
           }
@@ -502,7 +502,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS category, ROUND(SUM(t.track_distance_meters) / 1000.0, 2) AS value FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY e.first_name, e.last_name ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS driver_name, ROUND(SUM(t.trip_distance_meters) / 1000.0, 2) AS mileage_km FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY e.first_name, e.last_name ORDER BY mileage_km DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -510,10 +510,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "mileage_km": {
               "type": "number"
             },
-            "category": {
+            "driver_name": {
               "type": "string"
             }
           }
@@ -536,7 +536,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS driver, COALESCE(e.personnel_number, '—') AS personnel_number, count(t.track_id) AS trips, ROUND(COALESCE(SUM(t.track_distance_meters), 0) / 1000.0, 2) AS km_total, ROUND(COALESCE(AVG(t.track_distance_meters), 0) / 1000.0, 2) AS km_avg_per_trip, to_char(MAX(t.track_start_time), 'YYYY-MM-DD HH24:MI:SS') AS last_trip FROM raw_business_data.employees e JOIN raw_business_data.objects o ON o.object_id = e.object_id AND o.is_deleted IS NOT TRUE LEFT JOIN business_data.tracks t ON t.device_id = o.device_id AND t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' WHERE e.is_deleted IS NOT TRUE GROUP BY e.employee_id, e.first_name, e.last_name, e.personnel_number ORDER BY km_total DESC LIMIT 100"
+          "statement": "SELECT COALESCE(e.first_name || ' ' || e.last_name, 'Unassigned') AS driver, COALESCE(e.personnel_number, '—') AS personnel_number, count(t.trip_id) AS trips, ROUND(COALESCE(SUM(t.trip_distance_meters), 0) / 1000.0, 2) AS km_total, ROUND(COALESCE(AVG(t.trip_distance_meters), 0) / 1000.0, 2) AS km_avg_per_trip, to_char(MAX(t.trip_start_time), 'YYYY-MM-DD HH24:MI:SS') AS last_trip FROM raw_business_data.employees e JOIN raw_business_data.objects o ON o.object_id = e.object_id AND o.is_deleted IS NOT TRUE LEFT JOIN processed_common_data.trips t ON t.device_id = o.device_id AND t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' WHERE e.is_deleted IS NOT TRUE GROUP BY e.employee_id, e.first_name, e.last_name, e.personnel_number ORDER BY km_total DESC LIMIT 100"
         },
         "verify": {
           "max_rows": 100
@@ -571,7 +571,7 @@
       "type": "text",
       "title": "Block 3 – Safety Events",
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 24,
         "x": 0,
         "y": 88
@@ -630,7 +630,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT count(*) AS value FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' AND (EXTRACT(HOUR FROM t.track_start_time) >= 22 OR EXTRACT(HOUR FROM t.track_start_time) < 6 OR EXTRACT(HOUR FROM t.track_end_time) >= 22 OR EXTRACT(HOUR FROM t.track_end_time) < 6)"
+          "statement": "SELECT count(*) AS value FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' AND (EXTRACT(HOUR FROM t.trip_start_time) >= 22 OR EXTRACT(HOUR FROM t.trip_start_time) < 6 OR EXTRACT(HOUR FROM t.trip_end_time) >= 22 OR EXTRACT(HOUR FROM t.trip_end_time) < 6)"
         },
         "verify": {
           "max_rows": 1
@@ -725,7 +725,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT 'Speeding' AS category, count(*) AS value FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) UNION ALL SELECT 'Night Driving' AS category, count(*) AS value FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '30 days' AND (EXTRACT(HOUR FROM t.track_start_time) >= 22 OR EXTRACT(HOUR FROM t.track_start_time) < 6 OR EXTRACT(HOUR FROM t.track_end_time) >= 22 OR EXTRACT(HOUR FROM t.track_end_time) < 6)"
+          "statement": "SELECT 'Speeding' AS alert_type, count(*) AS alert_count FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) UNION ALL SELECT 'Night Driving' AS alert_type, count(*) AS alert_count FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '30 days' AND (EXTRACT(HOUR FROM t.trip_start_time) >= 22 OR EXTRACT(HOUR FROM t.trip_start_time) < 6 OR EXTRACT(HOUR FROM t.trip_end_time) >= 22 OR EXTRACT(HOUR FROM t.trip_end_time) < 6)"
         },
         "verify": {
           "max_rows": 10
@@ -733,10 +733,10 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
+            "alert_count": {
               "type": "integer"
             },
-            "category": {
+            "alert_type": {
               "type": "string"
             }
           }
@@ -759,7 +759,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT lpad(EXTRACT(HOUR FROM c.device_time)::int::text, 2, '0') || ':00' AS category, count(*) AS value FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY EXTRACT(HOUR FROM c.device_time)::int ORDER BY EXTRACT(HOUR FROM c.device_time)::int"
+          "statement": "SELECT lpad(EXTRACT(HOUR FROM c.device_time)::int::text, 2, '0') || ':00' AS hour_of_day, count(*) AS violation_count FROM raw_telematics_data.tracking_data_core c JOIN raw_business_data.objects o ON o.device_id = c.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE c.device_time >= CURRENT_DATE - INTERVAL '30 days' AND c.speed IS NOT NULL AND c.event_id IN (2, 802, 803, 804, 811) AND c.latitude <> 0 AND c.longitude <> 0 AND c.speed / 100.0 > COALESCE(v.max_speed, 120) GROUP BY EXTRACT(HOUR FROM c.device_time)::int ORDER BY EXTRACT(HOUR FROM c.device_time)::int"
         },
         "verify": {
           "max_rows": 24
@@ -767,10 +767,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "violation_count": {
               "type": "integer"
             },
-            "category": {
+            "hour_of_day": {
               "type": "string"
             }
           }
@@ -834,7 +834,7 @@
       "type": "text",
       "title": "Block 4 – Geofence Monitoring",
       "gridPos": {
-        "h": 2,
+        "h": 3,
         "w": 24,
         "x": 0,
         "y": 125
@@ -861,7 +861,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT count(*) AS value FROM business_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days'"
+          "statement": "SELECT count(*) AS value FROM processed_common_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days'"
         },
         "verify": {
           "max_rows": 1
@@ -893,7 +893,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT count(DISTINCT zone_id) AS value FROM business_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days'"
+          "statement": "SELECT count(DISTINCT zone_id) AS value FROM processed_common_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days'"
         },
         "verify": {
           "max_rows": 1
@@ -925,7 +925,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(COALESCE(AVG(EXTRACT(EPOCH FROM duration) / 60.0), 0)::numeric, 2) AS value FROM business_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days' AND exit_time IS NOT NULL AND duration IS NOT NULL"
+          "statement": "SELECT ROUND(COALESCE(AVG(EXTRACT(EPOCH FROM duration) / 60.0), 0)::numeric, 2) AS value FROM processed_common_data.zone_visits WHERE enter_time >= CURRENT_DATE - INTERVAL '30 days' AND exit_time IS NOT NULL AND duration IS NOT NULL"
         },
         "verify": {
           "max_rows": 1
@@ -957,7 +957,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT count(DISTINCT zv.device_id) AS value FROM business_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days'"
+          "statement": "SELECT count(DISTINCT zv.device_id) AS value FROM processed_common_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days'"
         },
         "verify": {
           "max_rows": 1
@@ -988,7 +988,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(z.zone_label, 'Zone ' || zv.zone_id) AS category, count(*) AS value FROM business_data.zone_visits zv LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY z.zone_label, zv.zone_id ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(z.zone_label, 'Zone ' || zv.zone_id) AS zone_label, count(*) AS visit_count FROM processed_common_data.zone_visits zv LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY z.zone_label, zv.zone_id ORDER BY visit_count DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -996,10 +996,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "visit_count": {
               "type": "integer"
             },
-            "category": {
+            "zone_label": {
               "type": "string"
             }
           }
@@ -1022,7 +1022,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(o.object_label, 'device_' || zv.device_id) AS category, count(*) AS value FROM business_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY o.object_label, zv.device_id ORDER BY value DESC LIMIT 20"
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || zv.device_id) AS object_label, count(*) AS visit_count FROM processed_common_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' GROUP BY o.object_label, zv.device_id ORDER BY visit_count DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 20
@@ -1030,10 +1030,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "visit_count": {
               "type": "integer"
             },
-            "category": {
+            "object_label": {
               "type": "string"
             }
           }
@@ -1056,7 +1056,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(o.object_label, 'device_' || zv.device_id) AS vehicle, COALESCE(z.zone_label, 'Zone ' || zv.zone_id) AS zone, CASE WHEN zv.exit_time IS NULL THEN 'active' ELSE 'completed' END AS status, to_char(zv.enter_time, 'YYYY-MM-DD HH24:MI:SS') AS enter_time, to_char(zv.exit_time, 'YYYY-MM-DD HH24:MI:SS') AS exit_time, ROUND(EXTRACT(EPOCH FROM zv.duration) / 60.0, 2) AS duration_min FROM business_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' ORDER BY zv.enter_time DESC LIMIT 500"
+          "statement": "SELECT COALESCE(o.object_label, 'device_' || zv.device_id) AS vehicle, COALESCE(z.zone_label, 'Zone ' || zv.zone_id) AS zone, CASE WHEN zv.exit_time IS NULL THEN 'active' ELSE 'completed' END AS status, to_char(zv.enter_time, 'YYYY-MM-DD HH24:MI:SS') AS enter_time, to_char(zv.exit_time, 'YYYY-MM-DD HH24:MI:SS') AS exit_time, ROUND(EXTRACT(EPOCH FROM zv.duration) / 60.0, 2) AS duration_min FROM processed_common_data.zone_visits zv JOIN raw_business_data.objects o ON o.device_id = zv.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.zones z ON z.zone_id = zv.zone_id WHERE zv.enter_time >= CURRENT_DATE - INTERVAL '30 days' ORDER BY zv.enter_time DESC LIMIT 500"
         },
         "verify": {
           "max_rows": 500

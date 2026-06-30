@@ -1,0 +1,499 @@
+{
+  "id": null,
+  "uid": "behavior-impact-dashboard",
+  "tags": [
+    "fleet",
+    "driving",
+    "behavior",
+    "safety"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-7d"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Behavior Impact Dashboard",
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Scope",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Fuel metrics are excluded in this dashboard"
+      }
+    },
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Idling Events (7d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 2
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value FROM processed_common_data.driver_performance_events WHERE event_type = 'idle over 5 min' AND device_time >= NOW() - INTERVAL '7 days' AND device_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "kpi",
+      "title": "Aggressive Driving Events (7d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 2
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value FROM processed_common_data.driver_performance_events WHERE event_type NOT IN ('idle over 5 min', 'rpm exceeded', 'overspeeding') AND device_time >= NOW() - INTERVAL '7 days' AND device_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "kpi",
+      "title": "High RPM > 5000 Events (7d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 2
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value FROM processed_common_data.driver_performance_events WHERE event_type = 'rpm exceeded' AND device_time >= NOW() - INTERVAL '7 days' AND device_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "kpi",
+      "title": "High Speed Trips (7d)",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 2
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*)::numeric AS value FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.trip_start_time >= NOW() - INTERVAL '7 days' AND t.trip_start_time < NOW() AND t.max_speed IS NOT NULL AND t.max_speed > COALESCE(v.max_speed, 70)"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "piechart",
+      "title": "Top Behaviors Impacting Fleet (7d)",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "options": {
+        "pieType": "donut"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH dpe AS (SELECT event_type, COUNT(*) AS n FROM processed_common_data.driver_performance_events WHERE device_time >= NOW() - INTERVAL '7 days' AND device_time < NOW() GROUP BY event_type), idle_n AS (SELECT COALESCE(SUM(n), 0)::numeric AS n FROM dpe WHERE event_type = 'idle over 5 min'), aggr_n AS (SELECT COALESCE(SUM(n), 0)::numeric AS n FROM dpe WHERE event_type NOT IN ('idle over 5 min', 'rpm exceeded', 'overspeeding')), speed_n AS (SELECT COUNT(*)::numeric AS n FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.trip_start_time >= NOW() - INTERVAL '7 days' AND t.trip_start_time < NOW() AND t.max_speed IS NOT NULL AND t.max_speed > COALESCE(v.max_speed, 70)) SELECT behavior_type, event_count FROM (SELECT 'Idling >= 5 min'::text AS behavior_type, (SELECT n FROM idle_n) AS event_count UNION ALL SELECT 'Aggressive Driving', (SELECT n FROM aggr_n) UNION ALL SELECT 'High Speed Trips', (SELECT n FROM speed_n)) t WHERE event_count > 0"
+        },
+        "verify": {
+          "max_rows": 5
+        },
+        "dataset": {
+          "shape": "pie",
+          "columns": {
+            "event_count": {
+              "type": "number"
+            },
+            "behavior_type": {
+              "type": "string"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
+        }
+      }
+    },
+    {
+      "id": 300,
+      "type": "text",
+      "title": "Week-over-Week Increases",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Units with highest week-over-week increase"
+      }
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Top Units: Idling vs Previous Week",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, COALESCE(o.object_label, 'device_' || o.device_id::text) AS vehicle FROM raw_business_data.objects o WHERE o.is_deleted IS NOT TRUE), agg AS (SELECT dpe.device_id, COUNT(*) FILTER (WHERE dpe.device_time >= NOW() - INTERVAL '7 days') AS current_week_idle, COUNT(*) FILTER (WHERE dpe.device_time >= NOW() - INTERVAL '14 days' AND dpe.device_time < NOW() - INTERVAL '7 days') AS previous_week_idle FROM processed_common_data.driver_performance_events dpe WHERE dpe.event_type = 'idle over 5 min' AND dpe.device_time >= NOW() - INTERVAL '14 days' AND dpe.device_time < NOW() GROUP BY dpe.device_id), top_units AS (SELECT a.device_id, a.current_week_idle, a.previous_week_idle FROM agg a WHERE a.current_week_idle > a.previous_week_idle ORDER BY (a.current_week_idle - a.previous_week_idle) DESC LIMIT 15) SELECT o.vehicle AS object_label, u.previous_week_idle::numeric AS idle_event_count, 'Previous Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id UNION ALL SELECT o.vehicle AS object_label, u.current_week_idle::numeric AS idle_event_count, 'Current Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id ORDER BY object_label, week_period DESC"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "idle_event_count": {
+              "type": "number"
+            },
+            "week_period": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "classic"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Top Units: Aggressive Driving vs Previous Week",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, COALESCE(o.object_label, 'device_' || o.device_id::text) AS vehicle FROM raw_business_data.objects o WHERE o.is_deleted IS NOT TRUE), agg AS (SELECT hde.device_id, COUNT(*) FILTER (WHERE hde.device_time >= NOW() - INTERVAL '7 days') AS current_week_agg, COUNT(*) FILTER (WHERE hde.device_time >= NOW() - INTERVAL '14 days' AND hde.device_time < NOW() - INTERVAL '7 days') AS previous_week_agg FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '14 days' AND hde.device_time < NOW() AND hde.event_type NOT IN ('idle over 5 min', 'rpm exceeded', 'overspeeding') GROUP BY hde.device_id), top_units AS (SELECT a.device_id, a.current_week_agg, a.previous_week_agg FROM agg a WHERE a.current_week_agg > a.previous_week_agg ORDER BY (a.current_week_agg - a.previous_week_agg) DESC LIMIT 15) SELECT o.vehicle AS object_label, u.previous_week_agg::numeric AS aggr_event_count, 'Previous Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id UNION ALL SELECT o.vehicle AS object_label, u.current_week_agg::numeric AS aggr_event_count, 'Current Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id ORDER BY object_label, week_period DESC"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "aggr_event_count": {
+              "type": "number"
+            },
+            "week_period": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Top Units: High Speed vs Previous Week",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, COALESCE(o.object_label, 'device_' || o.device_id::text) AS vehicle FROM raw_business_data.objects o WHERE o.is_deleted IS NOT TRUE), veh_limits AS (SELECT o.device_id, COALESCE(v.max_speed, 70) AS speed_limit FROM raw_business_data.objects o LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE o.is_deleted IS NOT TRUE), speeding_trips AS (SELECT t.device_id, t.trip_start_time, CASE WHEN t.trip_start_time >= NOW() - INTERVAL '7 days' THEN 'Current Week' ELSE 'Previous Week' END AS period FROM processed_common_data.trips t JOIN veh_limits vl ON vl.device_id = t.device_id WHERE t.trip_start_time >= NOW() - INTERVAL '14 days' AND t.trip_start_time < NOW() AND t.max_speed IS NOT NULL AND t.max_speed > vl.speed_limit), agg AS (SELECT st.device_id, COUNT(*) FILTER (WHERE st.period = 'Current Week') AS current_week_speed, COUNT(*) FILTER (WHERE st.period = 'Previous Week') AS previous_week_speed FROM speeding_trips st GROUP BY st.device_id), top_units AS (SELECT a.device_id, a.current_week_speed, a.previous_week_speed FROM agg a WHERE a.current_week_speed > a.previous_week_speed ORDER BY (a.current_week_speed - a.previous_week_speed) DESC LIMIT 15) SELECT o.vehicle AS object_label, u.previous_week_speed::numeric AS speed_event_count, 'Previous Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id UNION ALL SELECT o.vehicle AS object_label, u.current_week_speed::numeric AS speed_event_count, 'Current Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id ORDER BY object_label, week_period DESC"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "speed_event_count": {
+              "type": "number"
+            },
+            "week_period": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "vibrant"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Top Units: High RPM > 5000 vs Previous Week",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      },
+      "options": {
+        "orientation": "vertical"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, COALESCE(o.object_label, 'device_' || o.device_id::text) AS vehicle FROM raw_business_data.objects o WHERE o.is_deleted IS NOT TRUE), agg AS (SELECT dpe.device_id, COUNT(*) FILTER (WHERE dpe.device_time >= NOW() - INTERVAL '7 days') AS current_week_rpm, COUNT(*) FILTER (WHERE dpe.device_time >= NOW() - INTERVAL '14 days' AND dpe.device_time < NOW() - INTERVAL '7 days') AS previous_week_rpm FROM processed_common_data.driver_performance_events dpe WHERE dpe.event_type = 'rpm exceeded' AND dpe.device_time >= NOW() - INTERVAL '14 days' AND dpe.device_time < NOW() GROUP BY dpe.device_id), top_units AS (SELECT a.device_id, a.current_week_rpm, a.previous_week_rpm FROM agg a WHERE a.current_week_rpm > a.previous_week_rpm ORDER BY (a.current_week_rpm - a.previous_week_rpm) DESC LIMIT 15) SELECT o.vehicle AS object_label, u.previous_week_rpm::numeric AS rpm_event_count, 'Previous Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id UNION ALL SELECT o.vehicle AS object_label, u.current_week_rpm::numeric AS rpm_event_count, 'Current Week'::text AS week_period FROM top_units u JOIN obj o ON o.device_id = u.device_id ORDER BY object_label, week_period DESC"
+        },
+        "verify": {
+          "max_rows": 50
+        },
+        "dataset": {
+          "shape": "category_value",
+          "columns": {
+            "rpm_event_count": {
+              "type": "number"
+            },
+            "week_period": {
+              "type": "string"
+            },
+            "object_label": {
+              "type": "string"
+            }
+          }
+        },
+        "visualization": {
+          "colorPalette": "classic"
+        }
+      }
+    },
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Driver Comparison By Route",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Operators with highest behavior impact on the same route (last 30 days)"
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Route-Based Driver Impact (30d)",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, COALESCE(o.object_label, 'device_' || o.device_id::text) AS vehicle, COALESCE(e.last_name || ' ' || e.first_name, 'Unassigned') AS driver_name FROM raw_business_data.objects o LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE WHERE o.is_deleted IS NOT TRUE), trips_30d AS (SELECT t.device_id, t.trip_start_time, t.trip_end_time, t.trip_distance_meters / 1000.0 AS trip_km, CASE WHEN NULLIF(t.start_zone, '') IS NOT NULL AND NULLIF(t.start_zone, '') = NULLIF(t.end_zone, '') THEN t.start_zone || ' [intra-zone]' ELSE COALESCE(NULLIF(t.start_zone, ''), 'Uncommon Area') || ' -> ' || COALESCE(NULLIF(t.end_zone, ''), 'Uncommon Area') END AS route_name FROM processed_common_data.trips t WHERE t.trip_start_time >= NOW() - INTERVAL '30 days' AND t.trip_start_time < NOW() AND t.trip_end_time > t.trip_start_time AND (NULLIF(t.start_zone, '') IS NOT NULL OR NULLIF(t.end_zone, '') IS NOT NULL)), all_points AS (SELECT dpe.device_id, dpe.device_time, CASE WHEN dpe.event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn', 'Driver performance braking', 'Driver performance braking and turn') THEN 3.0 WHEN dpe.event_type IN ('idle over 5 min', 'rpm exceeded') THEN 1.0 ELSE 2.0 END AS weight FROM processed_common_data.driver_performance_events dpe WHERE dpe.device_time >= NOW() - INTERVAL '30 days' AND dpe.device_time < NOW()), route_driver AS (SELECT tr.route_name, o.driver_name, o.vehicle, COUNT(*) AS trips_count, ROUND(SUM(tr.trip_km)::numeric, 2) AS distance_km, ROUND(COALESCE(SUM(ap.weight), 0)::numeric, 2) AS behavior_points FROM trips_30d tr JOIN obj o ON o.device_id = tr.device_id LEFT JOIN all_points ap ON ap.device_id = tr.device_id AND ap.device_time >= tr.trip_start_time AND ap.device_time <= tr.trip_end_time GROUP BY tr.route_name, o.driver_name, o.vehicle HAVING COUNT(*) >= 2 AND SUM(tr.trip_km) >= 5), ranked AS (SELECT rd.route_name, rd.driver_name, rd.vehicle, rd.trips_count, rd.distance_km, rd.behavior_points, ROUND((rd.behavior_points / NULLIF(rd.distance_km, 0)) * 100, 2) AS points_per_100km, DENSE_RANK() OVER (PARTITION BY rd.route_name ORDER BY (rd.behavior_points / NULLIF(rd.distance_km, 0)) DESC NULLS LAST) AS route_rank FROM route_driver rd) SELECT route_name, driver_name, vehicle, trips_count, distance_km, behavior_points, points_per_100km, route_rank FROM ranked WHERE route_rank <= 3 ORDER BY points_per_100km DESC, route_name, driver_name LIMIT 500"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "route_name": {
+              "type": "string"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "trips_count": {
+              "type": "integer"
+            },
+            "distance_km": {
+              "type": "number"
+            },
+            "behavior_points": {
+              "type": "number"
+            },
+            "points_per_100km": {
+              "type": "number"
+            },
+            "route_rank": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 60000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Behavior Impact Dashboard without fuel metrics. 4 KPI big numbers + WoW barcharts (Idling, Aggressive Driving, High Speed, High RPM) + Route-Based Driver Impact table.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

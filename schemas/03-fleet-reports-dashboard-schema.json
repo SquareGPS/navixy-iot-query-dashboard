@@ -156,7 +156,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT o.device_id, CASE WHEN lm.last_device_time IS NULL THEN 'offline' WHEN lm.last_device_time >= (NOW() - INTERVAL '24 hours') THEN 'online' ELSE 'offline' END AS connection_status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT connection_status AS category, COUNT(*) AS value FROM classified GROUP BY connection_status ORDER BY connection_status"
+          "statement": "WITH last_message AS (SELECT device_id, MAX(device_time) AS last_device_time FROM raw_telematics_data.tracking_data_core WHERE event_id IN (2, 802, 803, 804, 811) GROUP BY device_id), classified AS (SELECT o.device_id, CASE WHEN lm.last_device_time IS NULL THEN 'offline' WHEN lm.last_device_time >= (NOW() - INTERVAL '24 hours') THEN 'online' ELSE 'offline' END AS connection_status FROM raw_business_data.objects o LEFT JOIN last_message lm ON lm.device_id = o.device_id WHERE o.is_deleted IS NOT TRUE) SELECT connection_status AS connection_status, COUNT(*) AS object_count FROM classified GROUP BY connection_status ORDER BY connection_status"
         },
         "verify": {
           "max_rows": 10
@@ -164,10 +164,10 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
+            "object_count": {
               "type": "integer"
             },
-            "category": {
+            "connection_status": {
               "type": "string"
             }
           }
@@ -190,7 +190,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH track_with_zone AS (SELECT DISTINCT ON (t.device_id, t.track_start_time) t.device_id, t.track_start_time, t.track_distance_meters, zg.zone_label FROM business_data.tracks t LEFT JOIN business_data.zones_geom zg ON ST_DWithin(ST_SetSRID(ST_MakePoint(t.longitude_start, t.latitude_start), 4326)::geography, zg.zone_geom, 0) WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.track_start_time < CURRENT_DATE ORDER BY t.device_id, t.track_start_time, zg.zone_id NULLS LAST) SELECT COALESCE(zone_label, 'Unknown') AS category, ROUND(SUM(track_distance_meters) / 1000.0, 2) AS value FROM track_with_zone GROUP BY COALESCE(zone_label, 'Unknown') ORDER BY value DESC"
+          "statement": "WITH trip_with_zone AS (SELECT DISTINCT ON (t.device_id, t.trip_start_time) t.device_id, t.trip_start_time, t.trip_distance_meters, zg.zone_label FROM processed_common_data.trips t LEFT JOIN processed_common_data.zones_geom zg ON ST_DWithin(ST_SetSRID(ST_MakePoint(t.longitude_start, t.latitude_start), 4326)::geography, zg.zone_geom, 0) WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 month' AND t.trip_start_time < CURRENT_DATE ORDER BY t.device_id, t.trip_start_time, zg.zone_id NULLS LAST) SELECT COALESCE(zone_label, 'Unknown') AS zone_label, ROUND(SUM(trip_distance_meters) / 1000.0, 2) AS mileage_km FROM trip_with_zone GROUP BY COALESCE(zone_label, 'Unknown') ORDER BY mileage_km DESC"
         },
         "verify": {
           "max_rows": 500
@@ -198,10 +198,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "mileage_km": {
               "type": "number"
             },
-            "category": {
+            "zone_label": {
               "type": "string"
             }
           }
@@ -227,7 +227,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT s.device_id, COALESCE(s.object_label, 'device_' || s.device_id) AS unit, ROUND(AVG(s.value_avg)::numeric, 2) AS avg_v, ROUND(MIN(s.value_min)::numeric, 2) AS min_v, ROUND(MAX(s.value_max)::numeric, 2) AS max_v, MAX(s.hour_bucket) AS last_seen FROM business_data.sensors_data_by_hours s JOIN raw_business_data.sensor_description sd ON sd.device_id = s.device_id AND sd.input_label = s.sensor_name WHERE sd.sensor_type = 'power' AND sd.units_type = 24 AND s.hour_bucket >= date_trunc('hour', NOW()) - INTERVAL '1 hour' GROUP BY s.device_id, s.object_label ORDER BY avg_v ASC NULLS LAST"
+          "statement": "SELECT s.device_id, COALESCE(s.object_label, 'device_' || s.device_id) AS unit, ROUND(AVG(s.value_avg)::numeric, 2) AS avg_v, ROUND(MIN(s.value_min)::numeric, 2) AS min_v, ROUND(MAX(s.value_max)::numeric, 2) AS max_v, MAX(s.hour_bucket) AS last_seen FROM processed_common_data.sensors_data_by_hours s JOIN raw_business_data.sensor_description sd ON sd.device_id = s.device_id AND sd.input_label = s.sensor_name WHERE sd.sensor_type = 'power' AND sd.units_type = 24 AND s.hour_bucket >= date_trunc('hour', NOW()) - INTERVAL '1 hour' GROUP BY s.device_id, s.object_label ORDER BY avg_v ASC NULLS LAST"
         },
         "verify": {
           "max_rows": 5000
@@ -349,7 +349,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "WITH params AS (SELECT CURRENT_DATE - INTERVAL '30 days' AS date_from, CURRENT_DATE AS date_to), mileage_per_unit AS (SELECT t.device_id, o.object_label, o.object_id, COUNT(*) AS trip_count, SUM(t.track_distance_meters) AS total_distance_meters FROM business_data.tracks t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE CROSS JOIN params p WHERE t.track_start_time >= p.date_from AND t.track_start_time < p.date_to + INTERVAL '1 day' GROUP BY t.device_id, o.object_label, o.object_id) SELECT device_id, object_id, object_label, trip_count, ROUND(total_distance_meters / 1000.0, 2) AS total_km, ROUND((total_distance_meters / 1000.0) / NULLIF(trip_count, 0), 2) AS avg_mileage_per_trip_km FROM mileage_per_unit ORDER BY total_distance_meters DESC LIMIT 500"
+          "statement": "WITH params AS (SELECT CURRENT_DATE - INTERVAL '30 days' AS date_from, CURRENT_DATE AS date_to), mileage_per_unit AS (SELECT t.device_id, o.object_label, o.object_id, COUNT(*) AS trip_count, SUM(t.trip_distance_meters) AS total_distance_meters FROM processed_common_data.trips t JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted IS NOT TRUE CROSS JOIN params p WHERE t.trip_start_time >= p.date_from AND t.trip_start_time < p.date_to + INTERVAL '1 day' GROUP BY t.device_id, o.object_label, o.object_id) SELECT device_id, object_id, object_label, trip_count, ROUND(total_distance_meters / 1000.0, 2) AS total_km, ROUND((total_distance_meters / 1000.0) / NULLIF(trip_count, 0), 2) AS avg_mileage_per_trip_km FROM mileage_per_unit ORDER BY total_distance_meters DESC LIMIT 500"
         },
         "verify": {
           "max_rows": 500

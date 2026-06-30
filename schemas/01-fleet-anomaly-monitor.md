@@ -105,10 +105,26 @@ It helps to:
 For each `device_id`, the maximum `device_time` in `tracking_data_core` is determined. If the difference from `NOW()` exceeds 3 days, the device is classified as offline.
 
 ### Long Stops
-Periods where speed equals 0 for 24h+ are analyzed. The `LAG` window function is applied on `device_time`, partitioned by `device_id`.
+For each `device_id`, gaps between consecutive rows in `processed_common_data.trips` are computed (`LEAD(trip_start_time)` minus `trip_end_time`). If a gap is 24 hours or more within the current month, the device contributes to the long-stop KPI and table.
 
 ### Geozone Exits
-"Inside → outside" geozone transition events are counted using `ST_DWithin` (PostGIS). Vehicles with 3+ such events per month are flagged as anomalies.
+Completed visits (`processed_common_data.zone_visits` with `exit_time` set) since the start of the current month are counted per device. Vehicles with three or more such exits are flagged.
 
 ### Mileage
-Calculated using the Haversine formula between consecutive GPS points. Outliers are excluded (`ABS(lat_diff) > 1`). Coordinates are converted from scaled format (`÷ 1e7`).
+Aggregated from `processed_common_data.trips`: `SUM(trip_distance_meters)` over the selected window (for example, the last 30 days), joined to fleet objects in `raw_business_data.objects`.
+
+---
+
+## Data Layer (after client DB refactoring)
+
+| Change | Description |
+|-----------|------|
+| Processing schema | **`processed_common_data`** instead of `business_data` |
+| Trips | Table **`trips`**, fields **`trip_*`** (`trip_start_time`, `trip_distance_meters`, …) |
+| Lookup tables / raw objects | **`raw_business_data`**, telematics — **`raw_telematics_data`** |
+| Events | For code labels: **`processed_common_data.event_description`** |
+| Device settings | **`processed_common_data.device_settings`** (key–value on full sync) |
+| Hourly sensors | **`processed_common_data.sensors_data_by_hours`**, column **`value_title`** — client-side value label |
+
+SQL infrastructure: `19_trips.sql` / `20_generate_trips.sql` instead of `18_tracks.sql` / `20_generate_tracks.sql`; renamed `02_update_description_parameters.sql`.
+

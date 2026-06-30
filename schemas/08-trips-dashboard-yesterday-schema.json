@@ -31,7 +31,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT COUNT(*) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -62,7 +62,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -93,7 +93,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT ROUND(SUM(COALESCE(t.trip_duration_seconds,0))/3600.0, 2) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -124,7 +124,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COUNT(DISTINCT COALESCE(v.vehicle_id::text, o.object_id::text, t.device_id::text)) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT COUNT(DISTINCT COALESCE(v.vehicle_id::text, o.object_id::text, t.device_id::text)) AS value FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -155,7 +155,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(AVG(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT ROUND(AVG(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -186,7 +186,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(SUM(t.avg_speed * t.track_duration_seconds) / NULLIF(SUM(t.track_duration_seconds),0), 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE AND COALESCE(t.track_duration_seconds,0) > 0;"
+          "statement": "SELECT ROUND(SUM(t.avg_speed * t.trip_duration_seconds) / NULLIF(SUM(t.trip_duration_seconds),0), 2) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE AND COALESCE(t.trip_duration_seconds,0) > 0"
         },
         "verify": {
           "max_rows": 1000
@@ -217,7 +217,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT MAX(t.max_speed) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT MAX(t.max_speed) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
@@ -248,14 +248,18 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT ROUND(100.0 * SUM(CASE WHEN t.start_zone IS NOT NULL AND t.start_zone = t.end_zone THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE;"
+          "statement": "SELECT ROUND(100.0 * SUM(CASE WHEN t.start_zone IS NOT NULL AND t.start_zone = t.end_zone THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 2) AS value FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
           "shape": "kpi",
-          "columns": {}
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
         }
       }
     },
@@ -275,7 +279,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+          "statement": "SELECT DATE_TRUNC('hour', t.trip_start_time) AS trip_start_hour, COUNT(*) AS trip_count FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1"
         },
         "verify": {
           "max_rows": 1000
@@ -283,10 +287,10 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
+            "trip_count": {
               "type": "integer"
             },
-            "category": {
+            "trip_start_hour": {
               "type": "date"
             }
           }
@@ -309,7 +313,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+          "statement": "SELECT LPAD(EXTRACT(HOUR FROM t.trip_start_time)::text, 2, '0') AS trip_hour, ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS mileage_km FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1"
         },
         "verify": {
           "max_rows": 1000
@@ -317,11 +321,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "number"
+            "trip_hour": {
+              "type": "string"
             },
-            "category": {
-              "type": "date"
+            "mileage_km": {
+              "type": "number"
             }
           }
         }
@@ -343,7 +347,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT DATE_TRUNC('hour', t.track_start_time) AS category, ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+          "statement": "SELECT LPAD(EXTRACT(HOUR FROM t.trip_start_time)::text, 2, '0') AS trip_hour, ROUND(SUM(COALESCE(t.trip_duration_seconds,0))/3600.0, 2) AS drive_hours FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1"
         },
         "verify": {
           "max_rows": 1000
@@ -351,11 +355,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "number"
+            "trip_hour": {
+              "type": "string"
             },
-            "category": {
-              "type": "date"
+            "drive_hours": {
+              "type": "number"
             }
           }
         }
@@ -377,7 +381,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT LPAD(EXTRACT(HOUR FROM t.track_start_time)::text, 2, '0') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1;"
+          "statement": "SELECT LPAD(EXTRACT(HOUR FROM t.trip_start_time)::text, 2, '0') AS hour_of_day, COUNT(*) AS trip_count FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY 1"
         },
         "verify": {
           "max_rows": 1000
@@ -385,11 +389,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "hour_of_day": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -411,7 +415,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.track_distance_meters,0) < 5000 THEN '<5 km'\r\n            WHEN t.track_distance_meters < 20000 THEN '5-20 km'\r\n            WHEN t.track_distance_meters < 50000 THEN '20-50 km'\r\n            WHEN t.track_distance_meters < 100000 THEN '50-100 km'\r\n            ELSE '100+ km'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<5 km' THEN 1\r\n        WHEN '5-20 km' THEN 2\r\n        WHEN '20-50 km' THEN 3\r\n        WHEN '50-100 km' THEN 4\r\n        ELSE 5\r\n    END;"
+          "statement": "SELECT *\nFROM (\n    SELECT \n        CASE \n            WHEN COALESCE(t.trip_distance_meters,0) < 5000 THEN '<5 km'\n            WHEN t.trip_distance_meters < 20000 THEN '5-20 km'\n            WHEN t.trip_distance_meters < 50000 THEN '20-50 km'\n            WHEN t.trip_distance_meters < 100000 THEN '50-100 km'\n            ELSE '100+ km'\n        END AS distance_band,\n        COUNT(*) AS trip_count\n    FROM processed_common_data.trips t\n    WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day'\n      AND t.trip_start_time < CURRENT_DATE\n    GROUP BY 1\n) s\nORDER BY \n    CASE category\n        WHEN '<5 km' THEN 1\n        WHEN '5-20 km' THEN 2\n        WHEN '20-50 km' THEN 3\n        WHEN '50-100 km' THEN 4\n        ELSE 5\n    END"
         },
         "verify": {
           "max_rows": 1000
@@ -419,11 +423,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "distance_band": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -445,7 +449,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.track_duration_seconds,0) < 900 THEN '<15 min'\r\n            WHEN t.track_duration_seconds < 1800 THEN '15-30 min'\r\n            WHEN t.track_duration_seconds < 3600 THEN '30-60 min'\r\n            WHEN t.track_duration_seconds < 7200 THEN '1-2 h'\r\n            ELSE '2+ h'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<15 min' THEN 1\r\n        WHEN '15-30 min' THEN 2\r\n        WHEN '30-60 min' THEN 3\r\n        WHEN '1-2 h' THEN 4\r\n        ELSE 5\r\n    END;"
+          "statement": "SELECT *\nFROM (\n    SELECT \n        CASE \n            WHEN COALESCE(t.trip_duration_seconds,0) < 900 THEN '<15 min'\n            WHEN t.trip_duration_seconds < 1800 THEN '15-30 min'\n            WHEN t.trip_duration_seconds < 3600 THEN '30-60 min'\n            WHEN t.trip_duration_seconds < 7200 THEN '1-2 h'\n            ELSE '2+ h'\n        END AS duration_band,\n        COUNT(*) AS trip_count\n    FROM processed_common_data.trips t\n    WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day'\n      AND t.trip_start_time < CURRENT_DATE\n    GROUP BY 1\n) s\nORDER BY \n    CASE category\n        WHEN '<15 min' THEN 1\n        WHEN '15-30 min' THEN 2\n        WHEN '30-60 min' THEN 3\n        WHEN '1-2 h' THEN 4\n        ELSE 5\n    END"
         },
         "verify": {
           "max_rows": 1000
@@ -453,11 +457,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "duration_band": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -479,7 +483,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 10;"
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS object_label, ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS mileage_km FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY mileage_km DESC LIMIT 10"
         },
         "verify": {
           "max_rows": 1000
@@ -487,11 +491,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "number"
-            },
-            "category": {
+            "object_label": {
               "type": "string"
+            },
+            "mileage_km": {
+              "type": "number"
             }
           }
         }
@@ -513,7 +517,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 10;"
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS object_label, COUNT(*) AS trip_count FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY trip_count DESC LIMIT 10"
         },
         "verify": {
           "max_rows": 1000
@@ -521,11 +525,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "object_label": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -547,7 +551,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(g.group_label, 'Unassigned') AS category, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS value FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC;"
+          "statement": "SELECT COALESCE(g.group_label, 'Unassigned') AS group_label, ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS mileage_km FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY mileage_km DESC"
         },
         "verify": {
           "max_rows": 1000
@@ -555,11 +559,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "number"
-            },
-            "category": {
+            "group_label": {
               "type": "string"
+            },
+            "mileage_km": {
+              "type": "number"
             }
           }
         }
@@ -581,7 +585,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 15;"
+          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS start_zone, COUNT(*) AS trip_count FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY trip_count DESC LIMIT 15"
         },
         "verify": {
           "max_rows": 1000
@@ -589,11 +593,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "start_zone": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -604,10 +608,10 @@
       "type": "barchart",
       "title": "End Zone Distribution",
       "gridPos": {
-        "h": 14,
-        "w": 12,
         "x": 0,
-        "y": 80
+        "y": 80,
+        "w": 12,
+        "h": 14
       },
       "options": {
         "orientation": "horizontal"
@@ -615,7 +619,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(t.end_zone, 'Unknown') AS category, COUNT(*) AS value FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1 ORDER BY value DESC LIMIT 15;"
+          "statement": "SELECT COALESCE(t.end_zone, 'Unknown') AS end_zone, COUNT(*) AS trip_count FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1 ORDER BY trip_count DESC LIMIT 15"
         },
         "verify": {
           "max_rows": 1000
@@ -623,11 +627,11 @@
         "dataset": {
           "shape": "category_value",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "end_zone": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -649,7 +653,7 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT *\r\nFROM (\r\n    SELECT \r\n        CASE \r\n            WHEN COALESCE(t.max_speed, 0) < 50 THEN '<50'\r\n            WHEN t.max_speed < 80 THEN '50-79'\r\n            WHEN t.max_speed < 100 THEN '80-99'\r\n            WHEN t.max_speed < 120 THEN '100-119'\r\n            ELSE '120+'\r\n        END AS category,\r\n        COUNT(*) AS value\r\n    FROM business_data.tracks t\r\n    WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day'\r\n      AND t.track_start_time < CURRENT_DATE\r\n    GROUP BY 1\r\n) s\r\nORDER BY \r\n    CASE category\r\n        WHEN '<50' THEN 1\r\n        WHEN '50-79' THEN 2\r\n        WHEN '80-99' THEN 3\r\n        WHEN '100-119' THEN 4\r\n        ELSE 5\r\n    END;"
+          "statement": "SELECT *\nFROM (\n    SELECT \n        CASE \n            WHEN COALESCE(t.max_speed, 0) < 50 THEN '<50'\n            WHEN t.max_speed < 80 THEN '50-79'\n            WHEN t.max_speed < 100 THEN '80-99'\n            WHEN t.max_speed < 120 THEN '100-119'\n            ELSE '120+'\n        END AS speed_band,\n        COUNT(*) AS trip_count\n    FROM processed_common_data.trips t\n    WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day'\n      AND t.trip_start_time < CURRENT_DATE\n    GROUP BY 1\n) s\nORDER BY \n    CASE category\n        WHEN '<50' THEN 1\n        WHEN '50-79' THEN 2\n        WHEN '80-99' THEN 3\n        WHEN '100-119' THEN 4\n        ELSE 5\n    END"
         },
         "verify": {
           "max_rows": 1000
@@ -657,11 +661,11 @@
         "dataset": {
           "shape": "pie",
           "columns": {
-            "value": {
-              "type": "integer"
-            },
-            "category": {
+            "speed_band": {
               "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
             }
           }
         }
@@ -683,14 +687,27 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS start_zone, COALESCE(t.end_zone, 'Unknown') AS end_zone, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS distance_km FROM business_data.tracks t WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY trips DESC LIMIT 20;"
+          "statement": "SELECT COALESCE(t.start_zone, 'Unknown') AS start_zone, COALESCE(t.end_zone, 'Unknown') AS end_zone, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS distance_km FROM processed_common_data.trips t WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY trips DESC LIMIT 20"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
           "shape": "table",
-          "columns": {}
+          "columns": {
+            "start_zone": {
+              "type": "string"
+            },
+            "end_zone": {
+              "type": "string"
+            },
+            "trips": {
+              "type": "integer"
+            },
+            "distance_km": {
+              "type": "number"
+            }
+          }
         }
       }
     },
@@ -710,14 +727,36 @@
       "x-navixy": {
         "sql": {
           "params": {},
-          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS asset_name, COALESCE(g.group_label, 'Unassigned') AS group_name, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.track_distance_meters,0))/1000.0, 2) AS distance_km, ROUND(SUM(COALESCE(t.track_duration_seconds,0))/3600.0, 2) AS drive_hours, ROUND(AVG(t.avg_speed), 2) AS avg_speed_kmh, MAX(t.max_speed) AS max_speed_kmh FROM business_data.tracks t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.track_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.track_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY distance_km DESC;"
+          "statement": "SELECT COALESCE(v.vehicle_label, v.registration_number, o.object_label, 'Unknown') AS asset_name, COALESCE(g.group_label, 'Unassigned') AS group_name, COUNT(*) AS trips, ROUND(SUM(COALESCE(t.trip_distance_meters,0))/1000.0, 2) AS distance_km, ROUND(SUM(COALESCE(t.trip_duration_seconds,0))/3600.0, 2) AS drive_hours, ROUND(AVG(t.avg_speed), 2) AS avg_speed_kmh, MAX(t.max_speed) AS max_speed_kmh FROM processed_common_data.trips t LEFT JOIN raw_business_data.objects o ON o.device_id = t.device_id AND o.is_deleted = false LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE t.trip_start_time >= CURRENT_DATE - INTERVAL '1 day' AND t.trip_start_time < CURRENT_DATE GROUP BY 1,2 ORDER BY distance_km DESC"
         },
         "verify": {
           "max_rows": 1000
         },
         "dataset": {
           "shape": "table",
-          "columns": {}
+          "columns": {
+            "asset_name": {
+              "type": "string"
+            },
+            "group_name": {
+              "type": "string"
+            },
+            "trips": {
+              "type": "integer"
+            },
+            "distance_km": {
+              "type": "number"
+            },
+            "drive_hours": {
+              "type": "number"
+            },
+            "avg_speed_kmh": {
+              "type": "number"
+            },
+            "max_speed_kmh": {
+              "type": "number"
+            }
+          }
         }
       }
     }
@@ -734,7 +773,7 @@
       "read_only": true,
       "timeout_ms": 5000,
       "allowed_schemas": [
-        "business_data",
+        "processed_common_data",
         "raw_business_data"
       ]
     },
@@ -795,7 +834,7 @@
       }
     ]
   },
-  "description": "Trips dashboard based on business_data.tracks for yesterday with indicators on top and maximum two bar charts per row",
+  "description": "Trips dashboard based on processed_common_data.trips for yesterday with indicators on top and maximum two bar charts per row",
   "graphTooltip": 1,
   "schemaVersion": 38
 }

@@ -1,0 +1,395 @@
+{
+  "id": null,
+  "uid": "driving-score-dashboard",
+  "tags": [
+    "fleet",
+    "driving",
+    "safety",
+    "score"
+  ],
+  "time": {
+    "to": "now",
+    "from": "now-1M"
+  },
+  "links": [],
+  "style": "dark",
+  "title": "Driving Score Dashboard",
+  "panels": [
+    {
+      "id": 1,
+      "type": "kpi",
+      "title": "Total Vehicles",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*) AS value FROM raw_business_data.objects WHERE is_deleted IS NOT TRUE"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Avg Driving Score",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH perf AS (SELECT hde.device_id, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance braking', 'Driver performance braking and turn')) AS brake_cnt, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance turn', 'Driver performance quick lane change')) AS turn_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'overspeeding') AS speed_cnt FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '1 month' AND hde.device_time < NOW() GROUP BY hde.device_id), vm AS (SELECT o.device_id, ROUND(SUM(t.trip_distance_meters) / 1000.0, 2) AS mileage_km FROM raw_business_data.objects o LEFT JOIN processed_common_data.trips t ON t.device_id = o.device_id AND t.trip_start_time >= NOW() - INTERVAL '1 month' AND t.trip_start_time < NOW() WHERE o.is_deleted IS NOT TRUE GROUP BY o.device_id HAVING COALESCE(SUM(t.trip_distance_meters), 0) > 0) SELECT ROUND(AVG(GREATEST(0, 100 - 1.0 * COALESCE(p.brake_cnt, 0) / vm.mileage_km * 100 - 1.0 * COALESCE(p.turn_cnt, 0) / vm.mileage_km * 100 - 3.0 * COALESCE(p.speed_cnt, 0) / vm.mileage_km * 100))::numeric, 1) AS value FROM vm LEFT JOIN perf p ON p.device_id = vm.device_id"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Total Events",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "options": {
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "SELECT COUNT(*) AS value FROM processed_common_data.driver_performance_events WHERE device_time >= NOW() - INTERVAL '1 month' AND device_time < NOW()"
+        },
+        "verify": {
+          "max_rows": 1
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Block 1 – Vehicle Rating",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Block 1 – Vehicle Rating"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Vehicle Rating",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH perf AS (SELECT hde.device_id, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn')) AS accel_cnt, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance braking', 'Driver performance braking and turn')) AS brake_cnt, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance turn', 'Driver performance quick lane change')) AS turn_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'overspeeding') AS speed_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'idle over 5 min' AND hde.extra_value >= 1500) AS idle_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'seatbelt') AS belt_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'rpm exceeded') AS rpm_cnt FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '1 month' AND hde.device_time < NOW() GROUP BY hde.device_id), vm AS (SELECT o.device_id, o.object_label, COALESCE(v.model, o.model, '—') AS vehicle_model, COALESCE(e.last_name || ' ' || e.first_name, '—') AS driver_name, ROUND(SUM(t.trip_distance_meters) / 1000.0, 2) AS mileage_km FROM raw_business_data.objects o LEFT JOIN raw_business_data.vehicles v ON v.object_id = o.object_id LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE LEFT JOIN processed_common_data.trips t ON t.device_id = o.device_id AND t.trip_start_time >= NOW() - INTERVAL '1 month' AND t.trip_start_time < NOW() WHERE o.is_deleted IS NOT TRUE GROUP BY o.device_id, o.object_label, v.model, o.model, e.last_name, e.first_name HAVING COALESCE(SUM(t.trip_distance_meters), 0) > 0) SELECT vm.object_label AS vehicle, vm.driver_name, vm.vehicle_model, vm.mileage_km, ROUND(3.0 * COALESCE(p.accel_cnt, 0) / vm.mileage_km * 100, 2) AS accel_score, ROUND(1.0 * COALESCE(p.brake_cnt, 0) / vm.mileage_km * 100, 2) AS brake_score, ROUND(1.0 * COALESCE(p.turn_cnt, 0) / vm.mileage_km * 100, 2) AS turn_score, ROUND(1.0 * COALESCE(p.idle_cnt, 0) / vm.mileage_km * 100, 2) AS idle_score, ROUND(1.0 * COALESCE(p.belt_cnt, 0) / vm.mileage_km * 100, 2) AS belt_score, ROUND(1.0 * COALESCE(p.rpm_cnt, 0) / vm.mileage_km * 100, 2) AS rpm_score, ROUND(3.0 * COALESCE(p.speed_cnt, 0) / vm.mileage_km * 100, 2) AS speed_score, GREATEST(0, ROUND((100 - 1.0 * COALESCE(p.brake_cnt, 0) / vm.mileage_km * 100 - 1.0 * COALESCE(p.turn_cnt, 0) / vm.mileage_km * 100 - 1.0 * COALESCE(p.idle_cnt, 0) / vm.mileage_km * 100 - 1.0 * COALESCE(p.belt_cnt, 0) / vm.mileage_km * 100 - 1.0 * COALESCE(p.rpm_cnt, 0) / vm.mileage_km * 100 - 3.0 * COALESCE(p.speed_cnt, 0) / vm.mileage_km * 100)::numeric, 2)) AS total_score FROM vm LEFT JOIN perf p ON p.device_id = vm.device_id ORDER BY total_score DESC"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "vehicle": {
+              "type": "string"
+            },
+            "rpm_score": {
+              "type": "number"
+            },
+            "belt_score": {
+              "type": "number"
+            },
+            "idle_score": {
+              "type": "number"
+            },
+            "mileage_km": {
+              "type": "number"
+            },
+            "turn_score": {
+              "type": "number"
+            },
+            "accel_score": {
+              "type": "number"
+            },
+            "brake_score": {
+              "type": "number"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "speed_score": {
+              "type": "number"
+            },
+            "total_score": {
+              "type": "number"
+            },
+            "vehicle_model": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Block 2 – Violation Counts",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Block 2 – Violation Counts"
+      }
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "Violation Counts",
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH perf AS (SELECT hde.device_id, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance acceleration', 'Driver performance acceleration and turn')) AS accel_cnt, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance braking', 'Driver performance braking and turn')) AS brake_cnt, COUNT(*) FILTER (WHERE hde.event_type IN ('Driver performance turn', 'Driver performance quick lane change')) AS turn_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'overspeeding') AS speed_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'idle over 5 min' AND hde.extra_value >= 1500) AS idle_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'seatbelt') AS belt_cnt, COUNT(*) FILTER (WHERE hde.event_type = 'rpm exceeded') AS rpm_cnt FROM processed_common_data.driver_performance_events hde WHERE hde.device_time >= NOW() - INTERVAL '1 month' AND hde.device_time < NOW() GROUP BY hde.device_id), vi AS (SELECT o.device_id, o.object_label, COALESCE(e.last_name || ' ' || e.first_name, '—') AS driver_name, COALESCE(g.group_label, '—') AS group_label FROM raw_business_data.objects o LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE o.is_deleted IS NOT TRUE) SELECT vi.object_label AS vehicle, vi.driver_name, vi.group_label, COALESCE(p.accel_cnt, 0) AS acceleration, COALESCE(p.brake_cnt, 0) AS braking, COALESCE(p.turn_cnt, 0) AS sharp_turn, COALESCE(p.idle_cnt, 0) AS idle, COALESCE(p.belt_cnt, 0) AS seatbelt, COALESCE(p.rpm_cnt, 0) AS rpm_exceeded, COALESCE(p.speed_cnt, 0) AS speeding FROM vi LEFT JOIN perf p ON p.device_id = vi.device_id WHERE COALESCE(p.accel_cnt, 0) + COALESCE(p.brake_cnt, 0) + COALESCE(p.turn_cnt, 0) + COALESCE(p.idle_cnt, 0) + COALESCE(p.belt_cnt, 0) + COALESCE(p.rpm_cnt, 0) + COALESCE(p.speed_cnt, 0) > 0 ORDER BY COALESCE(p.accel_cnt, 0) + COALESCE(p.brake_cnt, 0) + COALESCE(p.turn_cnt, 0) + COALESCE(p.idle_cnt, 0) + COALESCE(p.belt_cnt, 0) + COALESCE(p.rpm_cnt, 0) + COALESCE(p.speed_cnt, 0) DESC"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "idle": {
+              "type": "integer"
+            },
+            "braking": {
+              "type": "integer"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "seatbelt": {
+              "type": "integer"
+            },
+            "speeding": {
+              "type": "integer"
+            },
+            "sharp_turn": {
+              "type": "integer"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "group_label": {
+              "type": "string"
+            },
+            "acceleration": {
+              "type": "integer"
+            },
+            "rpm_exceeded": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 300,
+      "type": "text",
+      "title": "Block 3 – Violations Detail",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Block 3 – Violations Detail"
+      }
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Violations Detail",
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "options": {
+        "showHeader": true
+      },
+      "x-navixy": {
+        "sql": {
+          "params": {},
+          "statement": "WITH obj AS (SELECT o.device_id, o.object_label, COALESCE(e.last_name || ' ' || e.first_name, '—') AS driver_name, COALESCE(g.group_label, '—') AS group_label FROM raw_business_data.objects o LEFT JOIN raw_business_data.employees e ON e.object_id = o.object_id AND e.is_deleted IS NOT TRUE LEFT JOIN raw_business_data.groups g ON g.group_id = o.group_id WHERE o.is_deleted IS NOT TRUE) SELECT to_char(hde.device_time, 'YYYY-MM-DD HH24:MI:SS') AS violation_time, o.group_label, CASE WHEN hde.event_type = 'overspeeding' THEN 'Speeding' WHEN hde.event_type = 'idle over 5 min' THEN 'Idling' WHEN hde.event_type = 'seatbelt' THEN 'Seatbelt' WHEN hde.event_type = 'rpm exceeded' THEN 'RPM Exceeded' ELSE hde.event_type END AS event, CASE WHEN hde.event_type = 'overspeeding' THEN ROUND(hde.speed_kmh, 1)::text || ' km/h' WHEN hde.event_type = 'idle over 5 min' THEN 'Idle ' || COALESCE(ROUND(hde.extra_value / 60.0)::int::text || ' min', '?') WHEN hde.event_type = 'seatbelt' THEN 'Moving without seatbelt at ' || ROUND(hde.speed_kmh, 1)::text || ' km/h' WHEN hde.event_type = 'rpm exceeded' THEN 'RPM ' || COALESCE(ROUND(hde.extra_value)::int::text, '> 5000') ELSE COALESCE(ROUND(hde.speed_kmh, 1)::text || ' km/h', '—') END AS violation_type, ROUND(hde.latitude::numeric, 6) AS latitude, ROUND(hde.longitude::numeric, 6) AS longitude, hde.speed_kmh, o.driver_name, COALESCE(o.object_label, 'device_' || hde.device_id) AS vehicle FROM processed_common_data.driver_performance_events hde JOIN obj o ON o.device_id = hde.device_id WHERE hde.device_time >= NOW() - INTERVAL '1 month' AND hde.device_time < NOW() AND NOT (hde.event_type = 'idle over 5 min' AND hde.extra_value < 1500) ORDER BY hde.device_time DESC"
+        },
+        "verify": {
+          "max_rows": 500
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "event": {
+              "type": "string"
+            },
+            "vehicle": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number"
+            },
+            "longitude": {
+              "type": "number"
+            },
+            "speed_kmh": {
+              "type": "number"
+            },
+            "driver_name": {
+              "type": "string"
+            },
+            "group_label": {
+              "type": "string"
+            },
+            "violation_time": {
+              "type": "string"
+            },
+            "violation_type": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "5m",
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "x-navixy": {
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 60000
+    },
+    "parameters": {
+      "bindings": {}
+    },
+    "schemaVersion": "1.0.0"
+  },
+  "templating": {
+    "list": [],
+    "enable": false
+  },
+  "timepicker": {
+    "now": true,
+    "enable": true,
+    "hidden": false,
+    "collapse": false,
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "7d",
+      "30d"
+    ],
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard",
+        "enable": true,
+        "builtIn": 1,
+        "iconColor": "rgba(0, 211, 255, 1)"
+      }
+    ]
+  },
+  "description": "Driving Score Dashboard — single data source: processed_common_data.driver_performance_events. 3 blocks: Vehicle Rating (score per km), Violation Counts (raw counts), Violations Detail (individual events). No hypertable scans — all violations pre-aggregated by triggers on tracking_data_core, states, inputs.",
+  "graphTooltip": 1,
+  "schemaVersion": 38
+}

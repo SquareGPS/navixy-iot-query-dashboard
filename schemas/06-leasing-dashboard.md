@@ -103,3 +103,19 @@ Heading change calculated via `atan2` (bearing formula): `ABS(heading_change)`. 
 
 ### Idle (Engine Idle)
 JOIN of `states` (ignition = 1) and `tracking_data_core` (speed / 100 < 5). Period duration via `LEAD(device_time)`. Minimum idle threshold: 5 minutes.
+
+---
+
+## Data Layer (after client DB refactoring)
+
+| Change | Description |
+|-----------|------|
+| Processing schema | **`processed_common_data`** instead of `business_data` |
+| Trips | Table **`trips`**, fields **`trip_*`** (`trip_start_time`, `trip_distance_meters`, …) |
+| Lookup tables / raw objects | **`raw_business_data`**, telematics — **`raw_telematics_data`** |
+| Events | For code labels: **`processed_common_data.event_description`** |
+| Device settings | **`processed_common_data.device_settings`** (key–value on full sync) |
+| Hourly sensors | **`processed_common_data.sensors_data_by_hours`**, column **`value_title`** — client-side value label |
+
+SQL infrastructure: `19_trips.sql` / `20_generate_trips.sql` instead of `18_tracks.sql` / `20_generate_tracks.sql`; renamed `02_update_description_parameters.sql`.
+
