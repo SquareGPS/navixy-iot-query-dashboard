@@ -710,35 +710,35 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
     
     const minY = prevRowBottom + 1;
     
-    // If current row is too close, push it down
+    // If current row is too close, push it (and only it) down by the spacing delta.
     if (currentRowPanel.gridPos.y < minY) {
       const deltaY = minY - currentRowPanel.gridPos.y;
-      
-      // Update the row position
+
+      // Capture this row's band children BEFORE moving the header. computeBands keys a
+      // band off its header's `y`, so reading it *after* the move scans the new (now
+      // empty) band and strands the children above the relocated header.
+      const bandChildIds =
+        currentRowPanel.collapsed !== true
+          ? computeBands(newDashboard.panels).find((b) => idEq(b.rowId, currentRow.id))?.childIds ?? []
+          : [];
+
+      // Move the row header down to the minimum spacing.
       currentRowPanel.gridPos.y = minY;
-      
-      // If row is expanded, also move its band children
-      if (currentRowPanel.collapsed !== true) {
-        const band = computeBands(newDashboard.panels).find((b) => idEq(b.rowId, currentRow.id));
-        if (band) {
-          band.childIds.forEach((childId) => {
-            const childIndex = newDashboard.panels.findIndex((p) => idEq(p.id, childId));
-            if (childIndex !== -1) {
-              newDashboard.panels[childIndex].gridPos.y += deltaY;
-            }
-          });
-        }
-      }
-      
-      // Also move any panels that might overlap with the previous row header
-      // Panels should be at least at prevRowBottom + 1 (below the row header)
-      newDashboard.panels.forEach((panel) => {
-        if (!isRowPanel(panel) && panel.id && panel.gridPos.y < minY) {
-          // Panel overlaps with or is above the current row header, move it down
-          panel.gridPos.y = minY;
+
+      // Carry only this row's own band children down by the same delta so they stay
+      // under their header. Nothing else moves: panels above belong to earlier rows
+      // (or to no row) and must keep their position. The previous behaviour swept
+      // EVERY panel with `y < minY` down to `minY`, collapsing the whole upper layout
+      // onto a single grid row — the "disappearing widgets" bug (DO-279), reproducible
+      // by adding two rows to a row-less dashboard. Rows below are spaced on their own
+      // iteration of this loop.
+      bandChildIds.forEach((childId) => {
+        const childIndex = newDashboard.panels.findIndex((p) => idEq(p.id, childId));
+        if (childIndex !== -1) {
+          newDashboard.panels[childIndex].gridPos.y += deltaY;
         }
       });
-      
+
       // Update sortedRows array for next iteration
       sortedRows[i].gridPos.y = minY;
     } else {
