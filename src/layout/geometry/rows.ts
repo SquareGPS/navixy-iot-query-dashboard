@@ -689,6 +689,15 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
     bandChildIdsByRow.set(band.rowId, band.childIds);
   }
 
+  // id → panel lookup, built once from the cloned panels. Panels are mutated in place
+  // (only `gridPos.y` changes; the array is never reordered or replaced), so this stays
+  // valid for the whole pass and turns the child-carry below from O(rows × panels × band)
+  // into O(rows × band). Keyed by String(id) to match idEq's number/string normalization.
+  const panelById = new Map<string, Panel>();
+  for (const p of newDashboard.panels) {
+    if (p.id != null) panelById.set(String(p.id), p);
+  }
+
   // Sort rows by Y position
   const sortedRows = [...rows].sort((a, b) => a.gridPos.y - b.gridPos.y);
 
@@ -738,12 +747,13 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
       // collapsing the whole upper layout onto a single grid row — the "disappearing
       // widgets" bug (DO-279), reproducible by adding two rows to a row-less dashboard.
       // Rows below are spaced on their own iteration of this loop.
-      const bandChildIds =
-        currentRowPanel.collapsed !== true ? bandChildIdsByRow.get(currentRow.id!) ?? [] : [];
+      // Collapsed rows have no band, so they are simply absent from the map (the lookup
+      // returns []); no need to special-case `collapsed` here.
+      const bandChildIds = bandChildIdsByRow.get(currentRow.id!) ?? [];
       bandChildIds.forEach((childId) => {
-        const childIndex = newDashboard.panels.findIndex((p) => idEq(p.id, childId));
-        if (childIndex !== -1) {
-          newDashboard.panels[childIndex].gridPos.y += deltaY;
+        const child = panelById.get(String(childId));
+        if (child) {
+          child.gridPos.y += deltaY;
         }
       });
 

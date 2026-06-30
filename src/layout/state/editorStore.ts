@@ -52,7 +52,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   ...initialState,
 
   setDashboard: (dashboard: Dashboard) => {
-    console.log('setDashboard called with panels count:', dashboard.panels.length);
     // Ensure we create a new object reference for Zustand to detect the change
     set({ 
       dashboard: { ...dashboard, panels: [...dashboard.panels] }, 

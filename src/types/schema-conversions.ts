@@ -33,8 +33,9 @@ export const normalizeToDashboard = (schema: unknown): Dashboard | null => {
   if (Array.isArray(s?.panels)) {
     return asDashboard(s);
   }
-  if (Array.isArray(s?.dashboard?.panels)) {
-    return asDashboard(s!.dashboard);
+  const dash = s?.dashboard;
+  if (Array.isArray(dash?.panels)) {
+    return asDashboard(dash);
   }
   return null;
 };

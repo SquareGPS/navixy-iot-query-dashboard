@@ -368,6 +368,25 @@ export function cmdRenameRow(rowId: string | number, newTitle: string): void {
 }
 
 /**
+ * Replace the entire dashboard (e.g. a full-schema JSON paste/save) through the
+ * command pipeline, so the swap is a single undoable step. A bare
+ * `store.setDashboard` clears both history stacks; this pushes the previous
+ * dashboard onto the undo stack just like every other `cmd*` mutation, so the
+ * replace can be reverted with Ctrl+Z. With no prior dashboard there is nothing
+ * to undo to, so it only sets the new one.
+ */
+export function cmdReplaceDashboard(newDashboard: Dashboard): void {
+  const store = useEditorStore.getState();
+  const currentDashboard = store.dashboard;
+
+  store.setDashboard(newDashboard);
+
+  if (currentDashboard) {
+    store.pushToHistory(currentDashboard);
+  }
+}
+
+/**
  * Canonicalize rows (call before saving)
  */
 export function cmdCanonicalizeRows(): void {
