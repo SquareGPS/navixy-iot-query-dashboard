@@ -12,7 +12,6 @@
 export type SqlPanelLike = {
   'x-navixy'?: { sql?: { statement?: string } };
   panels?: SqlPanelLike[];
-  [key: string]: unknown;
 };
 
 /**
@@ -122,7 +121,7 @@ export function filterUsedParameters(sql: string, allParams: Record<string, unkn
   const filteredParams: Record<string, unknown> = {};
   
   usedParamNames.forEach(paramName => {
-    if (allParams.hasOwnProperty(paramName)) {
+    if (Object.prototype.hasOwnProperty.call(allParams, paramName)) {
       filteredParams[paramName] = allParams[paramName];
     }
   });

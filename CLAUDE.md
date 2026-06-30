@@ -22,11 +22,11 @@ The app operates in **plugin/passwordless mode**: users supply two external Post
 | `npm run docker:up` | Redis + backend in Docker (use with `npm run dev` for hot-reload frontend) |
 | `npm run docker:up:prod` | Adds the nginx-served frontend (production profile) |
 
-**Backend tests:** `cd backend && npm test` (Jest, ESM). Run a single file: `cd backend && npx jest path/to/file.test.ts`.
+**Backend tests:** `cd backend && npm test` (Jest, ESM — the script sets `NODE_OPTIONS=--experimental-vm-modules`, required for the ESM/ts-jest setup). Run a single file: `cd backend && npx jest path/to/file.test.ts`.
 
-**Frontend tests:** Vitest-style tests exist in `src/layout/geometry/__tests__/` but Vitest is **not installed** in `package.json` — these currently can't be executed without adding the dep. Don't claim "tests pass" without verifying the runner is wired up.
+**Frontend tests:** Vitest, configured in `vitest.config.ts` (kept separate from `vite.config.ts` so the production `vite build` never needs the vitest devDependencies). Tests live in `src/**/__tests__/` (geometry algorithms + utils). Run from the repo root: `npm test` (one-shot, `vitest run`) or `npm run test:watch`. Test files are excluded from `tsconfig.app.json`, so they are not part of the app typecheck.
 
-There is **no root `npm test`** script. `test-validator-simple.js` at the root is a standalone Node script, not a test-runner entry point.
+**Both suites:** `npm run test:all` runs the frontend Vitest suite then the backend Jest suite. `test-validator-simple.js` at the root is a standalone Node script, not a test-runner entry point.
 
 ## Architecture
 

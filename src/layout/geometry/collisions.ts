@@ -5,7 +5,7 @@
 import type { GridPos } from './grid';
 import { idEq, naturalIdCompare } from './idUtils';
 
-export interface Rect extends GridPos {}
+export type Rect = GridPos;
 
 /**
  * Check if two rectangles overlap
@@ -95,10 +95,20 @@ export function resolveCollisionsPushDown(
       const overlaps = findOverlappingPanels(panel.gridPos, sortedPanels, panel.id);
 
       if (overlaps.length > 0) {
-        // Find the lowest bottom edge among overlapping panels
+        // Push below the bottom edge of the panels that sit above this one.
+        // A panel only gets pushed down by the moved panel or by panels whose
+        // top is at or above its own top; a panel that overlaps something BELOW
+        // it must not jump beneath that panel — the lower one is pushed instead
+        // when it is processed. This yields a top-to-bottom cascade (B below A,
+        // then C below B) while still letting the moved panel displace anything
+        // it lands on, even panels above it.
         let lowestBottom = panel.gridPos.y;
 
         for (const overlap of overlaps) {
+          const isMovedPanel = idEq(overlap.id, moved.id);
+          if (!isMovedPanel && overlap.gridPos.y > panel.gridPos.y) {
+            continue;
+          }
           const overlapBottom = overlap.gridPos.y + overlap.gridPos.h;
           if (overlapBottom > lowestBottom) {
             lowestBottom = overlapBottom;

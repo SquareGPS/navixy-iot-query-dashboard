@@ -61,6 +61,41 @@ export interface Variable {
   sort?: number;
   hide?: number;
   description?: string;
+  /**
+   * Navixy vendor extension for local filter variables.
+   * When present, the parameter bar renders a dedicated filter control for this
+   * variable instead of treating it as a plain template variable.
+   */
+  'x-navixy'?: {
+    /**
+     * Filter control to render in the parameter bar.
+     * - 'daterange': a from/to date-range picker that binds two derived SQL
+     *   parameters, `${<name>_from}` and `${<name>_to}`.
+     * - 'multiselect': a column-value picker that binds one array parameter
+     *   `${<name>}`, applied as `"col" = ANY(${<name>}::text[])`. Candidate
+     *   values come from `query` (discovery) or `options` (static).
+     */
+    control?: 'daterange' | 'multiselect';
+    /**
+     * For multiselect filters: the source/output column this filter targets.
+     * Chosen from the dashboard's panel columns when the filter is created, and
+     * used to pre-fill the column when binding a panel in its Filters tab.
+     */
+    column?: string;
+    /**
+     * For multiselect filters: the panel the column was picked from. Its SQL is
+     * the source of the filter's value-discovery query.
+     */
+    panelId?: string | number;
+    panelTitle?: string;
+    /**
+     * For multiselect filters: every panel whose query outputs the column
+     * (recorded when the filter is created or its column changes). The filter
+     * is auto-applied to and offered for these panels (matched by id, falling
+     * back to title).
+     */
+    panels?: Array<{ id?: string | number; title?: string }>;
+  };
 }
 
 export interface TimePickerConfig {
@@ -136,7 +171,7 @@ export interface DashboardParameter {
   type: 'time' | 'datetime' | 'number' | 'integer' | 'text' | 'boolean' | 'select' | 'multiselect';
   label?: string;
   description?: string;
-  default?: any;
+  default?: unknown;
   required?: boolean;
   placeholder?: string;
   order?: number;
@@ -145,7 +180,7 @@ export interface DashboardParameter {
   step?: number;
   pattern?: string;
   format?: string;
-  options?: Array<{ value: any; label: string }>;
+  options?: Array<{ value: unknown; label: string }>;
   allowCustom?: boolean;
 }
 
@@ -189,8 +224,8 @@ export interface Panel {
         mode: string;
         fixedColor?: string;
       };
-      custom?: Record<string, any>;
-      mappings?: Array<Record<string, any>>;
+      custom?: Record<string, unknown>;
+      mappings?: Array<Record<string, unknown>>;
       thresholds?: {
         mode: 'absolute' | 'percentage';
         steps: Array<{
@@ -208,21 +243,21 @@ export interface Panel {
     overrides?: Array<{
       matcher: {
         id: string;
-        options?: any;
+        options?: unknown;
       };
       properties?: Array<{
         id: string;
-        value?: any;
+        value?: unknown;
       }>;
     }>;
   };
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
   'x-navixy'?: NavixyPanelConfig;
   transparent?: boolean;
   maxDataPoints?: number;
   transformations?: Array<{
     id: string;
-    options?: Record<string, any>;
+    options?: Record<string, unknown>;
   }>;
   collapsed?: boolean; // For row panels
   panels?: Panel[]; // For row panels (nested children when collapsed)
@@ -235,6 +270,7 @@ export type PanelType =
   | 'timeseries'     // Time series panel
   | 'table'          // Table panel
   | 'text'           // Text panel
+  | 'geomap'         // Map panel (Leaflet)
   | 'row'            // Row panel (for grouping)
   // Legacy/alias types for backward compatibility
   | 'kpi'            // Alias for 'stat'
@@ -242,12 +278,26 @@ export type PanelType =
   | 'linechart'      // Alias for 'timeseries'
   | 'piechart';      // For pie charts (may use bargauge or custom)
 
+/**
+ * Binds a dashboard-level filter variable (e.g. a date-range filter) to a column
+ * in this panel's query result. Applied at execution time by wrapping the panel
+ * statement — the stored SQL is left untouched.
+ */
+export interface PanelFilterBinding {
+  /** Name of the templating variable (templating.list[].name) to apply. */
+  variable: string;
+  /** Output column of the panel query to filter on. */
+  column: string;
+}
+
 export interface NavixyPanelConfig {
   sql?: {
     statement: string;
     params?: Record<string, NavixyParam>;
     bindings?: Record<string, string>;
   };
+  /** Local filter bindings applied to this panel (guided per-panel filters). */
+  filters?: PanelFilterBinding[];
   dataset?: {
     shape: 'kpi' | 'category_value' | 'time_value' | 'table' | 'pie';
     columns: Record<string, { type: NavixyColumnType }>;
@@ -295,7 +345,7 @@ export interface VisualizationConfig {
 
 export interface NavixyParam {
   type: 'uuid' | 'timestamptz' | 'timestamp' | 'int' | 'integer' | 'string' | 'boolean' | 'numeric' | 'decimal';
-  default?: any;
+  default?: unknown;
   min?: number;
   max?: number;
   description?: string;
@@ -327,7 +377,7 @@ export interface QueryResult {
     name: string;
     type: NavixyColumnType;
   }>;
-  rows: any[][];
+  rows: unknown[][];
   meta?: {
     executed_at: string;
     execution_time_ms: number;
@@ -341,7 +391,7 @@ export interface PanelData {
     fields: Array<{
       name: string;
       type: string;
-      values: any[];
+      values: unknown[];
     }>;
   }>;
   tables?: Array<{
@@ -349,7 +399,7 @@ export interface PanelData {
       text: string;
       type: string;
     }>;
-    rows: any[][];
+    rows: unknown[][];
   }>;
   state: 'Loading' | 'Done' | 'Error';
   error?: string;
@@ -431,7 +481,44 @@ export interface PieChartPanelOptions {
 // ==========================================
 
 /**
- * Composite Report - A report that combines SQL query results into
+ * Loosely-typed view over a stored `report_schema` while its format is probed
+ * (legacy report-schema with `rows`, direct `panels`, or nested `dashboard`).
+ * The index signature keeps it assignable from arbitrary parsed JSON.
+ */
+export interface SchemaRow {
+  type?: string;
+  title?: string;
+  visuals?: Array<{ query?: { sql?: string; params?: Record<string, unknown> }; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+export interface RawReportSchema {
+  title?: string;
+  subtitle?: string;
+  meta?: Record<string, unknown>;
+  rows?: SchemaRow[];
+  panels?: unknown[];
+  dashboard?: { title?: string; panels?: unknown[] };
+  [key: string]: unknown;
+}
+
+/**
+ * A stored report row as returned by the reports API. Fields beyond these are
+ * preserved via the index signature.
+ */
+export interface StoredReport {
+  id: string;
+  title: string;
+  slug: string;
+  subtitle?: string;
+  section_id?: string | null;
+  section_name?: string;
+  report_schema?: RawReportSchema;
+  [key: string]: unknown;
+}
+
+/**
+ * Composite Report - a sequential report combining
  * Table, Chart, and Map visualizations in a linear, print-friendly layout
  */
 export interface CompositeReport {
@@ -476,6 +563,7 @@ export interface CompositeChartConfig {
   type: 'timeseries' | 'bar';
   xColumn?: string;
   yColumns?: string[];
+  colorColumn?: string;
 }
 
 export interface CompositeMapConfig {
@@ -537,4 +625,5 @@ export interface CompositeReportExecutionResult {
     total: number;
   };
   gps?: GPSColumnsInfo | null;
+  gpsPairs?: Array<{ latColumn: string; lonColumn: string }>;
 }

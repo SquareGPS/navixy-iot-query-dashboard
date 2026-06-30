@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Save, X } from 'lucide-react';
 import { SqlEditor } from './SqlEditor';
 import { toast } from '@/hooks/use-toast';
+import { getErrorMessage } from '@/utils/errors';
 import type { Row, TilesRow, TableRow, AnnotationRow, ChartsRow, TileVisual, TableVisual, AnnotationVisual, BarVisual, PieVisual } from '@/types/report-schema';
 
 interface NewRowEditorProps {
@@ -186,7 +187,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
       
       // Reset form
       setTitle('');
-      setSubtitle('');
       setLabel('');
       setSql(DEFAULT_SQL);
       setAnnotationText('');
@@ -199,11 +199,11 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
         title: 'Success',
         description: 'Row added successfully',
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error creating new row:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create row',
+        description: getErrorMessage(error, 'Failed to create row'),
         variant: 'destructive',
       });
     } finally {
@@ -215,7 +215,6 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
     onClose();
     // Reset form
     setTitle('');
-    setSubtitle('');
     setLabel('');
     setSql(DEFAULT_SQL);
     setAnnotationText('');

@@ -9,9 +9,36 @@ import { authenticateToken, requireAdminOrEditor } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
+import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
 import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
+
+/**
+ * Shape of a composite report row as consumed by these handlers. The DB layer
+ * returns loosely-typed rows (`Record<string, unknown>`); we narrow to this
+ * structure at the read sites. The index signature keeps it assignable from the
+ * generic row type.
+ *
+ * Source of truth for the columns is the SELECT in
+ * `DatabaseService.getCompositeReports` / `getCompositeReportById`
+ * (`backend/src/services/database.ts`) — keep this interface in sync with those.
+ */
+interface CompositeReportRecord {
+  id: string;
+  title: string;
+  description: string | null;
+  slug: string;
+  sql_query: string;
+  config: {
+    table?: { enabled: boolean; pageSize?: number; maxRows?: number; showTotals?: boolean };
+    chart?: { enabled: boolean; type?: string; xColumn?: string; yColumns?: string[] };
+    map?: { enabled: boolean; autoDetect?: boolean; latColumn?: string; lonColumn?: string; labelColumn?: string };
+  };
+  report_schema?: Record<string, unknown>;
+  [key: string]: unknown;
+}
 
 function safeContentDisposition(slug: string, ext: string): string {
   const ts = Date.now();
@@ -22,7 +49,7 @@ function safeContentDisposition(slug: string, ext: string): string {
 
 // Helper to extract user info from request
 function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUrl?: string; sessionId?: string } {
-  const user = (req as any).user;
+  const user = (req as AuthenticatedRequest).user;
   const userDbUrl = user?.userDbUrl;
   const userId = user?.userId;
   const iotDbUrl = user?.iotDbUrl;
@@ -36,18 +63,12 @@ function getUserInfo(req: Request): { userDbUrl: string; userId: string; iotDbUr
     throw new CustomError('User ID not found', 400);
   }
 
-  return { userDbUrl, userId, iotDbUrl, sessionId };
-}
-
-// Helper to extract timeout from global variables
-function getTimeoutFromGlobalVars(globalVars: Record<string, string>, defaultTimeout: number = 30000): number {
-  if (globalVars.sql_timeout_ms) {
-    const parsedTimeout = parseInt(globalVars.sql_timeout_ms, 10);
-    if (!isNaN(parsedTimeout) && parsedTimeout > 0) {
-      return parsedTimeout;
-    }
-  }
-  return defaultTimeout;
+  return {
+    userDbUrl,
+    userId,
+    ...(iotDbUrl !== undefined ? { iotDbUrl } : {}),
+    ...(sessionId !== undefined ? { sessionId } : {}),
+  };
 }
 
 // All routes require authentication
@@ -88,7 +109,7 @@ router.get('/composite-reports/:id', async (req: Request, res: Response, next: N
 
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    const compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
 
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
@@ -248,7 +269,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
     // Get the composite report
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    const compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
     }
@@ -272,14 +293,11 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
       return;
     }
 
-    // Get global variables for parameter substitution
-    const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-    
-    // Merge global variables with provided params
-    const mergedParams = { ...globalVariables, ...params };
+    // Merge global variables with provided params (explicit params take precedence)
+    const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
 
     // Get timeout from global variables (default 30s)
-    const timeoutMs = getTimeoutFromGlobalVars(globalVariables);
+    const timeoutMs = getTimeoutFromGlobalVars(globalVars);
 
     // Execute the SQL query — no server-side pagination needed,
     // composite reports load all data at once and paginate client-side
@@ -292,9 +310,9 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
         maxRows,
         iotDbUrl,
       );
-    } catch (queryError: any) {
+    } catch (queryError) {
       // Return empty result with error message for SQL errors
-      logger.warn('Composite report SQL execution failed:', queryError.message);
+      logger.warn('Composite report SQL execution failed:', toErrorMeta(queryError).message);
       res.json({
         success: true,
         data: {
@@ -302,7 +320,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
           rows: [],
           stats: { rowCount: 0, executionTime: 0 },
           gps: null,
-          error: queryError.message,
+          error: toErrorMeta(queryError).message,
           message: 'Query execution failed',
         },
       });
@@ -326,7 +344,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
         const detectedGPS = allGpsPairs.length > 0 ? allGpsPairs[0] : null;
         if (detectedGPS) {
           const rowObjects = result.rows.map((row: unknown[]) => {
-            const obj: Record<string, any> = {};
+            const obj: Record<string, unknown> = {};
             result.columns.forEach((col, idx) => {
               obj[col.name] = row[idx];
             });
@@ -389,7 +407,7 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
     // Get the composite report
-    const compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    const compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport) {
       throw new CustomError('Composite report not found', 404);
     }
@@ -543,7 +561,7 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
     // Get the composite report from DB, or use report_data from request body (demo mode)
-    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport && report_data?.sql_query) {
       compositeReport = {
         id,
@@ -570,10 +588,8 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const exportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,
@@ -595,13 +611,27 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       gpsPairs
     );
 
+    // Bound the rows fed to the (streaming) exporter. The re-query path is
+    // capped by config.maxRows, but a client-supplied `cachedData` array — or a
+    // very high config.maxRows — is otherwise unbounded; the panel export path
+    // clamps the same way. Truncate + log rather than stream an unbounded
+    // multi-hundred-MB workbook.
+    const { rows: exportRows, truncated: rowsTruncated, originalCount, cap } = clampRowsToHardCap(rows);
+    if (rowsTruncated) {
+      logger.warn('Composite export exceeded row hard cap; truncating', {
+        id,
+        rowCount: originalCount,
+        cap,
+      });
+    }
+
     const exportService = ExportService.getInstance();
     const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
       columns,
-      rows,
+      rows: exportRows,
       executedAt: new Date(),
       ...(excelHeader && { excelHeader }),
       ...(exportPrefs.timeZone && { timeZone: exportPrefs.timeZone }),
@@ -619,14 +649,12 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
 
       res.send(csvBuffer);
     } else {
-      // Generate Excel file (default)
-      const excelBuffer = await exportService.generateExcel(exportOptions);
-
+      // Generate Excel file (default), streamed in chunks (no Content-Length)
+      // to keep memory flat on large exports. See ExportService.streamExcel.
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', safeContentDisposition(compositeReport.slug || 'composite-report', 'xlsx'));
-      res.setHeader('Content-Length', excelBuffer.length);
 
-      res.send(excelBuffer);
+      await exportService.streamExcel(exportOptions, res);
     }
   } catch (error) {
     next(error);
@@ -654,7 +682,7 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
     // Get the composite report from DB, or use report_data from request body (demo mode)
-    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport && report_data?.sql_query) {
       compositeReport = {
         id,
@@ -681,10 +709,8 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const htmlExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,
@@ -768,7 +794,7 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     const pool = dbService.getClientSettingsPool(userDbUrl);
     
     // Get the composite report from DB, or use report_data from request body (demo mode)
-    let compositeReport = await dbService.getCompositeReportById(id, pool, userId);
+    let compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport && report_data?.sql_query) {
       compositeReport = {
         id,
@@ -795,10 +821,8 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
     if (cachedData?.columns && cachedData?.rows) {
       queryResult = { columns: cachedData.columns, rows: cachedData.rows };
     } else {
-      const globalVariables = await dbService.getGlobalVariablesAsMap(pool);
-      const mergedParams = { ...globalVariables, ...params };
-      const baseTimeoutMs = getTimeoutFromGlobalVars(globalVariables);
-      const exportTimeoutMs = Math.max(baseTimeoutMs * 2, 60000);
+      const { mergedParams, globalVars } = await dbService.mergeWithGlobalVars(params, pool);
+      const exportTimeoutMs = resolveExportTimeoutMs(globalVars);
       const pdfExportMaxRows = compositeReport.config?.table?.maxRows || 10000;
       const result = await dbService.executeParameterizedQuery(
         compositeReport.sql_query,

@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import type { GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Panel } from '@/types/dashboard-types';
 import { gridToPixels, GRID_UNIT_HEIGHT } from '@/layout/geometry/grid';
 import { Card } from '@/components/ui/card';
 import { isRowPanel, getRowHeaders } from '@/layout/geometry/rows';
@@ -12,14 +12,14 @@ import { RowHeader } from './RowHeader';
 import { DndContext } from '@dnd-kit/core';
 
 interface PanelGridProps {
-  panels: GrafanaPanel[];
-  renderPanel: (panel: GrafanaPanel) => React.ReactNode;
+  panels: Panel[];
+  renderPanel: (panel: Panel) => React.ReactNode;
   containerClassName?: string;
   enableDrag?: boolean;
-  selectedPanelId?: number | null;
-  onSelectPanel?: (panelId: number) => void;
+  selectedPanelId?: string | number | null;
+  onSelectPanel?: (panelId: string | number) => void;
   editMode?: boolean;
-  onEditPanel?: (panel: GrafanaPanel) => void;
+  onEditPanel?: (panel: Panel) => void;
 }
 
 export const PanelGrid: React.FC<PanelGridProps> = ({
@@ -69,7 +69,7 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
 
   // Filter out row panels and collapsed row children
   const rows = getRowHeaders(panels);
-  const collapsedRowChildIds = new Set<number>();
+  const collapsedRowChildIds = new Set<string | number>();
   rows.forEach((row) => {
     if (row.collapsed === true && row.panels) {
       row.panels.forEach((p) => {

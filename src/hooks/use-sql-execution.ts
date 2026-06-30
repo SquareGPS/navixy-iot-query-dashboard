@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { apiService } from '@/services/api';
 import { toast } from 'sonner';
 import { filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { type ErrorWithMeta } from '@/utils/errors';
 
 export interface SqlExecutionResult {
   columns: string[];
-  rows: any[];
+  rows: Record<string, unknown>[];
   columnTypes: Record<string, string>;
   rowCount: number;
   executionTime: number;
@@ -92,16 +93,16 @@ export function useSqlExecution() {
 
       // Success case - transform the response to match the expected format
       const transformedData: SqlExecutionResult = {
-        columns: response.data?.columns?.map((col: any) => col.name) || [],
-        rows: response.data?.rows?.map((row: any[]) => {
+        columns: response.data?.columns?.map((col) => col.name) || [],
+        rows: response.data?.rows?.map((row) => {
           // Convert array of values to object with column names as keys
-          const rowObj: any = {};
-          response.data?.columns?.forEach((col: any, index: number) => {
+          const rowObj: Record<string, unknown> = {};
+          response.data?.columns?.forEach((col, index) => {
             rowObj[col.name] = row[index];
           });
           return rowObj;
         }) || [],
-        columnTypes: response.data?.columns?.reduce((acc: any, col: any) => {
+        columnTypes: response.data?.columns?.reduce<Record<string, string>>((acc, col) => {
           acc[col.name] = col.type;
           return acc;
         }, {}) || {},
@@ -122,26 +123,27 @@ export function useSqlExecution() {
       }
       
       return transformedData;
-    } catch (err: any) {
+    } catch (err) {
+      const e = err as ErrorWithMeta & { context?: { body?: unknown } };
       console.error('Unexpected error executing query:', err);
       console.error('Error details:', {
-        name: err.name,
-        message: err.message,
-        stack: err.stack,
-        context: err.context,
+        name: e.name,
+        message: e.message,
+        stack: e.stack,
+        context: e.context,
       });
-      
+
       let errorMessage = 'Failed to execute query';
-      
+
       // Try to extract meaningful error information
-      if (err.message) {
-        errorMessage = err.message;
+      if (e.message) {
+        errorMessage = e.message;
       }
-      if (err.context?.body) {
+      if (e.context?.body) {
         try {
-          const bodyError = typeof err.context.body === 'string' 
-            ? JSON.parse(err.context.body) 
-            : err.context.body;
+          const bodyError = typeof e.context.body === 'string'
+            ? JSON.parse(e.context.body)
+            : e.context.body;
           if (bodyError?.error?.message) {
             errorMessage = bodyError.error.message;
             if (bodyError.error.code) {

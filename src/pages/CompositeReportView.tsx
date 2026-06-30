@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
+import { toErrorMeta } from '@/utils/errors';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -129,6 +130,27 @@ export default function CompositeReportView() {
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by the inline "Retry" button to re-run the load effect.
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  // Reset the per-report load state *synchronously* when the `id` param changes.
+  // React Router reuses this component instance across a report switch, so the
+  // first render after the switch still holds the previous `report` with
+  // `loading` false — and since the load effect runs only *after* paint, that
+  // render would paint one stale frame of the previous report under the new URL
+  // before the spinner appears. Adjusting state during render (React's
+  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
+  // discards this render and re-renders with `loading` true before committing to
+  // the screen. The load effect below still drives the actual fetch. (DO-287.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setReport(null);
+    setLoadError(null);
+    setLoading(true);
+  }
+
   const [execution, setExecution] = useState<ExecutionState>({
     loading: false,
     error: null,
@@ -185,17 +207,29 @@ export default function CompositeReportView() {
     [report?.sql_query],
   );
 
-  // Load report
+  // Load report.
+  //
+  // Switching between reports re-runs this with a new `id` while a previous
+  // load may still be in flight. Without a guard, a late or failed response for
+  // the *previous* report would call setState / navigate on the now-current
+  // view — the race behind DO-287, where a transient settings-DB blip while
+  // switching surfaced as "Composite report not found" plus a redirect home.
+  // `cancelled` makes any superseded (or unmounted) load fully inert, and a
+  // failure now shows a recoverable inline error instead of a toast + redirect.
   useEffect(() => {
-    async function loadReport() {
-      if (!id) return;
+    if (!id) return;
 
-      setLoading(true);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+
+    async function loadReport() {
       try {
         const [response, globalVarsResponse] = await Promise.all([
           apiService.getCompositeReportById(id),
           apiService.getGlobalVariables().catch(() => ({ data: [] as { label: string; value: string }[] })),
         ]);
+        if (cancelled) return;
         if (response.error) {
           throw new Error(response.error.message);
         }
@@ -223,16 +257,20 @@ export default function CompositeReportView() {
           setEditMaxRows(tableConfig.maxRows || 10000);
           setEditShowTotals(tableConfig.showTotals || false);
         }
-      } catch (error: any) {
-        toast.error(`Failed to load report: ${error.message}`);
-        navigate('/');
+      } catch (rawErr: unknown) {
+        if (cancelled) return;
+        const error = toErrorMeta(rawErr);
+        setLoadError(error.message || 'Failed to load report');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadReport();
-  }, [id, navigate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, reloadNonce]);
 
   // Execute query when report loads
   useEffect(() => {
@@ -283,7 +321,8 @@ export default function CompositeReportView() {
         lastExecuted: new Date(),
       });
       setTablePage(1);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       setExecution({
         loading: false,
         error: error.message || 'Query execution failed',
@@ -325,6 +364,9 @@ export default function CompositeReportView() {
       if (!chartYColumn) setChartYColumn(defaultY);
       if (!chartColorColumn) setChartColorColumn(defaultGroup);
     }
+    // Chart column selections are intentionally excluded: initialise defaults from
+    // the data/config only; re-adding them would override the user's later choices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [execution.data?.columns, report?.config.chart]);
 
   // Extract GPS points for map
@@ -426,6 +468,8 @@ export default function CompositeReportView() {
     };
 
     geocodeCoordinates();
+    // geocodedAddresses is set by this effect; including it would cause a re-geocode loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geocodeEnabled, gpsPairs, rowObjects]);
 
   // Get address for coordinates
@@ -524,7 +568,7 @@ export default function CompositeReportView() {
         return point;
       });
     }
-  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups]);
+  }, [report?.config.chart.enabled, execution.data, rowObjects, chartXColumn, chartYColumn, chartColorColumn, chartGroupValues, activeGroups, datetimePrefs]);
 
   // Save SQL query
   const handleSaveSql = async (): Promise<boolean> => {
@@ -565,7 +609,8 @@ export default function CompositeReportView() {
       });
       toast.success('SQL query saved');
       return true;
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save: ${error.message}`);
       return false;
     } finally {
@@ -630,7 +675,8 @@ export default function CompositeReportView() {
 
       setReport(response.data);
       toast.success('Chart settings saved');
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save chart settings: ${error.message}`);
     } finally {
       setSavingChartConfig(false);
@@ -684,7 +730,8 @@ export default function CompositeReportView() {
         setPendingExecute(true);
       }
       toast.success('Table settings saved');
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Failed to save table settings: ${error.message}`);
     } finally {
       setSavingTableConfig(false);
@@ -729,7 +776,8 @@ export default function CompositeReportView() {
 
       setReport(response.data);
       toast.success(`Map ${enabled ? 'enabled' : 'disabled'}`);
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       setReport(previousReport);
       toast.error(`Failed to update map setting: ${error.message}`);
     } finally {
@@ -808,7 +856,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('Export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Export failed: ${error.message}`);
     } finally {
       setExporting(null);
@@ -874,7 +923,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('Export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`Export failed: ${error.message}`);
     } finally {
       setExporting(null);
@@ -908,7 +958,8 @@ export default function CompositeReportView() {
       } else {
         throw new Error('PDF export failed');
       }
-    } catch (error: any) {
+    } catch (rawErr: unknown) {
+      const error = toErrorMeta(rawErr);
       toast.error(`PDF export failed: ${error.message}`);
     } finally {
       setExporting(null);
@@ -926,16 +977,22 @@ export default function CompositeReportView() {
     );
   }
 
-  if (!report) {
+  if (loadError || !report) {
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <AlertCircle className="h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">Report not found</p>
-          <Button variant="outline" onClick={() => navigate('/app')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Home
-          </Button>
+          <p className="text-muted-foreground">{loadError || 'Report not found'}</p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setReloadNonce((n) => n + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/app')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );

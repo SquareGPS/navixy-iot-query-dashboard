@@ -7,6 +7,7 @@ import { Pencil, AlertCircle } from 'lucide-react';
 import type { TableVisual } from '@/types/report-schema';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { formatTimestamp, isTimestampLike } from '@/utils/datetime';
+import { getErrorMessage } from '@/utils/errors';
 
 interface TableVisualComponentProps {
   visual: TableVisual;
@@ -21,7 +22,7 @@ interface ColumnSpec {
 }
 
 export function TableVisualComponent({ visual, title, editMode, onEdit }: TableVisualComponentProps) {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<unknown[][]>([]);
   const [columnSpecs, setColumnSpecs] = useState<ColumnSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +36,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
       id: spec.id,
       accessorKey: spec.id,
       header: spec.header,
-      cell: ({ getValue }: any) => {
+      cell: ({ getValue }: { getValue: () => unknown }) => {
         const value = getValue();
         if (value === null || value === undefined) return '';
         if (value instanceof Date) return formatTimestamp(value, datetimePrefs);
@@ -78,7 +79,7 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
               header: col.label || col.field,
             }));
           } else if (response.data.columns && response.data.columns.length > 0) {
-            specs = response.data.columns.map((col: string) => ({ id: col, header: col }));
+            specs = response.data.columns.map((col) => ({ id: col.name, header: col.name }));
           } else if (response.data.rows.length > 0) {
             specs = Object.keys(response.data.rows[0]).map((col: string) => ({ id: col, header: col }));
           } else {
@@ -87,9 +88,9 @@ export function TableVisualComponent({ visual, title, editMode, onEdit }: TableV
 
           setColumnSpecs(specs);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching table data:', err);
-        setError(err.message || 'Query failed');
+        setError(getErrorMessage(err, 'Query failed'));
         setData([]);
         setColumnSpecs([]);
       } finally {

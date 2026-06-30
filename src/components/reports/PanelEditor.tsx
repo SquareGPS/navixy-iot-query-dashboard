@@ -13,11 +13,14 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { formatSql } from '@/lib/sqlFormatter';
-import type { Panel, NavixyPanelConfig, NavixyColumnType, PanelType, VisualizationConfig } from '@/types/dashboard-types';
+import type { Dashboard, Panel, NavixyPanelConfig, NavixyParam, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
-import { extractParameterNames } from '@/utils/sqlParameterExtractor';
+import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
+import { getErrorMessage } from '@/utils/errors';
 
 /**
  * Maps panel type to default dataset shape
@@ -50,9 +53,22 @@ interface PanelEditorProps {
   onClose: () => void;
   panel: Panel;
   onSave: (updatedPanel: Panel) => void;
+  /** Dashboard local filter variables (date-range + multiselect) available to bind to this panel. */
+  localFilters?: Variable[];
+  /** The dashboard, for resolving default parameter values when testing queries. */
+  dashboard?: Dashboard | null;
 }
 
-export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) {
+/** Read a panel's existing filter bindings into a {variable: column} map. */
+function initFilterBindings(panel: Panel): Record<string, string> {
+  const map: Record<string, string> = {};
+  (panel['x-navixy']?.filters || []).forEach((f) => {
+    map[f.variable] = f.column;
+  });
+  return map;
+}
+
+export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], dashboard = null }: PanelEditorProps) {
   const [title, setTitle] = useState(panel.title);
   const [description, setDescription] = useState(panel.description || '');
   const [panelType, setPanelType] = useState(panel.type);
@@ -82,9 +98,12 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
            'markdown';
   });
   const [textContent, setTextContent] = useState(() => {
-    return panel.options?.content || navixyText?.content || '';
+    return (panel.options?.content as string | undefined) || navixyText?.content || '';
   });
   
+  // Local filter bindings for this panel: { [variableName]: columnName }
+  const [filterBindings, setFilterBindings] = useState<Record<string, string>>(() => initFilterBindings(panel));
+
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -112,7 +131,8 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         (navixyText?.format as 'markdown' | 'html' | 'text') || 
         'markdown'
       );
-      setTextContent(panel.options?.content || navixyText?.content || '');
+      setTextContent((panel.options?.content as string | undefined) || navixyText?.content || '');
+      setFilterBindings(initFilterBindings(panel));
     }
   }, [panel, open]); // Update when panel changes or dialog opens
 
@@ -144,7 +164,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
           ...panel,
           title: title.trim(),
           description: description.trim() || undefined,
-          type: panelType as any,
+          type: panelType,
           options: {
             ...panel.options,
             mode: textMode,
@@ -169,6 +189,21 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       return;
     }
 
+    // An enabled filter with no column is silently dropped by the save build
+    // below (it requires a non-empty column), leaving a checked box that does
+    // nothing at runtime. Block the save and name the offending filter instead.
+    const incompleteFilters = Object.entries(filterBindings)
+      .filter(([variable, column]) => !column.trim() && localFilters.some((v) => v.name === variable))
+      .map(([variable]) => localFilters.find((v) => v.name === variable)?.label || variable);
+    if (incompleteFilters.length > 0) {
+      toast({
+        title: 'Filter needs a column',
+        description: `Pick a column for ${incompleteFilters.map((n) => `“${n}”`).join(', ')} on the Filters tab, or uncheck it.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       // Auto-extract parameters from SQL
@@ -183,36 +218,32 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
       // Auto-determine dataset shape from panel type
       const autoDatasetShape = getDefaultDatasetShape(panelType);
       
-      // Auto-infer columns from test results if available, otherwise empty
-      let inferredColumns: Record<string, { type: NavixyColumnType }> = {};
+      // Auto-infer columns from test results if available, otherwise empty.
+      // rawTypeToNavixy is shared with the filter runtime/preview so the date-range
+      // comparison agrees with what's stored here.
+      const inferredColumns: Record<string, { type: NavixyColumnType }> = {};
       if (testResults && testResults.columns.length > 0 && testResults.columnTypes) {
         testResults.columns.forEach((colName: string) => {
-          const colType = testResults.columnTypes[colName] || 'string';
-          // Map database types to NavixyColumnType
-          let navixyType: NavixyColumnType = 'string';
-          if (colType.includes('int') || colType === 'integer') {
-            navixyType = 'integer';
-          } else if (colType.includes('numeric') || colType.includes('decimal') || colType.includes('float') || colType.includes('double') || colType === 'number') {
-            navixyType = 'number';
-          } else if (colType.includes('bool')) {
-            navixyType = 'boolean';
-          } else if (colType.includes('timestamp')) {
-            navixyType = colType.includes('tz') ? 'timestamptz' : 'timestamp';
-          } else if (colType.includes('date') && !colType.includes('time')) {
-            navixyType = 'date';
-          } else if (colType.includes('uuid')) {
-            navixyType = 'uuid';
-          }
-          inferredColumns[colName] = { type: navixyType };
+          inferredColumns[colName] = { type: rawTypeToNavixy(testResults.columnTypes[colName]) };
         });
       }
       
+      // Build local filter bindings (only keep enabled bindings with a column
+      // for variables that still exist on the dashboard). Always set the field
+      // (even when empty) so unchecking clears it through the panel-save merge.
+      const filters: PanelFilterBinding[] = Object.entries(filterBindings)
+        .filter(([variable, column]) =>
+          column && column.trim() && localFilters.some((v) => v.name === variable)
+        )
+        .map(([variable, column]) => ({ variable, column: column.trim() }));
+
       // Build updated Navixy configuration
       const updatedNavixyConfig: NavixyPanelConfig = {
         sql: {
           statement: sql.trim(),
-          params: parsedParams
+          params: parsedParams as Record<string, NavixyParam>
         },
+        filters,
         dataset: {
           shape: autoDatasetShape,
           columns: inferredColumns
@@ -228,7 +259,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         ...panel,
         title: title.trim(),
         description: description.trim() || undefined,
-        type: panelType as any,
+        type: panelType,
         'x-navixy': updatedNavixyConfig
       };
 
@@ -246,10 +277,33 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     }
   };
 
+  // Default parameter values for Test Query: the same resolution the dashboard
+  // uses at runtime (panel/dashboard bindings, templating values, time range,
+  // date-filter params), trimmed to the placeholders present in the SQL — so
+  // queries referencing ${...} variables are testable instead of erroring on
+  // unbound placeholders.
+  const testParams = () => filterUsedParameters(sql.trim(), resolveDefaultPanelParams(dashboard, panel));
+
   const handleTestQuery = async () => {
-    // Use empty parameters for testing - parameters will be filled from dashboard variables at runtime
-    const parsedParams: Record<string, unknown> = {};
-    
+    const parsedParams = testParams();
+
+    // Placeholders with no resolvable default would reach Postgres unbound and
+    // fail with a cryptic `syntax error at or near "$"` — name them instead.
+    const missing = extractParameterNames(sql.trim()).filter((name) => !(name in parsedParams));
+    if (missing.length > 0) {
+      const list = missing.map((m) => `\${${m}}`).join(', ');
+      setTestResults(null);
+      setTestError(
+        `No value available for ${list}. Give it a default in the panel's params, add a matching dashboard filter or variable, or remove it.`
+      );
+      toast({
+        title: 'Missing parameter value',
+        description: `No value available for ${list}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const currentPage = pagination?.page || 1;
       const currentPageSize = pagination?.pageSize || 25;
@@ -293,9 +347,9 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
           });
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Unexpected error executing query:', err);
-      const errorMsg = err.message || 'Failed to execute query';
+      const errorMsg = getErrorMessage(err, 'Failed to execute query');
       toast({
         title: 'Error',
         description: errorMsg,
@@ -311,7 +365,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     
     setPagination({ ...pagination, page });
     
-    const parsedParams: Record<string, unknown> = {};
+    const parsedParams = testParams();
     
     const result = await executeQuery({
       sql: sql.trim(),
@@ -338,7 +392,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
     const newPagination = pagination ? { ...pagination, pageSize, page: 1 } : { page: 1, pageSize, total: testResults?.rowCount || 0 };
     setPagination(newPagination);
     
-    const parsedParams: Record<string, unknown> = {};
+    const parsedParams = testParams();
     
     const result = await executeQuery({
       sql: sql.trim(),
@@ -362,6 +416,46 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
   };
 
 
+  // Columns detected from the last "Test Query" run, used to populate the
+  // filter column picker. Date/time columns are surfaced first.
+  const detectedColumns = testResults?.columns ?? [];
+  const columnTypeOf = (c: string) => testResults?.columnTypes?.[c] || '';
+  const isDateishType = (t: string) => /date|time/i.test(t);
+  const sortedColumns = [...detectedColumns].sort(
+    (a, b) => Number(isDateishType(columnTypeOf(b))) - Number(isDateishType(columnTypeOf(a)))
+  );
+
+  // Offer date filters to any panel, value filters only to their source panel —
+  // plus any filter already bound here, so a stale binding stays visible and
+  // can be unticked.
+  const visibleFilters = localFilters.filter(
+    (v) => filterAppliesToPanel(v, panel) || v.name in filterBindings
+  );
+
+  const showFiltersTab = !isTextPanel && visibleFilters.length > 0;
+  const nonTextTabCols = showFiltersTab ? 'grid-cols-4' : 'grid-cols-3';
+
+  const setFilterEnabled = (variable: string, enabled: boolean) => {
+    setFilterBindings((prev) => {
+      const next = { ...prev };
+      if (enabled) {
+        const v = localFilters.find((f) => f.name === variable);
+        // Value filters carry their source column; pre-fill it. Date filters
+        // pre-select the first detected date/time column.
+        const preferred = v?.['x-navixy']?.column;
+        const suggested = preferred ?? sortedColumns.find((c) => isDateishType(columnTypeOf(c))) ?? '';
+        next[variable] = prev[variable] ?? suggested;
+      } else {
+        delete next[variable];
+      }
+      return next;
+    });
+  };
+
+  const setFilterColumn = (variable: string, column: string) => {
+    setFilterBindings((prev) => ({ ...prev, [variable]: column }));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 bg-[var(--surface-1)] border-[var(--border)] overflow-hidden">
@@ -376,10 +470,11 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
         </DialogHeader>
 
         <Tabs defaultValue="properties" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <TabsList className={`mx-6 grid w-[calc(100%-3rem)] flex-shrink-0 ${isTextPanel ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          <TabsList className={`mx-6 grid w-[calc(100%-3rem)] flex-shrink-0 ${isTextPanel ? 'grid-cols-2' : nonTextTabCols}`}>
             <TabsTrigger value="properties">Panel Properties</TabsTrigger>
             {!isTextPanel && <TabsTrigger value="sql">SQL Query</TabsTrigger>}
             {isTextPanel && <TabsTrigger value="content">Content</TabsTrigger>}
+            {showFiltersTab && <TabsTrigger value="filters">Filters</TabsTrigger>}
             {!isTextPanel && <TabsTrigger value="visualization">Visualization Settings</TabsTrigger>}
           </TabsList>
           
@@ -404,7 +499,7 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
                   <Label htmlFor="type" className="text-sm font-medium">
                     Panel Type <span className="text-destructive">*</span>
                   </Label>
-                  <Select value={panelType} onValueChange={setPanelType}>
+                  <Select value={panelType} onValueChange={(value) => setPanelType(value as PanelType)}>
                     <SelectTrigger className="mt-1">
                       <SelectValue />
                     </SelectTrigger>
@@ -552,7 +647,110 @@ export function PanelEditor({ open, onClose, panel, onSave }: PanelEditorProps) 
               </div>
             </div>
           </TabsContent>
-          
+
+          {/* Filters Tab */}
+          {showFiltersTab && (
+            <TabsContent value="filters" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-y-auto bg-[var(--surface-1)]">
+              <div className="space-y-4 py-2">
+                <Alert>
+                  <AlertDescription className="text-xs">
+                    Bind a dashboard filter to a column in this panel's result. When a viewer changes the
+                    filter, this panel re-queries and shows only the matching rows (a date range, or the
+                    selected values). Your SQL is not modified — the filter is applied by wrapping the query
+                    at run time.
+                  </AlertDescription>
+                </Alert>
+
+                {detectedColumns.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Tip: run <span className="font-medium">Test Query</span> on the SQL tab to pick from detected
+                    columns. You can also type a column name manually.
+                  </p>
+                )}
+
+                {visibleFilters.map((variable) => {
+                  const enabled = variable.name in filterBindings;
+                  const column = filterBindings[variable.name] ?? '';
+                  return (
+                    <div key={variable.name} className="rounded-lg border p-3 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id={`filter-${variable.name}`}
+                          checked={enabled}
+                          onCheckedChange={(c) => setFilterEnabled(variable.name, c === true)}
+                        />
+                        <Label htmlFor={`filter-${variable.name}`} className="cursor-pointer font-medium">
+                          Apply “{variable.label || variable.name}”
+                        </Label>
+                      </div>
+
+                      {enabled && (
+                        <div className="pl-6 space-y-2">
+                          <Label className="text-xs">Filter column</Label>
+                          {detectedColumns.length > 0 ? (
+                            <Select value={column} onValueChange={(val) => setFilterColumn(variable.name, val)}>
+                              <SelectTrigger className="h-9 w-72">
+                                <SelectValue placeholder="Select a column" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sortedColumns.map((col) => (
+                                  <SelectItem key={col} value={col}>
+                                    {col}
+                                    {columnTypeOf(col) ? (
+                                      <span className="text-muted-foreground"> · {columnTypeOf(col)}</span>
+                                    ) : null}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={column}
+                              onChange={(e) => setFilterColumn(variable.name, e.target.value)}
+                              placeholder="e.g. event_time / status"
+                              className="h-9 w-72 font-mono"
+                            />
+                          )}
+                          {column ? (
+                            <p className="text-xs text-muted-foreground font-mono">
+                              WHERE {filterClausePreview(variable, column, rawTypeToNavixy(columnTypeOf(column)))}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-amber-600">Pick a column to activate this filter.</p>
+                          )}
+                          {column && detectedColumns.length > 0 && !detectedColumns.includes(column) && (
+                            <p className="text-xs text-amber-600">
+                              “{column}” isn't one of this query's result columns
+                              {detectedColumns.length <= 8 ? ` (${detectedColumns.join(', ')})` : ''}. The
+                              filter matches on output columns, so it won't apply — add it to the SELECT
+                              output or pick a listed column.
+                            </p>
+                          )}
+                          {column && detectedColumns.filter((c) => c === column).length > 1 && (
+                            <p className="text-xs text-amber-600">
+                              “{column}” is output more than once by this query. Alias one of them in your
+                              SQL, or the filter fails with an “ambiguous column” error.
+                            </p>
+                          )}
+                          {column &&
+                            variable['x-navixy']?.control === 'daterange' &&
+                            columnTypeOf(column) &&
+                            !/date|time/i.test(columnTypeOf(column)) && (
+                              <p className="text-xs text-amber-600">
+                                “{column}” is {columnTypeOf(column)}, not a date/timestamp — a date range
+                                won't match formatted text values. Prefer a real time column, or reference{' '}
+                                {'${'}{variable.name}_from{'}'} / {'${'}{variable.name}_to{'}'} inside the SQL.
+                              </p>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </TabsContent>
+          )}
+
           {/* Visualization Settings Tab */}
           <TabsContent value="visualization" className="flex-1 m-0 mt-4 px-6 data-[state=active]:flex flex-col min-h-0 overflow-y-auto bg-[var(--surface-1)]">
             <div className="py-2">

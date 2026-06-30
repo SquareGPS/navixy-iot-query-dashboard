@@ -224,7 +224,7 @@ const LineChartComponentWithData = ({
   const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && data.length <= 50);
 
   // Format x-axis labels (try to format as dates)
-  const formatXAxisLabel = (value: any) => {
+  const formatXAxisLabel = (value: string | number) => {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       const hasTime = value.toString().includes(':') || value.toString().includes('T');
@@ -290,7 +290,7 @@ const LineChartComponentWithData = ({
                         color: 'var(--text-primary)',
                       }}
                       labelFormatter={(value) => formatXAxisLabel(value)}
-                      formatter={(value: any, name: string) => [
+                      formatter={(value: number | string, name: string) => [
                         value?.toLocaleString() || '0',
                         name === 'value' ? visual.label : name,
                       ]}
@@ -384,7 +384,7 @@ const LineChartComponentWithData = ({
                         color: 'var(--text-primary)',
                       }}
                       labelFormatter={(value) => formatXAxisLabel(value)}
-                      formatter={(value: any, name: string) => [
+                      formatter={(value: number | string, name: string) => [
                         value?.toLocaleString() || '0',
                         name === 'value' ? visual.label : name,
                       ]}

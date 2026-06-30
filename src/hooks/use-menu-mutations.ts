@@ -243,7 +243,7 @@ export function useCreateSectionMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ name, sortOrder }: { name: string; sortOrder?: number }): Promise<any> => {
+    mutationFn: async ({ name, sortOrder }: { name: string; sortOrder?: number }) => {
       const response = await apiService.createSection(name, sortOrder);
       if (response.error) {
         throw new Error(response.error.message);
@@ -270,8 +270,8 @@ export function useCreateReportMutation() {
       section_id?: string | null;
       slug?: string;
       sort_order?: number;
-      report_schema: any;
-    }): Promise<any> => {
+      report_schema: unknown;
+    }) => {
       const response = await apiService.createReport(reportData);
       if (response.error) {
         throw new Error(response.error.message);

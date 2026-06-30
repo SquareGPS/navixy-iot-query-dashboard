@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
@@ -17,6 +17,7 @@ import {
   Area
 } from 'recharts';
 import type { LineVisual } from '@/types/report-schema';
+import { getErrorMessage } from '@/utils/errors';
 import { chartColors } from '@/lib/chartColors';
 
 interface LineChartComponentProps {
@@ -27,7 +28,7 @@ interface LineChartComponentProps {
 }
 
 export function LineChartComponent({ visual, title, editMode, onEdit }: LineChartComponentProps) {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<Array<{ x: string | number; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -51,33 +52,32 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
         if (response.data?.rows && response.data.rows.length > 0) {
           // Convert array rows to objects using column names
           const columns = response.data.columns || [];
-          const rowsAsObjects = response.data.rows.map((row: any[]) => {
-            const rowObj: any = {};
-            columns.forEach((col: any, index: number) => {
-              const colName = typeof col === 'string' ? col : col.name;
-              rowObj[colName] = row[index];
+          const rowsAsObjects = response.data.rows.map((row) => {
+            const rowObj: Record<string, unknown> = {};
+            columns.forEach((col, index: number) => {
+              rowObj[col.name] = row[index];
             });
             return rowObj;
           });
 
-          let processedData: any[] = [];
+          let processedData: Array<{ x: string | number; [key: string]: unknown }> = [];
 
           // Check if we have a series field (multiple lines)
           const hasSeries = visual.options.series_field && visual.options.series_field.trim() !== '';
 
           if (hasSeries) {
             // Group data by series
-            const seriesMap = new Map<string, any[]>();
-            
-            rowsAsObjects.forEach((row: any) => {
-              const xValue = row[visual.options.category_field];
+            const seriesMap = new Map<string, Array<{ x: string | number; value: number }>>();
+
+            rowsAsObjects.forEach((row) => {
+              const xValue = row[visual.options.category_field] as string | number;
               const yValue = Number(row[visual.options.value_field]) || 0;
               const seriesName = String(row[visual.options.series_field!]);
 
               if (!seriesMap.has(seriesName)) {
                 seriesMap.set(seriesName, []);
               }
-              
+
               seriesMap.get(seriesName)!.push({
                 x: xValue,
                 value: yValue,
@@ -104,7 +104,7 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
 
             // Build combined data array
             processedData = xValuesArray.map((xValue) => {
-              const dataPoint: any = { x: xValue };
+              const dataPoint: { x: string | number; [key: string]: unknown } = { x: xValue };
               seriesMap.forEach((values, seriesName) => {
                 const matchingValue = values.find((v) => v.x === xValue);
                 dataPoint[seriesName] = matchingValue ? matchingValue.value : null;
@@ -113,8 +113,8 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
             });
           } else {
             // Single line - simple mapping
-            processedData = rowsAsObjects.map((row: any) => ({
-              x: row[visual.options.category_field],
+            processedData = rowsAsObjects.map((row) => ({
+              x: row[visual.options.category_field] as string | number,
               value: Number(row[visual.options.value_field]) || 0,
             }));
 
@@ -133,9 +133,9 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
         } else {
           setData([]);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching line chart data:', err);
-        setError(err.message || 'Failed to load chart data');
+        setError(getErrorMessage(err, 'Failed to load chart data'));
       } finally {
         setLoading(false);
       }
@@ -199,7 +199,7 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
   const shouldShowPoints = showPoints === 'always' || (showPoints === 'auto' && data.length <= 50);
 
   // Format x-axis labels (try to format as dates)
-  const formatXAxisLabel = (value: any) => {
+  const formatXAxisLabel = (value: string | number) => {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       // Check if it's a time-only value or includes date
@@ -276,7 +276,7 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
                         color: 'var(--text-primary)',
                       }}
                       labelFormatter={(value) => formatXAxisLabel(value)}
-                      formatter={(value: any, name: string) => [
+                      formatter={(value: number | string, name: string) => [
                         value?.toLocaleString() || '0',
                         name === 'value' ? visual.label : name,
                       ]}
@@ -371,7 +371,7 @@ export function LineChartComponent({ visual, title, editMode, onEdit }: LineChar
                         color: 'var(--text-primary)',
                       }}
                       labelFormatter={(value) => formatXAxisLabel(value)}
-                      formatter={(value: any, name: string) => [
+                      formatter={(value: number | string, name: string) => [
                         value?.toLocaleString() || '0',
                         name === 'value' ? visual.label : name,
                       ]}

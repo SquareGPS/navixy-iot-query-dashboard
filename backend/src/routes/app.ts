@@ -382,6 +382,7 @@ router.post('/global-variables', authenticateToken, requireAdmin, async (req: Au
       description,
       value
     }, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable created by ${req.user?.email}: ${label}`);
 
@@ -413,6 +414,7 @@ router.put('/global-variables/:id', authenticateToken, requireAdmin, async (req:
       description,
       value
     }, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable updated by ${req.user?.email}: ${variable.label}`);
 
@@ -439,6 +441,7 @@ router.delete('/global-variables/:id', authenticateToken, requireAdmin, async (r
 
     const dbService = DatabaseService.getInstance();
     await dbService.deleteGlobalVariable(id as string, req.settingsPool);
+    await dbService.invalidateGlobalVarsCache(req.settingsPool);
 
     logger.info(`Global variable deleted by ${req.user?.email}: ${id}`);
 
@@ -468,7 +471,7 @@ router.get('/sections', authenticateToken, async (req: AuthenticatedRequest, res
     logger.info('GET /sections response', {
       userId: req.user?.userId,
       count: sections.length,
-      sectionNames: sections.map((s: any) => s.name)
+      sectionNames: sections.map((s: Record<string, unknown>) => s.name)
     });
 
     res.json({
@@ -493,7 +496,7 @@ router.get('/reports', authenticateToken, async (req: AuthenticatedRequest, res,
     logger.info('GET /reports response', {
       userId: req.user?.userId,
       count: reports.length,
-      reportTitles: reports.map((r: any) => r.title)
+      reportTitles: reports.map((r: Record<string, unknown>) => r.title)
     });
 
     res.json({

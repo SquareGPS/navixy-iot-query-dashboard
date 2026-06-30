@@ -1,10 +1,12 @@
 import { Pool } from 'pg';
-import type { PoolClient } from 'pg';
+import type { PoolClient, FieldDef } from 'pg';
 import { logger } from '../utils/logger.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { SQLSelectGuard } from '../utils/sqlSelectGuard.js';
+import { RedisService } from './redis.js';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
+import { toErrorMeta, isTransientDbError, type ErrorWithMeta } from '../utils/errors.js';
 
 export interface DatabaseConfig {
   user: string;
@@ -18,7 +20,7 @@ export interface DatabaseConfig {
 
 export interface QueryResult {
   columns: string[];
-  rows: any[];
+  rows: unknown[];
   columnTypes: Record<string, string>;
   total: number;
   page: number;
@@ -51,8 +53,8 @@ export interface User {
   created_at: string;
   updated_at: string;
   last_sign_in_at?: string;
-  raw_user_meta_data?: any;
-  raw_app_meta_data?: any;
+  raw_user_meta_data?: Record<string, unknown>;
+  raw_app_meta_data?: Record<string, unknown>;
   is_super_admin: boolean;
 }
 
@@ -66,6 +68,11 @@ export class DatabaseService {
   private static instance: DatabaseService;
   private clientSettingsPools: Map<string, { pool: Pool; password: string }> = new Map();
   private externalPools: Map<string, { pool: Pool; password: string }> = new Map();
+  // Pool -> its tenant pool key (user@host:port/database). Used to build a
+  // per-tenant cache key without depending on pg's internal `pool.options`,
+  // which is empty when a pool is built from a connectionString and would
+  // otherwise collapse every tenant onto one cache entry.
+  private settingsPoolKeys: WeakMap<Pool, string> = new WeakMap();
 
   constructor() {
     logger.info('Database service initialized (client settings mode)');
@@ -246,7 +253,11 @@ export class DatabaseService {
       logger.info('Reusing existing client settings pool', { poolKey });
     }
 
-    return this.clientSettingsPools.get(poolKey)!.pool;
+    const pool = this.clientSettingsPools.get(poolKey)!.pool;
+    // Record the tenant identity for this pool instance so per-tenant caching
+    // (e.g. global variables) can key off it reliably.
+    this.settingsPoolKeys.set(pool, poolKey);
+    return pool;
   }
 
   /**
@@ -298,7 +309,7 @@ export class DatabaseService {
       
       try {
         // Check if user exists in client database (match by email)
-        let result = await client.query(
+        const result = await client.query(
           'SELECT * FROM dashboard_studio_meta_data.users WHERE email = $1',
           [email]
         );
@@ -368,7 +379,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // Log detailed error information for debugging
       logger.error('Passwordless authentication error:', {
         errorCode: error?.code,
@@ -492,16 +504,111 @@ export class DatabaseService {
     }
   ];
 
-  async ensureDefaultGlobalVariables(pool: Pool): Promise<void> {
-    try {
-      const client = await pool.connect();
-      
+  // Global variables change rarely (admin action) but are read on every panel
+  // execution and composite-report load. Cache them per tenant for a short
+  // window; mutations invalidate the key explicitly, so staleness is bounded by
+  // this TTL only across backend instances that didn't perform the write.
+  private static readonly GLOBAL_VARS_CACHE_TTL_SECONDS = 60;
+  // Delay before the second (race-closing) cache eviction after a mutation —
+  // see invalidateGlobalVarsCache. Long enough to outlast a concurrent reader's
+  // cache-miss fetch tail, short enough to bound any stale window to this.
+  private static readonly GLOBAL_VARS_CACHE_INVALIDATION_DELAY_MS = 500;
+
+  /**
+   * Run a settings-DB read, retrying a couple of times with small backoff when
+   * the failure is a transient connection error (see {@link isTransientDbError}
+   * — the DO-287 symptom). Idempotent reads only — do not wrap writes with this.
+   * A non-transient error (bad SQL, missing column, 0 rows) throws immediately.
+   */
+  private async withSettingsDbRetry<T>(label: string, op: () => Promise<T>): Promise<T> {
+    const maxAttempts = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // Check if table exists
+        return await op();
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isTransientDbError(error)) throw error;
+        const delayMs = attempt * 150;
+        logger.warn('Transient settings-DB error; retrying', {
+          label, attempt, maxAttempts, delayMs, error: toErrorMeta(error).message,
+        });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * Per-tenant Redis key for the global-variables cache. Returns null when the
+   * pool's tenant identity is unknown (it wasn't created via
+   * getClientSettingsPool) — callers then skip the cache entirely rather than
+   * risk serving one tenant's variables to another.
+   */
+  private globalVarsCacheKey(pool: Pool): string | null {
+    const tenantKey = this.settingsPoolKeys.get(pool);
+    return tenantKey ? `global_vars:${tenantKey}` : null;
+  }
+
+  /**
+   * Drop the cached global variables for a tenant after a mutation. Best-effort.
+   *
+   * Evicts immediately and then once more after a short delay (the delayed
+   * double-delete pattern). The second eviction removes a stale entry that a
+   * reader which had *already* fetched pre-mutation rows could write back
+   * *after* the first delete — closing the read-populate vs. invalidate race
+   * that would otherwise leave stale variables cached until the TTL expires.
+   *
+   * Trade-off (intentional): the delayed delete can't distinguish that stale
+   * write-back from a *fresh* post-mutation populate, so it may also evict an
+   * already-correct entry. The only cost is one extra DB read on the next
+   * request (re-populated from up-to-date rows) within the ~500 ms after a rare
+   * admin mutation — correctness is never affected, so the cheap blanket second
+   * delete is preferred over versioning/locking the cache.
+   */
+  async invalidateGlobalVarsCache(pool: Pool): Promise<void> {
+    const cacheKey = this.globalVarsCacheKey(pool);
+    if (!cacheKey) return;
+    const redis = RedisService.getInstance();
+    try {
+      await redis.del(cacheKey);
+    } catch (error) {
+      logger.warn('Failed to invalidate global variables cache', { error: toErrorMeta(error).message });
+    }
+    // Second, delayed eviction to catch a racing reader's stale write-back.
+    const timer = setTimeout(() => {
+      redis.del(cacheKey).catch((error) => {
+        logger.warn('Delayed global variables cache eviction failed', { error: toErrorMeta(error).message });
+      });
+    }, DatabaseService.GLOBAL_VARS_CACHE_INVALIDATION_DELAY_MS);
+    // Don't keep the event loop alive solely for this best-effort timer.
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  /**
+   * Insert the default global variables (idempotent upserts). Best-effort.
+   *
+   * Pass `existingClient` to reuse a connection the caller already holds — the
+   * cache-miss path in {@link getGlobalVariables} does this so a single read
+   * uses one pool connection (not two overlapping ones) and skips the
+   * table-existence check it has already performed. Called standalone (no
+   * client), it acquires its own connection and verifies the table itself.
+   */
+  async ensureDefaultGlobalVariables(pool: Pool, existingClient?: PoolClient): Promise<void> {
+    let client: PoolClient | null = existingClient ?? null;
+    try {
+      if (!client) {
+        client = await pool.connect();
+      }
+
+      // A standalone call must confirm the table exists first; the cache-miss
+      // caller already verified it and reuses its client, so skip the redundant
+      // check (and the extra round-trip) in that path.
+      if (!existingClient) {
         const tableExists = await client.query(`
           SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'dashboard_studio_meta_data' 
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'dashboard_studio_meta_data'
             AND table_name = 'global_variables'
           )
         `);
@@ -510,59 +617,93 @@ export class DatabaseService {
           logger.warn('global_variables table does not exist, cannot ensure defaults');
           return;
         }
-
-        // Insert default variables if they don't exist
-        for (const variable of DatabaseService.DEFAULT_GLOBAL_VARIABLES) {
-          await client.query(
-            `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (label) DO NOTHING`,
-            [variable.label, variable.description, variable.value]
-          );
-        }
-
-        logger.info('Ensured default global variables exist');
-      } finally {
-        client.release();
       }
-    } catch (error: any) {
+
+      // Insert default variables if they don't exist
+      for (const variable of DatabaseService.DEFAULT_GLOBAL_VARIABLES) {
+        await client.query(
+          `INSERT INTO dashboard_studio_meta_data.global_variables (label, description, value)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (label) DO NOTHING`,
+          [variable.label, variable.description, variable.value]
+        );
+      }
+
+      logger.info('Ensured default global variables exist');
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // Don't throw - this is a best-effort operation
       logger.warn('Could not ensure default global variables:', error.message);
+    } finally {
+      // Only release a connection we acquired here — never the caller's.
+      if (!existingClient && client) client.release();
     }
   }
 
-  async getGlobalVariables(pool: Pool): Promise<any[]> {
-    try {
-      const client = await pool.connect();
-      
+  async getGlobalVariables(pool: Pool): Promise<Record<string, unknown>[]> {
+    const cacheKey = this.globalVarsCacheKey(pool);
+    const redis = RedisService.getInstance();
+
+    // Best-effort cache read — a miss, an unknown tenant, or any Redis error
+    // just falls through to the DB (Redis is optional; the backend runs without
+    // it).
+    if (cacheKey) {
       try {
-        // Check if table exists first (in dashboard_studio_meta_data schema)
-        const tableExists = await client.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'dashboard_studio_meta_data' 
-            AND table_name = 'global_variables'
-          )
-        `);
-
-        if (!tableExists.rows[0].exists) {
-          logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
-          return [];
-        }
-
-        // Ensure default variables exist before fetching
-        await this.ensureDefaultGlobalVariables(pool);
-
-        const result = await client.query(
-          'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
-        );
-
-        logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: any) => r.label) });
-        return result.rows;
-      } finally {
-        client.release();
+        const cached = await redis.get(cacheKey);
+        if (cached) return JSON.parse(cached) as Record<string, unknown>[];
+      } catch (error) {
+        logger.warn('Global variables cache read failed; querying DB', { error: toErrorMeta(error).message });
       }
-    } catch (error: any) {
+    }
+
+    try {
+      const rows = await this.withSettingsDbRetry('getGlobalVariables', async () => {
+        const client = await pool.connect();
+
+        try {
+          // Check if table exists first (in dashboard_studio_meta_data schema)
+          const tableExists = await client.query(`
+            SELECT EXISTS (
+              SELECT FROM information_schema.tables
+              WHERE table_schema = 'dashboard_studio_meta_data'
+              AND table_name = 'global_variables'
+            )
+          `);
+
+          if (!tableExists.rows[0].exists) {
+            logger.warn('global_variables table does not exist in dashboard_studio_meta_data schema');
+            return [] as Record<string, unknown>[];
+          }
+
+          // Ensure default variables exist before fetching. This runs only on a
+          // cache miss now (previously every read), so a plain read no longer
+          // depends on a write succeeding — important when the settings DB is
+          // briefly routed to a read-only standby. Reuse this client so the read
+          // uses a single pool connection rather than opening a second one.
+          await this.ensureDefaultGlobalVariables(pool, client);
+
+          const result = await client.query(
+            'SELECT * FROM dashboard_studio_meta_data.global_variables ORDER BY label ASC'
+          );
+
+          logger.info('Loaded global variables', { count: result.rows.length, labels: result.rows.map((r: Record<string, unknown>) => r.label) });
+          return result.rows as Record<string, unknown>[];
+        } finally {
+          client.release();
+        }
+      });
+
+      // Best-effort cache write (only when the tenant is identifiable).
+      if (cacheKey) {
+        try {
+          await redis.set(cacheKey, JSON.stringify(rows), DatabaseService.GLOBAL_VARS_CACHE_TTL_SECONDS);
+        } catch (error) {
+          logger.warn('Global variables cache write failed', { error: toErrorMeta(error).message });
+        }
+      }
+      return rows;
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       // If table doesn't exist, return empty array instead of error
       if (error.code === '42P01') { // undefined_table
         logger.warn('global_variables table does not exist:', error.message);
@@ -573,7 +714,64 @@ export class DatabaseService {
     }
   }
 
-  async getGlobalVariableById(id: string, pool: Pool): Promise<any | null> {
+  /**
+   * Get the drag-n-drop chart preset catalog (FR-11365).
+   * Singleton row in dashboard_studio_meta_data.chart_preset_catalog; the `catalog`
+   * jsonb holds { schemaVersion, groups }. Returns null (not an error) when the
+   * table/row is missing so the endpoint can serve an empty catalog.
+   */
+  async getChartPresetCatalog(pool: Pool): Promise<{ schemaVersion: string; groups: unknown[] } | null> {
+    try {
+      const client = await pool.connect();
+
+      try {
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'dashboard_studio_meta_data'
+            AND table_name = 'chart_preset_catalog'
+          )
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          logger.warn('chart_preset_catalog table does not exist in dashboard_studio_meta_data schema');
+          return null;
+        }
+
+        const result = await client.query(
+          'SELECT schema_version, catalog FROM dashboard_studio_meta_data.chart_preset_catalog ORDER BY id ASC LIMIT 1'
+        );
+
+        if (result.rows.length === 0) {
+          logger.warn('chart_preset_catalog has no rows');
+          return null;
+        }
+
+        const row = result.rows[0];
+        const catalog = (row.catalog && typeof row.catalog === 'object') ? row.catalog : {};
+        const groups = Array.isArray(catalog.groups) ? catalog.groups : [];
+
+        logger.info('Loaded chart preset catalog', { groups: groups.length, schemaVersion: catalog.schemaVersion || row.schema_version });
+        return {
+          schemaVersion: catalog.schemaVersion || row.schema_version || '1.0',
+          groups,
+        };
+      } finally {
+        client.release();
+      }
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
+      // If table doesn't exist, return null instead of error
+      if (error.code === '42P01') { // undefined_table
+        logger.warn('chart_preset_catalog table does not exist:', error.message);
+        return null;
+      }
+      logger.error('Error getting chart preset catalog:', error);
+      throw new CustomError('Failed to get chart preset catalog', 500);
+    }
+  }
+
+  async getGlobalVariableById(id: string, pool: Pool): Promise<Record<string, unknown> | null> {
     try {
       const client = await pool.connect();
       
@@ -597,7 +795,7 @@ export class DatabaseService {
     label: string;
     description?: string;
     value?: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -613,7 +811,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A variable with this label already exists', 409);
       }
@@ -626,7 +825,7 @@ export class DatabaseService {
     label?: string;
     description?: string;
     value?: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -638,7 +837,7 @@ export class DatabaseService {
         }
 
         const updateFields: string[] = [];
-        const updateValues: any[] = [];
+        const updateValues: unknown[] = [];
         let paramIndex = 1;
 
         // Allow updating all fields
@@ -681,7 +880,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A variable with this label already exists', 409);
       }
@@ -719,7 +919,7 @@ export class DatabaseService {
       
       variables.forEach(variable => {
         if (variable.value !== null && variable.value !== undefined) {
-          map[variable.label] = variable.value;
+          map[variable.label as string] = variable.value as string;
         }
       });
 
@@ -729,6 +929,29 @@ export class DatabaseService {
       // Return empty map instead of throwing error
       return {};
     }
+  }
+
+  /**
+   * Load global variables and merge them into `params` as lower-priority
+   * defaults: an explicit key in `params` always wins, a global only fills a key
+   * that is absent. Returns the merged map plus the raw global variables, which
+   * callers also use to resolve the SQL timeout.
+   *
+   * `getGlobalVariablesAsMap` already degrades to an empty map if the settings
+   * DB is unreachable, so this never throws on a global-variable lookup failure.
+   */
+  async mergeWithGlobalVars(
+    params: Record<string, unknown>,
+    settingsPool: Pool,
+  ): Promise<{ mergedParams: Record<string, unknown>; globalVars: Record<string, string> }> {
+    const globalVars = await this.getGlobalVariablesAsMap(settingsPool);
+    const mergedParams: Record<string, unknown> = { ...params };
+    for (const [key, value] of Object.entries(globalVars)) {
+      if (!(key in mergedParams)) {
+        mergedParams[key] = value;
+      }
+    }
+    return { mergedParams, globalVars };
   }
 
   // ==========================================
@@ -783,7 +1006,15 @@ export class DatabaseService {
   /**
    * Test database connection with provided settings
    */
-  async testDatabaseConnection(settings: any): Promise<void> {
+  async testDatabaseConnection(settings: {
+    external_db_url?: string;
+    external_db_host?: string;
+    external_db_port?: string | number;
+    external_db_name?: string;
+    external_db_user?: string;
+    external_db_password?: string;
+    external_db_ssl?: boolean;
+  }): Promise<void> {
     try {
       let config: DatabaseConfig;
 
@@ -795,7 +1026,7 @@ export class DatabaseService {
           password: settings.external_db_password || '',
           database: settings.external_db_name,
           hostname: settings.external_db_host,
-          port: settings.external_db_port || 5432,
+          port: Number(settings.external_db_port) || 5432,
           ssl: settings.external_db_ssl || false,
         };
       } else {
@@ -851,7 +1082,7 @@ export class DatabaseService {
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorCode = (error as any)?.code;
+        const errorCode = toErrorMeta(error).code;
         
         logger.error('Database connection test failed - detailed error:', {
           host: config.hostname,
@@ -1013,8 +1244,8 @@ export class DatabaseService {
       const columns = result.rows && result.rows.length > 0 ? Object.keys(result.rows[0]) : [];
       
       // Convert BigInt values to strings for JSON serialization
-      const rows = (result.rows || []).map((row: any) => {
-        const convertedRow: Record<string, any> = {};
+      const rows = (result.rows || []).map((row: Record<string, unknown>) => {
+        const convertedRow: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(row)) {
           convertedRow[key] = typeof value === 'bigint' ? value.toString() : value;
         }
@@ -1024,7 +1255,7 @@ export class DatabaseService {
       // Get column types from the result metadata
       const columnTypes: Record<string, string> = {};
       if (result.fields) {
-        result.fields.forEach((field: any) => {
+        result.fields.forEach((field: FieldDef) => {
           const typeName = field.dataTypeID ? this.getPostgresTypeName(field.dataTypeID) : 'unknown';
           columnTypes[field.name] = typeName;
         });
@@ -1046,7 +1277,8 @@ export class DatabaseService {
         page,
         pageSize: effectiveLimit,
       };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Database query error:', {
         error: error.message,
         sql: sql.substring(0, 100) + '...',
@@ -1055,7 +1287,7 @@ export class DatabaseService {
       });
 
       // Build detailed error message for user
-      let userMessage = error.message;
+      let userMessage = error.message || 'Database error';
       if (error.code) {
         userMessage = `[${error.code}] ${userMessage}`;
       }
@@ -1124,7 +1356,8 @@ export class DatabaseService {
       });
 
       return { value };
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Database tile query error:', {
         error: error.message,
         sql: sql.substring(0, 100) + '...',
@@ -1133,7 +1366,7 @@ export class DatabaseService {
       });
 
       // Build detailed error message for user
-      let userMessage = error.message;
+      let userMessage = error.message || 'Database error';
       if (error.code) {
         userMessage = `[${error.code}] ${userMessage}`;
       }
@@ -1153,7 +1386,7 @@ export class DatabaseService {
   // App Data Methods (Reports, Sections, etc.)
   // ==========================================
 
-  async getSections(pool: Pool, userId?: string): Promise<any[]> {
+  async getSections(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1195,7 +1428,7 @@ export class DatabaseService {
     }
   }
 
-  async getReports(pool: Pool, userId?: string): Promise<any[]> {
+  async getReports(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1243,7 +1476,7 @@ export class DatabaseService {
     }
   }
 
-  async getReportById(id: string, pool: Pool, userId?: string): Promise<any> {
+  async getReportById(id: string, pool: Pool, userId?: string): Promise<Record<string, unknown> | null> {
     try {
       const client = await pool.connect();
       
@@ -1304,18 +1537,18 @@ export class DatabaseService {
   /**
    * Transform a report row from the database into a composite report format
    */
-  private transformToCompositeReport(report: any): any {
+  private transformToCompositeReport(report: Record<string, unknown>): Record<string, unknown> {
     // Parse report_schema if it's a string
-    let schema = report.report_schema;
-    if (schema && typeof schema === 'string') {
+    let schemaRaw = report.report_schema;
+    if (schemaRaw && typeof schemaRaw === 'string') {
       try {
-        schema = JSON.parse(schema);
+        schemaRaw = JSON.parse(schemaRaw);
       } catch (parseError) {
         logger.warn('Failed to parse report_schema JSON:', parseError);
-        schema = {};
+        schemaRaw = {};
       }
     }
-    schema = schema || {};
+    const schema = (schemaRaw || {}) as Record<string, unknown>;
 
     return {
       id: report.id,
@@ -1341,7 +1574,7 @@ export class DatabaseService {
     };
   }
 
-  async getCompositeReports(pool: Pool, userId?: string): Promise<any[]> {
+  async getCompositeReports(pool: Pool, userId?: string): Promise<Record<string, unknown>[]> {
     try {
       const client = await pool.connect();
       
@@ -1371,46 +1604,49 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Error getting composite reports:', error);
       throw new CustomError('Failed to get composite reports', 500);
     }
   }
 
-  async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<any | null> {
+  async getCompositeReportById(id: string, pool: Pool, userId?: string): Promise<Record<string, unknown> | null> {
     try {
-      const client = await pool.connect();
-      
-      try {
-        let result;
-        if (userId) {
-          result = await client.query(
-            `SELECT r.*, s.name as section_name 
-             FROM dashboard_studio_meta_data.reports r 
-             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
-             WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE
-               AND r.report_schema->>'type' = 'composite'`,
-            [id, userId]
-          );
-        } else {
-          result = await client.query(
-            `SELECT r.*, s.name as section_name 
-             FROM dashboard_studio_meta_data.reports r 
-             LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id 
-             WHERE r.id = $1 AND r.is_deleted = FALSE
-               AND r.report_schema->>'type' = 'composite'`,
-            [id]
-          );
-        }
+      return await this.withSettingsDbRetry('getCompositeReportById', async () => {
+        const client = await pool.connect();
 
-        if (result.rows.length === 0) {
-          return null;
-        }
+        try {
+          let result;
+          if (userId) {
+            result = await client.query(
+              `SELECT r.*, s.name as section_name
+               FROM dashboard_studio_meta_data.reports r
+               LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id
+               WHERE r.id = $1 AND r.user_id = $2 AND r.is_deleted = FALSE
+                 AND r.report_schema->>'type' = 'composite'`,
+              [id, userId]
+            );
+          } else {
+            result = await client.query(
+              `SELECT r.*, s.name as section_name
+               FROM dashboard_studio_meta_data.reports r
+               LEFT JOIN dashboard_studio_meta_data.sections s ON r.section_id = s.id
+               WHERE r.id = $1 AND r.is_deleted = FALSE
+                 AND r.report_schema->>'type' = 'composite'`,
+              [id]
+            );
+          }
 
-        return this.transformToCompositeReport(result.rows[0]);
-      } finally {
-        client.release();
-      }
+          if (result.rows.length === 0) {
+            return null;
+          }
+
+          return this.transformToCompositeReport(result.rows[0]);
+        } finally {
+          client.release();
+        }
+      });
     } catch (error) {
       logger.error('Error getting composite report:', error);
       throw new CustomError('Failed to get composite report', 500);
@@ -1424,11 +1660,11 @@ export class DatabaseService {
     section_id?: string;
     sort_order?: number;
     sql_query: string;
-    config: Record<string, any>;
-    report_schema?: Record<string, any>;
+    config: Record<string, unknown>;
+    report_schema?: Record<string, unknown>;
     user_id: string;
     created_by: string;
-  }, pool: Pool): Promise<any> {
+  }, pool: Pool): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -1463,7 +1699,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A composite report with this slug already exists', 409);
       }
@@ -1479,10 +1716,10 @@ export class DatabaseService {
     section_id?: string | null;
     sort_order?: number;
     sql_query?: string;
-    config?: Record<string, any>;
-    report_schema?: Record<string, any>;
+    config?: Record<string, unknown>;
+    report_schema?: Record<string, unknown>;
     updated_by: string;
-  }, pool: Pool, userId?: string): Promise<any> {
+  }, pool: Pool, userId?: string): Promise<Record<string, unknown>> {
     try {
       const client = await pool.connect();
       
@@ -1494,7 +1731,7 @@ export class DatabaseService {
         }
 
         // Build the updated report_schema
-        const existingSchema = existing.report_schema || {};
+        const existingSchema = (existing.report_schema || {}) as Record<string, unknown>;
         const updatedSchema = {
           ...existingSchema,
           type: 'composite',
@@ -1505,7 +1742,7 @@ export class DatabaseService {
         };
 
         const updateFields: string[] = [];
-        const updateValues: any[] = [];
+        const updateValues: unknown[] = [];
         let paramIndex = 1;
 
         if (data.title !== undefined) {
@@ -1558,7 +1795,8 @@ export class DatabaseService {
       } finally {
         client.release();
       }
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       if (error.code === '23505') { // Unique violation
         throw new CustomError('A composite report with this slug already exists', 409);
       }
@@ -1657,7 +1895,7 @@ export class DatabaseService {
       const hasParameters = Object.keys(params).length > 0;
       
       let processedStatement = statement;
-      let paramValues: unknown[] = [];
+      const paramValues: unknown[] = [];
       let usedParamCount = 0;
 
       if (hasParameters) {
@@ -1693,7 +1931,7 @@ export class DatabaseService {
 
       let total = 0;
       let finalStatement = processedStatement;
-      let finalParamValues = paramValues;
+      const finalParamValues = paramValues;
       let effectivePageSize = pagination?.pageSize;
 
       // Handle pagination if requested
@@ -1795,7 +2033,8 @@ export class DatabaseService {
 
       return resultData;
 
-    } catch (error: any) {
+    } catch (rawError: unknown) {
+      const error = toErrorMeta(rawError);
       logger.error('Parameterized query error:', {
         error: error.message,
         statement: statement.substring(0, 100) + '...',

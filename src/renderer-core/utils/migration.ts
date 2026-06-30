@@ -3,8 +3,8 @@
  * Convert legacy report schemas to Grafana-based format
  */
 
-import type { ReportSchema, TilesRow, TableRow, ChartsRow, AnnotationRow } from '../types/report-schema';
-import type { GrafanaDashboard, Panel, GridPosition } from './grafana-dashboard';
+import type { ReportSchema, TilesRow, TableRow, ChartsRow, AnnotationRow, Parameter, TileVisual, ChartVisual } from '../../types/report-schema';
+import type { GrafanaDashboard, Panel, GridPosition, Variable, PanelType, TransformStep, ParamSpec, ParamType } from '../schema/grafana-dashboard';
 
 export class ReportMigration {
   /**
@@ -14,7 +14,7 @@ export class ReportMigration {
     const dashboard: GrafanaDashboard = {
       dashboard: {
         uid: legacyReport.meta.report_id || `report_${Date.now()}`,
-        title: legacyReport.title,
+        title: legacyReport.title || 'Untitled Report',
         description: legacyReport.subtitle,
         tags: [],
         timezone: 'UTC',
@@ -59,7 +59,7 @@ export class ReportMigration {
   /**
    * Migrate parameters to Grafana variables
    */
-  private static migrateParameters(parameters: any[]): any[] {
+  private static migrateParameters(parameters: Parameter[]): Variable[] {
     return parameters.map(param => ({
       name: param.name,
       type: this.mapParameterType(param.type),
@@ -68,9 +68,9 @@ export class ReportMigration {
       query: param.allowed ? param.allowed.join(',') : undefined,
       current: {
         text: param.default ? String(param.default) : '',
-        value: param.default || ''
+        value: (param.default as string | string[]) || ''
       },
-      options: param.allowed ? param.allowed.map((val: any) => ({
+      options: param.allowed ? param.allowed.map((val: unknown) => ({
         text: String(val),
         value: String(val),
         selected: val === param.default
@@ -84,7 +84,7 @@ export class ReportMigration {
   /**
    * Map legacy parameter types to Grafana variable types
    */
-  private static mapParameterType(type: string): string {
+  private static mapParameterType(type: string): Variable['type'] {
     switch (type) {
       case 'enum':
         return 'custom';
@@ -258,7 +258,7 @@ export class ReportMigration {
       const y = startY + Math.floor(index / chartsPerRow) * 8;
 
       let panelType: string;
-      let options: any;
+      let options: Record<string, unknown>;
 
       if (visual.kind === 'bar') {
         panelType = 'barchart';
@@ -287,7 +287,7 @@ export class ReportMigration {
       panels.push({
         id: panelId,
         title: visual.label,
-        type: panelType as any,
+        type: panelType as PanelType,
         gridPos: { h: 8, w: chartWidth, x, y },
         targets: [],
         fieldConfig: {
@@ -366,8 +366,8 @@ export class ReportMigration {
   /**
    * Migrate query parameters
    */
-  private static migrateQueryParams(params: Record<string, any>): Record<string, any> {
-    const migrated: Record<string, any> = {};
+  private static migrateQueryParams(params: Record<string, unknown>): Record<string, ParamSpec> {
+    const migrated: Record<string, ParamSpec> = {};
     
     Object.entries(params).forEach(([name, value]) => {
       migrated[name] = {
@@ -382,7 +382,7 @@ export class ReportMigration {
   /**
    * Migrate query bindings
    */
-  private static migrateQueryBindings(params: Record<string, any>): Record<string, string> {
+  private static migrateQueryBindings(params: Record<string, unknown>): Record<string, string> {
     const bindings: Record<string, string> = {};
     
     Object.keys(params).forEach(name => {
@@ -395,7 +395,7 @@ export class ReportMigration {
   /**
    * Infer parameter type from value
    */
-  private static inferParamType(value: any): string {
+  private static inferParamType(value: unknown): ParamType {
     if (typeof value === 'number') {
       return Number.isInteger(value) ? 'int' : 'numeric';
     }
@@ -414,7 +414,7 @@ export class ReportMigration {
   /**
    * Map tile unit options
    */
-  private static mapTileUnit(options: any): string {
+  private static mapTileUnit(options: TileVisual['options']): string {
     if (options?.suffix === '%') return 'percent';
     if (options?.suffix === '$') return 'currencyUSD';
     if (options?.suffix === '€') return 'currencyEUR';
@@ -424,8 +424,8 @@ export class ReportMigration {
   /**
    * Migrate chart transforms
    */
-  private static migrateChartTransforms(visual: any): any[] {
-    const transforms: any[] = [];
+  private static migrateChartTransforms(visual: ChartVisual): TransformStep[] {
+    const transforms: TransformStep[] = [];
 
     if (visual.options.sort_by) {
       transforms.push({

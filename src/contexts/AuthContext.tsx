@@ -2,11 +2,12 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { useNavigate } from 'react-router-dom';
 import { demoStorageService } from '@/services/demoStorage';
 import { isDemoMode, setDemoMode, setDemoUserId } from '@/services/demoApi';
+import type { ChartCatalog } from '@/types/chart-catalog';
 
 /**
  * Decode a JWT token without verification (for reading claims on the client side)
  */
-function decodeJwtPayload(token: string): any | null {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -21,6 +22,7 @@ function decodeJwtPayload(token: string): any | null {
 interface User {
   id: string;
   email: string;
+  name?: string;
   role: 'admin' | 'editor' | 'viewer';
 }
 
@@ -69,6 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Sync demo mode state
     setDemoModeState(isDemoMode());
+    // Run once on mount to restore an existing session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const verifyToken = async (tokenToVerify: string) => {
@@ -175,22 +179,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('[AuthContext] Clearing IndexedDB before initializing demo storage...');
       await demoStorageService.clearAllData();
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null)
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null)
       ]);
 
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
       }
@@ -200,10 +205,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
+      let chartCatalog: ChartCatalog | null = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
+      }
+
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId
       });
 
@@ -355,38 +367,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       };
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null) // Fail silently
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
 
       // Parse responses
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
         console.log('[AuthContext] Sections fetched from backend:', { 
           count: sections.length,
-          sectionNames: sections.map((s: any) => s.name)
+          sectionNames: sections.map((s) => s.name)
         });
       } else {
-        console.warn('[AuthContext] Failed to fetch sections:', sectionsRes.status, sectionsRes.statusText);
+        console.warn('[AuthContext] Failed to fetch sections:', sectionsRes?.status, sectionsRes?.statusText);
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
         console.log('[AuthContext] Reports fetched from backend:', { 
           count: reports.length,
-          reportTitles: reports.map((r: any) => r.title),
-          reportIds: reports.map((r: any) => r.id)
+          reportTitles: reports.map((r) => r.title),
+          reportIds: reports.map((r) => r.id)
         });
       } else {
-        console.warn('[AuthContext] Failed to fetch reports:', reportsRes.status, reportsRes.statusText);
+        console.warn('[AuthContext] Failed to fetch reports:', reportsRes?.status, reportsRes?.statusText);
       }
 
       if (globalVarsRes?.ok) {
@@ -394,10 +407,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
         console.log('[AuthContext] Global variables fetched from backend:', { 
           count: globalVariables.length,
-          labels: globalVariables.map((gv: any) => gv.label)
+          labels: globalVariables.map((gv) => gv.label)
         });
       } else {
         console.warn('[AuthContext] Failed to fetch global variables or endpoint not available');
+      }
+
+      let chartCatalog: ChartCatalog | null = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
       }
 
       // Seed the demo database
@@ -406,6 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId
       });
 
@@ -497,23 +517,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
       };
 
-      const [sectionsRes, reportsRes, globalVarsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/sections`, { headers }),
-        fetch(`${API_BASE_URL}/api/reports`, { headers }),
-        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null) // Fail silently
+      const [sectionsRes, reportsRes, globalVarsRes, chartCatalogRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/sections`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/reports`, { headers }).catch(() => null),
+        fetch(`${API_BASE_URL}/api/global-variables`, { headers }).catch(() => null), // Fail silently
+        fetch(`${API_BASE_URL}/api/chart-catalog`, { headers }).catch(() => null) // Fail silently
       ]);
 
       // Parse responses
-      let sections: any[] = [];
-      let reports: any[] = [];
-      let globalVariables: any[] = [];
+      let sections: Record<string, unknown>[] = [];
+      let reports: Record<string, unknown>[] = [];
+      let globalVariables: Record<string, unknown>[] = [];
 
-      if (sectionsRes.ok) {
+      if (sectionsRes?.ok) {
         const data = await sectionsRes.json();
         sections = data.sections || data.data || [];
       }
 
-      if (reportsRes.ok) {
+      if (reportsRes?.ok) {
         const data = await reportsRes.json();
         reports = data.reports || data.data || [];
       }
@@ -523,11 +544,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         globalVariables = data.variables || data.data || [];
       }
 
+      let chartCatalog: ChartCatalog | null = null;
+      if (chartCatalogRes?.ok) {
+        const data = await chartCatalogRes.json();
+        chartCatalog = data.catalog || data.data || null;
+      }
+
       // Reseed the demo database (this clears existing data first)
       await demoStorageService.seedFromBackend({
         sections,
         reports,
         globalVariables,
+        chartCatalog,
         userId: user.id
       });
 

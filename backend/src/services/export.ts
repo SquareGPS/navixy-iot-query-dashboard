@@ -4,6 +4,7 @@
  */
 
 import ExcelJS from 'exceljs';
+import type { Writable } from 'stream';
 import { logger } from '../utils/logger.js';
 import { isTimestampLikeValue, parseTimestampValue } from '../utils/datetime.js';
 import type { DateFormat, TimeFormat } from './userPreferences.js';
@@ -301,9 +302,24 @@ export class ExportService {
   }
 
   /**
-   * Generate Excel file from composite report data
+   * Stream an Excel (.xlsx) export directly to a writable (typically the HTTP
+   * response) using ExcelJS's streaming WorkbookWriter.
+   *
+   * Rows are committed and flushed to the output one at a time, so peak memory
+   * stays roughly flat regardless of row count. The previous buffered path
+   * (`new Workbook()` + `workbook.xlsx.writeBuffer()`) held the entire workbook
+   * — every cell as an object plus one giant XML string — in the ~2 GB Node
+   * heap, and OOM'd the process on large exports once DO-277 raised the
+   * server-side row cap to 100k+ (see routes/panels.ts, utils/exportPolicy.ts).
+   * Streaming also starts emitting bytes immediately, so the response no longer
+   * sits silent past nginx's proxy_read_timeout on big/slow exports.
+   *
+   * The caller must set Content-Type / Content-Disposition before calling this.
+   * Content-Length is intentionally omitted — the body is chunked. On success
+   * the writable is ended by the workbook commit; on failure this rejects and
+   * the caller should abort the response (the headers are likely already sent).
    */
-  async generateExcel(options: ExcelExportOptions): Promise<Buffer> {
+  async streamExcel(options: ExcelExportOptions, out: Writable): Promise<void> {
     const { title, description, columns, rows, executedAt, excelHeader, timeZone, dateFormat, timeFormat } = options;
     const cellNumFmt = buildExcelNumFmt(dateFormat, timeFormat);
 
@@ -311,58 +327,128 @@ export class ExportService {
     const rowOffset = headerActive ? 2 : 0;
     const colHeaderRowNum = 1 + rowOffset;
 
-    const workbook = new ExcelJS.Workbook();
+    // Single pass over the already-in-memory result rows to decide which
+    // columns are non-empty and how wide each should be. This only reads the
+    // source array the route handed us — it builds no ExcelJS structures — so
+    // it preserves the old empty-column filter and width auto-fit without
+    // adding asymptotic memory (the streaming writer can't revisit committed
+    // rows to auto-fit after the fact).
+    const colCount = columns.length;
+    const nonEmpty = new Array<boolean>(colCount).fill(false);
+    // Date cells render as the formatted display string (e.g. "23/06/2026 14:30"),
+    // not the raw ISO/Date source value — which can be ~30 chars as an ISO string
+    // or ~60 as a Date.toString(). Size date columns from that display width so
+    // the auto-fit isn't blown out by the long source; a sample formatted with
+    // the export's own date prefs keeps long-month formats ("3 September 2026")
+    // honest. Non-date columns measure their raw value as before.
+    const colIsDate = columns.map(isDateColumnByType);
+    const dateDisplayWidth = formatDateWithPrefs(executedAt, timeZone, dateFormat, timeFormat).length;
+    const maxLen = columns.map((col, idx) =>
+      colIsDate[idx]! ? Math.max(col.name.length, dateDisplayWidth) : col.name.length,
+    );
+    for (const row of rows) {
+      for (let idx = 0; idx < colCount; idx++) {
+        const val = row[idx];
+        if (val === null || val === undefined || val === '') continue;
+        nonEmpty[idx] = true;
+        if (colIsDate[idx]!) continue; // width already fixed to the formatted display
+        const len = typeof val === 'string' ? val.length : String(val).length;
+        if (len > maxLen[idx]!) maxLen[idx] = len;
+      }
+    }
+    const visibleIdx: number[] = [];
+    for (let idx = 0; idx < colCount; idx++) {
+      if (nonEmpty[idx]) visibleIdx.push(idx);
+    }
+    const visibleColumns = visibleIdx.map(idx => columns[idx]!);
+
+    // Per-visible-column classification, computed once rather than per cell:
+    // the date/numeric decision depends only on the column type.
+    const visKinds = visibleColumns.map(col => ({
+      isDateType: isDateColumnByType(col),
+      isNumeric:
+        col.type.includes('int') ||
+        col.type.includes('numeric') ||
+        col.type.includes('real') ||
+        col.type.includes('double'),
+    }));
+
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: out,
+      useStyles: true,
+      // Inline strings rather than a shared-strings table: export data is
+      // high-cardinality, and a shared table would have to live in memory for
+      // the whole workbook, defeating the point of streaming.
+      useSharedStrings: false,
+    });
     workbook.creator = 'Dashboard Studio';
     workbook.created = executedAt;
 
-    // Filter out empty columns
-    const emptyColumnIndices = new Set<number>();
-    columns.forEach((col, idx) => {
-      const isEmpty = rows.every(row => {
-        const val = row[idx];
-        return val === null || val === undefined || val === '';
-      });
-      if (isEmpty) {
-        emptyColumnIndices.add(idx);
+    // The writer pipes the zip into `out` (the response) immediately — before
+    // `workbook.commit()` is awaited. If the client disconnects mid-download,
+    // `out` emits 'error' (e.g. ECONNRESET); without a listener that event is
+    // unhandled and can crash the whole process. Capture + log it here. The
+    // captured error is re-thrown once commit() settles (below) so the route
+    // treats the aborted download as the failure it is — and because it keeps
+    // the original socket `code` (ECONNRESET/EPIPE), the errorHandler classifies
+    // it as a client abort rather than relying on ExcelJS's wrapper, which can
+    // drop that code.
+    let streamError: Error | null = null;
+    out.on('error', (err: unknown) => {
+      if (!streamError) {
+        streamError = err instanceof Error ? err : new Error(String(err));
       }
+      logger.warn('Export output stream error (client disconnected?)', {
+        message: streamError.message,
+      });
     });
-    const visibleColumns = columns.filter((_, idx) => !emptyColumnIndices.has(idx));
 
-    // Create data sheet
-    const dataSheet = workbook.addWorksheet('Data');
-
-    // Set column widths (keys only, headers added manually below)
-    dataSheet.columns = visibleColumns.map(col => ({
-      key: col.name,
-      width: Math.max(col.name.length + 2, 15),
+    // Freeze the column-header row (and report-header rows when present). The
+    // streaming writer exposes `views` read-only, so it must be passed at sheet
+    // creation rather than assigned afterwards.
+    const dataSheet = workbook.addWorksheet('Data', {
+      views: [{ state: 'frozen', ySplit: colHeaderRowNum }],
+    });
+    // Width-only column defs (no `header`, so the writer adds no auto-header
+    // row — we write the header manually below). Keys are unnecessary since we
+    // write cells positionally, and omitting them avoids duplicate-key issues
+    // when a query returns columns with the same name.
+    dataSheet.columns = visibleIdx.map(idx => ({
+      width: Math.min(Math.max(maxLen[idx]! + 2, 10), 50),
     }));
 
     // Insert report header (title/description) if enabled
     if (headerActive) {
       const colLetter = excelHeader!.column?.match(/^[A-Z]$/) ? excelHeader!.column! : 'A';
-      const lastDataColLetter = String.fromCharCode('A'.charCodeAt(0) + visibleColumns.length - 1);
-      const canMerge = visibleColumns.length > 1 && colLetter <= lastDataColLetter;
+      // Address/merge by numeric (row, col) indices rather than letter math:
+      // `String.fromCharCode('A' + n)` only yields a valid column letter for
+      // <=26 columns, so the old letter-based range silently dropped the merged
+      // header band on wider tables. Numeric merge works for any column count.
+      const startCol = colLetter.charCodeAt(0) - 'A'.charCodeAt(0) + 1;
+      const lastCol = visibleColumns.length;
+      const canMerge = lastCol > 1 && startCol <= lastCol;
 
       if (excelHeader!.title) {
-        const titleCell = dataSheet.getCell(`${colLetter}1`);
+        const titleCell = dataSheet.getCell(1, startCol);
         titleCell.value = excelHeader!.title;
         titleCell.font = { bold: true, size: 14 };
         if (canMerge) {
-          dataSheet.mergeCells(`${colLetter}1:${lastDataColLetter}1`);
+          dataSheet.mergeCells(1, startCol, 1, lastCol);
         }
       }
 
       if (excelHeader!.description) {
-        const descCell = dataSheet.getCell(`${colLetter}2`);
+        const descCell = dataSheet.getCell(2, startCol);
         descCell.value = excelHeader!.description;
         descCell.font = { italic: true, size: 11, color: { argb: 'FF666666' } };
         if (canMerge) {
-          dataSheet.mergeCells(`${colLetter}2:${lastDataColLetter}2`);
+          dataSheet.mergeCells(2, startCol, 2, lastCol);
         }
       }
     }
 
-    // Add column header row
+    // Column header row. Committing it also flushes any report-header rows
+    // above it, in order (the writer commits all rows up to the committed one).
     const headerRow = dataSheet.getRow(colHeaderRowNum);
     visibleColumns.forEach((col, idx) => {
       headerRow.getCell(idx + 1).value = col.name;
@@ -376,111 +462,135 @@ export class ExportService {
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
     headerRow.commit();
 
-    // Add data rows
-    rows.forEach((row, rowIdx) => {
-      const rowData: Record<string, unknown> = {};
-      columns.forEach((col, idx) => {
-        if (emptyColumnIndices.has(idx)) {
-          return;
-        }
-
-        let value = row[idx];
-
-        if (value === null || value === undefined) {
-          rowData[col.name] = '';
-        } else if (isDateColumnByType(col) || value instanceof Date || isTimestampLikeValue(value)) {
-          const dateValue = value instanceof Date
-            ? value
-            : parseTimestampValue(String(value));
-          if (!dateValue) {
-            rowData[col.name] = value;
-          } else {
-            rowData[col.name] = timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue;
-          }
-        } else if (col.type.includes('int') || col.type.includes('numeric') || col.type.includes('real') || col.type.includes('double')) {
-          rowData[col.name] = typeof value === 'string' ? parseFloat(value) : value;
-        } else {
-          rowData[col.name] = value;
-        }
-      });
-
-      const dataRowNum = colHeaderRowNum + 1 + rowIdx;
-      const dataRow = dataSheet.getRow(dataRowNum);
-      visibleColumns.forEach((col, colIdx) => {
-        dataRow.getCell(colIdx + 1).value = rowData[col.name] as ExcelJS.CellValue;
-      });
+    // Stream data rows: build, format date cells, commit (flush + free) each.
+    for (const row of rows) {
+      const values = new Array<ExcelJS.CellValue>(visibleColumns.length);
+      const dateCellCols: number[] = [];
+      for (let i = 0; i < visibleColumns.length; i++) {
+        const kind = visKinds[i]!;
+        const { value, isDate } = this.coerceCellValue(row[visibleIdx[i]!], kind.isDateType, kind.isNumeric, timeZone);
+        values[i] = value;
+        if (isDate) dateCellCols.push(i);
+      }
+      const dataRow = dataSheet.addRow(values);
+      for (const i of dateCellCols) {
+        dataRow.getCell(i + 1).numFmt = cellNumFmt;
+      }
       dataRow.commit();
-    });
+    }
+    dataSheet.commit();
 
-    // Auto-fit columns and apply date formatting
-    dataSheet.columns.forEach((column, colIdx) => {
-      if (column.values) {
-        let maxLength = 0;
-        column.values.forEach((value) => {
-          const length = value ? String(value).length : 0;
-          if (length > maxLength) {
-            maxLength = length;
-          }
-        });
-        column.width = Math.min(Math.max(maxLength + 2, 10), 50);
-      }
-      
-      const firstDataRow = colHeaderRowNum + 1;
-      for (let rowNum = firstDataRow; rowNum < firstDataRow + rows.length; rowNum++) {
-        const cell = dataSheet.getCell(rowNum, colIdx + 1);
-        if (cell.value instanceof Date) {
-          cell.numFmt = cellNumFmt;
-        }
-      }
-    });
-
-    // Freeze column headers (and report header rows when present)
-    dataSheet.views = [{ state: 'frozen', ySplit: colHeaderRowNum }];
-
-    // Create info sheet
+    // Create info sheet (header written manually, same as the data sheet).
     const infoSheet = workbook.addWorksheet('Report Info');
     infoSheet.columns = [
-      { header: 'Property', key: 'property', width: 20 },
-      { header: 'Value', key: 'value', width: 60 },
+      { key: 'property', width: 20 },
+      { key: 'value', width: 60 },
     ];
-
-    // Style info header
     const infoHeader = infoSheet.getRow(1);
+    infoHeader.getCell(1).value = 'Property';
+    infoHeader.getCell(2).value = 'Value';
     infoHeader.font = { bold: true };
     infoHeader.fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFE0E0E0' },
     };
+    infoHeader.commit();
 
-    // Add report metadata
-    infoSheet.addRow({ property: 'Report Title', value: title });
+    const addInfo = (property: string, value: ExcelJS.CellValue): void => {
+      infoSheet.addRow({ property, value }).commit();
+    };
+    addInfo('Report Title', title);
     if (description) {
-      infoSheet.addRow({ property: 'Description', value: description });
+      addInfo('Description', description);
     }
-    infoSheet.addRow({
-      property: 'Executed At',
-      value: timeZone
-        ? this.formatShortDateTime(executedAt, timeZone, dateFormat, timeFormat)
-        : executedAt.toISOString(),
-    });
+    addInfo('Executed At', timeZone
+      ? this.formatShortDateTime(executedAt, timeZone, dateFormat, timeFormat)
+      : executedAt.toISOString());
     if (timeZone) {
-      infoSheet.addRow({ property: 'Timezone', value: timeZone });
+      addInfo('Timezone', timeZone);
     }
-    infoSheet.addRow({ property: 'Total Rows', value: rows.length });
-    infoSheet.addRow({ property: 'Total Columns', value: columns.length });
+    addInfo('Total Rows', rows.length);
+    addInfo('Total Columns', columns.length);
+    infoSheet.commit();
 
-    // Generate buffer
-    const buffer = await workbook.xlsx.writeBuffer();
-    
-    logger.info('Generated Excel export', { 
-      title, 
-      rowCount: rows.length, 
+    // Finalize the zip and end the output stream. Prefer the captured socket
+    // error over a commit() rejection: a client abort makes ExcelJS reject with
+    // a wrapper that may have dropped the original ECONNRESET/EPIPE code, while
+    // `streamError` still carries it (so the route/errorHandler log a clean
+    // client abort, not a server error with a stack).
+    try {
+      await workbook.commit();
+    } catch (commitErr) {
+      throw streamError ?? commitErr;
+    }
+    // commit() can *resolve* even though the output stream already failed:
+    // ExcelJS finished writing to its end of the pipe, but the bytes never
+    // reached the aborted client. Surface that as a failure rather than logging
+    // a success for a download nobody received.
+    if (streamError) {
+      throw streamError;
+    }
+
+    logger.info('Streamed Excel export', {
+      title,
+      rowCount: rows.length,
       columnCount: columns.length,
+      visibleColumns: visibleColumns.length,
       headerEnabled: headerActive,
     });
+  }
 
-    return Buffer.from(buffer);
+  /**
+   * Coerce a raw cell value into what ExcelJS should store, mirroring the
+   * type handling the buffered path used: date-ish values become (optionally
+   * zone-shifted) Date objects flagged for date number-formatting; numeric
+   * columns are parsed to numbers; everything else passes through. Nulls render
+   * as an empty string.
+   *
+   * `isDateType`/`isNumeric` are the column's classification, precomputed once
+   * per column by the caller — re-deriving them from `col.type` here would scan
+   * the type string for every cell (millions of times on a large export).
+   */
+  private coerceCellValue(
+    value: unknown,
+    isDateType: boolean,
+    isNumeric: boolean,
+    timeZone: string | undefined,
+  ): { value: ExcelJS.CellValue; isDate: boolean } {
+    if (value === null || value === undefined) {
+      return { value: '', isDate: false };
+    }
+    if (isDateType || value instanceof Date || isTimestampLikeValue(value)) {
+      const dateValue = value instanceof Date ? value : parseTimestampValue(String(value));
+      if (!dateValue) {
+        return { value: value as ExcelJS.CellValue, isDate: false };
+      }
+      return { value: timeZone ? shiftDateToZone(dateValue, timeZone) : dateValue, isDate: true };
+    }
+    if (isNumeric) {
+      // A numeric-typed column can carry string-encoded numbers (pg returns
+      // numeric/bigint as strings to preserve precision) or a non-numeric
+      // sentinel ('N/A', '3 days', …). Parse a string only when it is numeric
+      // *in full*: parseFloat('3 days') → 3 would silently store a truncated
+      // number, diverging from the CSV/text path, which keeps '3 days' verbatim.
+      // Number() rejects trailing garbage; the empty-string guard keeps blanks
+      // blank (Number('') === 0). Non-numeric strings — and a NaN number — fall
+      // back to the raw value.
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const num = trimmed === '' ? NaN : Number(trimmed);
+        if (Number.isNaN(num)) {
+          return { value: value as ExcelJS.CellValue, isDate: false };
+        }
+        return { value: num, isDate: false };
+      }
+      if (typeof value === 'number' && Number.isNaN(value)) {
+        return { value: value as ExcelJS.CellValue, isDate: false };
+      }
+      return { value: value as ExcelJS.CellValue, isDate: false };
+    }
+    return { value: value as ExcelJS.CellValue, isDate: false };
   }
 
   /**
@@ -516,7 +626,7 @@ export class ExportService {
           return;
         }
 
-        let value = row[idx];
+        const value = row[idx];
 
         if (value === null || value === undefined) {
           csvRow.push('');

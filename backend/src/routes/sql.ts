@@ -7,6 +7,8 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
 import crypto from 'crypto';
+import type { Pool } from 'pg';
+import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
 
@@ -29,14 +31,14 @@ const getRedisService = () => {
 };
 
 // Generate cache key for SQL queries
-function generateCacheKey(sql: string, params: any, userId?: string, iotDbUrl?: string): string {
+function generateCacheKey(sql: string, params: Record<string, unknown>, userId?: string, iotDbUrl?: string): string {
   const hash = crypto.createHash('sha256');
   hash.update(sql + JSON.stringify(params) + (userId || 'anonymous') + (iotDbUrl || 'none'));
   return `sql:${hash.digest('hex')}`;
 }
 
 // Helper function to get timeout from global variables
-async function getGlobalTimeoutMs(settingsPool: any): Promise<number> {
+async function getGlobalTimeoutMs(settingsPool: Pool | null | undefined): Promise<number> {
   const defaultTimeout = 30000;
   if (!settingsPool) {
     logger.info('SQL timeout: using default (no settings pool)', { timeout: defaultTimeout });
@@ -103,7 +105,8 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
     });
 
     return res.json(result);
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Table query error:', {
       userId: req.user?.userId,
       error: error.message,
@@ -112,9 +115,9 @@ router.post('/table', validateSQLQuery, asyncHandler(async (req: AuthenticatedRe
 
     return res.status(200).json({
       error: {
-        code: error.statusCode >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
+        code: (error.statusCode ?? 0) >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
         message: error.message,
-        details: error.statusCode >= 500 ? undefined : {
+        details: (error.statusCode ?? 0) >= 500 ? undefined : {
           sqlCode: error.code,
           position: error.position,
         }
@@ -165,7 +168,8 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
     });
 
     return res.json(result);
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Tile query error:', {
       userId: req.user?.userId,
       error: error.message,
@@ -174,9 +178,9 @@ router.post('/tile', validateSQLQuery, asyncHandler(async (req: AuthenticatedReq
 
     return res.status(200).json({
       error: {
-        code: error.statusCode >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
+        code: (error.statusCode ?? 0) >= 500 ? 'INTERNAL_ERROR' : 'EXECUTION_ERROR',
         message: error.message,
-        details: error.statusCode >= 500 ? undefined : {
+        details: (error.statusCode ?? 0) >= 500 ? undefined : {
           sqlCode: error.code,
           position: error.position,
         }
@@ -211,7 +215,8 @@ router.post('/test-connection', asyncHandler(async (req: AuthenticatedRequest, r
       message: 'Database connection successful',
       result: result.rows[0]
     });
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Database connection test failed:', {
       userId: req.user?.userId,
       error: error.message,
@@ -240,7 +245,8 @@ router.post('/clear-cache', asyncHandler(async (req: AuthenticatedRequest, res: 
       success: true,
       message: 'Cache cleared successfully'
     });
-  } catch (error: any) {
+  } catch (rawError: unknown) {
+    const error = toErrorMeta(rawError);
     logger.error('Cache clear error:', {
       userId: req.user?.userId,
       error: error.message,

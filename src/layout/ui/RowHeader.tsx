@@ -9,15 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useDraggable } from '@dnd-kit/core';
-import type { GrafanaPanel } from '@/types/grafana-dashboard';
+import type { Panel } from '@/types/dashboard-types';
 import { isRowPanel } from '../geometry/rows';
 import { cmdToggleRowCollapsed, cmdPackRow, cmdDeleteRow, cmdRenameRow } from '../state/commands';
 
 interface RowHeaderProps {
-  row: GrafanaPanel;
+  row: Panel;
   containerWidth: number;
   isSelected?: boolean;
-  onSelect?: (rowId: number) => void;
+  onSelect?: (rowId: string | number) => void;
   enableDrag?: boolean;
   enableEditControls?: boolean;
   isEditingLayout?: boolean;
@@ -32,12 +32,9 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
   enableEditControls = true,
   isEditingLayout = false,
 }) => {
-  if (!isRowPanel(row) || !row.id) {
-    return null;
-  }
-
-  // Always call useDraggable (hooks must be called unconditionally)
-  // Use disabled prop to disable drag when not needed
+  // Hooks must run unconditionally and in the same order on every render, so all
+  // hook calls precede the early return below. useDraggable uses the `disabled`
+  // prop rather than being skipped when drag is off.
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `row-${row.id}`,
     data: {
@@ -94,6 +91,10 @@ export const RowHeader: React.FC<RowHeaderProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showMenu]);
+
+  if (!isRowPanel(row) || !row.id) {
+    return null;
+  }
 
   const handleToggleCollapse = (e: React.MouseEvent) => {
     e.stopPropagation();
