@@ -307,6 +307,24 @@ const ReportView = () => {
       }
 
       setSchema(parsedSchema);
+
+      // Push the saved schema into the editor store and local dashboard *before*
+      // leaving edit mode. During layout editing the store is the source of truth
+      // (DashboardRenderer ignores prop changes), and exiting edit mode runs a
+      // store->local sync (the isEditingLayout subscription) plus a canvas auto-save.
+      // If the store still holds the pre-edit layout, both re-apply it — so a
+      // full-schema save (e.g. pasting JSON to restore a dashboard) only takes visible
+      // effect after a full page reload, and the stale layout could even be re-persisted.
+      const savedDashboard: Dashboard | null = Array.isArray(parsedSchema?.panels)
+        ? asDashboard(parsedSchema)
+        : Array.isArray(parsedSchema?.dashboard?.panels)
+          ? asDashboard(parsedSchema.dashboard)
+          : null;
+      if (savedDashboard) {
+        useEditorStore.getState().setDashboard(savedDashboard);
+        setDashboard(savedDashboard);
+      }
+
       setIsEditing(false);
       toast({
         title: 'Success',
