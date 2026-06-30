@@ -126,4 +126,24 @@ describe('canonicalizeRows / ensureRowSpacing', () => {
     expect(yById(out, 10)).toBe(10);
     expect(yById(out, 11)).toBe(11);
   });
+
+  it('does not strand a tall band child on the next row when spacing cascades (DO-279)', () => {
+    // An imported layout: three expanded rows one grid-unit too close, and row 11's
+    // child (id 2) is taller than the gap to row 12. Spacing row 11 down carries its
+    // child onto row 12's original y. Recomputing band membership *after* that move
+    // dropped the child from row 11's band (it now sits on the band's exclusive bottom
+    // edge), so prevRowBottom under-counted and row 12 was not pushed past it — the two
+    // overlapped. Membership must be fixed from the incoming layout so the child stays
+    // attributed to row 11 and row 12 clears it.
+    const out = canonicalizeRows(
+      dash([
+        panel(10, 'row', { x: 0, y: 0, w: 24, h: 1 }, { collapsed: false }),
+        panel(1, 'table', { x: 0, y: 1, w: 24, h: 1 }),   // child of row 10
+        panel(11, 'row', { x: 0, y: 2, w: 24, h: 1 }, { collapsed: false }), // too close
+        panel(2, 'table', { x: 0, y: 3, w: 24, h: 3 }),   // tall child of row 11
+        panel(12, 'row', { x: 0, y: 4, w: 24, h: 1 }, { collapsed: false }), // too close
+      ])
+    );
+    expect(hasNoOverlaps(out)).toBe(true);
+  });
 });

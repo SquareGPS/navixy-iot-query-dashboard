@@ -25,7 +25,7 @@ import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Tras
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
-import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow } from '@/types/schema-conversions';
+import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow, normalizeToDashboard } from '@/types/schema-conversions';
 import { toErrorMeta } from '@/utils/errors';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema, Row } from '@/types/report-schema';
@@ -310,19 +310,30 @@ const ReportView = () => {
 
       // Push the saved schema into the editor store and local dashboard *before*
       // leaving edit mode. During layout editing the store is the source of truth
-      // (DashboardRenderer ignores prop changes), and exiting edit mode runs a
-      // store->local sync (the isEditingLayout subscription) plus a canvas auto-save.
-      // If the store still holds the pre-edit layout, both re-apply it — so a
-      // full-schema save (e.g. pasting JSON to restore a dashboard) only takes visible
-      // effect after a full page reload, and the stale layout could even be re-persisted.
-      const savedDashboard: Dashboard | null = Array.isArray(parsedSchema?.panels)
-        ? asDashboard(parsedSchema)
-        : Array.isArray(parsedSchema?.dashboard?.panels)
-          ? asDashboard(parsedSchema.dashboard)
-          : null;
+      // (DashboardRenderer ignores prop changes), so without this a full-schema save
+      // (e.g. pasting JSON to restore a dashboard) only takes visible effect after a
+      // full page reload.
+      const savedDashboard = normalizeToDashboard(parsedSchema);
       if (savedDashboard) {
-        useEditorStore.getState().setDashboard(savedDashboard);
-        setDashboard(savedDashboard);
+        // We already persisted `parsedSchema` byte-for-byte above. Drive the exit
+        // transition synchronously with the canvas auto-save suppressed: otherwise the
+        // store mutations below — and the exit-time setIsEditingLayout(false) — would
+        // each fire the Canvas subscription, which re-serializes through the *stale*
+        // `schema` closure in handleSaveDashboard and overwrites that write with a
+        // possibly different shape, racing the reload at the end of this handler.
+        // Clearing the captured collapsed states first makes the exit-time restore a
+        // no-op, so the pasted rows keep their own collapsed flags instead of having
+        // the pre-edit states re-applied on top of them.
+        const store = useEditorStore.getState();
+        (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = true;
+        try {
+          store.clearOriginalCollapsedStates();
+          store.setDashboard(savedDashboard);
+          store.setIsEditingLayout(false);
+          setDashboard(savedDashboard);
+        } finally {
+          (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
+        }
       }
 
       setIsEditing(false);
@@ -349,22 +360,13 @@ const ReportView = () => {
             throw new Error('Dashboard schema is missing');
           }
 
-          // Check if this is a dashboard format
-          const schemaData = report.report_schema;
-          
-          // Check for direct panels (old format) or nested dashboard.panels (new format)
-          let dashboardData: Dashboard;
-          if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            // Direct panels format
-            dashboardData = asDashboard(schemaData);
-          } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
-            // Nested dashboard format
-            dashboardData = asDashboard(schemaData.dashboard);
-          } else {
+          // Accept either the direct `panels` (old) or nested `dashboard.panels` (new) shape.
+          const dashboardData = normalizeToDashboard(report.report_schema);
+          if (!dashboardData) {
             // Legacy format - convert to dashboard
             throw new Error('Legacy schema format detected. Please use dashboard format.');
           }
-          
+
           setSchema(asRawReportSchema(dashboardData));
           setEditorValue(JSON.stringify(dashboardData, null, 2));
         } catch (rawErr: unknown) {
