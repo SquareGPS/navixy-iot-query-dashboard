@@ -25,12 +25,34 @@ import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Tras
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
-import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow } from '@/types/schema-conversions';
+import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow, normalizeToDashboard } from '@/types/schema-conversions';
 import { toErrorMeta } from '@/utils/errors';
 import { ReportMigration } from '@/renderer-core/utils/migration';
 import type { ReportSchema, Row } from '@/types/report-schema';
 import { useEditorStore } from '@/layout/state/editorStore';
-import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp } from '@/layout/state/commands';
+import { toggleLayoutEditing, cmdAddRow, cmdAddPanel, cmdTidyUp, cmdReplaceDashboard } from '@/layout/state/commands';
+
+/**
+ * Run a synchronous block with the Canvas auto-save suppressed.
+ *
+ * The Canvas subscribes to the editor store and re-persists on every change; when we
+ * push a freshly-saved dashboard into the store ourselves we must stop that subscription
+ * from racing our write (it would re-serialize through a stale `schema` closure). The
+ * flag is a process-global read by Canvas/DashboardRenderer; Zustand notifies subscribers
+ * synchronously, so it only needs to be set across the synchronous store mutation. The
+ * `finally` guarantees it is cleared even if a setter throws — never leaving auto-save
+ * disabled for the rest of the session. Keep `fn` synchronous: an async body would reset
+ * the flag at the first await, before the mutation it is meant to guard runs.
+ */
+function withSkippedAutoSave<T>(fn: () => T): T {
+  const w = window as { __skipDashboardAutoSave?: boolean };
+  w.__skipDashboardAutoSave = true;
+  try {
+    return fn();
+  } finally {
+    w.__skipDashboardAutoSave = false;
+  }
+}
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
@@ -236,20 +258,14 @@ const ReportView = () => {
           schemaData = asRawReportSchema(migratedDashboard);
         }
         
-        // Check for direct panels (old format) or nested dashboard.panels (new format)
-        let dashboardData: Dashboard;
-        if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
-          // Direct panels format with content
-          dashboardData = asDashboard(schemaData);
-        } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
-          // Nested dashboard format with content
-          dashboardData = asDashboard(schemaData.dashboard);
-        } else {
+        // Accept either the direct `panels` (old) or nested `dashboard.panels` (new) shape.
+        const dashboardData = normalizeToDashboard(schemaData);
+        if (!dashboardData || dashboardData.panels.length === 0) {
           // Empty or legacy format - show helpful message
           setError('Dashboard is empty. You can download a dashboard template to get started.');
           return;
         }
-        
+
         setDashboard(dashboardData);
         setSchema(schemaData); // Set schema for compatibility
           
@@ -292,14 +308,27 @@ const ReportView = () => {
     setSaving(true);
     try {
       const parsedSchema = JSON.parse(editorValue);
-      
+
+      // Validate the shape BEFORE persisting. normalizeToDashboard returns null for a
+      // legacy `{rows:[…]}` / non-dashboard payload, and a 0-panel dashboard for an empty
+      // one — neither of which the loader accepts on the next page load. Rejecting here
+      // (rather than after updateReport) keeps an unloadable schema out of the DB and
+      // surfaces a real error toast instead of a misleading "Success".
+      const savedDashboard = normalizeToDashboard(parsedSchema);
+      if (!savedDashboard) {
+        throw new Error('Unsupported schema format. Expected a dashboard with a "panels" array.');
+      }
+      if (savedDashboard.panels.length === 0) {
+        throw new Error('Dashboard schema must contain at least one panel.');
+      }
+
       // IMPORTANT: Preserve the database title (menu label) when updating schema
       // The schema may contain a title field (report page header), but we don't want
       // to overwrite the database title (menu label) unless explicitly editing it
-      const response = await apiService.updateReport(reportId, { 
+      const response = await apiService.updateReport(reportId, {
         title: report.title, // Preserve database title (menu label)
         subtitle: parsedSchema.subtitle,
-        report_schema: parsedSchema 
+        report_schema: parsedSchema
       });
 
       if (response.error) {
@@ -307,6 +336,27 @@ const ReportView = () => {
       }
 
       setSchema(parsedSchema);
+
+      // Push the saved schema into the editor store and local dashboard *before* leaving
+      // edit mode. During layout editing the store is the source of truth (DashboardRenderer
+      // ignores prop changes), so without this a full-schema save (e.g. pasting JSON to
+      // restore a dashboard) only takes visible effect after a full page reload. Drive the
+      // exit transition with the canvas auto-save suppressed: otherwise the store mutations —
+      // and the exit-time setIsEditingLayout(false) — would each fire the Canvas subscription,
+      // which re-serializes through the *stale* `schema` closure in handleSaveDashboard and
+      // overwrites this write with a possibly different shape, racing the reload below.
+      // Clearing the captured collapsed states first makes the exit-time restore a no-op, so
+      // the pasted rows keep their own collapsed flags instead of having the pre-edit states
+      // re-applied on top of them. cmdReplaceDashboard (not a bare setDashboard) keeps the
+      // swap on the undo stack so the paste can be undone.
+      const store = useEditorStore.getState();
+      withSkippedAutoSave(() => {
+        store.clearOriginalCollapsedStates();
+        cmdReplaceDashboard(savedDashboard);
+        store.setIsEditingLayout(false);
+        setDashboard(savedDashboard);
+      });
+
       setIsEditing(false);
       toast({
         title: 'Success',
@@ -325,29 +375,25 @@ const ReportView = () => {
           
           const report = response.data.report;
           setReport(report);
-          
-          if (!report.report_schema || 
-              (typeof report.report_schema === 'object' && Object.keys(report.report_schema).length === 0)) {
+
+          const rawSchema = report.report_schema;
+          if (!rawSchema ||
+              (typeof rawSchema === 'object' && Object.keys(rawSchema).length === 0)) {
             throw new Error('Dashboard schema is missing');
           }
 
-          // Check if this is a dashboard format
-          const schemaData = report.report_schema;
-          
-          // Check for direct panels (old format) or nested dashboard.panels (new format)
-          let dashboardData: Dashboard;
-          if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            // Direct panels format
-            dashboardData = asDashboard(schemaData);
-          } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels)) {
-            // Nested dashboard format
-            dashboardData = asDashboard(schemaData.dashboard);
-          } else {
-            // Legacy format - convert to dashboard
+          // Accept either the direct `panels` (old) or nested `dashboard.panels` (new) shape.
+          const dashboardData = normalizeToDashboard(rawSchema);
+          if (!dashboardData || dashboardData.panels.length === 0) {
+            // Legacy / empty format — match the primary load's rejection.
             throw new Error('Legacy schema format detected. Please use dashboard format.');
           }
-          
-          setSchema(asRawReportSchema(dashboardData));
+
+          // Persist the ORIGINAL wrapper shape. asRawReportSchema(dashboardData) would store
+          // the *extracted* panels root, flattening a nested `{dashboard:{panels}}` schema; and
+          // handleSaveDashboard keys off schema.dashboard vs schema.panels — so a later panel
+          // drag would silently switch the persisted shape. Keep what we loaded.
+          setSchema(rawSchema);
           setEditorValue(JSON.stringify(dashboardData, null, 2));
         } catch (rawErr: unknown) {
           const err = toErrorMeta(rawErr);
@@ -482,8 +528,7 @@ const ReportView = () => {
     }
 
     // Sync both local state and the editor store (guard the canvas auto-save).
-    (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = true;
-    try {
+    withSkippedAutoSave(() => {
       store.setDashboard(updatedDashboard);
       setDashboard(updatedDashboard);
       setSchema(updatedSchema);
@@ -491,9 +536,7 @@ const ReportView = () => {
       if (dashboardConfig) {
         setDashboardConfig({ ...dashboardConfig, dashboard: updatedDashboard });
       }
-    } finally {
-      (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
-    }
+    });
   }, [reportId, schema, report, dashboard, dashboardConfig]);
 
   const handleSaveTitle = async () => {
@@ -1202,18 +1245,12 @@ const ReportView = () => {
       // Update editorStore and local state
       // Prevent Canvas from triggering another save during this update
       const storeAfterSave = useEditorStore.getState();
-      (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = true;
-      
-      try {
+      withSkippedAutoSave(() => {
         storeAfterSave.setDashboard(finalDashboard);
         setDashboard(finalDashboard);
         setSchema(finalSchema);
-        (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
-      } catch (error) {
-        (window as { __skipDashboardAutoSave?: boolean }).__skipDashboardAutoSave = false;
-        throw error;
-      }
-      
+      });
+
       // Update editingPanel if it's still open
       if (editingPanel && updatedPanel.id) {
         const updatedPanelFromDashboard = finalDashboard.panels.find(p => p.id === updatedPanel.id);
@@ -1341,14 +1378,12 @@ const ReportView = () => {
           console.log('✅ Migration complete, panels count:', dashboardData.dashboard?.panels?.length || 0);
         }
         
-        // Validate that this is a valid dashboard format
-        const hasPanels = schemaData.panels && Array.isArray(schemaData.panels);
-        const hasNestedPanels = schemaData.dashboard?.panels && Array.isArray(schemaData.dashboard.panels);
-        
-        if (!hasPanels && !hasNestedPanels) {
+        // Validate that this is a valid dashboard format. An upload may legitimately
+        // carry an empty `panels` array, so probe shape only (no length check).
+        if (!normalizeToDashboard(schemaData)) {
           throw new Error('Invalid schema format. Expected a dashboard with panels array.');
         }
-        
+
         console.log('✅ Valid schema loaded from file');
         
         // Update the report with the uploaded schema
@@ -1395,16 +1430,12 @@ const ReportView = () => {
               loadedSchema = asRawReportSchema(migratedDashboard);
             }
             
-            // Extract dashboard from schema data
-            let dashboardData: Dashboard;
-            if (loadedSchema.panels && Array.isArray(loadedSchema.panels) && loadedSchema.panels.length > 0) {
-              dashboardData = asDashboard(loadedSchema);
-            } else if (loadedSchema.dashboard && loadedSchema.dashboard.panels && Array.isArray(loadedSchema.dashboard.panels) && loadedSchema.dashboard.panels.length > 0) {
-              dashboardData = asDashboard(loadedSchema.dashboard);
-            } else {
+            // Extract dashboard from schema data (direct `panels` or nested `dashboard.panels`).
+            const dashboardData = normalizeToDashboard(loadedSchema);
+            if (!dashboardData || dashboardData.panels.length === 0) {
               throw new Error('Dashboard schema is missing panels');
             }
-            
+
             setReport(reportData);
             setSchema(loadedSchema);
             setDashboard(dashboardData);
@@ -1552,18 +1583,12 @@ const ReportView = () => {
               console.log('✅ Migration complete, panels count:', migratedDashboard.dashboard?.panels?.length || 0);
             }
             
-            // Extract dashboard from schema data
-            let dashboardData: Dashboard;
-            if (schemaData.panels && Array.isArray(schemaData.panels) && schemaData.panels.length > 0) {
-              // Direct panels format
-              dashboardData = asDashboard(schemaData);
-            } else if (schemaData.dashboard && schemaData.dashboard.panels && Array.isArray(schemaData.dashboard.panels) && schemaData.dashboard.panels.length > 0) {
-              // Nested dashboard format
-              dashboardData = asDashboard(schemaData.dashboard);
-            } else {
+            // Extract dashboard from schema data (direct `panels` or nested `dashboard.panels`).
+            const dashboardData = normalizeToDashboard(schemaData);
+            if (!dashboardData || dashboardData.panels.length === 0) {
               throw new Error('Dashboard schema is missing panels');
             }
-            
+
             setReport(reportData);
             setSchema(schemaData);
             setDashboard(dashboardData);
@@ -1661,33 +1686,32 @@ const ReportView = () => {
           
           setReport(reportData);
           
-          // Handle dashboard format
+          // Handle dashboard format (direct `panels` or nested `dashboard.panels`).
           const schemaData = reportData.report_schema;
-          if (schemaData.panels && Array.isArray(schemaData.panels)) {
-            const dashboardData = asDashboard(schemaData);
-            setDashboard(dashboardData);
-            setSchema(schemaData); // Set schema for compatibility
-            
-            const config: DashboardConfig = {
-              title: reportData.title,
-              meta: {
-                schema_version: '1.0.0',
-                dashboard_id: reportData.id,
-                slug: reportData.slug,
-                last_updated: new Date().toISOString(),
-                updated_by: {
-                  id: user?.id || 'unknown',
-                  name: user?.name || 'Unknown User',
-                  email: user?.email
-                }
-              },
-              dashboard: dashboardData
-            };
-            setDashboardConfig(config);
-            setEditorValue(JSON.stringify(dashboardData, null, 2));
-          } else {
+          const dashboardData = normalizeToDashboard(schemaData);
+          if (!dashboardData || dashboardData.panels.length === 0) {
             throw new Error('Invalid dashboard format');
           }
+          setDashboard(dashboardData);
+          setSchema(schemaData); // Set schema for compatibility
+
+          const config: DashboardConfig = {
+            title: reportData.title,
+            meta: {
+              schema_version: '1.0.0',
+              dashboard_id: reportData.id,
+              slug: reportData.slug,
+              last_updated: new Date().toISOString(),
+              updated_by: {
+                id: user?.id || 'unknown',
+                name: user?.name || 'Unknown User',
+                email: user?.email
+              }
+            },
+            dashboard: dashboardData
+          };
+          setDashboardConfig(config);
+          setEditorValue(JSON.stringify(dashboardData, null, 2));
         } catch (rawErr: unknown) {
           const err = toErrorMeta(rawErr);
           console.error('Error fetching report:', err);

@@ -19,6 +19,27 @@ import type { ReportSchema } from '@/types/report-schema';
 /** Narrow a probed/migrated stored schema to the canonical Dashboard shape. */
 export const asDashboard = (schema: unknown): Dashboard => schema as Dashboard;
 
+/**
+ * Pick the canonical {@link Dashboard} out of a parsed schema, accepting either the
+ * direct `{ panels: [...] }` shape or the nested `{ dashboard: { panels: [...] } }`
+ * shape. Returns `null` when neither carries a `panels` array.
+ *
+ * Membership is decided purely on shape (an empty `panels` array still counts as a
+ * dashboard); callers that must reject an *empty* dashboard should check
+ * `panels.length` themselves.
+ */
+export const normalizeToDashboard = (schema: unknown): Dashboard | null => {
+  const s = schema as { panels?: unknown; dashboard?: { panels?: unknown } } | null | undefined;
+  if (Array.isArray(s?.panels)) {
+    return asDashboard(s);
+  }
+  const dash = s?.dashboard;
+  if (Array.isArray(dash?.panels)) {
+    return asDashboard(dash);
+  }
+  return null;
+};
+
 /** Widen a Dashboard back to the loosely-typed stored-schema shape for persistence. */
 export const asRawReportSchema = (dashboard: unknown): RawReportSchema => dashboard as RawReportSchema;
 

@@ -676,6 +676,28 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
     panels: dashboard.panels.map((p) => ({ ...p })),
   };
 
+  // Band membership is computed ONCE, from the incoming layout, and reused for the
+  // whole pass. Spacing moves a row and its children together, so which panel belongs
+  // to which row must not change midway. Recomputing computeBands() after a move
+  // misclassifies a child that lands exactly on the next row's `y`: a band's bottom is
+  // the next row's `y` (exclusive), so the child falls out of both bands, drops out of
+  // prevRowBottom, and the next row gets pushed onto it (DO-279). Keying off the
+  // original positions keeps every child attributed to its row. Collapsed rows have no
+  // band, so they are simply absent from the map (their children live in `panel.panels`).
+  const bandChildIdsByRow = new Map<string | number, Array<string | number>>();
+  for (const band of computeBands(newDashboard.panels)) {
+    bandChildIdsByRow.set(band.rowId, band.childIds);
+  }
+
+  // id → panel lookup, built once from the cloned panels. Panels are mutated in place
+  // (only `gridPos.y` changes; the array is never reordered or replaced), so this stays
+  // valid for the whole pass and turns the child-carry below from O(rows × panels × band)
+  // into O(rows × band). Keyed by String(id) to match idEq's number/string normalization.
+  const panelById = new Map<string, Panel>();
+  for (const p of newDashboard.panels) {
+    if (p.id != null) panelById.set(String(p.id), p);
+  }
+
   // Sort rows by Y position
   const sortedRows = [...rows].sort((a, b) => a.gridPos.y - b.gridPos.y);
 
@@ -695,11 +717,12 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
     let prevRowBottom = prevRowPanel.gridPos.y + prevRowPanel.gridPos.h;
     
     if (prevRowPanel.collapsed !== true) {
-      // Row is expanded - check if there are panels in its band
-      const prevBand = computeBands(newDashboard.panels).find((b) => idEq(b.rowId, prevRow.id));
-      if (prevBand && prevBand.childIds.length > 0) {
+      // Row is expanded - extend its bottom to cover its band children at their CURRENT
+      // positions (they may already have been carried down earlier in this pass).
+      const prevChildIds = bandChildIdsByRow.get(prevRow.id!) ?? [];
+      if (prevChildIds.length > 0) {
         // Find the actual bottom of the band's content
-        const bandPanels = newDashboard.panels.filter((p) => p.id && idIncludes(prevBand.childIds, p.id));
+        const bandPanels = newDashboard.panels.filter((p) => p.id && idIncludes(prevChildIds, p.id));
         if (bandPanels.length > 0) {
           const maxPanelBottom = Math.max(...bandPanels.map(p => p.gridPos.y + p.gridPos.h));
           // Use the maximum of row header bottom and actual panel bottom
@@ -710,51 +733,46 @@ function ensureRowSpacing(dashboard: Dashboard): Dashboard {
     
     const minY = prevRowBottom + 1;
     
-    // If current row is too close, push it down
+    // If current row is too close, push it (and only it) down by the spacing delta.
     if (currentRowPanel.gridPos.y < minY) {
       const deltaY = minY - currentRowPanel.gridPos.y;
-      
-      // Update the row position
+
+      // Move the row header down to the minimum spacing.
       currentRowPanel.gridPos.y = minY;
-      
-      // If row is expanded, also move its band children
-      if (currentRowPanel.collapsed !== true) {
-        const band = computeBands(newDashboard.panels).find((b) => idEq(b.rowId, currentRow.id));
-        if (band) {
-          band.childIds.forEach((childId) => {
-            const childIndex = newDashboard.panels.findIndex((p) => idEq(p.id, childId));
-            if (childIndex !== -1) {
-              newDashboard.panels[childIndex].gridPos.y += deltaY;
-            }
-          });
-        }
-      }
-      
-      // Also move any panels that might overlap with the previous row header
-      // Panels should be at least at prevRowBottom + 1 (below the row header)
-      newDashboard.panels.forEach((panel) => {
-        if (!isRowPanel(panel) && panel.id && panel.gridPos.y < minY) {
-          // Panel overlaps with or is above the current row header, move it down
-          panel.gridPos.y = minY;
+
+      // Carry only this row's own band children (captured up-front, before any move)
+      // down by the same delta so they stay under their header. Nothing else moves:
+      // panels above belong to earlier rows (or to no row) and must keep their position.
+      // The original behaviour swept EVERY panel with `y < minY` down to `minY`,
+      // collapsing the whole upper layout onto a single grid row — the "disappearing
+      // widgets" bug (DO-279), reproducible by adding two rows to a row-less dashboard.
+      // Rows below are spaced on their own iteration of this loop.
+      // Collapsed rows have no band, so they are simply absent from the map (the lookup
+      // returns []); no need to special-case `collapsed` here.
+      const bandChildIds = bandChildIdsByRow.get(currentRow.id!) ?? [];
+      bandChildIds.forEach((childId) => {
+        const child = panelById.get(String(childId));
+        if (child) {
+          child.gridPos.y += deltaY;
         }
       });
-      
+
       // Update sortedRows array for next iteration
       sortedRows[i].gridPos.y = minY;
     } else {
       // Row is correctly positioned, but check if any panels overlap with the current row header
       const currentRowTop = currentRowPanel.gridPos.y;
       const currentRowBottom = currentRowTop + currentRowPanel.gridPos.h;
-      
-      // Get band for current row to know which panels belong to it
-      const currentBand = computeBands(newDashboard.panels).find((b) => idEq(b.rowId, currentRow.id));
-      
+
+      // Panels belonging to this row's band (from the up-front membership) are exempt.
+      const currentChildIds = bandChildIdsByRow.get(currentRow.id!) ?? [];
+
       // Find panels that might overlap with the current row header
       // Only check panels that don't belong to this row's band
       newDashboard.panels.forEach((panel) => {
         if (!isRowPanel(panel) && panel.id) {
           // Skip panels that belong to this row's band
-          if (currentBand && idIncludes(currentBand.childIds, panel.id)) {
+          if (idIncludes(currentChildIds, panel.id)) {
             return;
           }
           
