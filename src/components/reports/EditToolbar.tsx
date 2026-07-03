@@ -72,8 +72,17 @@ export const EditToolbar = ({
   const canUndo = useEditorStore((state) => state.undoStack.length > 0);
   const canRedo = useEditorStore((state) => state.redoStack.length > 0);
 
-  // Platform-aware shortcut hints for the tooltips.
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  // Platform-aware shortcut hints for the tooltips. Prefer the modern
+  // userAgentData.platform (navigator.platform is deprecated and may report a
+  // frozen/generic value); fall back to the UA string where it's unavailable
+  // (Safari/Firefox don't implement userAgentData). Case-insensitive because
+  // userAgentData.platform reports "macOS", while the UA string has "Macintosh".
+  const uaPlatform =
+    typeof navigator !== 'undefined'
+      ? (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+        navigator.userAgent
+      : '';
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(uaPlatform);
   const undoHint = isMac ? '⌘Z' : 'Ctrl+Z';
   const redoHint = isMac ? '⇧⌘Z' : 'Ctrl+Shift+Z';
 

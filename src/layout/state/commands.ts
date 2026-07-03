@@ -418,17 +418,24 @@ export function cmdReplaceDashboard(newDashboard: Dashboard): void {
 }
 
 /**
- * Canonicalize rows (call before saving)
+ * Canonicalize rows (call before saving).
+ *
+ * Routes through `commit` like every other `cmd*`, so it's a single undoable
+ * step rather than a silent history wipe. (It previously called `setDashboard`,
+ * which clears both stacks — a trap for whoever wires this up, since it would
+ * drop all prior layout-edit undo history.)
  */
 export function cmdCanonicalizeRows(): void {
   const store = useEditorStore.getState();
-  
+
   if (!store.dashboard) {
     return;
   }
 
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = canonicalizeRows(store.dashboard);
-  store.setDashboard(newDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**

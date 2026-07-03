@@ -49,9 +49,14 @@ export function useUndoRedoShortcuts() {
         return;
       }
 
+      // Match by physical key position (event.code) so the shortcut fires on
+      // non-US layouts (e.g. Cyrillic), where event.key for the Z/Y keys isn't
+      // 'z'/'y'. Fall back to event.key where code isn't populated.
       const key = event.key.toLowerCase();
-      const isUndo = key === 'z' && !event.shiftKey;
-      const isRedo = (key === 'z' && event.shiftKey) || key === 'y';
+      const isZ = event.code === 'KeyZ' || key === 'z';
+      const isY = event.code === 'KeyY' || key === 'y';
+      const isUndo = isZ && !event.shiftKey;
+      const isRedo = (isZ && event.shiftKey) || isY;
       if (!isUndo && !isRedo) {
         return;
       }
@@ -60,13 +65,15 @@ export function useUndoRedoShortcuts() {
         return;
       }
 
-      // Read the store lazily so we act on the freshest stacks.
+      // We own undo/redo in edit mode: suppress the browser's native undo even
+      // when our stack is empty, so Cmd/Ctrl+Z can't revert something unrelated
+      // on the page. Read the store lazily so we act on the freshest stacks;
+      // store.undo()/redo() are no-ops when their stack is empty.
+      event.preventDefault();
       const store = useEditorStore.getState();
-      if (isUndo && store.undoStack.length > 0) {
-        event.preventDefault();
+      if (isUndo) {
         store.undo();
-      } else if (isRedo && store.redoStack.length > 0) {
-        event.preventDefault();
+      } else {
         store.redo();
       }
     };

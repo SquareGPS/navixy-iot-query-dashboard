@@ -5,6 +5,7 @@ import {
   cmdMoveRow,
   cmdReorderRows,
   cmdToggleRowCollapsed,
+  cmdCanonicalizeRows,
 } from '../commands';
 import { useEditorStore } from '../editorStore';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
@@ -116,6 +117,49 @@ describe('editor-store undo/redo history (DO-291)', () => {
     expect(useEditorStore.getState().undoStack.length).toBe(0);
     expect(useEditorStore.getState().redoStack.length).toBe(0);
     expect(useEditorStore.getState().canUndo()).toBe(false);
+  });
+
+  it('a content/filter save during edit mode resets the layout undo history (intentional)', () => {
+    // Scenario (MR35 review #1): while editing layout the user saves panel content
+    // or dashboard filters. Both save paths (handleSavePanel / handleSaveVariables
+    // in ReportView) replace the dashboard via store.setDashboard, which starts a
+    // fresh history. This is deliberate — undo snapshots share panel content by
+    // reference (see clonePanelForHistory), so replaying an older layout snapshot
+    // after a content save could silently roll the save back. Lock the contract in
+    // so a future change that tries to preserve layout-undo does so consciously.
+    useEditorStore.getState().setDashboard(singlePanelDash());
+    useEditorStore.getState().setIsEditingLayout(true);
+
+    cmdMovePanel('p1', 2, 0);
+    cmdMovePanel('p1', 4, 0);
+    expect(useEditorStore.getState().undoStack.length).toBe(2);
+
+    // A panel-content / filter save persists then reloads via setDashboard.
+    useEditorStore.getState().setDashboard(useEditorStore.getState().dashboard!);
+
+    expect(useEditorStore.getState().undoStack.length).toBe(0);
+    expect(useEditorStore.getState().redoStack.length).toBe(0);
+    expect(useEditorStore.getState().canUndo()).toBe(false);
+  });
+
+  it('cmdCanonicalizeRows commits an undoable step instead of wiping history (review #2)', () => {
+    // It used to route through setDashboard (clears both stacks). Now it goes
+    // through commit like every other cmd*, so wiring it into a save flow can no
+    // longer silently drop the user's prior layout-edit undo history.
+    useEditorStore.getState().setDashboard(singlePanelDash());
+    cmdMovePanel('p1', 2, 0);
+    cmdMovePanel('p1', 4, 0);
+    expect(useEditorStore.getState().undoStack.length).toBe(2);
+
+    cmdCanonicalizeRows();
+
+    // Preserved and grown by one (the old setDashboard path would have reset to 0).
+    expect(useEditorStore.getState().undoStack.length).toBe(3);
+
+    // Earlier moves are still reachable through undo.
+    useEditorStore.getState().undo(); // undo canonicalize
+    useEditorStore.getState().undo(); // undo the second move
+    expect(xOf()).toBe(2);
   });
 });
 
