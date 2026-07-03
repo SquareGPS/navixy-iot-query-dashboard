@@ -27,7 +27,7 @@ export interface EditorActions {
   toggleChartLibrary: () => void;
   setOriginalCollapsedStates: (states: Map<string | number, boolean>) => void;
   clearOriginalCollapsedStates: () => void;
-  pushToHistory: (previousDashboard: Dashboard) => void;
+  commit: (nextDashboard: Dashboard, previousDashboard: Dashboard) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -130,14 +130,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({ originalCollapsedStates: new Map() });
   },
 
-  pushToHistory: (previousDashboard: Dashboard) => {
+  commit: (nextDashboard: Dashboard, previousDashboard: Dashboard) => {
+    // Apply a user edit as a single undoable step: swap in the new dashboard AND record
+    // the previous one on the undo stack in one atomic set(). This deliberately does NOT
+    // route through setDashboard(), whose job is loading a fresh dashboard and which
+    // therefore clears both stacks — running every edit through setDashboard is what
+    // capped undo at a single step (each edit wiped the stack it had just grown).
     const state = get();
-    const newUndoStack = [...state.undoStack, previousDashboard].slice(-state.maxUndoHistory);
-    
+    const undoStack = [...state.undoStack, previousDashboard].slice(-state.maxUndoHistory);
+
     set({
-      undoStack: newUndoStack,
-      redoStack: [], // Clear redo stack on new action
-      // Note: dashboard is NOT updated here - it should already be updated by setDashboard before calling pushToHistory
+      // Fresh object/array refs so Zustand and downstream memoized reads detect the change.
+      dashboard: { ...nextDashboard, panels: [...nextDashboard.panels] },
+      undoStack,
+      redoStack: [], // Any new edit invalidates the redo history.
     });
   },
 

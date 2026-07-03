@@ -32,6 +32,7 @@ import { getRowHeaders, computeBands, isRowPanel, scopeOf, toggleRowCollapsed } 
 import { idEq } from '../geometry/idUtils';
 import { Card } from '@/components/ui/card';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
+import { useUndoRedoShortcuts } from '../hooks/useUndoRedoShortcuts';
 import { PanelGallery } from './PanelGallery';
 import { AddPanelGhost } from './AddPanelGhost';
 import { ChartLibraryPanel } from '@/components/reports/ChartLibraryPanel';
@@ -125,6 +126,8 @@ export const Canvas: React.FC<CanvasProps> = ({
 
   // Enable keyboard navigation
   useKeyboardNavigation();
+  // Enable undo/redo keyboard shortcuts (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z) — DO-291
+  useUndoRedoShortcuts();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

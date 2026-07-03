@@ -42,11 +42,8 @@ export function cmdMovePanel(panelId: string | number, x: number, y: number): vo
   // Execute the move - skip autoPack during user drag operations to preserve exact drop position
   const newDashboard = movePanel(store.dashboard, panelId, { x, y }, true);
 
-  // Update store
-  store.setDashboard(newDashboard);
-  
-  // Push to history for undo
-  store.pushToHistory(currentDashboard);
+  // Apply as a single undoable step (swap + history push; see editorStore.commit)
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -146,11 +143,8 @@ export function cmdResizeRowHeight(
     }),
   };
 
-  // Update store
-  store.setDashboard(newDashboard);
-  
-  // Push to history for undo
-  store.pushToHistory(currentDashboard);
+  // Apply as a single undoable step (swap + history push; see editorStore.commit)
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -175,11 +169,8 @@ export function cmdResizePanel(
   // Execute the resize
   const newDashboard = applyResize(store.dashboard, panelId, handle, delta, containerWidth);
 
-  // Update store
-  store.setDashboard(newDashboard);
-  
-  // Push to history for undo
-  store.pushToHistory(currentDashboard);
+  // Apply as a single undoable step (swap + history push; see editorStore.commit)
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -195,8 +186,7 @@ export function cmdAddRow(insertY: number, title: string = 'New row'): void {
   const currentDashboard = store.dashboard;
   const newDashboard = createRow(store.dashboard, insertY, title);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -217,8 +207,7 @@ export function cmdToggleRowCollapsed(rowId: string | number, collapsed: boolean
   const currentDashboard = store.dashboard;
   const newDashboard = toggleRowCollapsed(store.dashboard, rowId, collapsed);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -250,8 +239,7 @@ export function cmdMovePanelToRow(panelId: string | number, targetRowId: string 
 
   const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId, positionHint);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -267,8 +255,7 @@ export function cmdReorderRows(newRowIdOrder: Array<string | number>): void {
   const currentDashboard = store.dashboard;
   const newDashboard = reorderRows(store.dashboard, newRowIdOrder);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -286,8 +273,7 @@ export function cmdMoveRow(rowId: string | number, newY: number): void {
   
   const newDashboard = moveRow(store.dashboard, rowId, newY);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -318,8 +304,7 @@ export function cmdDeleteRow(rowId: string | number): void {
     return;
   }
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -335,8 +320,7 @@ export function cmdPackRow(rowId: string | number): void {
   const currentDashboard = store.dashboard;
   const newDashboard = packRow(store.dashboard, rowId);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -363,26 +347,27 @@ export function cmdRenameRow(rowId: string | number, newTitle: string): void {
     ),
   };
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
  * Replace the entire dashboard (e.g. a full-schema JSON paste/save) through the
- * command pipeline, so the swap is a single undoable step. A bare
- * `store.setDashboard` clears both history stacks; this pushes the previous
- * dashboard onto the undo stack just like every other `cmd*` mutation, so the
- * replace can be reverted with Ctrl+Z. With no prior dashboard there is nothing
- * to undo to, so it only sets the new one.
+ * command pipeline, so the swap is a single undoable step. Like every other `cmd*`
+ * mutation it goes through `store.commit`, which records the previous dashboard on
+ * the undo stack, so the replace can be reverted with Ctrl+Z. With no prior
+ * dashboard there is nothing to undo to, so it just loads the new one via
+ * `setDashboard` (which starts a fresh, empty history).
  */
 export function cmdReplaceDashboard(newDashboard: Dashboard): void {
   const store = useEditorStore.getState();
   const currentDashboard = store.dashboard;
 
-  store.setDashboard(newDashboard);
-
+  // A replace with prior history is a single undoable step; with no prior dashboard
+  // there is nothing to revert to, so just load it (which starts a fresh history).
   if (currentDashboard) {
-    store.pushToHistory(currentDashboard);
+    store.commit(newDashboard, currentDashboard);
+  } else {
+    store.setDashboard(newDashboard);
   }
 }
 
@@ -420,8 +405,7 @@ export function cmdAddPanel(spec: {
   const currentDashboard = store.dashboard;
   const newDashboard = placeNewPanel(store.dashboard, spec);
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -533,8 +517,7 @@ export function cmdDuplicatePanel(panelId: string | number): void {
     applyClonedContent(newPanel, panel);
   }
 
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -574,8 +557,7 @@ export function cmdAddPresetPanel(
     applyClonedContent(created, presetPanel);
   }
 
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -597,8 +579,7 @@ export function cmdTidyUp(): void {
   // the layout in the same stable form the renderer produces.
   const newDashboard = normalizeDashboardLayout(store.dashboard);
 
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 
 /**
@@ -667,7 +648,6 @@ export function cmdDeletePanel(panelId: string | number): void {
     store.setSelectedPanel(null);
   }
   
-  store.setDashboard(newDashboard);
-  store.pushToHistory(currentDashboard);
+  store.commit(newDashboard, currentDashboard);
 }
 

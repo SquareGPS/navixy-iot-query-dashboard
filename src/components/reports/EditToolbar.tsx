@@ -10,7 +10,9 @@ import {
   LibraryBig,
   X,
   Sparkles,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -28,6 +30,13 @@ const TOOLBAR_BTN_NEUTRAL = cn(
   TOOLBAR_BTN_BASE,
   "bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700",
   "hover:bg-gray-50 dark:hover:bg-gray-700"
+);
+// Undo/Redo can be unavailable (empty history). The shared Button has no disabled
+// styling, so add it here: dim the button and kill hover/tooltip when it can't act,
+// making "nothing to undo/redo" visually obvious rather than a dead-feeling click.
+const TOOLBAR_BTN_HISTORY = cn(
+  TOOLBAR_BTN_NEUTRAL,
+  "disabled:opacity-40 disabled:pointer-events-none"
 );
 
 interface EditToolbarProps {
@@ -57,6 +66,16 @@ export const EditToolbar = ({
 }: EditToolbarProps) => {
   const chartLibraryOpen = useEditorStore((state) => state.chartLibraryOpen);
   const toggleChartLibrary = useEditorStore((state) => state.toggleChartLibrary);
+  // Undo/redo (DO-291). Subscribe to stack *lengths* so the buttons enable/disable live.
+  const undo = useEditorStore((state) => state.undo);
+  const redo = useEditorStore((state) => state.redo);
+  const canUndo = useEditorStore((state) => state.undoStack.length > 0);
+  const canRedo = useEditorStore((state) => state.redoStack.length > 0);
+
+  // Platform-aware shortcut hints for the tooltips.
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const undoHint = isMac ? '⌘Z' : 'Ctrl+Z';
+  const redoHint = isMac ? '⇧⌘Z' : 'Ctrl+Shift+Z';
 
   if (!canEdit) {
     return null;
@@ -103,6 +122,44 @@ export const EditToolbar = ({
         {/* Toolbar items - Only visible when editing */}
         {isEditing && (
           <>
+            {/* Undo / Redo (DO-291) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={undo}
+                  disabled={!canUndo}
+                  aria-label="Undo"
+                  className={TOOLBAR_BTN_HISTORY}
+                  size="lg"
+                >
+                  <Undo2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Undo ({undoHint})</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={redo}
+                  disabled={!canRedo}
+                  aria-label="Redo"
+                  className={TOOLBAR_BTN_HISTORY}
+                  size="lg"
+                >
+                  <Redo2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Redo ({redoHint})</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Divider */}
+            <div className="h-px bg-gray-300 dark:bg-gray-600 my-1 mx-2" />
+
             {/* New Row */}
             <Tooltip>
               <TooltipTrigger asChild>
