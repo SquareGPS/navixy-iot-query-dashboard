@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { cmdMovePanel } from '../commands';
+import {
+  cmdMovePanel,
+  cmdAddRow,
+  cmdMoveRow,
+  cmdReorderRows,
+  cmdToggleRowCollapsed,
+} from '../commands';
 import { useEditorStore } from '../editorStore';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 
@@ -11,6 +17,34 @@ function singlePanelDash(): Dashboard {
 }
 
 const xOf = () => useEditorStore.getState().dashboard!.panels.find((p) => p.id === 'p1')!.gridPos.x;
+
+// Serialize the layout-relevant shape (positions + row nesting) so a test can assert
+// that undo restores it byte-for-byte.
+function layoutShape(): string {
+  const shape = (p: Panel): unknown => ({
+    id: p.id,
+    type: p.type,
+    gridPos: p.gridPos,
+    collapsed: p.collapsed,
+    panels: p.panels?.map(shape),
+  });
+  return JSON.stringify(useEditorStore.getState().dashboard!.panels.map(shape));
+}
+
+function load(panels: Panel[]) {
+  const store = useEditorStore.getState();
+  store.reset();
+  store.setDashboard({ title: 'test', time: { from: '', to: '' }, panels });
+}
+
+function twoRowsWithChildren(): Panel[] {
+  return [
+    { id: 'r1', type: 'row', title: 'r1', collapsed: false, gridPos: { x: 0, y: 0, w: 24, h: 1 } },
+    { id: 'a', type: 'text', title: 'a', gridPos: { x: 0, y: 1, w: 6, h: 4 } },
+    { id: 'r2', type: 'row', title: 'r2', collapsed: false, gridPos: { x: 0, y: 6, w: 24, h: 1 } },
+    { id: 'b', type: 'text', title: 'b', gridPos: { x: 0, y: 7, w: 6, h: 4 } },
+  ];
+}
 
 describe('editor-store undo/redo history (DO-291)', () => {
   beforeEach(() => {
@@ -82,5 +116,95 @@ describe('editor-store undo/redo history (DO-291)', () => {
     expect(useEditorStore.getState().undoStack.length).toBe(0);
     expect(useEditorStore.getState().redoStack.length).toBe(0);
     expect(useEditorStore.getState().canUndo()).toBe(false);
+  });
+});
+
+// Row/add/delete geometry helpers mutate the dashboard they are handed *in place*
+// while computing the next layout. The command layer must snapshot the pre-edit
+// dashboard as an independent deep copy BEFORE calling them, or undo restores a
+// layout the helper has already scribbled on (the whole undo stack shares those
+// objects). These ops all reposition an *existing* panel, so they exercise the bug
+// that a move/resize-only suite misses. See cloneDashboard in commands.ts.
+describe('editor-store undo restores the exact pre-edit layout (DO-291 in-place mutation)', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset();
+  });
+
+  it('undo of cmdMoveRow restores the moved row and its band children', () => {
+    load(twoRowsWithChildren());
+    const before = layoutShape();
+
+    cmdMoveRow('r2', 3);
+    expect(layoutShape()).not.toBe(before); // the op actually changed the layout
+
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(before);
+  });
+
+  it('undo of cmdReorderRows restores the original row order and positions', () => {
+    load(twoRowsWithChildren());
+    const before = layoutShape();
+
+    cmdReorderRows(['r2', 'r1']);
+    expect(layoutShape()).not.toBe(before);
+
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(before);
+  });
+
+  it('undo of cmdToggleRowCollapsed (expand) restores the collapsed layout', () => {
+    load([
+      {
+        id: 'r1', type: 'row', title: 'r1', collapsed: true, gridPos: { x: 0, y: 0, w: 24, h: 1 },
+        panels: [{ id: 'c', type: 'text', title: 'c', gridPos: { x: 0, y: 0, w: 6, h: 4 } }],
+      },
+      { id: 'p', type: 'text', title: 'p', gridPos: { x: 0, y: 2, w: 6, h: 4 } },
+    ]);
+    const before = layoutShape();
+
+    cmdToggleRowCollapsed('r1', false);
+    expect(layoutShape()).not.toBe(before);
+
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(before);
+  });
+
+  it('undo of cmdAddRow removes the row and restores the prior layout', () => {
+    load([{ id: 'p1', type: 'text', title: 'p1', gridPos: { x: 0, y: 0, w: 6, h: 4 } }]);
+    const before = layoutShape();
+
+    cmdAddRow(0, 'New row');
+    expect(useEditorStore.getState().dashboard!.panels.some((p) => p.type === 'row')).toBe(true);
+
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(before);
+    expect(useEditorStore.getState().dashboard!.panels.some((p) => p.type === 'row')).toBe(false);
+  });
+
+  it('walks back multiple in-place edits, each restoring its immediate predecessor', () => {
+    load(twoRowsWithChildren());
+    const s0 = layoutShape();
+    cmdMoveRow('r2', 3);
+    const s1 = layoutShape();
+    cmdReorderRows(['r2', 'r1']);
+    const s2 = layoutShape();
+
+    expect(s1).not.toBe(s0);
+    expect(s2).not.toBe(s1);
+
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(s1); // not corrupted by the later reorder
+    useEditorStore.getState().undo();
+    expect(layoutShape()).toBe(s0); // not corrupted by either later edit
+  });
+
+  it('redo re-applies an undone in-place edit', () => {
+    load(twoRowsWithChildren());
+    cmdMoveRow('r2', 3);
+    const afterMove = layoutShape();
+
+    useEditorStore.getState().undo();
+    useEditorStore.getState().redo();
+    expect(layoutShape()).toBe(afterMove);
   });
 });

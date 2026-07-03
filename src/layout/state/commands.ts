@@ -25,6 +25,34 @@ import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { ChartPresetPanel } from '@/types/chart-catalog';
 
 /**
+ * Deep-copy the layout structure of a dashboard for an undo/redo snapshot.
+ *
+ * Undo snapshots must be independent of the live dashboard. Most geometry helpers
+ * (moveRow, reorderRows, toggleRowCollapsed, deleteRow, packRow, movePanelToRow,
+ * placeNewPanel, createRow, …) mutate their input's gridPos / nested `panels` *in
+ * place* while computing the next layout. Because each command hands the live
+ * `store.dashboard` to those helpers, the pre-edit object is scribbled on during the
+ * edit — so the snapshot has to be captured here, *before* the geometry runs. (Cloning
+ * inside `commit` would be too late: by then `previousDashboard` is the very reference
+ * the helper already mutated.) This is what makes undo restore the true pre-edit layout.
+ *
+ * Panel wrappers, their `gridPos`, and nested row `panels` are copied; panel *content*
+ * (options / fieldConfig / x-navixy / targets …) is shared by reference because layout
+ * geometry never mutates it, and panel-content edits reset the history via setDashboard.
+ */
+function clonePanelForHistory(panel: Panel): Panel {
+  const cloned: Panel = { ...panel, gridPos: { ...panel.gridPos } };
+  if (panel.panels) {
+    cloned.panels = panel.panels.map(clonePanelForHistory);
+  }
+  return cloned;
+}
+
+function cloneDashboard(dashboard: Dashboard): Dashboard {
+  return { ...dashboard, panels: dashboard.panels.map(clonePanelForHistory) };
+}
+
+/**
  * Command to move a panel
  * Updates the dashboard in the store and pushes to undo history
  */
@@ -37,7 +65,9 @@ export function cmdMovePanel(panelId: string | number, x: number, y: number): vo
   }
 
   // Get current dashboard state for undo
-  const currentDashboard = store.dashboard;
+  // Snapshot the pre-edit layout for undo *before* geometry runs — the geometry
+  // helpers below mutate the dashboard they are given in place (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
 
   // Execute the move - skip autoPack during user drag operations to preserve exact drop position
   const newDashboard = movePanel(store.dashboard, panelId, { x, y }, true);
@@ -107,7 +137,8 @@ export function cmdResizeRowHeight(
   }
 
   // Get current dashboard state for undo
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
 
   // Find the row
   const rowIndex = store.dashboard.panels.findIndex((p) => idEq(p.id, rowId) && p.type === 'row');
@@ -164,7 +195,8 @@ export function cmdResizePanel(
   }
 
   // Get current dashboard state for undo
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
 
   // Execute the resize
   const newDashboard = applyResize(store.dashboard, panelId, handle, delta, containerWidth);
@@ -183,7 +215,8 @@ export function cmdAddRow(insertY: number, title: string = 'New row'): void {
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = createRow(store.dashboard, insertY, title);
   
   store.commit(newDashboard, currentDashboard);
@@ -204,7 +237,8 @@ export function cmdToggleRowCollapsed(rowId: string | number, collapsed: boolean
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = toggleRowCollapsed(store.dashboard, rowId, collapsed);
   
   store.commit(newDashboard, currentDashboard);
@@ -223,7 +257,10 @@ export function cmdMovePanelToRow(panelId: string | number, targetRowId: string 
   }
 
   const currentDashboard = store.dashboard;
-  
+  // Snapshot for undo before any geometry mutation (see cloneDashboard). currentDashboard
+  // stays the live working object below; previousDashboard is the immutable snapshot.
+  const previousDashboard = cloneDashboard(store.dashboard);
+
   let dashboardToUse = currentDashboard;
 
   // If in edit mode and targetRowId is provided, ensure the row is expanded
@@ -238,8 +275,8 @@ export function cmdMovePanelToRow(panelId: string | number, targetRowId: string 
   }
 
   const newDashboard = movePanelToRow(dashboardToUse, panelId, targetRowId, positionHint);
-  
-  store.commit(newDashboard, currentDashboard);
+
+  store.commit(newDashboard, previousDashboard);
 }
 
 /**
@@ -252,7 +289,8 @@ export function cmdReorderRows(newRowIdOrder: Array<string | number>): void {
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = reorderRows(store.dashboard, newRowIdOrder);
   
   store.commit(newDashboard, currentDashboard);
@@ -269,8 +307,9 @@ export function cmdMoveRow(rowId: string | number, newY: number): void {
     return;
   }
 
-  const currentDashboard = store.dashboard;
-  
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
+
   const newDashboard = moveRow(store.dashboard, rowId, newY);
   
   store.commit(newDashboard, currentDashboard);
@@ -288,8 +327,10 @@ export function cmdDeleteRow(rowId: string | number): void {
   }
 
   const currentDashboard = store.dashboard;
+  // Snapshot for undo before deleteRow mutates the layout in place (see cloneDashboard).
+  const previousDashboard = cloneDashboard(store.dashboard);
   const newDashboard = deleteRow(store.dashboard, rowId);
-  
+
   // Check if row was actually deleted by comparing panel counts
   const oldRowCount = currentDashboard.panels.filter((p) => isRowPanel(p) && idEq(p.id, rowId)).length;
   const newRowCount = newDashboard.panels.filter((p) => isRowPanel(p) && idEq(p.id, rowId)).length;
@@ -303,8 +344,8 @@ export function cmdDeleteRow(rowId: string | number): void {
     console.warn('cmdDeleteRow: Row was not deleted');
     return;
   }
-  
-  store.commit(newDashboard, currentDashboard);
+
+  store.commit(newDashboard, previousDashboard);
 }
 
 /**
@@ -317,7 +358,8 @@ export function cmdPackRow(rowId: string | number): void {
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = packRow(store.dashboard, rowId);
   
   store.commit(newDashboard, currentDashboard);
@@ -334,20 +376,22 @@ export function cmdRenameRow(rowId: string | number, newTitle: string): void {
   }
 
   const currentDashboard = store.dashboard;
+  // Snapshot for undo, decoupled from the live dashboard (see cloneDashboard).
+  const previousDashboard = cloneDashboard(store.dashboard);
   const rowIndex = currentDashboard.panels.findIndex((p) => isRowPanel(p) && idEq(p.id, rowId));
-  
+
   if (rowIndex === -1) {
     return;
   }
 
   const newDashboard: Dashboard = {
     ...currentDashboard,
-    panels: currentDashboard.panels.map((p, idx) => 
+    panels: currentDashboard.panels.map((p, idx) =>
       idx === rowIndex ? { ...p, title: newTitle } : p
     ),
   };
-  
-  store.commit(newDashboard, currentDashboard);
+
+  store.commit(newDashboard, previousDashboard);
 }
 
 /**
@@ -365,7 +409,9 @@ export function cmdReplaceDashboard(newDashboard: Dashboard): void {
   // A replace with prior history is a single undoable step; with no prior dashboard
   // there is nothing to revert to, so just load it (which starts a fresh history).
   if (currentDashboard) {
-    store.commit(newDashboard, currentDashboard);
+    // Decouple the undo snapshot from the live dashboard (see cloneDashboard). Safe to
+    // clone here since the incoming newDashboard is external — no geometry has run.
+    store.commit(newDashboard, cloneDashboard(currentDashboard));
   } else {
     store.setDashboard(newDashboard);
   }
@@ -402,7 +448,8 @@ export function cmdAddPanel(spec: {
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = placeNewPanel(store.dashboard, spec);
   
   store.commit(newDashboard, currentDashboard);
@@ -492,7 +539,8 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   const newId = nextId(store.dashboard);
 
   // Clone panel (new id, same type/options/fieldConfig)
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   const newDashboard = placeNewPanel(store.dashboard, {
     type: panel.type,
     title: `${panel.title} (Copy)`,
@@ -539,6 +587,9 @@ export function cmdAddPresetPanel(
   }
 
   const currentDashboard = store.dashboard;
+  // Snapshot for undo before placeNewPanel runs; currentDashboard stays the live
+  // working object passed to the geometry below (see cloneDashboard).
+  const previousDashboard = cloneDashboard(store.dashboard);
   const size = getPresetSize(presetPanel);
 
   // Geometry + new id (drop at cursor position, then resolve collisions push-down)
@@ -557,7 +608,7 @@ export function cmdAddPresetPanel(
     applyClonedContent(created, presetPanel);
   }
 
-  store.commit(newDashboard, currentDashboard);
+  store.commit(newDashboard, previousDashboard);
 }
 
 /**
@@ -573,7 +624,8 @@ export function cmdTidyUp(): void {
     return;
   }
 
-  const currentDashboard = store.dashboard;
+  // Snapshot for undo before any geometry mutation (see cloneDashboard).
+  const currentDashboard = cloneDashboard(store.dashboard);
   // normalizeDashboardLayout is row-aware: it shifts row headers together with the
   // panels in their band (the old tidyUp skipped row panels entirely) and leaves
   // the layout in the same stable form the renderer produces.
@@ -595,7 +647,9 @@ export function cmdDeletePanel(panelId: string | number): void {
   }
 
   const currentDashboard = store.dashboard;
-  
+  // Snapshot for undo, decoupled from the live dashboard (see cloneDashboard).
+  const previousDashboard = cloneDashboard(store.dashboard);
+
   // Check if panel exists
   const panelIndex = currentDashboard.panels.findIndex((p) => idEq(p.id, panelId));
   
@@ -647,7 +701,7 @@ export function cmdDeletePanel(panelId: string | number): void {
   if (idEq(store.selectedPanelId, panelId)) {
     store.setSelectedPanel(null);
   }
-  
-  store.commit(newDashboard, currentDashboard);
+
+  store.commit(newDashboard, previousDashboard);
 }
 
