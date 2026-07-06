@@ -21,9 +21,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2, FileDown, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { exportDashboardToPdf } from '@/utils/exportDashboardPdf';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
 import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow, normalizeToDashboard } from '@/types/schema-conversions';
 import { toErrorMeta } from '@/utils/errors';
@@ -72,6 +73,7 @@ const ReportView = () => {
   const [editorValue, setEditorValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [downloadingSchema, setDownloadingSchema] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customSchemaUrl, setCustomSchemaUrl] = useState('');
   const [defaultSchemaUrl, setDefaultSchemaUrl] = useState('');
@@ -1330,6 +1332,40 @@ const ReportView = () => {
     });
   };
 
+  const handleExportPdf = async () => {
+    const root = dashboardRendererRef.current?.getExportRoot();
+    if (!root) {
+      toast({
+        title: 'Export unavailable',
+        description: 'Switch to view mode and wait for the dashboard to finish loading before exporting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const title = schema?.dashboard?.title || schema?.title || report?.title || 'Dashboard';
+      await exportDashboardToPdf(root, {
+        title,
+        subtitle: schema?.subtitle || undefined,
+        fileName: report?.title || title,
+      });
+      toast({
+        title: 'PDF exported',
+        description: 'Your dashboard was downloaded as a PDF.',
+      });
+    } catch (err) {
+      console.error('Dashboard PDF export failed:', err);
+      toast({
+        title: 'Export failed',
+        description: err instanceof Error ? err.message : 'Could not generate the PDF.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const handleImportSchema = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -2008,6 +2044,23 @@ const ReportView = () => {
 
           {/* Right Side Controls - Simplified for non-editors */}
           <div className="flex items-center gap-3">
+            {/* Export the rendered dashboard to PDF (view mode only — capture root is the panel grid) */}
+            {dashboard && (dashboard.panels?.length ?? 0) > 0 && !isEditing && (
+              <Button
+                onClick={handleExportPdf}
+                disabled={exportingPdf}
+                variant="outline"
+                size="sm"
+                title="Export the dashboard as a PDF"
+              >
+                {exportingPdf ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4 mr-2" />
+                )}
+                {exportingPdf ? 'Exporting...' : 'Export PDF'}
+              </Button>
+            )}
             {!canEdit && (
               <div className="flex items-center">
                 <span className="text-sm text-[var(--text-muted)]">View Mode</span>

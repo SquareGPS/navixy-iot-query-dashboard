@@ -328,25 +328,20 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
                 )}
               </div>
               {showLegend && legendPosition === 'right' && (
-                <div 
-                  className="flex-1 min-w-0 self-center relative" 
-                  style={{ 
-                    minWidth: '200px', 
+                <div
+                  className="flex-1 min-w-0 self-center relative"
+                  style={{
+                    minWidth: '200px',
                     maxWidth: 'calc(50% - 1rem)',
                     width: 'fit-content',
-                    height: 'clamp(200px, 55%, 400px)',
-                    maxHeight: 'clamp(200px, 55%, 400px)',
-                    paddingTop: '2rem',
-                    paddingBottom: '2rem',
+                    height: '100%',
+                    maxHeight: '100%',
                     boxSizing: 'border-box'
                   }}
                 >
-                  <div 
-                    className="h-full overflow-y-auto overflow-x-hidden"
-                    style={{
-                      scrollPaddingTop: '2rem',
-                      scrollPaddingBottom: '2rem'
-                    }}
+                  <div
+                    className="h-full overflow-y-auto overflow-x-hidden flex flex-col"
+                    style={{ justifyContent: 'safe center' }}
                   >
                     {renderCustomLegend({ payload: data.map((entry, index) => ({
                       value: entry.value,

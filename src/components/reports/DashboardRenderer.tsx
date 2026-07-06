@@ -82,6 +82,12 @@ interface DashboardRendererProps {
 
 export interface DashboardRendererRef {
   refreshPanel: (panelId: string | number, dashboard?: Dashboard) => Promise<void>;
+  /**
+   * The view-mode panel grid element, for client-side PDF/image capture.
+   * Returns null while editing the layout (the Canvas is shown instead) or
+   * before the grid has mounted.
+   */
+  getExportRoot: () => HTMLElement | null;
 }
 
 interface PanelData {
@@ -330,26 +336,22 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
           </div>
         </div>
       </div>
-      {/* Legend on the right */ }
+      {/* Legend on the right — fills the chart height and centers its items so it
+          lines up with the donut; scrolls only if there are more items than fit. */ }
       <div
         className="flex-1 min-w-0 self-center relative"
         style={ {
           minWidth: '200px',
           maxWidth: 'calc(50% - 1rem)',
           width: 'fit-content',
-          height: 'clamp(200px, 55%, 400px)',
-          maxHeight: 'clamp(200px, 55%, 400px)',
-          paddingTop: '2rem',
-          paddingBottom: '2rem',
+          height: '100%',
+          maxHeight: '100%',
           boxSizing: 'border-box',
         } }
       >
         <div
-          className="h-full overflow-y-auto overflow-x-hidden"
-          style={ {
-            scrollPaddingTop: '2rem',
-            scrollPaddingBottom: '2rem',
-          } }
+          className="h-full overflow-y-auto overflow-x-hidden flex flex-col"
+          style={ { justifyContent: 'safe center' } }
         >
           { renderLegend() }
         </div>
@@ -381,6 +383,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
+  const exportRootRef = useRef<HTMLDivElement>(null); // View-mode grid wrapper, captured for PDF export
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -725,6 +728,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   // Expose refreshPanel via ref
   useImperativeHandle(ref, () => ({
     refreshPanel,
+    getExportRoot: () => exportRootRef.current,
   }), [refreshPanel]);
 
   // Execute SQL queries for all panels.
@@ -2039,6 +2043,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       ) : null }
 
       {/* Panels Grid - uses same 24-column system as edit mode */ }
+      {/* Wrapper is the capture root for client-side PDF export (see getExportRoot) */ }
+      <div ref={ exportRootRef } data-pdf-export-root>
       <PanelGrid
         panels={ displayDashboard.panels }
         renderPanel={ (panel) => {
@@ -2080,6 +2086,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         editMode={ editMode }
         onEditPanel={ onEditPanel }
       />
+      </div>
       <ExportDialog
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}
