@@ -10,6 +10,21 @@ import {
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import type { QueryResult, VisualizationConfig } from '@/types/dashboard-types';
 
+/** Standard page-size options offered by the "Rows per page" dropdown. */
+const PAGE_SIZES: number[] = [10, 25, 50, 100, 250];
+
+/**
+ * Normalize an incoming page size to the component's single "show all" encoding:
+ * only a positive size paginates; 0, negatives, NaN and undefined all collapse
+ * to `undefined` (= "All"). The in-app editor coerces pageSize to >= 1, but an
+ * imported Grafana-compatible dashboard can carry 0/negative values. Normalizing
+ * here keeps `localPageSize` at a single show-all definition, so the derived
+ * truthy checks (effectivePageSize/totalPages/paginatedRows/label) and the
+ * Select's `!= null` guard stay in agreement instead of desyncing on `0`.
+ */
+const normalizePageSize = (size: number | undefined): number | undefined =>
+  size != null && size > 0 ? size : undefined;
+
 interface TablePanelProps {
   data: QueryResult;
   visualization?: VisualizationConfig;
@@ -32,11 +47,11 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
-  const [localPageSize, setLocalPageSize] = useState<number | undefined>(pageSize);
+  const [localPageSize, setLocalPageSize] = useState<number | undefined>(() => normalizePageSize(pageSize));
 
   // Sync localPageSize with prop when it changes
   useEffect(() => {
-    setLocalPageSize(pageSize);
+    setLocalPageSize(normalizePageSize(pageSize));
   }, [pageSize]);
 
   // Calculate totals if needed
@@ -257,54 +272,40 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-[var(--text-secondary)]">Rows per page:</span>
-              {localPageSize !== undefined ? (
-                <Select
-                  value={localPageSize.toString()}
-                  onValueChange={(value) => {
-                    const newPageSize = parseInt(value, 10);
-                    if (!isNaN(newPageSize)) {
-                      setLocalPageSize(newPageSize);
-                      setCurrentPage(1); // Reset to first page when page size changes
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-[var(--text-secondary)] border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {/* Include the current value if it's not in the standard list */}
-                    {localPageSize && ![10, 25, 50, 100, 250].includes(localPageSize) && (
-                      <SelectItem value={localPageSize.toString()}>{localPageSize}</SelectItem>
-                    )}
-                    <SelectItem value="10">10</SelectItem>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="250">250</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Select
-                  onValueChange={(value) => {
-                    const newPageSize = parseInt(value, 10);
-                    if (!isNaN(newPageSize)) {
-                      setLocalPageSize(newPageSize);
-                      setCurrentPage(1); // Reset to first page when page size changes
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-[var(--text-secondary)] border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
-                    <SelectValue placeholder="" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">10</SelectItem>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                    <SelectItem value="250">250</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
+              {/*
+                Single always-controlled Select. `localPageSize === undefined`
+                means "show all rows", represented by the explicit "All" option,
+                so a value is always selected and the trigger/label stay in sync
+                with the selection (DO-299).
+              */}
+              <Select
+                value={localPageSize != null ? localPageSize.toString() : 'all'}
+                onValueChange={(value) => {
+                  setCurrentPage(1); // Reset to first page when page size changes
+                  if (value === 'all') {
+                    setLocalPageSize(undefined);
+                    return;
+                  }
+                  const newPageSize = parseInt(value, 10);
+                  if (!isNaN(newPageSize)) {
+                    setLocalPageSize(newPageSize);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-20 h-auto py-0.5 text-sm text-[var(--text-secondary)] border-0 bg-transparent shadow-none hover:bg-transparent focus:ring-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Surface a non-standard configured page size so it can be shown as selected */}
+                  {localPageSize != null && !PAGE_SIZES.includes(localPageSize) && (
+                    <SelectItem value={localPageSize.toString()}>{localPageSize}</SelectItem>
+                  )}
+                  {PAGE_SIZES.map((size) => (
+                    <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
+                  ))}
+                  <SelectItem value="all">All</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <span className="text-sm text-[var(--text-secondary)]">
               {localPageSize 
