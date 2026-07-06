@@ -1,11 +1,12 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   detectAllGPSColumnPairs,
-  detectGPSColumns,
   detectValidGPSColumns,
+  selectValidGPSPair,
   toRowObjects,
   validateGPSData,
   extractGPSPoints,
+  parseCoordinate,
   type ColumnInfo,
 } from '../gpsDetection.js';
 
@@ -106,18 +107,56 @@ describe('detectAllGPSColumnPairs', () => {
       ]),
     ).toEqual([]);
   });
-});
 
-describe('detectGPSColumns (first pair)', () => {
-  it('returns the first detected pair for text coordinates', () => {
-    expect(detectGPSColumns(violationColumns('text'))).toEqual({
-      latColumn: 'latitude',
-      lonColumn: 'longitude',
-    });
+  // Now that text columns are admitted, the single-char 'x'/'y' patterns must
+  // not loosely match ordinary words via startsWith/endsWith.
+  it('does not pair plain text columns that merely end in x/y', () => {
+    expect(
+      detectAllGPSColumnPairs([
+        { name: 'summary', type: 'text' }, // ends in 'y'
+        { name: 'max', type: 'numeric' }, // ends in 'x'
+      ]),
+    ).toEqual([]);
   });
 
-  it('returns null when nothing is detectable', () => {
-    expect(detectGPSColumns([{ name: 'place', type: 'text' }])).toBeNull();
+  it('does not pair aligned-stem text columns like boundary + boundary_x', () => {
+    expect(
+      detectAllGPSColumnPairs([
+        { name: 'boundary', type: 'text' }, // ends in 'y'
+        { name: 'boundary_x', type: 'text' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('still pairs columns named exactly x/y and _x/_y suffixed', () => {
+    expect(detectAllGPSColumnPairs([
+      { name: 'y', type: 'double precision' },
+      { name: 'x', type: 'double precision' },
+    ])).toEqual([{ latColumn: 'y', lonColumn: 'x' }]);
+    expect(detectAllGPSColumnPairs([
+      { name: 'start_y', type: 'double precision' },
+      { name: 'start_x', type: 'double precision' },
+    ])).toEqual([{ latColumn: 'start_y', lonColumn: 'start_x' }]);
+  });
+});
+
+describe('parseCoordinate', () => {
+  it('passes through numbers and plain decimal strings', () => {
+    expect(parseCoordinate(47.53)).toBe(47.53);
+    expect(parseCoordinate('-18.368642')).toBe(-18.368642);
+    expect(parseCoordinate('  26.476326  ')).toBe(26.476326);
+    expect(parseCoordinate('0')).toBe(0);
+  });
+
+  // Reject display-formatted strings rather than misparse them (parseFloat would
+  // return 18.36 / 55, silently plotting the wrong point).
+  it('rejects hemisphere-suffixed and locale-formatted strings', () => {
+    expect(parseCoordinate('18.36° S')).toBeNaN();
+    expect(parseCoordinate('55,75')).toBeNaN();
+    expect(parseCoordinate('1.5E10')).toBeNaN();
+    expect(parseCoordinate('n/a')).toBeNaN();
+    expect(parseCoordinate(null)).toBeNaN();
+    expect(parseCoordinate(undefined)).toBeNaN();
   });
 });
 
@@ -138,6 +177,13 @@ describe('validateGPSData', () => {
     expect(
       validateGPSData([{ latitude: 557500000, longitude: 376200000 }], gps),
     ).toBe(false);
+  });
+
+  // Display-formatted coordinates must not validate — otherwise the map would
+  // render markers in the wrong hemisphere / off by the locale decimal.
+  it('rejects hemisphere/locale-formatted coordinate strings', () => {
+    expect(validateGPSData([{ latitude: '18.36° S', longitude: '26.47° E' }], gps)).toBe(false);
+    expect(validateGPSData([{ latitude: '55,75', longitude: '37,62' }], gps)).toBe(false);
   });
 
   it('rejects empty data', () => {
@@ -167,6 +213,29 @@ describe('toRowObjects', () => {
       { vehicle: 'Truck 2', latitude: '-18.37' },
       { vehicle: 'Truck 9', latitude: '47.53' },
     ]);
+  });
+
+  // Duplicate column names (e.g. a self-join selecting two `lat`s) collapse to
+  // one key; keep the first populated value so a trailing NULL can't blank it.
+  it('keeps the first populated value on duplicate column names', () => {
+    const columns: ColumnInfo[] = [
+      { name: 'lat', type: 'double precision' },
+      { name: 'lat', type: 'double precision' },
+    ];
+    expect(toRowObjects(columns, [[47.53, null]])).toEqual([{ lat: 47.53 }]);
+    expect(toRowObjects(columns, [[null, 47.53]])).toEqual([{ lat: 47.53 }]);
+  });
+});
+
+describe('selectValidGPSPair', () => {
+  it('returns the first pair with valid data from already-detected pairs', () => {
+    const pairs = [
+      { latColumn: 'start_lat', lonColumn: 'start_lon' },
+      { latColumn: 'lat', lonColumn: 'lon' },
+    ];
+    const rows = [{ start_lat: null, start_lon: null, lat: 47.53, lon: 34.9 }];
+    expect(selectValidGPSPair(pairs, rows)).toEqual({ latColumn: 'lat', lonColumn: 'lon' });
+    expect(selectValidGPSPair([], rows)).toBeNull();
   });
 });
 
