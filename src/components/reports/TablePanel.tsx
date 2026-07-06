@@ -13,6 +13,18 @@ import type { QueryResult, VisualizationConfig } from '@/types/dashboard-types';
 /** Standard page-size options offered by the "Rows per page" dropdown. */
 const PAGE_SIZES: number[] = [10, 25, 50, 100, 250];
 
+/**
+ * Normalize an incoming page size to the component's single "show all" encoding:
+ * only a positive size paginates; 0, negatives, NaN and undefined all collapse
+ * to `undefined` (= "All"). The in-app editor coerces pageSize to >= 1, but an
+ * imported Grafana-compatible dashboard can carry 0/negative values. Normalizing
+ * here keeps `localPageSize` at a single show-all definition, so the derived
+ * truthy checks (effectivePageSize/totalPages/paginatedRows/label) and the
+ * Select's `!= null` guard stay in agreement instead of desyncing on `0`.
+ */
+const normalizePageSize = (size: number | undefined): number | undefined =>
+  size != null && size > 0 ? size : undefined;
+
 interface TablePanelProps {
   data: QueryResult;
   visualization?: VisualizationConfig;
@@ -35,11 +47,11 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
-  const [localPageSize, setLocalPageSize] = useState<number | undefined>(pageSize);
+  const [localPageSize, setLocalPageSize] = useState<number | undefined>(() => normalizePageSize(pageSize));
 
   // Sync localPageSize with prop when it changes
   useEffect(() => {
-    setLocalPageSize(pageSize);
+    setLocalPageSize(normalizePageSize(pageSize));
   }, [pageSize]);
 
   // Calculate totals if needed
