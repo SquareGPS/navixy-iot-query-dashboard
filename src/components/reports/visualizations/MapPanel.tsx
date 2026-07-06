@@ -382,6 +382,7 @@ export function MapPanel({
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            crossOrigin="anonymous"
           />
           
           <FitBounds points={validPoints} zoomAfterFit={zoomAfterFit} />

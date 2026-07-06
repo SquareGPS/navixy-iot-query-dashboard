@@ -39,9 +39,11 @@ const MARGIN = 28; // pt, around the page
 const HEADER_HEIGHT = 46; // pt, reserved above the image on page 1 only
 const FOOTER_HEIGHT = 20; // pt, reserved below the image on every page
 
-// Cap the capture so an extremely tall dashboard can't blow past the browser's
-// max-canvas-area limit (which yields a blank capture). Height in device px.
-const MAX_CAPTURE_HEIGHT = 14000;
+// Cap the capture so an extremely tall/large dashboard can't blow past the browser's
+// canvas limits (either yields a blank capture). The scale is shrunk — below 1x if
+// needed — to keep both the per-side dimension and the total area within bounds.
+const MAX_CANVAS_DIM = 14000; // px per side (browsers cap around 16k)
+const MAX_CANVAS_AREA = 16_000_000; // px² total (Safari caps around 16.7M)
 const CAPTURE_SCALE = 2;
 
 // How much a single panel may grow to reveal a scrolled table (CSS px). Beyond
@@ -98,7 +100,10 @@ function resolveBackground(element: HTMLElement): { r: number; g: number; b: num
   let node: HTMLElement | null = element;
   while (node) {
     const bg = getComputedStyle(node).backgroundColor;
-    if (bg && bg !== 'transparent' && !bg.startsWith('rgba(0, 0, 0, 0')) {
+    // `rgba(0, 0, 0, 0)` is the computed value of a transparent background; match it
+    // exactly so a deliberately translucent-black panel (e.g. rgba(0,0,0,0.6)) isn't
+    // mistaken for transparent and skipped.
+    if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
       return parseColor(bg);
     }
     node = node.parentElement;
@@ -133,17 +138,52 @@ interface ExpansionPlan {
   captureHeight: number;
 }
 
-/** The absolutely-positioned grid container inside the export root. */
-function findGridContainer(root: HTMLElement): HTMLElement | null {
-  const candidate = root.querySelector<HTMLElement>('.relative.w-full');
-  return candidate ?? null;
-}
-
 /** Absolutely-positioned grid children (panels + row headers), in DOM order. */
 function gridItems(container: HTMLElement): HTMLElement[] {
   return Array.from(container.children).filter(
     (el): el is HTMLElement => el instanceof HTMLElement && el.style.position === 'absolute',
   );
+}
+
+/**
+ * The absolutely-positioned grid container inside the export root. Prefers the stable
+ * `data-panel-grid` hook, then PanelGrid's class, then any element whose direct children
+ * are the absolute panels — so a class rename doesn't silently produce a blank export.
+ */
+function findGridContainer(root: HTMLElement): HTMLElement | null {
+  const marked = root.querySelector<HTMLElement>('[data-panel-grid]');
+  if (marked) return marked;
+  const byClass = root.querySelector<HTMLElement>('.relative.w-full');
+  if (byClass && gridItems(byClass).length) return byClass;
+  for (const el of root.querySelectorAll<HTMLElement>('div')) {
+    if (gridItems(el).length) return el;
+  }
+  return byClass ?? null;
+}
+
+/**
+ * Highest safe page cut at or above `target` (canvas px): moves the cut up out of any
+ * panel it would slice through so a panel/table row isn't split across pages. Falls back
+ * to `target` (a hard cut) when a single panel is taller than one page.
+ */
+function snapPageCut(
+  target: number,
+  srcY: number,
+  bounds: { top: number; bottom: number }[],
+): number {
+  let cut = target;
+  for (let guard = 0; guard <= bounds.length; guard++) {
+    let highestCrossedTop = Infinity;
+    for (const b of bounds) {
+      if (b.top < cut - 0.5 && cut + 0.5 < b.bottom && b.top < highestCrossedTop) {
+        highestCrossedTop = b.top;
+      }
+    }
+    if (highestCrossedTop === Infinity) return cut; // lands in a gap
+    if (highestCrossedTop <= srcY) return target; // panel taller than a page — hard cut
+    cut = highestCrossedTop;
+  }
+  return target;
 }
 
 /**
@@ -302,16 +342,23 @@ export async function exportDashboardToPdf(
   document.body.appendChild(clone);
 
   let canvas: HTMLCanvasElement | null = null;
+  let plan: ExpansionPlan = { panels: [], captureHeight: 0 };
   try {
-    const plan = measureExpansion(clone);
+    plan = measureExpansion(clone);
+    if (!plan.panels.length) {
+      throw new Error("Couldn't find the dashboard grid to export.");
+    }
     applyExpansion(clone, plan);
     void clone.offsetHeight; // force a layout pass before capturing
 
-    // Clamp the scale so a very tall dashboard doesn't exceed the canvas-area limit.
-    const scale =
-      plan.captureHeight * CAPTURE_SCALE > MAX_CAPTURE_HEIGHT
-        ? Math.max(1, MAX_CAPTURE_HEIGHT / plan.captureHeight)
-        : CAPTURE_SCALE;
+    // Shrink the scale — below 1x if needed — so the output canvas stays within both the
+    // per-side dimension and the total-area limits; otherwise domToCanvas returns blank.
+    const scale = Math.min(
+      CAPTURE_SCALE,
+      MAX_CANVAS_DIM / plan.captureHeight,
+      MAX_CANVAS_DIM / width,
+      Math.sqrt(MAX_CANVAS_AREA / (width * plan.captureHeight)),
+    );
 
     canvas = await domToCanvas(clone, { scale, backgroundColor: bgCss });
   } finally {
@@ -321,6 +368,13 @@ export async function exportDashboardToPdf(
   if (!canvas || !canvas.width || !canvas.height) {
     throw new Error('Nothing to export — the dashboard did not render any content.');
   }
+
+  // Panel bounds in canvas px, so page cuts can snap to the gaps between grid rows.
+  const yScale = plan.captureHeight ? canvas.height / plan.captureHeight : 1;
+  const panelBounds = plan.panels.map((p) => ({
+    top: p.newTop * yScale,
+    bottom: (p.newTop + p.newHeight) * yScale,
+  }));
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
 
@@ -341,7 +395,14 @@ export async function exportDashboardToPdf(
     const isFirst = pageIndex === 0;
     const usablePt = isFirst ? usableFirst : usableRest;
     const topPt = isFirst ? MARGIN + HEADER_HEIGHT : MARGIN;
-    const sliceHpx = Math.min(canvas.height - srcY, Math.floor(usablePt / pxToPt));
+    const maxSliceHpx = Math.min(canvas.height - srcY, Math.floor(usablePt / pxToPt));
+    // Snap the cut up to a gap between grid rows so a panel/table row isn't split across
+    // pages — unless this is the final band, or snapping would waste over half the page
+    // (a panel taller than that), in which case we accept a hard cut.
+    const snapped = snapPageCut(srcY + maxSliceHpx, srcY, panelBounds);
+    const useSnap =
+      srcY + maxSliceHpx < canvas.height && snapped - srcY >= maxSliceHpx * 0.5;
+    const sliceHpx = useSnap ? snapped - srcY : maxSliceHpx;
     if (sliceHpx <= 0) break;
 
     slice.width = canvas.width;
@@ -373,6 +434,16 @@ export async function exportDashboardToPdf(
   pdf.save(`${slugify(options.fileName || options.title)}.pdf`);
 }
 
+/** Truncate `text` with an ellipsis so it fits `maxWidth` pt in jsPDF's current font. */
+function fitText(pdf: import('jspdf').jsPDF, text: string, maxWidth: number): string {
+  if (!text || pdf.getTextWidth(text) <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && pdf.getTextWidth(`${t}…`) > maxWidth) {
+    t = t.slice(0, -1);
+  }
+  return `${t}…`;
+}
+
 function drawHeader(
   pdf: import('jspdf').jsPDF,
   options: DashboardPdfOptions,
@@ -383,26 +454,33 @@ function drawHeader(
   const strong: [number, number, number] = dark ? [233, 241, 255] : [15, 23, 42];
   const muted: [number, number, number] = dark ? [148, 163, 184] : [100, 116, 139];
 
+  // Measure the right-aligned timestamp first so the title can be truncated to the
+  // space left of it — otherwise a long title runs straight into the stamp.
+  const stamp = `Generated ${generatedAt.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })}`;
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  const stampWidth = pdf.getTextWidth(stamp);
+
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(15);
   pdf.setTextColor(...strong);
-  pdf.text(options.title || 'Dashboard', MARGIN, MARGIN + 15);
+  const titleMaxWidth = PAGE.width - MARGIN * 2 - stampWidth - 16;
+  pdf.text(fitText(pdf, options.title || 'Dashboard', titleMaxWidth), MARGIN, MARGIN + 15);
 
   if (options.subtitle) {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(10);
     pdf.setTextColor(...muted);
-    pdf.text(options.subtitle, MARGIN, MARGIN + 31);
+    pdf.text(fitText(pdf, options.subtitle, PAGE.width - MARGIN * 2), MARGIN, MARGIN + 31);
   }
 
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   pdf.setTextColor(...muted);
-  const stamp = generatedAt.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-  pdf.text(`Generated ${stamp}`, PAGE.width - MARGIN, MARGIN + 15, { align: 'right' });
+  pdf.text(stamp, PAGE.width - MARGIN, MARGIN + 15, { align: 'right' });
 
   // Divider under the header.
   pdf.setDrawColor(dark ? 34 : 226, dark ? 49 : 232, dark ? 75 : 240);

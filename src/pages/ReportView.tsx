@@ -1348,7 +1348,9 @@ const ReportView = () => {
       await exportDashboardToPdf(root, {
         title,
         subtitle: schema?.subtitle || undefined,
-        fileName: report?.title || title,
+        // Prefer the server slug (matches the composite-report export's file naming);
+        // the util slugifies whatever it gets, so title is a safe fallback.
+        fileName: report?.slug || report?.title || title,
       });
       toast({
         title: 'PDF exported',
