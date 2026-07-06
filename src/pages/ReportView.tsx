@@ -528,6 +528,11 @@ const ReportView = () => {
     }
 
     // Sync both local state and the editor store (guard the canvas auto-save).
+    // setDashboard intentionally resets the layout undo/redo history: filters are
+    // now persisted, and the undo snapshots share panel *content* by reference
+    // (see clonePanelForHistory), so replaying an older layout snapshot after a
+    // content/filter save could silently revert this save. A saved edit starts a
+    // fresh undo timeline rather than one that can roll back committed content.
     withSkippedAutoSave(() => {
       store.setDashboard(updatedDashboard);
       setDashboard(updatedDashboard);
@@ -1243,7 +1248,13 @@ const ReportView = () => {
       }
 
       // Update editorStore and local state
-      // Prevent Canvas from triggering another save during this update
+      // Prevent Canvas from triggering another save during this update.
+      // setDashboard intentionally resets the layout undo/redo history: the panel
+      // content is now persisted (finalDashboard comes back from the server), and
+      // undo snapshots share panel content by reference (see clonePanelForHistory),
+      // so replaying an older layout snapshot could silently revert this save. A
+      // saved edit starts a fresh undo timeline rather than one that can roll back
+      // committed content.
       const storeAfterSave = useEditorStore.getState();
       withSkippedAutoSave(() => {
         storeAfterSave.setDashboard(finalDashboard);
