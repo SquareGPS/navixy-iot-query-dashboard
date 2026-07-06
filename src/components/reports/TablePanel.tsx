@@ -10,6 +10,9 @@ import {
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import type { QueryResult, VisualizationConfig } from '@/types/dashboard-types';
 
+/** Standard page-size options offered by the "Rows per page" dropdown. */
+const PAGE_SIZES: number[] = [10, 25, 50, 100, 250];
+
 interface TablePanelProps {
   data: QueryResult;
   visualization?: VisualizationConfig;
@@ -282,14 +285,12 @@ export function TablePanel({ data, visualization }: TablePanelProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {/* Surface a non-standard configured page size so it can be shown as selected */}
-                  {localPageSize != null && ![10, 25, 50, 100, 250].includes(localPageSize) && (
+                  {localPageSize != null && !PAGE_SIZES.includes(localPageSize) && (
                     <SelectItem value={localPageSize.toString()}>{localPageSize}</SelectItem>
                   )}
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="25">25</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                  <SelectItem value="250">250</SelectItem>
+                  {PAGE_SIZES.map((size) => (
+                    <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
+                  ))}
                   <SelectItem value="all">All</SelectItem>
                 </SelectContent>
               </Select>
