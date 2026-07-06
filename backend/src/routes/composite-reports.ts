@@ -341,8 +341,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     const mapConfig = compositeReport.config?.map;
     if (mapConfig?.enabled) {
       if (mapConfig.autoDetect) {
-        const detectedGPS = allGpsPairs.length > 0 ? allGpsPairs[0] : null;
-        if (detectedGPS) {
+        if (allGpsPairs.length > 0) {
           const rowObjects = result.rows.map((row: unknown[]) => {
             const obj: Record<string, unknown> = {};
             result.columns.forEach((col, idx) => {
@@ -351,7 +350,12 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
             return obj;
           });
 
-          if (validateGPSData(rowObjects, detectedGPS)) {
+          // Pick the first detected pair that actually carries valid coordinates
+          // rather than blindly using allGpsPairs[0]: a query may expose several
+          // name-matching pairs (e.g. an all-null start_lat/start_lon alongside a
+          // populated lat/lon), and only a populated one should drive the map.
+          const detectedGPS = allGpsPairs.find(pair => validateGPSData(rowObjects, pair)) ?? null;
+          if (detectedGPS) {
             const labelColumn = suggestLabelColumn(columnInfo);
             gpsInfo = {
               ...detectedGPS,

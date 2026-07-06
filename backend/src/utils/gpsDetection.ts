@@ -67,12 +67,43 @@ const NUMERIC_TYPES = [
   'smallint',
 ];
 
+// Textual PostgreSQL types that may still carry coordinate values. Reports
+// routinely format lat/lon for display — ROUND(lat, 6)::text, to_char(...),
+// or string concatenation — and some drivers surface numeric/decimal columns
+// as strings. Such a column is still a valid coordinate source, so it must not
+// be excluded from detection purely on its declared type (see FR-11283).
+const TEXT_TYPES = [
+  'text',
+  'varchar',
+  'char', // covers character, character varying, bpchar
+  'citext',
+];
+
 /**
  * Check if a column type is numeric (could contain GPS coordinates)
  */
 function isNumericType(type: string): boolean {
   const normalizedType = type.toLowerCase();
   return NUMERIC_TYPES.some(numType => normalizedType.includes(numType));
+}
+
+/**
+ * Check if a column type is textual.
+ */
+function isTextType(type: string): boolean {
+  const normalizedType = type.toLowerCase();
+  return TEXT_TYPES.some(textType => normalizedType.includes(textType));
+}
+
+/**
+ * A column may hold GPS coordinates if it is numeric OR textual. Detection is
+ * driven by the column NAME (strict lat/lon patterns below) and confirmed by
+ * validating the actual values are in range (validateGPSData), so admitting
+ * textual columns here does not create false positives — it only stops
+ * display-formatted coordinate columns from being silently dropped.
+ */
+function isCoordinateCandidateType(type: string): boolean {
+  return isNumericType(type) || isTextType(type);
 }
 
 /**
@@ -127,11 +158,11 @@ function getColumnStem(columnName: string, patterns: string[]): string {
  * E.g. start_lat + start_lon, end_lat + end_lon, lat + lon
  */
 export function detectAllGPSColumnPairs(columns: ColumnInfo[]): GPSColumns[] {
-  const numericColumns = columns.filter(col => isNumericType(col.type));
-  if (numericColumns.length < 2) return [];
+  const candidateColumns = columns.filter(col => isCoordinateCandidateType(col.type));
+  if (candidateColumns.length < 2) return [];
 
-  const latCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LAT_PATTERNS));
-  const lonCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LON_PATTERNS));
+  const latCols = candidateColumns.filter(col => matchesPatterns(col.name, GPS_LAT_PATTERNS));
+  const lonCols = candidateColumns.filter(col => matchesPatterns(col.name, GPS_LON_PATTERNS));
   if (latCols.length === 0 || lonCols.length === 0) return [];
 
   const pairs: GPSColumns[] = [];
