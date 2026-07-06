@@ -10,7 +10,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
-import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { detectAllGPSColumnPairs, detectValidGPSColumns, toRowObjects, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
 import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
@@ -342,19 +342,12 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     if (mapConfig?.enabled) {
       if (mapConfig.autoDetect) {
         if (allGpsPairs.length > 0) {
-          const rowObjects = result.rows.map((row: unknown[]) => {
-            const obj: Record<string, unknown> = {};
-            result.columns.forEach((col, idx) => {
-              obj[col.name] = row[idx];
-            });
-            return obj;
-          });
-
+          const rowObjects = toRowObjects(columnInfo, result.rows);
           // Pick the first detected pair that actually carries valid coordinates
           // rather than blindly using allGpsPairs[0]: a query may expose several
           // name-matching pairs (e.g. an all-null start_lat/start_lon alongside a
           // populated lat/lon), and only a populated one should drive the map.
-          const detectedGPS = allGpsPairs.find(pair => validateGPSData(rowObjects, pair)) ?? null;
+          const detectedGPS = detectValidGPSColumns(columnInfo, rowObjects);
           if (detectedGPS) {
             const labelColumn = suggestLabelColumn(columnInfo);
             gpsInfo = {
@@ -741,8 +734,8 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       name: col.name,
       type: col.type,
     }));
-    const gpsColumns = compositeReport.config?.map?.autoDetect 
-      ? detectGPSColumns(columnInfo)
+    const gpsColumns = compositeReport.config?.map?.autoDetect
+      ? detectValidGPSColumns(columnInfo, toRowObjects(columnInfo, queryResult.rows))
       : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
         ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
         : null;
@@ -853,8 +846,8 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       name: col.name,
       type: col.type,
     }));
-    const gpsColumns = compositeReport.config?.map?.autoDetect 
-      ? detectGPSColumns(columnInfo)
+    const gpsColumns = compositeReport.config?.map?.autoDetect
+      ? detectValidGPSColumns(columnInfo, toRowObjects(columnInfo, queryResult.rows))
       : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
         ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
         : null;

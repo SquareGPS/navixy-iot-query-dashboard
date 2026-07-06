@@ -72,12 +72,9 @@ const NUMERIC_TYPES = [
 // or string concatenation — and some drivers surface numeric/decimal columns
 // as strings. Such a column is still a valid coordinate source, so it must not
 // be excluded from detection purely on its declared type (see FR-11283).
-const TEXT_TYPES = [
-  'text',
-  'varchar',
-  'char', // covers character, character varying, bpchar
-  'citext',
-];
+// Matched by substring (see isTextType), so 'text' also covers 'citext' and
+// 'char' also covers 'varchar', 'character', 'character varying', and 'bpchar'.
+const TEXT_TYPES = ['text', 'char'];
 
 /**
  * Check if a column type is numeric (could contain GPS coordinates)
@@ -213,7 +210,7 @@ export function validateGPSData(
   return rows.some(row => {
     const lat = parseFloat(String(row[gpsColumns.latColumn]));
     const lon = parseFloat(String(row[gpsColumns.lonColumn]));
-    
+
     // Valid GPS range: lat -90 to 90, lon -180 to 180
     return (
       !isNaN(lat) &&
@@ -224,6 +221,41 @@ export function validateGPSData(
       lon <= 180
     );
   });
+}
+
+/**
+ * Build row objects keyed by column name from positional (array) result rows.
+ * Value-based GPS validation/extraction needs this shape.
+ */
+export function toRowObjects(
+  columns: ColumnInfo[],
+  rows: unknown[][]
+): Record<string, unknown>[] {
+  return rows.map(row => {
+    const obj: Record<string, unknown> = {};
+    columns.forEach((col, idx) => {
+      obj[col.name] = row[idx];
+    });
+    return obj;
+  });
+}
+
+/**
+ * Detect the coordinate pair that should drive a map: the first name-matched
+ * pair whose values actually validate as in-range coordinates.
+ *
+ * Prefer this over detectGPSColumns() wherever real rows are available. Picking
+ * detectAllGPSColumnPairs()[0] blindly can select an empty or all-null pair
+ * (e.g. start_lat/start_lon) ahead of a populated one and produce a blank map;
+ * validating here keeps the live view and the HTML/PDF exports consistent (FR-11283).
+ *
+ * @returns the first valid pair, or null when nothing detectable carries valid data
+ */
+export function detectValidGPSColumns(
+  columns: ColumnInfo[],
+  rows: Record<string, unknown>[]
+): GPSColumns | null {
+  return detectAllGPSColumnPairs(columns).find(pair => validateGPSData(rows, pair)) ?? null;
 }
 
 /**

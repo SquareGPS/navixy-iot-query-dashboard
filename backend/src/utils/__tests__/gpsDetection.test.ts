@@ -2,6 +2,8 @@ import { describe, it, expect } from '@jest/globals';
 import {
   detectAllGPSColumnPairs,
   detectGPSColumns,
+  detectValidGPSColumns,
+  toRowObjects,
   validateGPSData,
   extractGPSPoints,
   type ColumnInfo,
@@ -152,5 +154,67 @@ describe('extractGPSPoints', () => {
     const points = extractGPSPoints(rows, { latColumn: 'latitude', lonColumn: 'longitude' }, 'vehicle');
     expect(points).toHaveLength(1);
     expect(points[0]).toMatchObject({ lat: -18.368642, lon: 26.476326, label: 'Truck 2' });
+  });
+});
+
+describe('toRowObjects', () => {
+  it('maps positional rows to objects keyed by column name', () => {
+    const columns: ColumnInfo[] = [
+      { name: 'vehicle', type: 'text' },
+      { name: 'latitude', type: 'numeric' },
+    ];
+    expect(toRowObjects(columns, [['Truck 2', '-18.37'], ['Truck 9', '47.53']])).toEqual([
+      { vehicle: 'Truck 2', latitude: '-18.37' },
+      { vehicle: 'Truck 9', latitude: '47.53' },
+    ]);
+  });
+});
+
+describe('detectValidGPSColumns', () => {
+  it('selects a text-typed pair whose values are valid coordinates (FR-11283)', () => {
+    const columns = violationColumns('text');
+    const rows = toRowObjects(columns, [
+      ['06/07 10:24', 'Truck 2', 'Idling', '-', '-18.368642', '26.476326'],
+    ]);
+    expect(detectValidGPSColumns(columns, rows)).toEqual({
+      latColumn: 'latitude',
+      lonColumn: 'longitude',
+    });
+  });
+
+  // The reason /execute and the exports must select by value, not by pairs[0]:
+  // a query can expose an all-null start_lat/start_lon ahead of a populated
+  // lat/lon, and the map must fall through to the populated one.
+  it('skips an all-null leading pair and selects the populated pair', () => {
+    const columns: ColumnInfo[] = [
+      { name: 'start_lat', type: 'double precision' },
+      { name: 'start_lon', type: 'double precision' },
+      { name: 'lat', type: 'double precision' },
+      { name: 'lon', type: 'double precision' },
+    ];
+    // start_* is detected first (column order), so pairs[0] alone would be wrong
+    expect(detectAllGPSColumnPairs(columns)).toEqual([
+      { latColumn: 'start_lat', lonColumn: 'start_lon' },
+      { latColumn: 'lat', lonColumn: 'lon' },
+    ]);
+    const rows = toRowObjects(columns, [[null, null, 47.5377984, 34.9014016]]);
+    expect(detectValidGPSColumns(columns, rows)).toEqual({ latColumn: 'lat', lonColumn: 'lon' });
+  });
+
+  it('returns null when the only detected pair has no in-range data', () => {
+    const columns = violationColumns('numeric');
+    // scaled-integer coordinates — out of the -90..90 / -180..180 range
+    const rows = toRowObjects(columns, [
+      ['06/07 10:24', 'Truck 2', 'Idling', '-', 557500000, 376200000],
+    ]);
+    expect(detectValidGPSColumns(columns, rows)).toBeNull();
+  });
+
+  it('returns null when no column name matches a coordinate pattern', () => {
+    const columns: ColumnInfo[] = [
+      { name: 'place', type: 'text' },
+      { name: 'speed', type: 'numeric' },
+    ];
+    expect(detectValidGPSColumns(columns, toRowObjects(columns, [['somewhere', 42]]))).toBeNull();
   });
 });
