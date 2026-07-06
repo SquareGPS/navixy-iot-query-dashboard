@@ -10,7 +10,8 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
-import { detectGPSColumns, detectAllGPSColumnPairs, validateGPSData, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { detectAllGPSColumnPairs, detectValidGPSColumns, selectValidGPSPair, toRowObjects, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { applyGeocodedAddresses } from '../utils/geocodeColumns.js';
 import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
@@ -341,17 +342,15 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     const mapConfig = compositeReport.config?.map;
     if (mapConfig?.enabled) {
       if (mapConfig.autoDetect) {
-        const detectedGPS = allGpsPairs.length > 0 ? allGpsPairs[0] : null;
-        if (detectedGPS) {
-          const rowObjects = result.rows.map((row: unknown[]) => {
-            const obj: Record<string, unknown> = {};
-            result.columns.forEach((col, idx) => {
-              obj[col.name] = row[idx];
-            });
-            return obj;
-          });
-
-          if (validateGPSData(rowObjects, detectedGPS)) {
+        if (allGpsPairs.length > 0) {
+          const rowObjects = toRowObjects(columnInfo, result.rows);
+          // Pick the first detected pair that actually carries valid coordinates
+          // rather than blindly using allGpsPairs[0]: a query may expose several
+          // name-matching pairs (e.g. an all-null start_lat/start_lon alongside a
+          // populated lat/lon), and only a populated one should drive the map.
+          // Reuse allGpsPairs (already computed above) instead of re-detecting.
+          const detectedGPS = selectValidGPSPair(allGpsPairs, rowObjects);
+          if (detectedGPS) {
             const labelColumn = suggestLabelColumn(columnInfo);
             gpsInfo = {
               ...detectedGPS,
@@ -456,84 +455,6 @@ router.post('/composite-reports/:id/detect-columns', async (req: Request, res: R
     next(error);
   }
 });
-
-/**
- * Helper function to apply geocoded addresses to data.
- * Supports multiple GPS column pairs — replaces each lat/lon pair with an Address column.
- */
-function applyGeocodedAddresses(
-  columns: { name: string; type: string }[],
-  rows: unknown[][],
-  geocodedAddresses: Record<string, string> | undefined,
-  latColumn: string | undefined,
-  lonColumn: string | undefined,
-  gpsPairs?: Array<{ latColumn: string; lonColumn: string }>
-): { columns: { name: string; type: string }[]; rows: unknown[][] } {
-  if (!geocodedAddresses || Object.keys(geocodedAddresses).length === 0) {
-    return { columns, rows };
-  }
-
-  // Build the list of pairs to process
-  const pairs = gpsPairs && gpsPairs.length > 0
-    ? gpsPairs
-    : (latColumn && lonColumn ? [{ latColumn, lonColumn }] : []);
-
-  if (pairs.length === 0) {
-    return { columns, rows };
-  }
-
-  // Resolve column indices for each pair
-  const resolvedPairs = pairs
-    .map(p => ({
-      latIdx: columns.findIndex(c => c.name === p.latColumn),
-      lonIdx: columns.findIndex(c => c.name === p.lonColumn),
-      latName: p.latColumn,
-    }))
-    .filter(p => p.latIdx !== -1 && p.lonIdx !== -1);
-
-  if (resolvedPairs.length === 0) {
-    return { columns, rows };
-  }
-
-  const latIdxSet = new Set(resolvedPairs.map(p => p.latIdx));
-  const lonIdxSet = new Set(resolvedPairs.map(p => p.lonIdx));
-
-  // Derive a human-readable address column name from the lat column name
-  function addressLabel(latName: string): string {
-    const prefix = latName.replace(/[_]?(lat|latitude|y_coord|y_coordinate|y)$/i, '').replace(/_+$/, '');
-    if (!prefix) return 'Address';
-    return prefix.charAt(0).toUpperCase() + prefix.slice(1) + ' Address';
-  }
-
-  // Build new columns: replace each lat column with Address, remove each lon column
-  const newColumns = columns
-    .map((col, idx) => {
-      const pair = resolvedPairs.find(p => p.latIdx === idx);
-      if (pair) return { name: addressLabel(pair.latName), type: 'text' };
-      if (lonIdxSet.has(idx)) return null;
-      return col;
-    })
-    .filter((col): col is { name: string; type: string } => col !== null);
-
-  // Transform rows
-  const newRows = rows.map(row => {
-    return row
-      .map((cell, idx) => {
-        const pair = resolvedPairs.find(p => p.latIdx === idx);
-        if (pair) {
-          const lat = parseFloat(String(row[pair.latIdx]));
-          const lng = parseFloat(String(row[pair.lonIdx]));
-          const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
-          return geocodedAddresses[key] || `${lat}, ${lng}`;
-        }
-        if (lonIdxSet.has(idx)) return null;
-        return cell;
-      })
-      .filter((_, idx) => !lonIdxSet.has(idx));
-  });
-
-  return { columns: newColumns, rows: newRows };
-}
 
 /**
  * POST /api/composite-reports/:id/export/excel
@@ -737,11 +658,17 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       name: col.name,
       type: col.type,
     }));
-    const gpsColumns = compositeReport.config?.map?.autoDetect 
-      ? detectGPSColumns(columnInfo)
-      : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
-        ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
-        : null;
+    // Only detect GPS columns when a map will actually render — otherwise skip
+    // the full-row toRowObjects/validation scan (the default config has the map
+    // disabled, so a plain data export shouldn't pay for it).
+    const mapWanted = includeMap && compositeReport.config?.map?.enabled;
+    const gpsColumns = !mapWanted
+      ? null
+      : compositeReport.config?.map?.autoDetect
+        ? detectValidGPSColumns(columnInfo, toRowObjects(columnInfo, queryResult.rows))
+        : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
+          ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
+          : null;
 
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
@@ -849,11 +776,17 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       name: col.name,
       type: col.type,
     }));
-    const gpsColumns = compositeReport.config?.map?.autoDetect 
-      ? detectGPSColumns(columnInfo)
-      : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
-        ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
-        : null;
+    // Only detect GPS columns when a map will actually render — otherwise skip
+    // the full-row toRowObjects/validation scan (the default config has the map
+    // disabled, so a plain data export shouldn't pay for it).
+    const mapWanted = includeMap && compositeReport.config?.map?.enabled;
+    const gpsColumns = !mapWanted
+      ? null
+      : compositeReport.config?.map?.autoDetect
+        ? detectValidGPSColumns(columnInfo, toRowObjects(columnInfo, queryResult.rows))
+        : compositeReport.config?.map?.latColumn && compositeReport.config?.map?.lonColumn
+          ? { latColumn: compositeReport.config.map.latColumn, lonColumn: compositeReport.config.map.lonColumn }
+          : null;
 
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();

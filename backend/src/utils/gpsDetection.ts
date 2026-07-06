@@ -67,12 +67,60 @@ const NUMERIC_TYPES = [
   'smallint',
 ];
 
+// Textual PostgreSQL types that may still carry coordinate values. Reports
+// routinely format lat/lon for display — ROUND(lat, 6)::text, to_char(...),
+// or string concatenation — and some drivers surface numeric/decimal columns
+// as strings. Such a column is still a valid coordinate source, so it must not
+// be excluded from detection purely on its declared type (see FR-11283).
+// Matched by substring (see isTextType), so 'text' also covers 'citext' and
+// 'char' also covers 'varchar', 'character', 'character varying', and 'bpchar'.
+const TEXT_TYPES = ['text', 'char'];
+
 /**
  * Check if a column type is numeric (could contain GPS coordinates)
  */
 function isNumericType(type: string): boolean {
   const normalizedType = type.toLowerCase();
   return NUMERIC_TYPES.some(numType => normalizedType.includes(numType));
+}
+
+/**
+ * Check if a column type is textual.
+ */
+function isTextType(type: string): boolean {
+  const normalizedType = type.toLowerCase();
+  return TEXT_TYPES.some(textType => normalizedType.includes(textType));
+}
+
+/**
+ * A column may hold GPS coordinates if it is numeric OR textual. Detection is
+ * driven by the column NAME (lat/lon patterns above) and confirmed by validating
+ * the actual values parse to in-range coordinates (validateGPSData). Admitting
+ * textual columns only stops display-formatted coordinate columns from being
+ * silently dropped; the name patterns and value validation keep it from pairing
+ * ordinary text columns.
+ */
+function isCoordinateCandidateType(type: string): boolean {
+  return isNumericType(type) || isTextType(type);
+}
+
+/**
+ * Parse a coordinate cell to a number. Numbers pass through; strings must be a
+ * plain signed decimal (optionally surrounded by whitespace) — anything else
+ * returns NaN rather than being coerced.
+ *
+ * This is deliberately stricter than parseFloat: the text columns FR-11283 now
+ * admits carry display-formatted values, and parseFloat stops at the first
+ * non-numeric char — '18.36° S' → 18.36 (wrong hemisphere), '55,75' → 55. We
+ * reject those instead of plotting a wrong point; a coordinate column that
+ * validates here holds clean decimals the frontend parses identically.
+ */
+export function parseCoordinate(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (value === null || value === undefined) return NaN;
+  const s = String(value).trim();
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+  return parseFloat(s);
 }
 
 /**
@@ -84,14 +132,17 @@ function matchesPatterns(columnName: string, patterns: string[]): boolean {
   return patterns.some(pattern => {
     // Exact match
     if (normalizedName === pattern) return true;
-    
+
     // Contains pattern with word boundaries (underscore, start/end)
     const regex = new RegExp(`(^|_)${pattern}(_|$)`, 'i');
     if (regex.test(normalizedName)) return true;
-    
-    // Starts or ends with pattern
-    if (normalizedName.startsWith(pattern) || normalizedName.endsWith(pattern)) return true;
-    
+
+    // Loose prefix/suffix match only for multi-char patterns. The single-char
+    // patterns 'x'/'y' would otherwise match any word ending in them
+    // ('summary', 'max', 'boundary') — harmless when only numeric columns were
+    // candidates, but a false-positive source now that text columns are too.
+    if (pattern.length > 1 && (normalizedName.startsWith(pattern) || normalizedName.endsWith(pattern))) return true;
+
     return false;
   });
 }
@@ -127,11 +178,11 @@ function getColumnStem(columnName: string, patterns: string[]): string {
  * E.g. start_lat + start_lon, end_lat + end_lon, lat + lon
  */
 export function detectAllGPSColumnPairs(columns: ColumnInfo[]): GPSColumns[] {
-  const numericColumns = columns.filter(col => isNumericType(col.type));
-  if (numericColumns.length < 2) return [];
+  const candidateColumns = columns.filter(col => isCoordinateCandidateType(col.type));
+  if (candidateColumns.length < 2) return [];
 
-  const latCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LAT_PATTERNS));
-  const lonCols = numericColumns.filter(col => matchesPatterns(col.name, GPS_LON_PATTERNS));
+  const latCols = candidateColumns.filter(col => matchesPatterns(col.name, GPS_LAT_PATTERNS));
+  const lonCols = candidateColumns.filter(col => matchesPatterns(col.name, GPS_LON_PATTERNS));
   if (latCols.length === 0 || lonCols.length === 0) return [];
 
   const pairs: GPSColumns[] = [];
@@ -155,15 +206,6 @@ export function detectAllGPSColumnPairs(columns: ColumnInfo[]): GPSColumns[] {
 }
 
 /**
- * Detect GPS columns from query result columns (first pair only).
- * Kept for backward compatibility.
- */
-export function detectGPSColumns(columns: ColumnInfo[]): GPSColumns | null {
-  const pairs = detectAllGPSColumnPairs(columns);
-  return pairs[0] ?? null;
-}
-
-/**
  * Validate that data rows contain valid GPS coordinates
  * 
  * @param rows - Data rows to validate
@@ -180,9 +222,9 @@ export function validateGPSData(
 
   // Check if at least one row has valid coordinates
   return rows.some(row => {
-    const lat = parseFloat(String(row[gpsColumns.latColumn]));
-    const lon = parseFloat(String(row[gpsColumns.lonColumn]));
-    
+    const lat = parseCoordinate(row[gpsColumns.latColumn]);
+    const lon = parseCoordinate(row[gpsColumns.lonColumn]);
+
     // Valid GPS range: lat -90 to 90, lon -180 to 180
     return (
       !isNaN(lat) &&
@@ -193,6 +235,59 @@ export function validateGPSData(
       lon <= 180
     );
   });
+}
+
+/**
+ * Build row objects keyed by column name from positional (array) result rows.
+ * Value-based GPS validation/extraction needs this shape.
+ */
+export function toRowObjects(
+  columns: ColumnInfo[],
+  rows: unknown[][]
+): Record<string, unknown>[] {
+  return rows.map(row => {
+    const obj: Record<string, unknown> = {};
+    columns.forEach((col, idx) => {
+      const value = row[idx];
+      // Keying by name collapses duplicate column names (e.g. a self-join
+      // selecting two `lat`s). Keep the first populated value so a trailing NULL
+      // duplicate can't shadow real coordinates and blank the map.
+      if (!(col.name in obj) || (obj[col.name] == null && value != null)) {
+        obj[col.name] = value;
+      }
+    });
+    return obj;
+  });
+}
+
+/**
+ * From already-detected pairs, pick the first whose values validate as in-range
+ * coordinates. Picking pairs[0] blindly can select an empty or all-null pair
+ * (e.g. start_lat/start_lon) ahead of a populated one and produce a blank map.
+ *
+ * @returns the first valid pair, or null when none carries valid data
+ */
+export function selectValidGPSPair(
+  pairs: GPSColumns[],
+  rows: Record<string, unknown>[]
+): GPSColumns | null {
+  return pairs.find(pair => validateGPSData(rows, pair)) ?? null;
+}
+
+/**
+ * Detect the coordinate pair that should drive a map: the first name-matched
+ * pair whose values validate as in-range coordinates. Prefer this over
+ * detectAllGPSColumnPairs()[0] wherever real rows are available — it keeps the
+ * live view and the HTML/PDF exports consistent (FR-11283). Callers that already
+ * hold the detected pairs should use selectValidGPSPair to avoid re-detecting.
+ *
+ * @returns the first valid pair, or null when nothing detectable carries valid data
+ */
+export function detectValidGPSColumns(
+  columns: ColumnInfo[],
+  rows: Record<string, unknown>[]
+): GPSColumns | null {
+  return selectValidGPSPair(detectAllGPSColumnPairs(columns), rows);
 }
 
 /**
@@ -211,8 +306,8 @@ export function extractGPSPoints(
   const points: Array<{ lat: number; lon: number; label?: string | undefined; data: Record<string, unknown> }> = [];
 
   for (const row of rows) {
-    const lat = parseFloat(String(row[gpsColumns.latColumn]));
-    const lon = parseFloat(String(row[gpsColumns.lonColumn]));
+    const lat = parseCoordinate(row[gpsColumns.latColumn]);
+    const lon = parseCoordinate(row[gpsColumns.lonColumn]);
 
     // Skip invalid coordinates
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
