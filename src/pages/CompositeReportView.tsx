@@ -42,6 +42,7 @@ import {
 import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { toErrorMeta } from '@/utils/errors';
+import { downloadBlob } from '@/utils/downloadBlob';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1998,15 +1999,4 @@ function formatChartLabel(
     if (formatted) return formatted;
   }
   return String(value);
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }

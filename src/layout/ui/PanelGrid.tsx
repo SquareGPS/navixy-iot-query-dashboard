@@ -86,6 +86,7 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
     return (
       <div
         ref={containerRef}
+        data-panel-grid
         className={`relative w-full ${containerClassName}`}
         style={{ minHeight: '200px' }}
       />
@@ -96,6 +97,7 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
     <DndContext>
       <div
         ref={containerRef}
+        data-panel-grid
         className={`relative w-full ${containerClassName}`}
         style={{ minHeight: canvasHeight }}
       >
