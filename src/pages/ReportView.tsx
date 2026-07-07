@@ -74,6 +74,9 @@ const ReportView = () => {
   const [saving, setSaving] = useState(false);
   const [downloadingSchema, setDownloadingSchema] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  // True while DashboardRenderer is on its initial-load spinner; the export capture
+  // root isn't mounted yet, so the Export PDF button stays disabled until this clears.
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customSchemaUrl, setCustomSchemaUrl] = useState('');
   const [defaultSchemaUrl, setDefaultSchemaUrl] = useState('');
@@ -1335,9 +1338,11 @@ const ReportView = () => {
   const handleExportPdf = async () => {
     const root = dashboardRendererRef.current?.getExportRoot();
     if (!root) {
+      // The button is normally disabled until the grid mounts (see dashboardLoading),
+      // so this is a rare fallback — keep the message honest about the real cause.
       toast({
         title: 'Export unavailable',
-        description: 'Switch to view mode and wait for the dashboard to finish loading before exporting.',
+        description: 'The dashboard is still loading — please try again in a moment.',
         variant: 'destructive',
       });
       return;
@@ -2050,10 +2055,14 @@ const ReportView = () => {
             {dashboard && (dashboard.panels?.length ?? 0) > 0 && !isEditing && (
               <Button
                 onClick={handleExportPdf}
-                disabled={exportingPdf}
+                disabled={exportingPdf || dashboardLoading}
                 variant="outline"
                 size="sm"
-                title="Export the dashboard as a PDF"
+                title={
+                  dashboardLoading
+                    ? 'Waiting for the dashboard to finish loading'
+                    : 'Export the dashboard as a PDF'
+                }
               >
                 {exportingPdf ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -2140,6 +2149,7 @@ const ReportView = () => {
             }}
             onSave={handleSaveDashboard}
             globalVariables={globalVariables}
+            onLoadingChange={setDashboardLoading}
           />
         ) : (
           /* Empty State - Show example schema download option */

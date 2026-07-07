@@ -380,6 +380,15 @@ export function MapPanel({
           scrollWheelZoom={true}
           attributionControl={false}
         >
+          {/*
+            crossOrigin lets the client-side PDF export (modern-screenshot) read the
+            tiles without tainting the canvas. It is safe *because* this URL is hardcoded
+            to OpenStreetMap, which returns `Access-Control-Allow-Origin: *` on every
+            {s} subdomain — so the live map keeps rendering. This is a deliberate coupling:
+            if the tile URL ever becomes configurable or moves to a source without CORS,
+            drop crossOrigin here (it would break the live map for everyone) and instead
+            set it on the cloned tile nodes inside the export util (src/utils/exportDashboardPdf.ts).
+          */}
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             crossOrigin="anonymous"

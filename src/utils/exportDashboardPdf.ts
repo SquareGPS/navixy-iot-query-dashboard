@@ -21,6 +21,8 @@
  * who actually export (they stay out of the main bundle).
  */
 
+import { downloadBlob } from './downloadBlob';
+
 export interface DashboardPdfOptions {
   /** Report page title, printed in the PDF header. */
   title: string;
@@ -53,6 +55,14 @@ const MAX_PANEL_EXPAND = 2200;
 const DISCLAIMER_HEIGHT = 26; // px strip appended to a clipped table panel
 // Ignore sub-pixel / cosmetic overflow so tiles and charts aren't nudged for nothing.
 const MIN_PANEL_OVERFLOW = 4;
+
+// A 1x1 transparent GIF. modern-screenshot inlines every <img>/background-image by
+// fetching it and, when that fetch fails (e.g. a text-panel image from a host with no
+// CORS headers), swaps in this placeholder rather than keeping the original cross-origin
+// src — so a foreign image renders blank instead of tainting the canvas and breaking
+// toDataURL. We pass it explicitly so the behaviour doesn't hinge on the library default.
+const TRANSPARENT_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 /** Turn an arbitrary title into a safe, compact file-name slug. */
 function slugify(input: string, fallback = 'dashboard'): string {
@@ -200,15 +210,16 @@ function measureExpansion(root: HTMLElement): ExpansionPlan {
     const top = parseFloat(el.style.top) || 0;
     const height = parseFloat(el.style.height) || el.getBoundingClientRect().height;
     // Largest vertical overflow among descendants that actually scroll — the real
-    // table/content scroller. Only pay for getComputedStyle on overflowing nodes.
+    // table/content scroller. Test the (cheap) overflow mode first so only the handful
+    // of auto/scroll nodes pay for the scrollHeight/clientHeight layout read, turning
+    // O(total DOM) layout reads into O(scrollers) — typically one per panel.
     let overflow = 0;
     el.querySelectorAll('*').forEach((d) => {
       if (!(d instanceof HTMLElement)) return;
+      const oy = getComputedStyle(d).overflowY;
+      if (oy !== 'auto' && oy !== 'scroll') return;
       const o = d.scrollHeight - d.clientHeight;
-      if (o > overflow) {
-        const oy = getComputedStyle(d).overflowY;
-        if (oy === 'auto' || oy === 'scroll') overflow = o;
-      }
+      if (o > overflow) overflow = o;
     });
     return { top, height, overflow };
   });
@@ -360,7 +371,13 @@ export async function exportDashboardToPdf(
       Math.sqrt(MAX_CANVAS_AREA / (width * plan.captureHeight)),
     );
 
-    canvas = await domToCanvas(clone, { scale, backgroundColor: bgCss });
+    canvas = await domToCanvas(clone, {
+      scale,
+      backgroundColor: bgCss,
+      // Degrade un-fetchable images to a transparent placeholder so one foreign image
+      // in a text/markdown panel can't taint the canvas and abort the whole export.
+      fetch: { placeholderImage: TRANSPARENT_PLACEHOLDER },
+    });
   } finally {
     clone.remove();
   }
@@ -388,6 +405,9 @@ export async function exportDashboardToPdf(
   const slice = document.createElement('canvas');
   const sliceCtx = slice.getContext('2d');
   if (!sliceCtx) throw new Error('Unable to prepare the export canvas.');
+  // The slice width is the source width on every page; assigning canvas.width reallocates
+  // the backing store, so set it once here and only vary height per page below.
+  slice.width = canvas.width;
 
   let srcY = 0;
   let pageIndex = 0;
@@ -405,13 +425,27 @@ export async function exportDashboardToPdf(
     const sliceHpx = useSnap ? snapped - srcY : maxSliceHpx;
     if (sliceHpx <= 0) break;
 
-    slice.width = canvas.width;
+    // Assigning height clears the bitmap and resets the 2d context, so re-apply the fill
+    // each page. Width is fixed above, so its (larger) backing store isn't reallocated.
     slice.height = sliceHpx;
     sliceCtx.fillStyle = bgCss;
     sliceCtx.fillRect(0, 0, slice.width, slice.height);
     sliceCtx.drawImage(canvas, 0, srcY, canvas.width, sliceHpx, 0, 0, canvas.width, sliceHpx);
     // JPEG (high quality) keeps multi-page dashboards to a sane file size vs PNG.
-    const img = slice.toDataURL('image/jpeg', 0.95);
+    let img: string;
+    try {
+      img = slice.toDataURL('image/jpeg', 0.95);
+    } catch {
+      // A cross-origin image without CORS taints the canvas, making toDataURL throw a
+      // SecurityError. modern-screenshot's placeholder swap prevents this for <img> and
+      // CSS backgrounds; this guard covers any residual vector (e.g. an embedded video)
+      // with a clear, actionable message instead of a generic "Export failed". Taint is
+      // all-or-nothing, so no partial PDF is possible — fail fast with guidance.
+      throw new Error(
+        'The dashboard includes an image from another site that blocks embedding, so it ' +
+          'can’t be exported. Host the image on this site or remove it, then try again.',
+      );
+    }
 
     if (!isFirst) pdf.addPage();
     // Fill the page so margins match the dashboard background in both themes.
@@ -431,7 +465,9 @@ export async function exportDashboardToPdf(
     drawFooter(pdf, i, total, options.title, bg);
   }
 
-  pdf.save(`${slugify(options.fileName || options.title)}.pdf`);
+  // Route through the shared download helper (one object-URL lifecycle for every export)
+  // rather than jsPDF's built-in save().
+  downloadBlob(pdf.output('blob'), `${slugify(options.fileName || options.title)}.pdf`);
 }
 
 /** Truncate `text` with an ellipsis so it fits `maxWidth` pt in jsPDF's current font. */

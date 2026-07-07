@@ -67,6 +67,7 @@ import { detectSeriesColumnIndex, seriesDataKey } from '@/lib/chartSeries';
 import { TablePanel } from './TablePanel';
 import { TextPanel } from './visualizations/TextPanel';
 import { MapPanel, GPSPoint } from './visualizations/MapPanel';
+import { LegendColumn } from './visualizations/LegendColumn';
 
 interface DashboardRendererProps {
   dashboard: Dashboard;
@@ -78,6 +79,12 @@ interface DashboardRendererProps {
   onEditPanel?: (panel: Panel) => void;
   onSave?: (dashboard: Dashboard) => Promise<void>;
   globalVariables?: Array<{ label: string; value: string; description?: string }>;
+  /**
+   * Fired whenever the initial-load state settles. `false` means the view-mode grid
+   * (the PDF capture root, see getExportRoot) is mounted; callers gate the Export
+   * button on this so it isn't clickable during the null-root window on first load.
+   */
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 export interface DashboardRendererRef {
@@ -338,24 +345,7 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
       </div>
       {/* Legend on the right — fills the chart height and centers its items so it
           lines up with the donut; scrolls only if there are more items than fit. */ }
-      <div
-        className="flex-1 min-w-0 self-center relative"
-        style={ {
-          minWidth: '200px',
-          maxWidth: 'calc(50% - 1rem)',
-          width: 'fit-content',
-          height: '100%',
-          maxHeight: '100%',
-          boxSizing: 'border-box',
-        } }
-      >
-        <div
-          className="h-full overflow-y-auto overflow-x-hidden flex flex-col"
-          style={ { justifyContent: 'safe center' } }
-        >
-          { renderLegend() }
-        </div>
-      </div>
+      <LegendColumn>{ renderLegend() }</LegendColumn>
     </div>
   );
 };
@@ -370,6 +360,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              onEditPanel,
                                                                                              onSave,
                                                                                              globalVariables = [],
+                                                                                             onLoadingChange,
                                                                                            }, ref) => {
   const { prefs: datetimePrefs } = useDatetimePrefs();
   const [panelData, setPanelData] = useState<PanelData>({});
@@ -389,6 +380,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   useEffect(() => {
     panelDataRef.current = panelData;
   }, [panelData]);
+
+  // Mirror the initial-load spinner condition (see the early return below) so callers
+  // can gate on it. While this is true the grid — and thus getExportRoot() — isn't
+  // mounted yet, so the Export PDF button must stay disabled to avoid a misleading toast.
+  const initialLoading = loading && Object.keys(panelData).length === 0;
+  useEffect(() => {
+    onLoadingChange?.(initialLoading);
+  }, [initialLoading, onLoadingChange]);
 
   // Initialize editor store with dashboard
   const setDashboard = useEditorStore((state) => state.setDashboard);
@@ -1954,7 +1953,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return panelContent;
   };
 
-  if (loading && Object.keys(panelData).length === 0) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin" />

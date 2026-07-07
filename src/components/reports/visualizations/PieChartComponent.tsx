@@ -8,6 +8,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, Sector } fro
 import type { PieVisual } from '@/types/report-schema';
 import { chartColors } from '@/lib/chartColors';
 import { getErrorMessage } from '@/utils/errors';
+import { LegendColumn } from './LegendColumn';
 
 interface PieChartComponentProps {
   visual: PieVisual;
@@ -328,30 +329,15 @@ export function PieChartComponent({ visual, title, editMode, onEdit }: PieChartC
                 )}
               </div>
               {showLegend && legendPosition === 'right' && (
-                <div
-                  className="flex-1 min-w-0 self-center relative"
-                  style={{
-                    minWidth: '200px',
-                    maxWidth: 'calc(50% - 1rem)',
-                    width: 'fit-content',
-                    height: '100%',
-                    maxHeight: '100%',
-                    boxSizing: 'border-box'
-                  }}
-                >
-                  <div
-                    className="h-full overflow-y-auto overflow-x-hidden flex flex-col"
-                    style={{ justifyContent: 'safe center' }}
-                  >
-                    {renderCustomLegend({ payload: data.map((entry, index) => ({
-                      value: entry.value,
-                      name: entry.name,
-                      color: entry.name === 'Other' 
-                        ? chartColors.neutral 
-                        : colors[index % colors.length],
-                    })) })}
-                  </div>
-                </div>
+                <LegendColumn>
+                  {renderCustomLegend({ payload: data.map((entry, index) => ({
+                    value: entry.value,
+                    name: entry.name,
+                    color: entry.name === 'Other'
+                      ? chartColors.neutral
+                      : colors[index % colors.length],
+                  })) })}
+                </LegendColumn>
               )}
               {showLegend && legendPosition !== 'right' && legendPosition !== 'none' && (
                 <Legend 
