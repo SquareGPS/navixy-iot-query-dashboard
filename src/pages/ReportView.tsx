@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import type { ReportApiData } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -24,6 +25,7 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2, FileDown, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { menuQueryKeys } from '@/hooks/use-menu-mutations';
 import { exportDashboardToPdf } from '@/utils/exportDashboardPdf';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
 import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow, normalizeToDashboard } from '@/types/schema-conversions';
@@ -57,6 +59,8 @@ function withSkippedAutoSave<T>(fn: () => T): T {
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, loading: authLoading } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
@@ -857,9 +861,29 @@ const ReportView = () => {
         title: 'Success',
         description: 'Dashboard deleted successfully',
       });
-      
-      // Navigate back to the reports list
-      window.location.href = '/app';
+
+      // Leave edit mode explicitly before navigating. Deletion is only reachable
+      // from edit mode, so isEditing/isEditingLayout are still true here; clearing
+      // them (and the window flag the sidebar reads) keeps no stale editing state
+      // from surviving the client-side transition into the next report opened.
+      // Suppress the Canvas exit-time auto-save while doing so: the report is
+      // already gone, so a re-persist would fail with "Report not found".
+      withSkippedAutoSave(() => {
+        useEditorStore.getState().setIsEditingLayout(false);
+      });
+      (window as { __reportEditingState?: boolean }).__reportEditingState = false;
+
+      // The old full-page reload refetched the menu for free; a client-side
+      // transition does not, so drop the deleted report from the cached menu
+      // tree to keep the sidebar in sync.
+      queryClient.invalidateQueries({ queryKey: menuQueryKeys.all });
+
+      // Navigate back to the reports list via the router instead of
+      // window.location.href. A hard navigation tore down and reloaded the whole
+      // document, blanking the screen to black on the way out (DO-300); a
+      // client-side transition avoids that flash. replace: true drops the
+      // now-deleted report's URL from history so Back can't return to it.
+      navigate('/app', { replace: true });
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error deleting report:', error);
