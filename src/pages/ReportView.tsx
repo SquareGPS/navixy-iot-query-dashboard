@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import type { ReportApiData } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2, FileDown, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { useDeleteReportMutation } from '@/hooks/use-menu-mutations';
 import { exportDashboardToPdf } from '@/utils/exportDashboardPdf';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
 import { asDashboard, asRawReportSchema, asReportSchema, asSchemaRow, normalizeToDashboard } from '@/types/schema-conversions';
@@ -57,6 +58,8 @@ function withSkippedAutoSave<T>(fn: () => T): T {
 
 const ReportView = () => {
   const { reportId } = useParams<{ reportId: string }>();
+  const navigate = useNavigate();
+  const deleteReportMutation = useDeleteReportMutation();
   const { user, loading: authLoading } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null);
@@ -847,27 +850,33 @@ const ReportView = () => {
     
     setDeleting(true);
     try {
-      const response = await apiService.deleteReport(reportId);
-      
-      if (response.error) {
-        throw new Error(response.error.message || 'Failed to delete dashboard');
-      }
-      
-      toast({
-        title: 'Success',
-        description: 'Dashboard deleted successfully',
+      // Delete + menu-tree invalidation (sidebar refresh) + success/error toasts all
+      // live in the shared useDeleteReportMutation, which the menu-based delete uses
+      // too. Reuse it so the two delete paths can't drift; this handler only owns the
+      // edit-mode teardown and the client-side navigation.
+      await deleteReportMutation.mutateAsync(reportId);
+
+      // Leave edit mode before navigating. Deletion is only reachable from edit
+      // mode, so the store's isEditingLayout and the window flag the sidebar reads
+      // are still set; clear both so no stale editing state survives the client-side
+      // transition into the next report opened. (Local `isEditing` needs no reset —
+      // it dies with the component on unmount.) Suppress the Canvas exit-time
+      // auto-save while clearing isEditingLayout: the report is already gone, so a
+      // re-persist would fail with "Report not found".
+      withSkippedAutoSave(() => {
+        useEditorStore.getState().setIsEditingLayout(false);
       });
-      
-      // Navigate back to the reports list
-      window.location.href = '/app';
+      (window as { __reportEditingState?: boolean }).__reportEditingState = false;
+
+      // Navigate back to the reports list via the router instead of
+      // window.location.href. A hard navigation tore down and reloaded the whole
+      // document, blanking the screen to black on the way out (DO-300); a
+      // client-side transition avoids that flash. replace: true drops the
+      // now-deleted report's URL from history so Back can't return to it.
+      navigate('/app', { replace: true });
     } catch (rawErr: unknown) {
-      const error = toErrorMeta(rawErr);
-      console.error('Error deleting report:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete dashboard',
-        variant: 'destructive',
-      });
+      // useDeleteReportMutation already surfaces the error toast; keep a breadcrumb.
+      console.error('Error deleting report:', toErrorMeta(rawErr));
     } finally {
       setDeleting(false);
       setShowDeleteDialog(false);

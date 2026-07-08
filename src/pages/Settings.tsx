@@ -247,7 +247,10 @@ const Settings = () => {
         toast.error(error.message || 'Failed to reset demo data');
       } else {
         toast.success('Demo data has been reset to original templates');
-        // Reload the page to reflect changes
+        // A full reload is intentional here: reseedDemoData() has rebuilt IndexedDB
+        // from scratch, so remounting the whole app against the fresh data is the
+        // point — not the DO-300 navigation flash. Opt out of the location guard.
+        // eslint-disable-next-line no-restricted-syntax
         window.location.reload();
       }
     } catch (rawErr: unknown) {
