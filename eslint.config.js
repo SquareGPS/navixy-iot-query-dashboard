@@ -24,10 +24,12 @@ export default tseslint.config(
     },
   },
   {
-    // Guard the DO-300 fix: assigning `<x>.location.href` triggers a full-document
-    // reload, which flashes the screen black during the blank swap. This is a SPA —
-    // navigate away with React Router's navigate() instead. Scoped to the frontend
-    // (the backend has no `window`/`location`).
+    // Guard the DO-300 fix: reloading the document flashes the screen black during
+    // the blank swap. In this SPA, navigate with React Router's navigate() instead.
+    // Covers the whole family — assigning `<x>.location.href` and calling
+    // `<x>.location.assign/replace/reload(...)`. If a full reload is genuinely
+    // intended (e.g. after wiping local state), opt in with an eslint-disable + reason.
+    // Scoped to the frontend (the backend has no `window`/`location`).
     files: ["src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
@@ -37,6 +39,12 @@ export default tseslint.config(
             "AssignmentExpression[left.type='MemberExpression'][left.property.name='href'][left.object.type='MemberExpression'][left.object.property.name='location']",
           message:
             "Assigning location.href triggers a full-page reload (black-screen flash — see DO-300). Use React Router's navigate() instead.",
+        },
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(assign|replace|reload)$/][callee.object.type='MemberExpression'][callee.object.property.name='location']",
+          message:
+            "location.assign()/replace()/reload() reloads the whole document (black-screen flash — see DO-300). Use React Router's navigate() instead; if a full reload is truly intended, add an eslint-disable with a reason.",
         },
       ],
     },
