@@ -24,6 +24,24 @@ export default tseslint.config(
     },
   },
   {
+    // Guard the DO-300 fix: assigning `<x>.location.href` triggers a full-document
+    // reload, which flashes the screen black during the blank swap. This is a SPA —
+    // navigate away with React Router's navigate() instead. Scoped to the frontend
+    // (the backend has no `window`/`location`).
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "AssignmentExpression[left.type='MemberExpression'][left.property.name='href'][left.object.type='MemberExpression'][left.object.property.name='location']",
+          message:
+            "Assigning location.href triggers a full-page reload (black-screen flash — see DO-300). Use React Router's navigate() instead.",
+        },
+      ],
+    },
+  },
+  {
     // Backend is a Node.js Express service, not a browser bundle.
     files: ["backend/**/*.ts"],
     languageOptions: {

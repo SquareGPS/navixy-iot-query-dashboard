@@ -862,12 +862,13 @@ const ReportView = () => {
         description: 'Dashboard deleted successfully',
       });
 
-      // Leave edit mode explicitly before navigating. Deletion is only reachable
-      // from edit mode, so isEditing/isEditingLayout are still true here; clearing
-      // them (and the window flag the sidebar reads) keeps no stale editing state
-      // from surviving the client-side transition into the next report opened.
-      // Suppress the Canvas exit-time auto-save while doing so: the report is
-      // already gone, so a re-persist would fail with "Report not found".
+      // Leave edit mode before navigating. Deletion is only reachable from edit
+      // mode, so the store's isEditingLayout and the window flag the sidebar reads
+      // are still set; clear both so no stale editing state survives the client-side
+      // transition into the next report opened. (Local `isEditing` needs no reset —
+      // it dies with the component on unmount.) Suppress the Canvas exit-time
+      // auto-save while clearing isEditingLayout: the report is already gone, so a
+      // re-persist would fail with "Report not found".
       withSkippedAutoSave(() => {
         useEditorStore.getState().setIsEditingLayout(false);
       });
