@@ -1833,8 +1833,15 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     const isTablePanel = panel.type === 'table';
 
+    // modal={false} keeps this menu out of Radix's modal path, which otherwise mounts
+    // react-remove-scroll and locks the document scroll on open. On a scrollable report
+    // page with classic (non-overlay) scrollbars, that lock removes the scrollbar without
+    // fully compensating (the app's `body { width: 100% }` defeats the margin comp, and
+    // fixed elements like the `body::after` gradient aren't compensated at all), so the
+    // whole page shifts ~15px on every open/close — the "blink" from FR-11275. A small
+    // export menu needs neither a focus trap nor a scroll lock, so non-modal is correct.
     return (
-      <DropdownMenu>
+      <DropdownMenu modal={ false }>
         <DropdownMenuTrigger asChild>
           <button
             className="p-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-md shadow-sm hover:bg-muted transition-all opacity-0 group-hover:opacity-100"
