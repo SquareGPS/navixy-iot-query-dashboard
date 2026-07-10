@@ -457,9 +457,16 @@ export function cmdAddPanel(spec: {
 
   // Snapshot for undo before any geometry mutation (see cloneDashboard).
   const currentDashboard = cloneDashboard(store.dashboard);
+  // placeNewPanel assigns nextId(store.dashboard) internally; capture the same id up
+  // front (nextId is read-only, so it matches the id the new panel actually gets) so
+  // we can select it below.
+  const newId = nextId(store.dashboard);
   const newDashboard = placeNewPanel(store.dashboard, spec);
-  
+
   store.commit(newDashboard, currentDashboard);
+
+  // Select the new widget so it is active immediately after creation (DO-304).
+  store.setSelectedPanel(newId);
 }
 
 /**
@@ -573,6 +580,9 @@ export function cmdDuplicatePanel(panelId: string | number): void {
   }
 
   store.commit(newDashboard, currentDashboard);
+
+  // Select the duplicate so the newly created panel is active (DO-304).
+  store.setSelectedPanel(newId);
 }
 
 /**
@@ -616,6 +626,9 @@ export function cmdAddPresetPanel(
   }
 
   store.commit(newDashboard, previousDashboard);
+
+  // Select the dropped panel so it is active immediately after creation (DO-304).
+  store.setSelectedPanel(newId);
 }
 
 /**

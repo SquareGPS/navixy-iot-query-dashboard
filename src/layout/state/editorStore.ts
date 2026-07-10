@@ -6,6 +6,21 @@
 import { create } from 'zustand';
 import type { Dashboard } from '@/types/dashboard-types';
 import { isRowPanel, toggleRowCollapsed } from '../geometry/rows';
+import { idEq } from '../geometry/idUtils';
+
+/**
+ * Whether a panel id still resolves to a panel in this dashboard (top-level or nested
+ * inside a row). Used by undo/redo to drop a selection the restored layout no longer
+ * contains — e.g. undoing an add deselects the panel it just removed — so
+ * selectedPanelId never dangles (DO-304 review follow-up).
+ */
+function dashboardHasPanel(dashboard: Dashboard, id: string | number): boolean {
+  return dashboard.panels.some(
+    (panel) =>
+      idEq(panel.id, id) ||
+      (isRowPanel(panel) ? (panel.panels?.some((child) => idEq(child.id, id)) ?? false) : false)
+  );
+}
 
 export interface EditorState {
   dashboard: Dashboard | null;
@@ -161,6 +176,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       dashboard: previousDashboard,
       undoStack: newUndoStack,
       redoStack: newRedoStack,
+      // Drop a selection the reverted layout no longer contains so selectedPanelId
+      // never points at a removed panel (DO-304 review follow-up).
+      selectedPanelId:
+        state.selectedPanelId !== null && !dashboardHasPanel(previousDashboard, state.selectedPanelId)
+          ? null
+          : state.selectedPanelId,
     });
   },
 
@@ -178,6 +199,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       dashboard: nextDashboard,
       undoStack: newUndoStack,
       redoStack: newRedoStack,
+      // Symmetric with undo: drop a selection the redone layout no longer contains.
+      selectedPanelId:
+        state.selectedPanelId !== null && !dashboardHasPanel(nextDashboard, state.selectedPanelId)
+          ? null
+          : state.selectedPanelId,
     });
   },
 
