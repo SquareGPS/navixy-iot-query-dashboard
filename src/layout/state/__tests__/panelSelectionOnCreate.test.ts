@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { cmdAddPanel, cmdAddPresetPanel, cmdDuplicatePanel } from '../commands';
+import { cmdAddPanel, cmdAddPresetPanel, cmdDuplicatePanel, cmdMovePanel } from '../commands';
 import { useEditorStore } from '../editorStore';
 import type { Panel } from '@/types/dashboard-types';
 import type { ChartPresetPanel } from '@/types/chart-catalog';
@@ -74,5 +74,53 @@ describe('a newly created panel is auto-selected (DO-304)', () => {
 
     const id = selectedId();
     expect(panels().some((p) => p.id === id)).toBe(true);
+  });
+});
+
+// MR !44 review follow-up: because a created panel is now auto-selected, undoing the
+// add would otherwise leave selectedPanelId pointing at a panel that no longer exists.
+// undo/redo drop a selection the restored layout doesn't contain, so the id never
+// dangles — while a still-present selection is preserved.
+describe('undo/redo drop a selection the restored layout no longer contains (DO-304 follow-up)', () => {
+  beforeEach(() => {
+    useEditorStore.getState().reset();
+  });
+
+  it('undoing an add clears the selection that add set', () => {
+    loadDashboard([]);
+    cmdAddPanel({ type: 'stat', target: 'top', hint: { position: { x: 0, y: 0 } } });
+    expect(selectedId()).not.toBeNull();
+
+    useEditorStore.getState().undo();
+
+    expect(panels().length).toBe(0);
+    expect(selectedId()).toBeNull();
+  });
+
+  it('undo preserves a selection that still exists in the restored layout', () => {
+    loadDashboard([{ id: 'p1', type: 'text', title: 'p1', gridPos: { x: 0, y: 0, w: 6, h: 4 } }]);
+    useEditorStore.getState().setSelectedPanel('p1');
+
+    cmdMovePanel('p1', 2, 0); // an undoable edit that doesn't touch selection
+    useEditorStore.getState().undo();
+
+    expect(panels().some((p) => p.id === 'p1')).toBe(true);
+    expect(selectedId()).toBe('p1');
+  });
+
+  it('after add → undo → redo the selection never points at a removed panel', () => {
+    loadDashboard([]);
+    cmdAddPanel({ type: 'table', target: 'top', hint: { position: { x: 0, y: 0 } } });
+
+    useEditorStore.getState().undo();
+    expect(selectedId()).toBeNull();
+
+    useEditorStore.getState().redo();
+
+    // The panel is restored; the invariant is that selectedPanelId is either null or
+    // resolves to a present panel — never a dangling id.
+    expect(panels().length).toBe(1);
+    const id = selectedId();
+    expect(id === null || panels().some((p) => p.id === id)).toBe(true);
   });
 });
