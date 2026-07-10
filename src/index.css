@@ -19,17 +19,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Sanity proof - temporary gradient overlay */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background: var(--bg-gradient);
-  opacity: 0.6;
-}
-
 /* Perfect header/sidebar alignment */
 header {
   /* Ensure crisp rendering */
