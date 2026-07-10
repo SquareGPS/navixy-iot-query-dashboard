@@ -10,7 +10,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { CustomError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
-import { detectAllGPSColumnPairs, detectValidGPSColumns, selectValidGPSPair, toRowObjects, extractGPSPoints, suggestLabelColumn, type ColumnInfo } from '../utils/gpsDetection.js';
+import { detectAllGPSColumnPairs, detectValidGPSColumns, selectValidGPSPair, toRowObjects, extractGPSPoints, suggestLabelColumn, isDisplayableCoordinate, type ColumnInfo } from '../utils/gpsDetection.js';
 import { applyGeocodedAddresses } from '../utils/geocodeColumns.js';
 import { toErrorMeta } from '../utils/errors.js';
 
@@ -856,6 +856,13 @@ router.post('/composite-reports/geocode', async (req: Request, res: Response, ne
       throw new CustomError('Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180', 400);
     }
 
+    // (0,0) is the no-fix sentinel, not a geocodable place — return no address
+    // gracefully (as the batch endpoint does) rather than calling the geocoder.
+    if (!isDisplayableCoordinate(lat, lng)) {
+      res.json({ success: true, address: null, cached: false });
+      return;
+    }
+
     // Check Redis cache first
     const cacheKey = getGeocodeCacheKey(lat, lng);
     const redisService = (await import('../services/redis.js')).RedisService.getInstance();
@@ -1039,7 +1046,10 @@ router.post('/composite-reports/geocode-batch', async (req: Request, res: Respon
     for (const coord of coordinates) {
       const { lat, lng } = coord;
 
-      if (typeof lat !== 'number' || typeof lng !== 'number' || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      // Reject non-numbers, out-of-range, and the (0,0) no-fix sentinel — all
+      // resolve to a null address so the batch stays graceful and null island
+      // never reaches the geocoder.
+      if (!isDisplayableCoordinate(lat, lng)) {
         promises.push(Promise.resolve({ lat, lng, address: null, cached: false }));
         continue;
       }

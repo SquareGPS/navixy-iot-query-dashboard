@@ -7,7 +7,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { isDisplayableCoord } from '@/utils/gps';
+import { isDisplayableCoordinate } from '@/utils/gps';
 
 const dotMarkerIcon = L.divIcon({
   className: 'map-dot-marker',
@@ -303,10 +303,10 @@ export function MapPanel({
 }: MapPanelProps) {
   const mapRef = useRef<L.Map>(null);
 
-  // Filter and validate GPS points. isDisplayableCoord also drops the (0,0)
+  // Filter and validate GPS points. isDisplayableCoordinate also drops the (0,0)
   // null-island sentinel so a no-fix row can't stretch the fit bounds (FR-11283).
   const validPoints = useMemo(() => {
-    return points.filter(p => isDisplayableCoord(p.lat, p.lon));
+    return points.filter(p => isDisplayableCoordinate(p.lat, p.lon));
   }, [points]);
 
   // Calculate center point

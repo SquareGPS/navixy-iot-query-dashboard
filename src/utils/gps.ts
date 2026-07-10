@@ -12,7 +12,7 @@
  * kept. Frontend and backend keep identical copies of this predicate so the live
  * view and the HTML/PDF exports frame the same points.
  */
-export function isDisplayableCoord(lat: number, lon: number): boolean {
+export function isDisplayableCoordinate(lat: number, lon: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
   if (lat === 0 && lon === 0) return false;

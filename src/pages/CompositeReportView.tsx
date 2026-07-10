@@ -43,7 +43,7 @@ import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { toErrorMeta } from '@/utils/errors';
 import { downloadBlob } from '@/utils/downloadBlob';
-import { isDisplayableCoord } from '@/utils/gps';
+import { isDisplayableCoordinate } from '@/utils/gps';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -381,7 +381,7 @@ export default function CompositeReportView() {
       .filter(row => {
         const lat = parseFloat(String(row[latColumn]));
         const lon = parseFloat(String(row[lonColumn]));
-        return isDisplayableCoord(lat, lon);
+        return isDisplayableCoordinate(lat, lon);
       })
       .map(row => ({
         lat: parseFloat(String(row[latColumn])),
@@ -406,7 +406,7 @@ export default function CompositeReportView() {
       for (const row of rowObjects) {
         const lat = parseFloat(String(row[pair.latColumn]));
         const lng = parseFloat(String(row[pair.lonColumn]));
-        if (isDisplayableCoord(lat, lng)) {
+        if (isDisplayableCoordinate(lat, lng)) {
           seen.add(`${lat.toFixed(6)},${lng.toFixed(6)}`);
         }
       }
@@ -431,7 +431,7 @@ export default function CompositeReportView() {
           const lat = parseFloat(String(row[pair.latColumn]));
           const lng = parseFloat(String(row[pair.lonColumn]));
 
-          if (isDisplayableCoord(lat, lng)) {
+          if (isDisplayableCoordinate(lat, lng)) {
             const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
             if (!geocodedAddresses.has(key) && !seen.has(key)) {
               seen.add(key);

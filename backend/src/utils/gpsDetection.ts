@@ -130,8 +130,9 @@ export function parseCoordinate(value: unknown): number {
  * the exact (0, 0) "null island" sentinel that IoT devices emit when they have no
  * GPS fix — including those points blows out the map's fitBounds so the real
  * markers can't be framed (FR-11283). A point on a single zero axis (equator or
- * prime meridian) is a real location and is kept. Mirrors the frontend
- * `isDisplayableCoord` in src/utils/gps.ts so the live view and exports agree.
+ * prime meridian) is a real location and is kept. Identical twin of the
+ * frontend `isDisplayableCoordinate` in src/utils/gps.ts (no shared FE/BE
+ * module) so the live view and the HTML/PDF exports frame the same points.
  */
 export function isDisplayableCoordinate(lat: number, lon: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
