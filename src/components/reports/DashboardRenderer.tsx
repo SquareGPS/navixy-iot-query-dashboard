@@ -31,6 +31,7 @@ import { asDashboard } from '@/types/schema-conversions';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
+import { isDisplayableCoord } from '@/utils/gps';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
@@ -1642,7 +1643,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       .filter(row => {
         const lat = parseFloat(String(row[latIdx]));
         const lon = parseFloat(String(row[lonIdx]));
-        return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+        return isDisplayableCoord(lat, lon);
       })
       .map(row => {
         // Build data object from all columns
@@ -1697,7 +1698,6 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         height="100%"
         className="h-full"
         showLocationCount={ false }
-        zoomAfterFit={ false }
       />
     );
   };

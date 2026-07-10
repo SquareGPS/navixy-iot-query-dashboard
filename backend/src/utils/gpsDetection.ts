@@ -124,6 +124,23 @@ export function parseCoordinate(value: unknown): number {
 }
 
 /**
+ * Whether a parsed coordinate pair should be plotted / geocoded.
+ *
+ * Both values must be finite and inside the WGS84 range, and the pair must not be
+ * the exact (0, 0) "null island" sentinel that IoT devices emit when they have no
+ * GPS fix — including those points blows out the map's fitBounds so the real
+ * markers can't be framed (FR-11283). A point on a single zero axis (equator or
+ * prime meridian) is a real location and is kept. Mirrors the frontend
+ * `isDisplayableCoord` in src/utils/gps.ts so the live view and exports agree.
+ */
+export function isDisplayableCoordinate(lat: number, lon: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+  if (lat === 0 && lon === 0) return false;
+  return true;
+}
+
+/**
  * Check if a column name matches any of the given patterns
  */
 function matchesPatterns(columnName: string, patterns: string[]): boolean {
@@ -224,16 +241,7 @@ export function validateGPSData(
   return rows.some(row => {
     const lat = parseCoordinate(row[gpsColumns.latColumn]);
     const lon = parseCoordinate(row[gpsColumns.lonColumn]);
-
-    // Valid GPS range: lat -90 to 90, lon -180 to 180
-    return (
-      !isNaN(lat) &&
-      !isNaN(lon) &&
-      lat >= -90 &&
-      lat <= 90 &&
-      lon >= -180 &&
-      lon <= 180
-    );
+    return isDisplayableCoordinate(lat, lon);
   });
 }
 
@@ -309,8 +317,8 @@ export function extractGPSPoints(
     const lat = parseCoordinate(row[gpsColumns.latColumn]);
     const lon = parseCoordinate(row[gpsColumns.lonColumn]);
 
-    // Skip invalid coordinates
-    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    // Skip invalid coordinates (out of range, unparseable, or the (0,0) sentinel)
+    if (!isDisplayableCoordinate(lat, lon)) {
       continue;
     }
 

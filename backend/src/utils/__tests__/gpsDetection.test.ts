@@ -7,6 +7,7 @@ import {
   validateGPSData,
   extractGPSPoints,
   parseCoordinate,
+  isDisplayableCoordinate,
   type ColumnInfo,
 } from '../gpsDetection.js';
 
@@ -189,6 +190,26 @@ describe('validateGPSData', () => {
   it('rejects empty data', () => {
     expect(validateGPSData([], gps)).toBe(false);
   });
+
+  // No-fix IoT rows report (0,0). Treating them as valid stretched the map's
+  // fit bounds out to the Gulf of Guinea so the real markers weren't framed
+  // (FR-11283). A pair whose only "valid" rows are (0,0) must not validate.
+  it('rejects the (0,0) null-island sentinel', () => {
+    expect(validateGPSData([{ latitude: '0', longitude: '0' }], gps)).toBe(false);
+    expect(validateGPSData([{ latitude: 0, longitude: 0 }], gps)).toBe(false);
+  });
+
+  it('still validates when real rows sit alongside (0,0) rows', () => {
+    expect(
+      validateGPSData(
+        [
+          { latitude: 0, longitude: 0 },
+          { latitude: 47.53, longitude: 34.9 },
+        ],
+        gps,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('extractGPSPoints', () => {
@@ -200,6 +221,38 @@ describe('extractGPSPoints', () => {
     const points = extractGPSPoints(rows, { latColumn: 'latitude', lonColumn: 'longitude' }, 'vehicle');
     expect(points).toHaveLength(1);
     expect(points[0]).toMatchObject({ lat: -18.368642, lon: 26.476326, label: 'Truck 2' });
+  });
+
+  it('drops (0,0) no-fix rows but keeps real ones', () => {
+    const rows = [
+      { latitude: '0', longitude: '0', vehicle: 'No fix' },       // dropped
+      { latitude: '47.53', longitude: '34.9', vehicle: 'Truck 2' },
+    ];
+    const points = extractGPSPoints(rows, { latColumn: 'latitude', lonColumn: 'longitude' }, 'vehicle');
+    expect(points).toHaveLength(1);
+    expect(points[0]).toMatchObject({ lat: 47.53, lon: 34.9, label: 'Truck 2' });
+  });
+});
+
+describe('isDisplayableCoordinate', () => {
+  it('accepts a normal in-range coordinate', () => {
+    expect(isDisplayableCoordinate(47.53, 34.9)).toBe(true);
+  });
+
+  it('rejects the (0,0) null-island sentinel', () => {
+    expect(isDisplayableCoordinate(0, 0)).toBe(false);
+  });
+
+  it('keeps real points that sit on a single zero axis', () => {
+    expect(isDisplayableCoordinate(51.5, 0)).toBe(true); // prime meridian (London)
+    expect(isDisplayableCoordinate(0, 42)).toBe(true);   // equator
+  });
+
+  it('rejects out-of-range and non-finite values', () => {
+    expect(isDisplayableCoordinate(91, 0)).toBe(false);
+    expect(isDisplayableCoordinate(10, 181)).toBe(false);
+    expect(isDisplayableCoordinate(NaN, 10)).toBe(false);
+    expect(isDisplayableCoordinate(10, Infinity)).toBe(false);
   });
 });
 
