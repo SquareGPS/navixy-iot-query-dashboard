@@ -365,6 +365,7 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
 
   const createReportMutation = useCreateReportMutation();
   const { data: menuTree } = useMenuTree();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -424,16 +425,21 @@ export function CreateReportModal({ isOpen, onClose }: CreateReportModalProps) {
         }
       };
 
-      await createReportMutation.mutateAsync({
+      const createdReport = await createReportMutation.mutateAsync({
         title: title.trim(),
         section_id: parentSectionId,
         sort_order: sortOrder,
         report_schema: reportSchema,
       });
-      
+
       setTitle('');
       setParentSectionId(null);
       onClose();
+
+      // Open the newly created dashboard so the user lands on it (DO-303).
+      if (createdReport?.id) {
+        navigate(`/app/report/${createdReport.id}`);
+      }
     } catch (error) {
       // Error is handled by the mutation
     } finally {
