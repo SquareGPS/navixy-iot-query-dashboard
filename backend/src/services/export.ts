@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs';
 import type { Writable } from 'stream';
 import { logger } from '../utils/logger.js';
 import { isTimestampLikeValue, parseTimestampValue } from '../utils/datetime.js';
+import { isDisplayableCoordinate } from '../utils/gpsDetection.js';
 import type { DateFormat, TimeFormat } from './userPreferences.js';
 
 export interface ExportColumn {
@@ -1290,12 +1291,13 @@ export class ExportService {
     gpsColumns: { latColumn: string; lonColumn: string },
     mapSettings?: { center: [number, number]; zoom: number }
   ): string {
-    // Extract valid GPS points
+    // Extract valid GPS points. The (0,0) null-island filter keeps the export's
+    // fitBounds framed on the same real markers the live map shows (FR-11283).
     const points = rows
       .filter(row => {
         const lat = parseFloat(String(row[gpsColumns.latColumn]));
         const lon = parseFloat(String(row[gpsColumns.lonColumn]));
-        return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+        return isDisplayableCoordinate(lat, lon);
       })
       .slice(0, 500) // Limit markers for performance
       .map(row => ({

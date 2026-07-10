@@ -43,6 +43,7 @@ import { Save, Play, Circle, FileText, Lock, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { toErrorMeta } from '@/utils/errors';
 import { downloadBlob } from '@/utils/downloadBlob';
+import { isDisplayableCoordinate } from '@/utils/gps';
 import { apiService } from '@/services/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -380,7 +381,7 @@ export default function CompositeReportView() {
       .filter(row => {
         const lat = parseFloat(String(row[latColumn]));
         const lon = parseFloat(String(row[lonColumn]));
-        return !isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+        return isDisplayableCoordinate(lat, lon);
       })
       .map(row => ({
         lat: parseFloat(String(row[latColumn])),
@@ -405,7 +406,7 @@ export default function CompositeReportView() {
       for (const row of rowObjects) {
         const lat = parseFloat(String(row[pair.latColumn]));
         const lng = parseFloat(String(row[pair.lonColumn]));
-        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        if (isDisplayableCoordinate(lat, lng)) {
           seen.add(`${lat.toFixed(6)},${lng.toFixed(6)}`);
         }
       }
@@ -430,7 +431,7 @@ export default function CompositeReportView() {
           const lat = parseFloat(String(row[pair.latColumn]));
           const lng = parseFloat(String(row[pair.lonColumn]));
 
-          if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          if (isDisplayableCoordinate(lat, lng)) {
             const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
             if (!geocodedAddresses.has(key) && !seen.has(key)) {
               seen.add(key);
@@ -1904,8 +1905,11 @@ export default function CompositeReportView() {
             </section>
           )}
 
-          {/* No Map Data Notice */}
-          {report.config.map.enabled && gpsPoints.length === 0 && execution.data.gps === null && (
+          {/* No Map Data Notice — also covers the case where a pair was detected
+              but every row was filtered out (out of range or the (0,0) sentinel),
+              so the map section never silently disappears. The message reflects
+              which of the two cases it is, rather than always claiming no columns. */}
+          {report.config.map.enabled && gpsPoints.length === 0 && (
             <section>
               <Card>
                 <CardHeader className="pb-3">
@@ -1916,7 +1920,11 @@ export default function CompositeReportView() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-center py-8 text-muted-foreground">
-                    <p>No GPS coordinates detected in query results</p>
+                    <p>
+                      {execution.data.gps
+                        ? 'GPS columns were detected, but no rows contain a usable location (no GPS fix)'
+                        : 'No GPS coordinates detected in query results'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

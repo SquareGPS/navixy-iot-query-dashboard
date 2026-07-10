@@ -7,6 +7,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { isDisplayableCoordinate } from '@/utils/gps';
 
 const dotMarkerIcon = L.divIcon({
   className: 'map-dot-marker',
@@ -44,14 +45,12 @@ export interface MapPanelProps {
   onViewChange?: (viewState: MapViewState) => void;
   /** Show location count footer (default: true) */
   showLocationCount?: boolean;
-  /** Zoom in one level after fitting bounds (default: true) */
-  zoomAfterFit?: boolean;
 }
 
 /**
  * Component to fit map bounds to all markers
  */
-function FitBounds({ points, zoomAfterFit = true }: { points: GPSPoint[]; zoomAfterFit?: boolean }) {
+function FitBounds({ points }: { points: GPSPoint[] }) {
   const map = useMap();
 
   useEffect(() => {
@@ -64,20 +63,13 @@ function FitBounds({ points, zoomAfterFit = true }: { points: GPSPoint[]; zoomAf
       const bounds = L.latLngBounds(
         points.map(p => [p.lat, p.lon] as [number, number])
       );
-      // First fit bounds to calculate optimal zoom
-      map.fitBounds(bounds, { 
+      // Frame every marker with a little padding — and stop there. Nudging the
+      // zoom in afterwards re-hides the edge markers this is meant to reveal.
+      map.fitBounds(bounds, {
         padding: [50, 50]
       });
-      // Optionally zoom in one level closer
-      if (zoomAfterFit) {
-        setTimeout(() => {
-          const fitZoom = map.getZoom();
-          const targetZoom = Math.min(fitZoom + 1, 18); // FitBounds + 1, max 18
-          map.setZoom(targetZoom);
-        }, 100);
-      }
     }
-  }, [map, points, zoomAfterFit]);
+  }, [map, points]);
 
   return null;
 }
@@ -123,7 +115,7 @@ function ViewTracker({ onViewChange }: { onViewChange?: (viewState: MapViewState
 /**
  * Show All button component - fits map to show all markers
  */
-function ShowAllButton({ points, zoomAfterFit = true }: { points: GPSPoint[]; zoomAfterFit?: boolean }) {
+function ShowAllButton({ points }: { points: GPSPoint[] }) {
   const map = useMap();
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -144,18 +136,12 @@ function ShowAllButton({ points, zoomAfterFit = true }: { points: GPSPoint[]; zo
       const bounds = L.latLngBounds(
         points.map(p => [p.lat, p.lon] as [number, number])
       );
-      map.fitBounds(bounds, { 
+      // Fit to all markers and stop. A follow-up zoom-in would zoom out then back
+      // in — the jump the tester reported — and re-crop the outermost markers.
+      map.fitBounds(bounds, {
         padding: [50, 50],
         animate: true
       });
-      // Optionally zoom in one level after fit
-      if (zoomAfterFit) {
-        setTimeout(() => {
-          const fitZoom = map.getZoom();
-          const targetZoom = Math.min(fitZoom + 1, 18);
-          map.setZoom(targetZoom);
-        }, 300);
-      }
     }
   };
 
@@ -314,22 +300,13 @@ export function MapPanel({
   popupColumns,
   onViewChange,
   showLocationCount = true,
-  zoomAfterFit = true,
 }: MapPanelProps) {
   const mapRef = useRef<L.Map>(null);
 
-  // Filter and validate GPS points
+  // Filter and validate GPS points. isDisplayableCoordinate also drops the (0,0)
+  // null-island sentinel so a no-fix row can't stretch the fit bounds (FR-11283).
   const validPoints = useMemo(() => {
-    return points.filter(p => 
-      typeof p.lat === 'number' &&
-      typeof p.lon === 'number' &&
-      !isNaN(p.lat) &&
-      !isNaN(p.lon) &&
-      p.lat >= -90 &&
-      p.lat <= 90 &&
-      p.lon >= -180 &&
-      p.lon <= 180
-    );
+    return points.filter(p => isDisplayableCoordinate(p.lat, p.lon));
   }, [points]);
 
   // Calculate center point
@@ -394,9 +371,9 @@ export function MapPanel({
             crossOrigin="anonymous"
           />
           
-          <FitBounds points={validPoints} zoomAfterFit={zoomAfterFit} />
+          <FitBounds points={validPoints} />
           <ViewTracker onViewChange={onViewChange} />
-          <ShowAllButton points={validPoints} zoomAfterFit={zoomAfterFit} />
+          <ShowAllButton points={validPoints} />
           
           {validPoints.map((point, index) => (
             <ClickableMarker 
