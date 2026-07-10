@@ -1907,7 +1907,8 @@ export default function CompositeReportView() {
 
           {/* No Map Data Notice — also covers the case where a pair was detected
               but every row was filtered out (out of range or the (0,0) sentinel),
-              so the map section never silently disappears. */}
+              so the map section never silently disappears. The message reflects
+              which of the two cases it is, rather than always claiming no columns. */}
           {report.config.map.enabled && gpsPoints.length === 0 && (
             <section>
               <Card>
@@ -1919,7 +1920,11 @@ export default function CompositeReportView() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-center py-8 text-muted-foreground">
-                    <p>No GPS coordinates detected in query results</p>
+                    <p>
+                      {execution.data.gps
+                        ? 'GPS columns were detected, but no rows contain a usable location (no GPS fix)'
+                        : 'No GPS coordinates detected in query results'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

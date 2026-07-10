@@ -9,8 +9,11 @@
  *
  * Only the exact (0, 0) pair is rejected: a point on the equator alone (lat 0)
  * or on the prime meridian alone (lon 0, e.g. London) is a real location and is
- * kept. Frontend and backend keep identical copies of this predicate so the live
- * view and the HTML/PDF exports frame the same points.
+ * kept. Frontend and backend keep identical copies of this predicate so the same
+ * (0, 0) / range rule runs on both sides. Note the parse feeding it differs —
+ * backend GPS detection uses the stricter parseCoordinate, while the map filters
+ * and the export use parseFloat — so it is this rule, not the parse, that is
+ * guaranteed identical.
  */
 export function isDisplayableCoordinate(lat: number, lon: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;

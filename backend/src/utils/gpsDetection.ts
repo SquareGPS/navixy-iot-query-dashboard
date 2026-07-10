@@ -132,7 +132,9 @@ export function parseCoordinate(value: unknown): number {
  * markers can't be framed (FR-11283). A point on a single zero axis (equator or
  * prime meridian) is a real location and is kept. Identical twin of the
  * frontend `isDisplayableCoordinate` in src/utils/gps.ts (no shared FE/BE
- * module) so the live view and the HTML/PDF exports frame the same points.
+ * module): the same (0, 0) / range rule runs on both sides. Only the rule is
+ * shared — detection here parses with the stricter parseCoordinate, whereas the
+ * map filters and export use parseFloat, so the parse is not identical.
  */
 export function isDisplayableCoordinate(lat: number, lon: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
