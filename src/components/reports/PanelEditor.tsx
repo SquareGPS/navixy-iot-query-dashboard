@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { SqlEditor } from './SqlEditor';
@@ -21,6 +21,7 @@ import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
 import { getErrorMessage } from '@/utils/errors';
+import { deepEqual } from '@/utils/deepEqual';
 
 /**
  * Maps panel type to default dataset shape
@@ -68,73 +69,87 @@ function initFilterBindings(panel: Panel): Record<string, string> {
   return map;
 }
 
+/**
+ * The panel fields this editor lets you change, read into a flat draft. Used to
+ * seed the form, to reset it when a different panel loads, and — by comparing
+ * the live draft against a snapshot of it — to tell whether there are unsaved
+ * changes (DO-307).
+ */
+function readPanelDraft(panel: Panel) {
+  const navixyConfig = panel['x-navixy'];
+  // Text panels carry their content under either options.* or x-navixy.text.*.
+  const navixyText = navixyConfig?.text;
+  return {
+    title: panel.title,
+    description: panel.description || '',
+    panelType: panel.type,
+    // Preserve the SQL exactly as saved — formatSql can rewrite/truncate it.
+    sql: navixyConfig?.sql?.statement || '',
+    maxRows: navixyConfig?.verify?.max_rows || 1000,
+    visualization: navixyConfig?.visualization,
+    textMode:
+      (panel.options?.mode as 'markdown' | 'html' | 'text') ||
+      (navixyText?.format as 'markdown' | 'html' | 'text') ||
+      'markdown',
+    textContent: (panel.options?.content as string | undefined) || navixyText?.content || '',
+    filterBindings: initFilterBindings(panel),
+  };
+}
+
 export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], dashboard = null }: PanelEditorProps) {
-  const [title, setTitle] = useState(panel.title);
-  const [description, setDescription] = useState(panel.description || '');
-  const [panelType, setPanelType] = useState(panel.type);
-  const [sql, setSql] = useState(() => {
-    const navixyConfig = panel['x-navixy'];
-    // CRITICAL: Preserve original SQL exactly as saved - don't format it
-    // formatSql can modify/truncate SQL, so we preserve the original
-    return navixyConfig?.sql?.statement || '';
-  });
-  
-  const [maxRows, setMaxRows] = useState(() => {
-    const navixyConfig = panel['x-navixy'];
-    return navixyConfig?.verify?.max_rows || 1000;
-  });
-  
-  const [visualization, setVisualization] = useState<VisualizationConfig | undefined>(() => {
-    const navixyConfig = panel['x-navixy'];
-    return navixyConfig?.visualization;
-  });
-  
-  // Text panel specific state
-  // Support both formats: options.* and x-navixy.text.*
-  const navixyText = panel['x-navixy']?.text;
-  const [textMode, setTextMode] = useState<'markdown' | 'html' | 'text'>(() => {
-    return (panel.options?.mode as 'markdown' | 'html' | 'text') || 
-           (navixyText?.format as 'markdown' | 'html' | 'text') || 
-           'markdown';
-  });
-  const [textContent, setTextContent] = useState(() => {
-    return (panel.options?.content as string | undefined) || navixyText?.content || '';
-  });
-  
+  // The panel as loaded, in the editor's draft shape. Recomputed only when the
+  // panel prop changes, so it holds still while the user edits and can serve as
+  // the pristine baseline the Save button compares the live draft against.
+  const pristine = useMemo(() => readPanelDraft(panel), [panel]);
+
+  const [title, setTitle] = useState(pristine.title);
+  const [description, setDescription] = useState(pristine.description);
+  const [panelType, setPanelType] = useState(pristine.panelType);
+  const [sql, setSql] = useState(pristine.sql);
+  const [maxRows, setMaxRows] = useState(pristine.maxRows);
+  const [visualization, setVisualization] = useState<VisualizationConfig | undefined>(pristine.visualization);
+  const [textMode, setTextMode] = useState<'markdown' | 'html' | 'text'>(pristine.textMode);
+  const [textContent, setTextContent] = useState(pristine.textContent);
   // Local filter bindings for this panel: { [variableName]: columnName }
-  const [filterBindings, setFilterBindings] = useState<Record<string, string>>(() => initFilterBindings(panel));
+  const [filterBindings, setFilterBindings] = useState<Record<string, string>>(pristine.filterBindings);
 
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof useSqlExecution>['results']>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [pagination, setPagination] = useState<{ page: number; pageSize: number; total: number } | null>(null);
   const { executing, error, executeQuery } = useSqlExecution();
-  
+
   const isTextPanel = panelType === 'text';
 
-  // Update state when panel prop changes (e.g., after save)
+  // Reload the draft when a different panel is opened (or the dialog is
+  // reopened), discarding any in-progress edits from a previous panel.
   useEffect(() => {
-    if (panel) {
-      const navixyConfig = panel['x-navixy'];
-      setTitle(panel.title);
-      setDescription(panel.description || '');
-      setPanelType(panel.type);
-      // CRITICAL: Preserve original SQL exactly as saved - don't format it
-      // formatSql can modify/truncate SQL, so we preserve the original
-      setSql(navixyConfig?.sql?.statement || '');
-      setMaxRows(navixyConfig?.verify?.max_rows || 1000);
-      setVisualization(navixyConfig?.visualization);
-      // Update text panel state - support both formats
-      const navixyText = panel['x-navixy']?.text;
-      setTextMode(
-        (panel.options?.mode as 'markdown' | 'html' | 'text') || 
-        (navixyText?.format as 'markdown' | 'html' | 'text') || 
-        'markdown'
-      );
-      setTextContent((panel.options?.content as string | undefined) || navixyText?.content || '');
-      setFilterBindings(initFilterBindings(panel));
-    }
-  }, [panel, open]); // Update when panel changes or dialog opens
+    if (!panel) return;
+    const draft = readPanelDraft(panel);
+    setTitle(draft.title);
+    setDescription(draft.description);
+    setPanelType(draft.panelType);
+    setSql(draft.sql);
+    setMaxRows(draft.maxRows);
+    setVisualization(draft.visualization);
+    setTextMode(draft.textMode);
+    setTextContent(draft.textContent);
+    setFilterBindings(draft.filterBindings);
+  }, [panel, open]);
+
+  // Only offer Save once the draft actually diverges from the loaded panel, so
+  // opening a panel and touching nothing leaves the button disabled (DO-307).
+  const isDirty = !deepEqual(pristine, {
+    title,
+    description,
+    panelType,
+    sql,
+    maxRows,
+    visualization,
+    textMode,
+    textContent,
+    filterBindings,
+  });
 
   const handleSave = () => {
     // Validate required fields
@@ -768,7 +783,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
             <X className="h-4 w-4 mr-2" />
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving} size="sm">
+          <Button onClick={handleSave} disabled={saving || !isDirty} size="sm">
             <Save className="h-4 w-4 mr-2" />
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
