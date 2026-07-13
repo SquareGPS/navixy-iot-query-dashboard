@@ -21,7 +21,7 @@ import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
 import { filterClausePreview, filterAppliesToPanel, resolveDefaultPanelParams, rawTypeToNavixy } from '@/utils/filterVariables';
 import { getErrorMessage } from '@/utils/errors';
-import { deepEqual } from '@/utils/deepEqual';
+import { readPanelDraft, panelDraftHasUnsavedChanges } from './panelDraft';
 
 /**
  * Maps panel type to default dataset shape
@@ -58,42 +58,6 @@ interface PanelEditorProps {
   localFilters?: Variable[];
   /** The dashboard, for resolving default parameter values when testing queries. */
   dashboard?: Dashboard | null;
-}
-
-/** Read a panel's existing filter bindings into a {variable: column} map. */
-function initFilterBindings(panel: Panel): Record<string, string> {
-  const map: Record<string, string> = {};
-  (panel['x-navixy']?.filters || []).forEach((f) => {
-    map[f.variable] = f.column;
-  });
-  return map;
-}
-
-/**
- * The panel fields this editor lets you change, read into a flat draft. Used to
- * seed the form, to reset it when a different panel loads, and — by comparing
- * the live draft against a snapshot of it — to tell whether there are unsaved
- * changes (DO-307).
- */
-function readPanelDraft(panel: Panel) {
-  const navixyConfig = panel['x-navixy'];
-  // Text panels carry their content under either options.* or x-navixy.text.*.
-  const navixyText = navixyConfig?.text;
-  return {
-    title: panel.title,
-    description: panel.description || '',
-    panelType: panel.type,
-    // Preserve the SQL exactly as saved — formatSql can rewrite/truncate it.
-    sql: navixyConfig?.sql?.statement || '',
-    maxRows: navixyConfig?.verify?.max_rows || 1000,
-    visualization: navixyConfig?.visualization,
-    textMode:
-      (panel.options?.mode as 'markdown' | 'html' | 'text') ||
-      (navixyText?.format as 'markdown' | 'html' | 'text') ||
-      'markdown',
-    textContent: (panel.options?.content as string | undefined) || navixyText?.content || '',
-    filterBindings: initFilterBindings(panel),
-  };
 }
 
 export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], dashboard = null }: PanelEditorProps) {
@@ -139,7 +103,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
 
   // Only offer Save once the draft actually diverges from the loaded panel, so
   // opening a panel and touching nothing leaves the button disabled (DO-307).
-  const isDirty = !deepEqual(pristine, {
+  const isDirty = panelDraftHasUnsavedChanges(pristine, {
     title,
     description,
     panelType,
