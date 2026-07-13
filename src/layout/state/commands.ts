@@ -19,7 +19,7 @@ import {
   isRowPanel,
   normalizeDashboardLayout,
 } from '../geometry/rows';
-import { placeNewPanel, nextId } from '../geometry/add';
+import { placeNewPanel, nextId, clampSizeToMin } from '../geometry/add';
 import { idEq } from '../geometry/idUtils';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 import type { ChartPresetPanel } from '@/types/chart-catalog';
@@ -491,10 +491,13 @@ function applyClonedContent(
  * diverge when a catalog row omits gridPos.w/h.
  */
 export function getPresetSize(presetPanel: ChartPresetPanel): { w: number; h: number } {
-  return {
+  // Apply the same minimum-size clamp placeNewPanel enforces on commit, so the
+  // drag ghost matches the created panel and no preset lands below its own
+  // resize-minimum (DO-317).
+  return clampSizeToMin(presetPanel.type, {
     w: presetPanel.gridPos?.w ?? 6,
     h: presetPanel.gridPos?.h ?? 4,
-  };
+  });
 }
 
 /**
