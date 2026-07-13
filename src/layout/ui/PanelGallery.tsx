@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BarChart3, PieChart, Table, TrendingUp, Info, Circle } from 'lucide-react';
-import { DEFAULT_SIZE_BY_TYPE } from '../geometry/add';
+import { SIZE_PRESETS, DEFAULT_SIZE_PRESET, resolvePresetSize, type SizePresetLabel } from './sizePresets';
 import type { PanelType } from '@/types/dashboard-types';
 
 export interface PanelTypeOption {
@@ -58,12 +58,6 @@ const PANEL_TYPES: PanelTypeOption[] = [
   },
 ];
 
-const SIZE_PRESETS = [
-  { label: 'Small', w: 6, h: 4 },
-  { label: 'Medium', w: 12, h: 8 },
-  { label: 'Large', w: 24, h: 8 },
-] as const;
-
 interface PanelGalleryProps {
   open: boolean;
   onClose: () => void;
@@ -76,25 +70,23 @@ export const PanelGallery: React.FC<PanelGalleryProps> = ({
   onSelect,
 }) => {
   const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [selectedSize, setSelectedSize] = useState<'Small' | 'Medium' | 'Large'>('Medium');
+  const [selectedSize, setSelectedSize] = useState<SizePresetLabel>(DEFAULT_SIZE_PRESET);
 
   const handleConfirm = () => {
     if (!selectedType) return;
 
-    const size = SIZE_PRESETS.find((s) => s.label === selectedSize) || SIZE_PRESETS[1];
-    // Use default size for type if available, otherwise use preset
-    const defaultSize = DEFAULT_SIZE_BY_TYPE[selectedType] || size;
-    const finalSize = size.label === 'Small' ? { w: Math.min(size.w, defaultSize.w), h: Math.min(size.h, defaultSize.h) } : defaultSize;
-
-    onSelect(selectedType, finalSize);
+    // Honour the size preset the user picked. The dropdown shows each preset's
+    // exact dimensions (e.g. "Large (24×8)"), so the created panel must match
+    // them — previously the type default silently overrode Medium/Large (DO-306).
+    onSelect(selectedType, resolvePresetSize(selectedSize));
     setSelectedType(null);
-    setSelectedSize('Medium');
+    setSelectedSize(DEFAULT_SIZE_PRESET);
     onClose();
   };
 
   const handleCancel = () => {
     setSelectedType(null);
-    setSelectedSize('Medium');
+    setSelectedSize(DEFAULT_SIZE_PRESET);
     onClose();
   };
 
