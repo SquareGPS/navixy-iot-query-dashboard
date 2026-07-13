@@ -73,4 +73,17 @@ describe('placeNewPanel clamps a new panel to its minimum size (DO-317)', () => 
     const d = placeNewPanel(emptyDash(), { type: 'table', hint: { position: { x: 0, y: 0 } } });
     expect(created(d)).toMatchObject(DEFAULT_SIZE_BY_TYPE.table);
   });
+
+  it('pulls x back in-grid when the min-width bump would overflow the right edge', () => {
+    // A Small (6-wide) table dropped at x=20 is bumped to 12 wide; 20 + 12 = 32
+    // overflows the 24-column grid, so clampToBounds must pull x back to 24 - 12 = 12.
+    const d = placeNewPanel(emptyDash(), {
+      type: 'table',
+      size: { w: 6, h: 4 },
+      hint: { position: { x: 20, y: 0 } },
+    });
+    expect(created(d)).toMatchObject({ x: 12, y: 0, w: 12, h: 8 });
+    const g = created(d);
+    expect(g.x + g.w).toBeLessThanOrEqual(24);
+  });
 });

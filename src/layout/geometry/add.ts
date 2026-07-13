@@ -67,9 +67,13 @@ export function getMinSize(panelType?: string): { w: number; h: number } {
  * drop) can seed a panel below its own resize-minimum (DO-317) — and by the
  * placement ghosts, so the preview the user positions matches the committed panel.
  * Idempotent: re-clamping an already-clamped size is a no-op.
+ *
+ * panelType accepts undefined (resolved to the default floor via getMinSize), so a
+ * catalog preset with an absent type still clamps rather than throwing; a bare `?`
+ * is not usable here because the required `size` param follows it.
  */
 export function clampSizeToMin(
-  panelType: string,
+  panelType: string | undefined,
   size: { w: number; h: number }
 ): { w: number; h: number } {
   const min = getMinSize(panelType);
