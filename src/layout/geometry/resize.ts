@@ -8,31 +8,13 @@ import { pixelsToGrid, gridToPixels, GRID_UNIT_HEIGHT } from './grid';
 import { resolveCollisionsPushDown } from './collisions';
 import type { Dashboard, Panel } from '@/types/dashboard-types';
 import { idEq } from './idUtils';
+import { getMinSize } from './add';
 
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export interface ResizeDelta {
   x: number; // pixel delta
   y: number; // pixel delta
-}
-
-/**
- * Minimum size constraints per panel type
- */
-const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
-  default: { w: 4, h: 4 },
-  stat: { w: 3, h: 3 },
-  barchart: { w: 6, h: 6 },
-  piechart: { w: 6, h: 6 },
-  table: { w: 12, h: 8 },
-  text: { w: 6, h: 4 },
-};
-
-/**
- * Get minimum size for a panel type
- */
-function getMinSize(panelType?: string): { w: number; h: number } {
-  return MIN_BY_TYPE[panelType || ''] ?? MIN_BY_TYPE.default;
 }
 
 /**

@@ -36,8 +36,9 @@ export const DEFAULT_SIZE_BY_TYPE: Record<string, { w: number; h: number }> = {
 };
 
 /**
- * Minimum sizes (grid units) a panel type may occupy — the floor honoured both
- * on resize and, via clampSizeToMin, at creation time.
+ * Minimum sizes (grid units) a panel type may occupy — the single source of truth
+ * for the floor honoured both at creation time (via clampSizeToMin) and on resize
+ * (resize.ts resolves it through getMinSize).
  */
 export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
   default: { w: 4, h: 4 },
@@ -48,6 +49,15 @@ export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
   table: { w: 12, h: 8 },
   text: { w: 6, h: 4 },
 };
+
+/**
+ * Resolve the minimum footprint for a panel type, falling back to the generic
+ * `default` floor for unknown or unspecified types. Shared by creation
+ * (clampSizeToMin) and resize (resize.ts) so both enforce the same minimum.
+ */
+export function getMinSize(panelType?: string): { w: number; h: number } {
+  return MIN_BY_TYPE[panelType ?? ''] ?? MIN_BY_TYPE.default;
+}
 
 /**
  * Clamp a requested panel size to valid creation bounds: never smaller than the
@@ -62,7 +72,7 @@ export function clampSizeToMin(
   panelType: string,
   size: { w: number; h: number }
 ): { w: number; h: number } {
-  const min = MIN_BY_TYPE[panelType] ?? MIN_BY_TYPE.default;
+  const min = getMinSize(panelType);
   return {
     w: Math.max(min.w, Math.min(size.w, GRID_COLUMNS)),
     h: Math.max(min.h, size.h),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { placeNewPanel, clampSizeToMin, MIN_BY_TYPE, DEFAULT_SIZE_BY_TYPE } from '../add';
+import { placeNewPanel, clampSizeToMin, getMinSize, MIN_BY_TYPE, DEFAULT_SIZE_BY_TYPE } from '../add';
 import type { Dashboard } from '@/types/dashboard-types';
 
 const emptyDash = (): Dashboard => ({ title: 'test', time: { from: '', to: '' }, panels: [] });
@@ -33,6 +33,19 @@ describe('clampSizeToMin (DO-317)', () => {
   it('is idempotent', () => {
     const once = clampSizeToMin('table', { w: 6, h: 4 });
     expect(clampSizeToMin('table', once)).toEqual(once);
+  });
+});
+
+describe('getMinSize (single source of truth for creation + resize floors)', () => {
+  it('returns the per-type minimum', () => {
+    expect(getMinSize('table')).toEqual({ w: 12, h: 8 });
+    // bargauge lives only in this canonical table; resize.ts now shares it.
+    expect(getMinSize('bargauge')).toEqual({ w: 6, h: 6 });
+  });
+
+  it('falls back to the default floor for unknown or unspecified types', () => {
+    expect(getMinSize('geomap')).toEqual(MIN_BY_TYPE.default);
+    expect(getMinSize(undefined)).toEqual(MIN_BY_TYPE.default);
   });
 });
 
