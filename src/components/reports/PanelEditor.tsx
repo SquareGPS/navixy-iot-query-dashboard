@@ -103,17 +103,23 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
 
   // Only offer Save once the draft actually diverges from the loaded panel, so
   // opening a panel and touching nothing leaves the button disabled (DO-307).
-  const isDirty = panelDraftHasUnsavedChanges(pristine, {
-    title,
-    description,
-    panelType,
-    sql,
-    maxRows,
-    visualization,
-    textMode,
-    textContent,
-    filterBindings,
-  });
+  // Memoized so the deep comparison runs only when the panel or an edited field
+  // changes — not on every unrelated re-render (test results, pagination, …).
+  const isDirty = useMemo(
+    () =>
+      panelDraftHasUnsavedChanges(pristine, {
+        title,
+        description,
+        panelType,
+        sql,
+        maxRows,
+        visualization,
+        textMode,
+        textContent,
+        filterBindings,
+      }),
+    [pristine, title, description, panelType, sql, maxRows, visualization, textMode, textContent, filterBindings],
+  );
 
   const handleSave = () => {
     // Validate required fields

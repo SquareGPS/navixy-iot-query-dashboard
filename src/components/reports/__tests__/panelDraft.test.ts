@@ -47,6 +47,11 @@ describe('readPanelDraft', () => {
     expect(draft.filterBindings).toEqual({});
   });
 
+  it('preserves a stored max_rows of 0 instead of coercing it to 1000', () => {
+    const zeroRows: Panel = { id: 'z', type: 'table', title: 'T', gridPos, 'x-navixy': { verify: { max_rows: 0 } } };
+    expect(readPanelDraft(zeroRows).maxRows).toBe(0);
+  });
+
   it('reads text-panel content from options.* and x-navixy.text.*', () => {
     const viaOptions: Panel = { id: 't1', type: 'text', title: 'Note', gridPos, options: { mode: 'html', content: '<b>hi</b>' } };
     expect(readPanelDraft(viaOptions).textMode).toBe('html');
@@ -90,6 +95,18 @@ describe('panelDraftHasUnsavedChanges', () => {
     expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, title: '  Sales  ' })).toBe(false);
     expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, description: 'Quarterly numbers\n' })).toBe(false);
     expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, sql: '  SELECT 1\n' })).toBe(false);
+  });
+
+  // handleSave persists only bindings with a non-empty column, so ticking a
+  // filter without a column (or a whitespace-only one) writes nothing new.
+  it('ignores an enabled-but-column-less filter binding', () => {
+    expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, filterBindings: { ...pristine.filterBindings, region: '' } })).toBe(false);
+    expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, filterBindings: { ...pristine.filterBindings, region: '   ' } })).toBe(false);
+  });
+
+  it('compares filter columns trimmed, and is dirty for a real new binding', () => {
+    expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, filterBindings: { period: '  ts  ' } })).toBe(false);
+    expect(panelDraftHasUnsavedChanges(pristine, { ...pristine, filterBindings: { ...pristine.filterBindings, region: 'city' } })).toBe(true);
   });
 
   // textContent is stored verbatim, so its whitespace is significant.

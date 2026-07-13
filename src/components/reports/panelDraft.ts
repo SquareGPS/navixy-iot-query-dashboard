@@ -32,7 +32,8 @@ export function readPanelDraft(panel: Panel) {
     panelType: panel.type,
     // Preserve the SQL exactly as saved — formatSql can rewrite/truncate it.
     sql: navixyConfig?.sql?.statement || '',
-    maxRows: navixyConfig?.verify?.max_rows || 1000,
+    // Nullish, not ||, so a stored 0 round-trips instead of being rewritten to 1000.
+    maxRows: navixyConfig?.verify?.max_rows ?? 1000,
     visualization: navixyConfig?.visualization,
     textMode:
       (panel.options?.mode as 'markdown' | 'html' | 'text') ||
@@ -46,13 +47,35 @@ export function readPanelDraft(panel: Panel) {
 export type PanelDraft = ReturnType<typeof readPanelDraft>;
 
 /**
+ * The filter bindings the save path actually persists: those with a non-empty
+ * column, stored trimmed. Mirrors the `filters` build in PanelEditor's
+ * handleSave, which drops empty/whitespace columns — so an enabled-but-
+ * column-less filter (or a whitespace-only column) writes nothing.
+ *
+ * handleSave additionally drops bindings whose variable is no longer a
+ * dashboard filter, but those are never user-reachable here (the Filters tab
+ * only lists current dashboard filters), so the empty-column rule alone matches
+ * the persisted result for every state the editor can produce — and needs no
+ * localFilters, keeping the dirty check a pure function of the draft.
+ */
+function persistedFilterBindings(bindings: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [variable, column] of Object.entries(bindings)) {
+    const trimmed = column.trim();
+    if (trimmed) out[variable] = trimmed;
+  }
+  return out;
+}
+
+/**
  * Whether an in-progress draft would persist anything different from the panel
  * it was loaded from.
  *
- * Title, description and SQL are compared trimmed, because the save path stores
- * them trimmed (`title.trim()` etc.) — so a whitespace-only edit is not a real
- * change and must not arm Save for a no-op write. textContent is stored
- * verbatim, so it is intentionally compared as-is.
+ * Fields are normalized to what the save path actually stores before comparing,
+ * so an edit that persists nothing new does not arm Save:
+ * - title/description/SQL are trimmed (handleSave stores them trimmed);
+ * - filter bindings are reduced to the ones handleSave keeps (non-empty column).
+ * textContent is stored verbatim, so it is intentionally compared as-is.
  */
 export function panelDraftHasUnsavedChanges(pristine: PanelDraft, draft: PanelDraft): boolean {
   const normalize = (d: PanelDraft): PanelDraft => ({
@@ -60,6 +83,7 @@ export function panelDraftHasUnsavedChanges(pristine: PanelDraft, draft: PanelDr
     title: d.title.trim(),
     description: d.description.trim(),
     sql: d.sql.trim(),
+    filterBindings: persistedFilterBindings(d.filterBindings),
   });
   return !deepEqual(normalize(pristine), normalize(draft));
 }
