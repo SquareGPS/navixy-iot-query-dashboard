@@ -36,7 +36,9 @@ export const DEFAULT_SIZE_BY_TYPE: Record<string, { w: number; h: number }> = {
 };
 
 /**
- * Minimum sizes (for clamping during resize)
+ * Minimum sizes (grid units) a panel type may occupy — the single source of truth
+ * for the floor honoured both at creation time (via clampSizeToMin) and on resize
+ * (resize.ts resolves it through getMinSize).
  */
 export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
   default: { w: 4, h: 4 },
@@ -47,6 +49,39 @@ export const MIN_BY_TYPE: Record<string, { w: number; h: number }> = {
   table: { w: 12, h: 8 },
   text: { w: 6, h: 4 },
 };
+
+/**
+ * Resolve the minimum footprint for a panel type, falling back to the generic
+ * `default` floor for unknown or unspecified types. Shared by creation
+ * (clampSizeToMin) and resize (resize.ts) so both enforce the same minimum.
+ */
+export function getMinSize(panelType?: string): { w: number; h: number } {
+  return MIN_BY_TYPE[panelType ?? ''] ?? MIN_BY_TYPE.default;
+}
+
+/**
+ * Clamp a requested panel size to valid creation bounds: never smaller than the
+ * type's MIN_BY_TYPE floor, and never wider than the 24-column grid.
+ *
+ * Shared by placeNewPanel — so no creation path (gallery, duplicate, chart-library
+ * drop) can seed a panel below its own resize-minimum (DO-317) — and by the
+ * placement ghosts, so the preview the user positions matches the committed panel.
+ * Idempotent: re-clamping an already-clamped size is a no-op.
+ *
+ * panelType accepts undefined (resolved to the default floor via getMinSize), so a
+ * catalog preset with an absent type still clamps rather than throwing; a bare `?`
+ * is not usable here because the required `size` param follows it.
+ */
+export function clampSizeToMin(
+  panelType: string | undefined,
+  size: { w: number; h: number }
+): { w: number; h: number } {
+  const min = getMinSize(panelType);
+  return {
+    w: Math.max(min.w, Math.min(size.w, GRID_COLUMNS)),
+    h: Math.max(min.h, size.h),
+  };
+}
 
 /**
  * Get the next available panel ID
@@ -167,11 +202,9 @@ export function placeNewPanel(
   const defaultSize = DEFAULT_SIZE_BY_TYPE[panelType] || DEFAULT_SIZE_BY_TYPE.stat;
   const size = spec.size || defaultSize;
 
-  // Ensure size is valid
-  const clampedSize = {
-    w: Math.max(1, Math.min(size.w, GRID_COLUMNS)),
-    h: Math.max(1, size.h),
-  };
+  // Clamp to the type's minimum footprint and the 24-column grid, so a new panel
+  // never starts smaller than its own resize-minimum (DO-317).
+  const clampedSize = clampSizeToMin(panelType, size);
 
   // Generate new ID
   const newId = nextId(dashboard);

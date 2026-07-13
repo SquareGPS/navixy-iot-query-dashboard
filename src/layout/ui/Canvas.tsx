@@ -25,6 +25,7 @@ import { DropZone } from './DropZone';
 import { useEditorStore } from '../state/editorStore';
 import { cmdMovePanel, cmdResizePanel, cmdReorderRows, cmdMovePanelToRow, cmdMoveRow, setSelectedPanel, cmdAddPanel, cmdResizeRowHeight, cmdAddPresetPanel, getPresetSize } from '../state/commands';
 import { GRID_UNIT_HEIGHT, pixelsToGrid, gridToPixels } from '../geometry/grid';
+import { clampSizeToMin } from '../geometry/add';
 import type { Panel, Dashboard } from '@/types/dashboard-types';
 import type { ResizeHandle, ResizeDelta } from '../geometry/resize';
 import { resizeRectFromHandle } from '../geometry/resize';
@@ -915,7 +916,9 @@ export const Canvas: React.FC<CanvasProps> = ({
   }, [resizeHandle, resizePanelId, resizeStartPos, containerWidth, dashboard]);
 
   const handlePanelGallerySelect = useCallback((type: string, size: { w: number; h: number }) => {
-    setPlacingPanelSpec({ type, size });
+    // Clamp to the type's minimum up front, so the placement ghost previews the
+    // exact footprint the panel will be created at (DO-317).
+    setPlacingPanelSpec({ type, size: clampSizeToMin(type, size) });
     setIsPlacingPanel(true);
     setShowPanelGallery(false);
   }, []);
