@@ -2295,7 +2295,7 @@ const ReportView = () => {
           <div className="grid gap-4 py-4">
             <div className="p-3 bg-muted rounded-md">
               <DialogDescription>
-                <strong>{report?.title || schema?.title}</strong> will be moved to trash and can be restored later.
+                <strong>{report?.title || schema?.title || 'This dashboard'}</strong> will be moved to trash and can be restored later.
               </DialogDescription>
             </div>
           </div>

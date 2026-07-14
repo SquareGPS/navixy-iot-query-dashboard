@@ -237,11 +237,11 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
             <div className="p-3 bg-muted rounded-md">
               {item.type === 'section' ? (
                 <p className="text-sm text-muted-foreground">
-                  <strong>{item.name}</strong> will be moved to trash and can be restored later.
+                  <strong>{item.name || 'This section'}</strong> will be moved to trash and can be restored later.
                 </p>
               ) : (
                 <DialogDescription>
-                  <strong>{item.name}</strong> will be moved to trash and can be restored later.
+                  <strong>{item.name || 'This item'}</strong> will be moved to trash and can be restored later.
                 </DialogDescription>
               )}
             </div>
