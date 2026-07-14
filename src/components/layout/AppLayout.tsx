@@ -31,7 +31,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="pointer-events-none absolute inset-0 -z-10 opacity-60 [background:var(--bg-gradient)]" />
           
           <AppSidebar />
-          <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface-1)] pt-[56px]">
+          <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface-1)] pt-[var(--app-header-height)]">
             <AppHeader />
             <main className="flex-1 overflow-auto bg-[var(--bg)] print:overflow-visible">
               <div className="container mx-auto px-6 py-8 max-w-7xl">

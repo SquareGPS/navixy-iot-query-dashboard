@@ -16,9 +16,12 @@ const ToastViewport = React.forwardRef<
     className={cn(
       // Anchored top-right so toasts clear the host platform's AI Assistant
       // button, which the host overlays at the bottom-right of our iframe (DO-308).
-      // top-[56px] mirrors our own fixed AppHeader height (h-[56px], z-50) so a
-      // visible toast sits below it and never covers the header's top-right controls.
-      "fixed top-[56px] z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:right-0 md:max-w-[420px]",
+      // top = --app-header-offset (our AppHeader height on routes that render it,
+      // 0 on header-less routes like /login) so a visible toast sits just below
+      // the header on app routes without leaving a floating gap on /login.
+      // flex-col (not -reverse) keeps the newest toast nearest the top anchor,
+      // since the use-toast reducer prepends new toasts (first DOM child).
+      "fixed top-[var(--app-header-offset)] z-[100] flex max-h-screen w-full flex-col p-4 sm:right-0 md:max-w-[420px]",
       className,
     )}
     {...props}

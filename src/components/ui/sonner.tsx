@@ -14,11 +14,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // overlaid at the bottom-right of our iframe (DO-308). Matches the Radix
       // toaster's position for a consistent placement across both systems.
       position="top-right"
-      // Push below our own fixed AppHeader (h-[56px]) so a visible toast never
-      // covers the header's top-right controls; right edge keeps Sonner's default
-      // (32px desktop / 16px mobile).
-      offset={{ top: 72, right: 32 }}
-      mobileOffset={{ top: 72, right: 16 }}
+      // Top offset tracks --app-header-offset (our AppHeader height on routes
+      // that render it, 0 on header-less routes like /login) + a 16px gap, so
+      // toasts clear the header's top-right controls on app routes without
+      // leaving a floating gap on /login. Sonner passes string offsets through
+      // verbatim into `top: var(--offset-top)`, so a calc() works here. Right
+      // edge keeps Sonner's default (32px desktop / 16px mobile).
+      offset={{ top: "calc(var(--app-header-offset) + 16px)", right: 32 }}
+      mobileOffset={{ top: "calc(var(--app-header-offset) + 16px)", right: 16 }}
       toastOptions={{
         classNames: {
           toast:
