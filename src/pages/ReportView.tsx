@@ -2283,14 +2283,15 @@ const ReportView = () => {
       )}
 
       {/* Delete Confirmation Dialog. Mirrors the menu editor's DeleteModal
-          (src/components/menu/MenuModals.tsx) so both delete-dashboard paths
-          present an identical dialog for the same action (DO-312). */}
+          (src/components/menu/MenuModals.tsx) so both delete paths present an
+          identical dialog for the same action (DO-312). Title is a generic
+          "Delete" so it reads correctly for every entity without per-type copy. */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Delete Dashboard</DialogTitle>
+            <DialogTitle>Delete</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this report? This action cannot be undone.
+              This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

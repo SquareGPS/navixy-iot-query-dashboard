@@ -202,11 +202,11 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
     <Dialog open={!!item} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Delete {item.type === 'section' ? 'Section' : 'Dashboard'}</DialogTitle>
+          <DialogTitle>Delete</DialogTitle>
           <DialogDescription>
-            {item.type === 'section' 
+            {item.type === 'section'
               ? 'Deleting a section will affect its reports. Choose what to do with the reports in this section.'
-              : 'Are you sure you want to delete this report? This action cannot be undone.'
+              : 'This action cannot be undone.'
             }
           </DialogDescription>
         </DialogHeader>
