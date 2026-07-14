@@ -2285,20 +2285,18 @@ const ReportView = () => {
       {/* Delete Confirmation Dialog. Mirrors the menu editor's DeleteModal
           (src/components/menu/MenuModals.tsx) so both delete paths present an
           identical dialog for the same action (DO-312). Title is a generic
-          "Delete" so it reads correctly for every entity without per-type copy. */}
+          "Delete" so it reads correctly for every entity without per-type copy;
+          the trash-box line below doubles as the dialog's accessible description. */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Delete</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone.
-            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="p-3 bg-muted rounded-md">
-              <p className="text-sm text-muted-foreground">
+              <DialogDescription>
                 <strong>{report?.title || schema?.title}</strong> will be moved to trash and can be restored later.
-              </p>
+              </DialogDescription>
             </div>
           </div>
           <DialogFooter>
