@@ -20,7 +20,7 @@ export function AppHeader() {
   const navigate = useNavigate();
 
   return (
-    <header className="h-[56px] bg-[var(--surface-1)] fixed top-0 left-0 right-0 z-50 border-b border-[var(--border)]" style={{ width: '100vw' }}>
+    <header data-app-header className="h-[var(--app-header-height)] bg-[var(--surface-1)] fixed top-0 left-0 right-0 z-50 border-b border-[var(--border)]" style={{ width: '100vw' }}>
       <div className="flex items-center justify-between h-full px-6 relative z-[60]">
         <div className="flex items-center gap-4">
           <SidebarTrigger className="hover:bg-surface-3 transition-colors relative z-[60]" />

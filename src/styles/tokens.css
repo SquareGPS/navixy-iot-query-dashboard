@@ -147,12 +147,30 @@
   --shadow-sm: 0 1px 2px rgba(0,0,0,.06);
   --shadow-md: 0 4px 12px rgba(0,0,0,.10);
 
+  /* App header height — single source of truth. AppHeader (h-), AppLayout's
+     content spacer (pt-) and the globally-mounted toast viewports all derive
+     from it, so bumping the header only changes this line.
+     --app-header-offset is that height on routes that actually render the
+     AppHeader and 0 elsewhere (see the :has rule below); it keeps toasts below
+     the header on app routes without leaving a floating gap on header-less
+     routes like /login. */
+  --app-header-height: 56px;
+  --app-header-offset: 0px;
+
   /* Chart palette */
   --chart-s1: #3AA3FF;
   --chart-s2: #7AD7FF;
   --chart-s3: #8B9DB8;
   --chart-s4: #6B778C;
   --chart-s5: #B6C3D8;
+}
+
+/* The toast viewports are mounted globally (outside the router), so they can't
+   know which route is active. AppHeader tags itself with [data-app-header];
+   when it's in the DOM, expose its height as the toast offset. On header-less
+   routes (/login, /, *) the header is absent, so the offset stays 0px. */
+:root:has([data-app-header]) {
+  --app-header-offset: var(--app-header-height);
 }
 
 /* Light (default) */
