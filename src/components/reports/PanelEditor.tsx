@@ -124,16 +124,12 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
   const handleSave = () => {
     // Validate required fields
     if (!title.trim()) {
-      toast.error('Validation Error', {
-        description: 'Panel Title is required',
-      });
+      toast.error('Panel Title is required');
       return;
     }
 
     if (!panelType) {
-      toast.error('Validation Error', {
-        description: 'Panel Type is required',
-      });
+      toast.error('Panel Type is required');
       return;
     }
 
