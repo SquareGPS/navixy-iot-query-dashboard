@@ -17,11 +17,11 @@ import { VariablesManager } from '@/components/reports/VariablesManager';
 import { getLocalFilters, reconcileFilterBindings } from '@/utils/filterVariables';
 import { PanelGallery } from '@/layout/ui/PanelGallery';
 import { NewRowEditor } from '@/components/reports/NewRowEditor';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, Trash2, FileDown, Loader2 } from 'lucide-react';
+import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, FileDown, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { useDeleteReportMutation } from '@/hooks/use-menu-mutations';
@@ -2282,39 +2282,42 @@ const ReportView = () => {
         />
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog. Mirrors the menu editor's DeleteModal
+          (src/components/menu/MenuModals.tsx) so both delete-dashboard paths
+          present an identical dialog for the same action (DO-312). */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="h-5 w-5" />
-              Delete Dashboard
-            </DialogTitle>
+            <DialogTitle>Delete Dashboard</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete this report? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Report: <span className="font-medium">{report?.title || schema?.title}</span>
-            </p>
+          <div className="grid gap-4 py-4">
+            <div className="p-3 bg-muted rounded-md">
+              <p className="text-sm text-muted-foreground">
+                <strong>{report?.title || schema?.title}</strong> will be moved to trash and can be restored later.
+              </p>
+            </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button 
-              variant="outline" 
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setShowDeleteDialog(false)}
               disabled={deleting}
             >
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              type="button"
+              variant="destructive"
               onClick={handleDeleteReport}
               disabled={deleting}
             >
-              {deleting ? 'Deleting...' : 'Delete Dashboard'}
+              {deleting ? 'Deleting...' : 'Delete'}
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
