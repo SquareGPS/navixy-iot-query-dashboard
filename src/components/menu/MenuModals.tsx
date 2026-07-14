@@ -202,13 +202,12 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
     <Dialog open={!!item} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Delete {item.type === 'section' ? 'Section' : 'Dashboard'}</DialogTitle>
-          <DialogDescription>
-            {item.type === 'section' 
-              ? 'Deleting a section will affect its reports. Choose what to do with the reports in this section.'
-              : 'Are you sure you want to delete this report? This action cannot be undone.'
-            }
-          </DialogDescription>
+          <DialogTitle>Delete</DialogTitle>
+          {item.type === 'section' && (
+            <DialogDescription>
+              Deleting a section will affect its reports. Choose what to do with the reports in this section.
+            </DialogDescription>
+          )}
         </DialogHeader>
         
         <form onSubmit={handleSubmit}>
@@ -233,10 +232,18 @@ export function DeleteModal({ item, strategy, onClose, onStrategyChange }: Delet
               </div>
             )}
             
+            {/* For a dashboard/report this line is the dialog's accessible
+                description; a section already has one in the header above. */}
             <div className="p-3 bg-muted rounded-md">
-              <p className="text-sm text-muted-foreground">
-                <strong>{item.name}</strong> will be moved to trash and can be restored later.
-              </p>
+              {item.type === 'section' ? (
+                <p className="text-sm text-muted-foreground">
+                  <strong>{item.name || 'This section'}</strong> will be moved to trash and can be restored later.
+                </p>
+              ) : (
+                <DialogDescription>
+                  <strong>{item.name || 'This item'}</strong> will be moved to trash and can be restored later.
+                </DialogDescription>
+              )}
             </div>
           </div>
           
