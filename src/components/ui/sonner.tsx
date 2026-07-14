@@ -10,6 +10,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      // Top-right so toasts clear the host platform's AI Assistant button,
+      // overlaid at the bottom-right of our iframe (DO-308). Matches the Radix
+      // toaster's position for a consistent placement across both systems.
+      position="top-right"
       toastOptions={{
         classNames: {
           toast:
