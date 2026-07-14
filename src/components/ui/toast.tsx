@@ -16,7 +16,9 @@ const ToastViewport = React.forwardRef<
     className={cn(
       // Anchored top-right so toasts clear the host platform's AI Assistant
       // button, which the host overlays at the bottom-right of our iframe (DO-308).
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:right-0 md:max-w-[420px]",
+      // top-[56px] mirrors our own fixed AppHeader height (h-[56px], z-50) so a
+      // visible toast sits below it and never covers the header's top-right controls.
+      "fixed top-[56px] z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:right-0 md:max-w-[420px]",
       className,
     )}
     {...props}
