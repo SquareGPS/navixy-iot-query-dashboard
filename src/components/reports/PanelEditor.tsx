@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { formatSql } from '@/lib/sqlFormatter';
 import type { Dashboard, Panel, NavixyPanelConfig, NavixyParam, NavixyColumnType, PanelType, VisualizationConfig, Variable, PanelFilterBinding } from '@/types/dashboard-types';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
@@ -124,20 +124,12 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
   const handleSave = () => {
     // Validate required fields
     if (!title.trim()) {
-      toast({
-        title: 'Validation Error',
-        description: 'Panel Title is required',
-        variant: 'destructive',
-      });
+      toast.error('Panel Title is required');
       return;
     }
 
     if (!panelType) {
-      toast({
-        title: 'Validation Error',
-        description: 'Panel Type is required',
-        variant: 'destructive',
-      });
+      toast.error('Panel Type is required');
       return;
     }
 
@@ -163,11 +155,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
         onClose();
       } catch (err) {
         console.error('Error saving text panel:', err);
-        toast({
-          title: 'Error',
-          description: err instanceof Error ? err.message : 'Failed to save panel',
-          variant: 'destructive',
-        });
+        toast.error(err instanceof Error ? err.message : 'Failed to save panel');
       } finally {
         setSaving(false);
       }
@@ -181,10 +169,8 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       .filter(([variable, column]) => !column.trim() && localFilters.some((v) => v.name === variable))
       .map(([variable]) => localFilters.find((v) => v.name === variable)?.label || variable);
     if (incompleteFilters.length > 0) {
-      toast({
-        title: 'Filter needs a column',
+      toast.error('Filter needs a column', {
         description: `Pick a column for ${incompleteFilters.map((n) => `“${n}”`).join(', ')} on the Filters tab, or uncheck it.`,
-        variant: 'destructive',
       });
       return;
     }
@@ -252,11 +238,7 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       onClose();
     } catch (err) {
       console.error('Error saving panel:', err);
-      toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Failed to save panel',
-        variant: 'destructive',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to save panel');
     } finally {
       setSaving(false);
     }
@@ -281,10 +263,8 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
       setTestError(
         `No value available for ${list}. Give it a default in the panel's params, add a matching dashboard filter or variable, or remove it.`
       );
-      toast({
-        title: 'Missing parameter value',
+      toast.error('Missing parameter value', {
         description: `No value available for ${list}`,
-        variant: 'destructive',
       });
       return;
     }
@@ -316,30 +296,19 @@ export function PanelEditor({ open, onClose, panel, onSave, localFilters = [], d
         if (executionResult.pagination) {
           setPagination(executionResult.pagination);
         }
-        toast({
-          title: 'Success',
-          description: 'Query executed successfully',
-        });
+        toast.success('Query executed successfully');
       } else {
         // Error case - use the hook's error state
         setTestResults(null);
         setTestError(error || 'Failed to execute query');
         if (error) {
-          toast({
-            title: 'Error',
-            description: error,
-            variant: 'destructive',
-          });
+          toast.error(error);
         }
       }
     } catch (err) {
       console.error('Unexpected error executing query:', err);
       const errorMsg = getErrorMessage(err, 'Failed to execute query');
-      toast({
-        title: 'Error',
-        description: errorMsg,
-        variant: 'destructive',
-      });
+      toast.error(errorMsg);
       setTestResults(null);
       setTestError(errorMsg);
     }

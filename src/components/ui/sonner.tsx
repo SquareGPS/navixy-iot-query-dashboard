@@ -29,6 +29,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          // Errors keep the strong destructive treatment that Radix's old
+          // `variant: destructive` toast had, so a failure never reads like a
+          // success on the shared neutral surface (DO-327). `!` overrides the
+          // neutral base above; the arbitrary variant repaints the description
+          // text for contrast on the red background. Success/info stay neutral.
+          error:
+            "group-[.toaster]:!bg-destructive group-[.toaster]:!text-destructive-foreground group-[.toaster]:!border-destructive [&_[data-description]]:!text-destructive-foreground",
         },
       }}
       {...props}

@@ -23,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, Save, X, Download, Upload, ChevronDown, ChevronRight, FileDown, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { useDeleteReportMutation } from '@/hooks/use-menu-mutations';
 import { exportDashboardToPdf } from '@/utils/exportDashboardPdf';
 import type { Dashboard, DashboardConfig, Variable, StoredReport, RawReportSchema, Panel, SchemaRow } from '@/types/dashboard-types';
@@ -366,10 +366,7 @@ const ReportView = () => {
       });
 
       setIsEditing(false);
-      toast({
-        title: 'Success',
-        description: 'Dashboard schema updated successfully',
-      });
+      toast.success('Dashboard schema updated successfully');
       
       // Reload report data to reflect schema changes
       const fetchReport = async () => {
@@ -414,11 +411,7 @@ const ReportView = () => {
     } catch (rawErr: unknown) {
       const err = toErrorMeta(rawErr);
       console.error('Error saving schema:', err);
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to save schema',
-        variant: 'destructive',
-      });
+      toast.error(err.message || 'Failed to save schema');
     } finally {
       setSaving(false);
     }
@@ -474,20 +467,10 @@ const ReportView = () => {
           });
         }
       }
-
-      // Show success toast (optional, can be removed if too noisy)
-      // toast({
-      //   title: 'Success',
-      //   description: 'Panel layout updated successfully',
-      // });
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error saving dashboard changes:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to save panel layout',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to save panel layout');
       throw error; // Re-throw so caller can handle it
     }
   }, [reportId, schema, report, dashboardConfig]);
@@ -592,17 +575,10 @@ const ReportView = () => {
       // Update local state with the new schema
       setSchema(updatedSchema);
       setEditingTitle(false);
-      toast({
-        title: "Success",
-        description: "Dashboard page header updated successfully",
-      });
+      toast.success("Dashboard page header updated successfully");
     } catch (error) {
       console.error('Error saving title:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update report page header",
-        variant: "destructive",
-      });
+      toast.error("Failed to update report page header");
     } finally {
       setSaving(false);
     }
@@ -660,18 +636,11 @@ const ReportView = () => {
       setEditorValue(JSON.stringify(updatedSchema, null, 2));
       setEditingElement(null);
       
-      toast({
-        title: 'Success',
-        description: 'Element updated successfully',
-      });
+      toast.success('Element updated successfully');
     } catch (rawErr: unknown) {
       const err = toErrorMeta(rawErr);
       console.error('Error saving element:', err);
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to save element',
-        variant: 'destructive',
-      });
+      toast.error(err.message || 'Failed to save element');
     }
   };
 
@@ -742,20 +711,13 @@ const ReportView = () => {
       setEditorValue(JSON.stringify(updatedSchema, null, 2));
       setEditingAnnotation(null);
       
-      toast({
-        title: 'Success',
-        description: 'Annotation updated successfully',
-      });
+      toast.success('Annotation updated successfully');
       
       console.log('=== handleSaveAnnotation completed successfully ===');
     } catch (rawErr: unknown) {
       const err = toErrorMeta(rawErr);
       console.error('=== Error saving annotation ===', err);
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to save annotation',
-        variant: 'destructive',
-      });
+      toast.error(err.message || 'Failed to save annotation');
     }
   };
 
@@ -792,18 +754,11 @@ const ReportView = () => {
       setSchema(updatedSchema);
       setEditingElement(null);
       
-      toast({
-        title: 'Success',
-        description: 'Element deleted successfully',
-      });
+      toast.success('Element deleted successfully');
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error deleting element:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete element',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to delete element');
       throw error; // Re-throw to let the editor handle the error
     }
   };
@@ -829,18 +784,11 @@ const ReportView = () => {
       setSchema(updatedSchema);
       setEditingAnnotation(null);
       
-      toast({
-        title: 'Success',
-        description: 'Annotation deleted successfully',
-      });
+      toast.success('Annotation deleted successfully');
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error deleting annotation:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete annotation',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to delete annotation');
       throw error; // Re-throw to let the editor handle the error
     }
   };
@@ -918,16 +866,10 @@ const ReportView = () => {
       setSchema(updatedSchema);
       setEditingRowTitle(null);
       setTempRowTitle('');
-      toast({
-        title: 'Success',
-        description: 'Row title updated successfully',
-      });
+      toast.success('Row title updated successfully');
     } catch (error) {
       console.error('Error updating row title:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update row title',
-      });
+      toast.error('Failed to update row title');
     } finally {
       setSaving(false);
     }
@@ -979,18 +921,11 @@ const ReportView = () => {
       // Dispatch event to refresh sidebar data
       window.dispatchEvent(new CustomEvent('refreshSidebar'));
       
-      toast({
-        title: 'Success',
-        description: `${editingBreadcrumb === 'section' ? 'Section' : 'Dashboard'} updated successfully`,
-      });
+      toast.success(`${editingBreadcrumb === 'section' ? 'Section' : 'Dashboard'} updated successfully`);
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error(`Error updating ${editingBreadcrumb}:`, error);
-      toast({
-        title: 'Error',
-        description: error.message || `Failed to update ${editingBreadcrumb}`,
-        variant: 'destructive',
-      });
+      toast.error(error.message || `Failed to update ${editingBreadcrumb}`);
     }
   };
 
@@ -1058,8 +993,7 @@ const ReportView = () => {
 
   const handleTidyUp = () => {
     cmdTidyUp();
-    toast({
-      title: 'Layout tidied up',
+    toast.success('Layout tidied up', {
       description: 'Empty spaces removed and panels repositioned.',
     });
   };
@@ -1106,18 +1040,11 @@ const ReportView = () => {
       setNewRowType(null);
       setInsertAfterIndex(undefined);
 
-      toast({
-        title: 'Success',
-        description: 'Row added successfully',
-      });
+      toast.success('Row added successfully');
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error adding row:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to add row',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to add row');
     }
   };
 
@@ -1313,18 +1240,11 @@ const ReportView = () => {
         }
       }
       
-      toast({
-        title: 'Success',
-        description: 'Panel updated successfully',
-      });
+      toast.success('Panel updated successfully');
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('❌ Error saving panel:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to save panel',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to save panel');
     }
   };
 
@@ -1338,10 +1258,7 @@ const ReportView = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast({
-      title: 'Success',
-      description: 'Schema exported successfully',
-    });
+    toast.success('Schema exported successfully');
   };
 
   const handleExportPdf = async () => {
@@ -1349,10 +1266,8 @@ const ReportView = () => {
     if (!root) {
       // The button is normally disabled until the grid mounts (see dashboardLoading),
       // so this is a rare fallback — keep the message honest about the real cause.
-      toast({
-        title: 'Export unavailable',
+      toast.error('Export unavailable', {
         description: 'The dashboard is still loading — please try again in a moment.',
-        variant: 'destructive',
       });
       return;
     }
@@ -1366,16 +1281,13 @@ const ReportView = () => {
         // the util slugifies whatever it gets, so title is a safe fallback.
         fileName: report?.slug || report?.title || title,
       });
-      toast({
-        title: 'PDF exported',
+      toast.success('PDF exported', {
         description: 'Your dashboard was downloaded as a PDF.',
       });
     } catch (err) {
       console.error('Dashboard PDF export failed:', err);
-      toast({
-        title: 'Export failed',
+      toast.error('Export failed', {
         description: err instanceof Error ? err.message : 'Could not generate the PDF.',
-        variant: 'destructive',
       });
     } finally {
       setExportingPdf(false);
@@ -1395,16 +1307,9 @@ const ReportView = () => {
             const content = event.target?.result as string;
             JSON.parse(content); // Validate JSON
             setEditorValue(content);
-            toast({
-              title: 'Success',
-              description: 'Schema imported successfully',
-            });
+            toast.success('Schema imported successfully');
           } catch (err) {
-            toast({
-              title: 'Error',
-              description: 'Invalid JSON file',
-              variant: 'destructive',
-            });
+            toast.error('Invalid JSON file');
           }
         };
         reader.readAsText(file);
@@ -1533,18 +1438,11 @@ const ReportView = () => {
         await new Promise(resolve => setTimeout(resolve, 500));
         await fetchReport();
         
-        toast({
-          title: 'Success',
-          description: 'Schema uploaded and saved successfully',
-        });
+        toast.success('Schema uploaded and saved successfully');
       } catch (rawErr: unknown) {
         const err = toErrorMeta(rawErr);
         console.error('Error uploading schema:', err);
-        toast({
-          title: 'Error',
-          description: err.message || 'Failed to upload schema',
-          variant: 'destructive',
-        });
+        toast.error(err.message || 'Failed to upload schema');
       } finally {
         setDownloadingSchema(false);
       }
@@ -1690,10 +1588,7 @@ const ReportView = () => {
         
         console.log('🎉 Schema download completed successfully');
         setError(null);
-        toast({
-          title: 'Success',
-          description: 'Example schema downloaded and saved successfully',
-        });
+        toast.success('Example schema downloaded and saved successfully');
         return;
       }
 
@@ -1788,18 +1683,11 @@ const ReportView = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
       await fetchReport();
       
-      toast({
-        title: 'Success',
-        description: 'Dashboard downloaded and saved successfully',
-      });
+      toast.success('Dashboard downloaded and saved successfully');
     } catch (rawErr: unknown) {
       const err = toErrorMeta(rawErr);
       console.error('Error downloading schema:', err);
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to download schema',
-        variant: 'destructive',
-      });
+      toast.error(err.message || 'Failed to download schema');
     } finally {
       setDownloadingSchema(false);
     }
@@ -1886,18 +1774,11 @@ const ReportView = () => {
       // Enter edit mode automatically
       setIsEditing(true);
       
-      toast({
-        title: 'Success',
-        description: 'Blank dashboard created. You can now add panels.',
-      });
+      toast.success('Blank dashboard created. You can now add panels.');
     } catch (rawErr: unknown) {
       const err = toErrorMeta(rawErr);
       console.error('Error creating blank dashboard:', err);
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to create blank dashboard',
-        variant: 'destructive',
-      });
+      toast.error(err.message || 'Failed to create blank dashboard');
     } finally {
       setDownloadingSchema(false);
     }

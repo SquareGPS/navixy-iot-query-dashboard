@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/select';
 import { CalendarRange, ListChecks, Plus, Trash2, Pencil, X, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { apiService } from '@/services/api';
 import { filterUsedParameters, walkSqlPanels } from '@/utils/sqlParameterExtractor';
 import type { Dashboard, Variable, Panel } from '@/types/dashboard-types';
@@ -362,11 +362,11 @@ export const VariablesManager: React.FC<VariablesManagerProps> = ({ open, onClos
     setSaving(true);
     try {
       await onSave(list);
-      toast({ title: 'Saved', description: 'Dashboard filters updated.' });
+      toast.success('Saved', { description: 'Dashboard filters updated.' });
       onClose();
     } catch (err) {
       console.error('Error saving dashboard filters:', err);
-      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to save dashboard filters', variant: 'destructive' });
+      toast.error(err instanceof Error ? err.message : 'Failed to save dashboard filters');
     } finally {
       setSaving(false);
     }

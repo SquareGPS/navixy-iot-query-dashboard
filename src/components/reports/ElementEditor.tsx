@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { formatSql } from '@/lib/sqlFormatter';
 import { useSqlExecution } from '@/hooks/use-sql-execution';
 import { getErrorMessage } from '@/utils/errors';
@@ -43,11 +43,7 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
       onClose();
     } catch (err) {
       console.error('Invalid JSON in parameters:', err);
-      toast({
-        title: 'Error',
-        description: 'Invalid JSON in parameters',
-        variant: 'destructive',
-      });
+      toast.error('Invalid JSON in parameters');
     } finally {
       setSaving(false);
     }
@@ -67,10 +63,8 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
       } catch (err) {
         const errorMsg = getErrorMessage(err, 'Invalid JSON in parameters');
         console.error('Failed to parse parameters:', err);
-        toast({
-          title: 'Invalid Parameters',
+        toast.error('Invalid Parameters', {
           description: errorMsg + '. Proceeding with empty parameters.',
-          variant: 'destructive',
         });
         // Continue with empty params instead of failing completely
         parsedParams = {};
@@ -97,11 +91,7 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
       }
     } catch (err) {
       console.error('Unexpected error executing query:', err);
-      toast({
-        title: 'Error',
-        description: getErrorMessage(err, 'Failed to execute query'),
-        variant: 'destructive',
-      });
+      toast.error(getErrorMessage(err, 'Failed to execute query'));
     }
   };
 
@@ -183,17 +173,10 @@ export function ElementEditor({ open, onClose, element, onSave, onDelete }: Elem
     try {
       await onDelete();
       onClose();
-      toast({
-        title: 'Success',
-        description: 'Element deleted successfully',
-      });
+      toast.success('Element deleted successfully');
     } catch (error) {
       console.error('Error deleting element:', error);
-      toast({
-        title: 'Error',
-        description: getErrorMessage(error, 'Failed to delete element'),
-        variant: 'destructive',
-      });
+      toast.error(getErrorMessage(error, 'Failed to delete element'));
     } finally {
       setDeleting(false);
       setShowDeleteDialog(false);
