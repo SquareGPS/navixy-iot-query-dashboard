@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { getErrorMessage } from '@/utils/errors';
 
 interface AnnotationEditorProps {
@@ -47,17 +47,10 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
       onSave(updatedAnnotation);
       onClose();
       
-      toast({
-        title: 'Success',
-        description: 'Annotation updated successfully',
-      });
+      toast.success('Annotation updated successfully');
     } catch (err) {
       console.error('Error saving annotation:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to save annotation',
-        variant: 'destructive',
-      });
+      toast.error('Failed to save annotation');
     } finally {
       setSaving(false);
     }
@@ -78,17 +71,10 @@ export function AnnotationEditor({ open, onClose, annotation, onSave, onDelete }
     try {
       await onDelete();
       onClose();
-      toast({
-        title: 'Success',
-        description: 'Annotation deleted successfully',
-      });
+      toast.success('Annotation deleted successfully');
     } catch (error) {
       console.error('Error deleting annotation:', error);
-      toast({
-        title: 'Error',
-        description: getErrorMessage(error, 'Failed to delete annotation'),
-        variant: 'destructive',
-      });
+      toast.error(getErrorMessage(error, 'Failed to delete annotation'));
     } finally {
       setDeleting(false);
       setShowDeleteDialog(false);

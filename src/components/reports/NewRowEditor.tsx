@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, X } from 'lucide-react';
 import { SqlEditor } from './SqlEditor';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { getErrorMessage } from '@/utils/errors';
 import type { Row, TilesRow, TableRow, AnnotationRow, ChartsRow, TileVisual, TableVisual, AnnotationVisual, BarVisual, PieVisual } from '@/types/report-schema';
 
@@ -38,20 +38,12 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
 
   const handleSave = async () => {
     if (!label.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Label is required',
-        variant: 'destructive',
-      });
+      toast.error('Label is required');
       return;
     }
 
     if (rowType !== 'annotation' && !sql.trim()) {
-      toast({
-        title: 'Error',
-        description: 'SQL query is required',
-        variant: 'destructive',
-      });
+      toast.error('SQL query is required');
       return;
     }
 
@@ -104,11 +96,7 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
 
         case 'charts': {
           if (!categoryField.trim() || !valueField.trim()) {
-            toast({
-              title: 'Error',
-              description: 'Category field and value field are required for charts',
-              variant: 'destructive',
-            });
+            toast.error('Category field and value field are required for charts');
             return;
           }
 
@@ -195,17 +183,10 @@ export function NewRowEditor({ open, onClose, rowType, onSave }: NewRowEditorPro
       setCategoryField('');
       setValueField('');
 
-      toast({
-        title: 'Success',
-        description: 'Row added successfully',
-      });
+      toast.success('Row added successfully');
     } catch (error) {
       console.error('Error creating new row:', error);
-      toast({
-        title: 'Error',
-        description: getErrorMessage(error, 'Failed to create row'),
-        variant: 'destructive',
-      });
+      toast.error(getErrorMessage(error, 'Failed to create row'));
     } finally {
       setSaving(false);
     }
