@@ -467,9 +467,6 @@ const ReportView = () => {
           });
         }
       }
-
-      // Show success toast (optional, can be removed if too noisy)
-      // toast.success('Panel layout updated successfully');
     } catch (rawErr: unknown) {
       const error = toErrorMeta(rawErr);
       console.error('Error saving dashboard changes:', error);
