@@ -558,8 +558,10 @@ export default function CompositeReportView() {
 
       return dataPoints;
     } else {
-      // No grouping - single series
-      return rowObjects.slice(0, 200).map(row => {
+      // No grouping - single series. Plot every row the table shows: the row
+      // count is already bounded server-side by config.table.maxRows, so an
+      // extra cap here would silently drop rows the user can see in the table.
+      return rowObjects.map(row => {
         const point: Record<string, unknown> = {
           [chartXColumn]: formatChartLabel(row[chartXColumn], true, datetimePrefs),
         };

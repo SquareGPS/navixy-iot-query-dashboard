@@ -1057,8 +1057,10 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
+    // Plot every row: callers already cap `rows` at config.table.maxRows, and a
+    // second cap here would silently drop rows that the exported table shows.
     const xIsDate = isDateColumn(columns, xColumn, rows);
-    const labels = rows.slice(0, 200).map(row => {
+    const labels = rows.map(row => {
       const val = row[xColumn];
       if (xIsDate) {
         const d = val instanceof Date ? val : parseTimestampValue(String(val ?? ''));
@@ -1070,7 +1072,7 @@ export class ExportService {
     const datasets = yColumns.map((yCol, idx) => {
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
       const color = colors[idx % colors.length];
-      const data = rows.slice(0, 200).map(row => {
+      const data = rows.map(row => {
         const val = row[yCol];
         return typeof val === 'number' ? val : parseFloat(String(val)) || 0;
       });
@@ -1162,14 +1164,16 @@ export class ExportService {
     });
     const groups = Array.from(groupValues).slice(0, 10); // Limit to 10 groups
 
-    // Sort rows by X value
+    // Sort rows by X value. No row cap: `rows` is already bounded by
+    // config.table.maxRows, and capping here would drop groups' points that the
+    // on-screen chart plots.
     const sortedRows = [...rows].sort((a, b) => {
       const aVal = a[xColumn];
       const bVal = b[xColumn];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    }).slice(0, 500); // Limit for performance
+    });
 
     const xIsDate = isDateColumn(columns, xColumn, rows);
     const xValuesSet = new Set<string>();
