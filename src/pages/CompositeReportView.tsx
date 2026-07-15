@@ -72,6 +72,8 @@ import {
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { ExportDialog } from '@/components/export/ExportDialog';
+import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
+import { resolvePlottedGroups } from '@/lib/chartGroups';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
   Table,
@@ -93,7 +95,10 @@ import {
   ComposedChart,
 } from 'recharts';
 
-// Chart color palette
+// Chart color palette. A series' position in the plotted list picks its colour,
+// and that list is sent to the export, so ExportService.generateGroupedChartHTML
+// keeps a copy of this palette in the same order — change both together or
+// exported charts will recolour.
 const CHART_COLORS = [
   '#3b82f6', // blue
   '#10b981', // green
@@ -202,7 +207,8 @@ export default function CompositeReportView() {
 
   const [chartYColumn, setChartYColumn] = useState<string>('');
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Filter by specific group values
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Isolate one plotted series via the legend
+  const [pickedGroups, setPickedGroups] = useState<string[]>([]); // Series to plot; empty = the default set
 
   const templateParamNames = useMemo(
     () => (report?.sql_query ? extractParameterNames(report.sql_query) : []),
@@ -480,8 +486,9 @@ export default function CompositeReportView() {
     return geocodedAddresses.get(key) || null;
   }, [geocodedAddresses]);
 
-  // Get unique group values for the chart - scan ALL rows to find all groups
-  const chartGroupValues = useMemo(() => {
+  // Every group value in the data - scan ALL rows to find all groups. Uncapped:
+  // this is what the series picker offers, not what gets plotted.
+  const allGroupValues = useMemo(() => {
     if (!chartColorColumn || chartColorColumn === 'none' || !rowObjects.length) return [];
 
     const uniqueValues = new Set<string>();
@@ -491,15 +498,22 @@ export default function CompositeReportView() {
         uniqueValues.add(String(groupVal));
       }
     }
-    return Array.from(uniqueValues).slice(0, 10); // Limit to 10 groups for readability
+    return Array.from(uniqueValues);
   }, [chartColorColumn, rowObjects]);
 
-  // Get active groups to display (filtered if any selected, otherwise all)
+  // The series the chart plots and the legend lists: the user's picks, or the
+  // first DEFAULT_GROUP_LIMIT of them. Position here also picks the colour.
+  const chartGroupValues = useMemo(
+    () => resolvePlottedGroups(allGroupValues, pickedGroups),
+    [allGroupValues, pickedGroups],
+  );
+
+  // Get active groups to display (isolated via the legend, otherwise all
+  // plotted). Falls back to the full set when the isolated group is no longer
+  // plotted - picking a set that excludes it would otherwise blank the chart.
   const activeGroups = useMemo(() => {
-    if (selectedGroups.length > 0) {
-      return chartGroupValues.filter(g => selectedGroups.includes(g));
-    }
-    return chartGroupValues;
+    const isolated = chartGroupValues.filter(g => selectedGroups.includes(g));
+    return isolated.length > 0 ? isolated : chartGroupValues;
   }, [chartGroupValues, selectedGroups]);
 
   // Prepare chart data using selected columns
@@ -511,7 +525,7 @@ export default function CompositeReportView() {
 
     if (hasGrouping) {
       // Filter rows to only include active groups
-      const groupsToShow = activeGroups.length > 0 ? activeGroups : chartGroupValues;
+      const groupsToShow = activeGroups;
       const filteredRows = rowObjects.filter(row => {
         const groupVal = String(row[chartColorColumn] ?? 'Unknown');
         return groupsToShow.includes(groupVal);
@@ -811,6 +825,16 @@ export default function CompositeReportView() {
     };
   };
 
+  // The chart the export should reproduce. `groups` matters because the export
+  // re-queries: left to itself it would re-derive its own first ten groups and
+  // disagree with the series picked here (DO-335).
+  const getExportChartSettings = () => ({
+    xColumn: chartXColumn || undefined,
+    yColumn: chartYColumn || undefined,
+    groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
+    groups: chartGroupValues.length > 0 ? chartGroupValues : undefined,
+  });
+
   // Export handlers
   const openExportDialog = (format: 'xlsx' | 'csv') => {
     setExportDialogFormat(format);
@@ -911,11 +935,7 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
-        chartSettings: {
-          xColumn: chartXColumn || undefined,
-          yColumn: chartYColumn || undefined,
-          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
-        },
+        chartSettings: getExportChartSettings(),
         mapSettings: mapViewState ? {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
@@ -946,11 +966,7 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
-        chartSettings: {
-          xColumn: chartXColumn || undefined,
-          yColumn: chartYColumn || undefined,
-          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
-        },
+        chartSettings: getExportChartSettings(),
         mapSettings: mapViewState ? {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
@@ -1857,6 +1873,15 @@ export default function CompositeReportView() {
                             >
                               Show all
                             </button>
+                          )}
+                          {allGroupValues.length > 1 && (
+                            <ChartSeriesPicker
+                              allGroups={allGroupValues}
+                              plottedGroups={chartGroupValues}
+                              colors={CHART_COLORS}
+                              isDefaultSelection={pickedGroups.length === 0}
+                              onChange={setPickedGroups}
+                            />
                           )}
                         </div>
                       )}
