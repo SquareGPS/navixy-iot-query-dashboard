@@ -1044,6 +1044,18 @@ export class ExportService {
   }
 
   /**
+   * Serialise a value for interpolation into an inline <script> block.
+   *
+   * JSON.stringify does not escape "<", so a cell containing "</script>" would
+   * close the block early and let the rest of that cell parse as markup. "<"
+   * only ever occurs inside a JSON string, so escaping it to < keeps the
+   * output valid JSON while making the payload inert.
+   */
+  private jsonForScript(value: unknown): string {
+    return JSON.stringify(value).replace(/</g, '\\u003c');
+  }
+
+  /**
    * Generate Chart.js code for time series chart
    */
   private generateChartHTML(
@@ -1057,8 +1069,10 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
+    // Plot every row handed in: capping here would silently drop rows that the
+    // exported table shows. Bounding `rows` is the caller's job.
     const xIsDate = isDateColumn(columns, xColumn, rows);
-    const labels = rows.slice(0, 200).map(row => {
+    const labels = rows.map(row => {
       const val = row[xColumn];
       if (xIsDate) {
         const d = val instanceof Date ? val : parseTimestampValue(String(val ?? ''));
@@ -1070,7 +1084,7 @@ export class ExportService {
     const datasets = yColumns.map((yCol, idx) => {
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
       const color = colors[idx % colors.length];
-      const data = rows.slice(0, 200).map(row => {
+      const data = rows.map(row => {
         const val = row[yCol];
         return typeof val === 'number' ? val : parseFloat(String(val)) || 0;
       });
@@ -1099,8 +1113,8 @@ export class ExportService {
         new Chart(canvas, {
           type: 'line',
           data: {
-            labels: ${JSON.stringify(labels)},
-            datasets: ${JSON.stringify(datasets)}
+            labels: ${this.jsonForScript(labels)},
+            datasets: ${this.jsonForScript(datasets)}
           },
           options: {
             responsive: true,
@@ -1115,7 +1129,7 @@ export class ExportService {
                 display: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(xColumn)}
+                  text: ${this.jsonForScript(xColumn)}
                 },
                 ticks: {
                   maxRotation: 45,
@@ -1162,14 +1176,16 @@ export class ExportService {
     });
     const groups = Array.from(groupValues).slice(0, 10); // Limit to 10 groups
 
-    // Sort rows by X value
+    // Sort rows by X value. No row cap: capping here would drop points that the
+    // on-screen chart plots, and would strand groups whose rows all sort past
+    // the cut with empty datasets (`groups` is derived from every row).
     const sortedRows = [...rows].sort((a, b) => {
       const aVal = a[xColumn];
       const bVal = b[xColumn];
       if (aVal === null || aVal === undefined) return 1;
       if (bVal === null || bVal === undefined) return -1;
       return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    }).slice(0, 500); // Limit for performance
+    });
 
     const xIsDate = isDateColumn(columns, xColumn, rows);
     const xValuesSet = new Set<string>();
@@ -1240,8 +1256,8 @@ export class ExportService {
         new Chart(canvas, {
           type: 'line',
           data: {
-            labels: ${JSON.stringify(labels)},
-            datasets: ${JSON.stringify(datasets)}
+            labels: ${this.jsonForScript(labels)},
+            datasets: ${this.jsonForScript(datasets)}
           },
           options: {
             responsive: true,
@@ -1256,7 +1272,7 @@ export class ExportService {
                 display: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(xColumn)}
+                  text: ${this.jsonForScript(xColumn)}
                 },
                 ticks: {
                   maxRotation: 45,
@@ -1273,7 +1289,7 @@ export class ExportService {
                 beginAtZero: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(yColumn)}
+                  text: ${this.jsonForScript(yColumn)}
                 }
               }
             }
