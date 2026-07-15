@@ -34,3 +34,7 @@ dist-ssr
 backend/.env.docker
 
 .mailmap
+
+# Page snapshots, console logs and downloaded files written by Playwright MCP
+# during browser-driven verification. Regenerated per run; never source.
+.playwright-mcp/
