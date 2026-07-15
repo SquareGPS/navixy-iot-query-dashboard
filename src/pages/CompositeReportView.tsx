@@ -508,13 +508,23 @@ export default function CompositeReportView() {
     [allGroupValues, pickedGroups],
   );
 
+  // The series isolated via the legend, narrowed to those actually plotted.
+  // Both the chart and the legend read this rather than selectedGroups: a pick
+  // that drops the isolated series leaves selectedGroups pointing at something
+  // absent, and two readers deriving that separately drift apart - the chart
+  // drawing everything while the legend greys everything out.
+  const isolatedGroups = useMemo(
+    () => chartGroupValues.filter(g => selectedGroups.includes(g)),
+    [chartGroupValues, selectedGroups],
+  );
+
   // Get active groups to display (isolated via the legend, otherwise all
-  // plotted). Falls back to the full set when the isolated group is no longer
-  // plotted - picking a set that excludes it would otherwise blank the chart.
-  const activeGroups = useMemo(() => {
-    const isolated = chartGroupValues.filter(g => selectedGroups.includes(g));
-    return isolated.length > 0 ? isolated : chartGroupValues;
-  }, [chartGroupValues, selectedGroups]);
+  // plotted). Nothing isolated means nothing to narrow to, so draw the lot -
+  // an isolate stranded by the picker must not blank the chart.
+  const activeGroups = useMemo(
+    () => (isolatedGroups.length > 0 ? isolatedGroups : chartGroupValues),
+    [isolatedGroups, chartGroupValues],
+  );
 
   // Prepare chart data using selected columns
   const chartData = useMemo(() => {
@@ -1703,7 +1713,13 @@ export default function CompositeReportView() {
                       <Label htmlFor="group-by">Group by</Label>
                       <Select value={chartColorColumn} onValueChange={(val) => {
                         setChartColorColumn(val);
-                        setSelectedGroups([]); // Reset filter when group column changes
+                        // Both are scoped to the old column's values. Clear them
+                        // together: resolvePlottedGroups only falls back when
+                        // every pick is stale, so a value the new column happens
+                        // to share (status/previous_status) would survive and
+                        // silently become the whole chart.
+                        setSelectedGroups([]);
+                        setPickedGroups([]);
                       }}>
                         <SelectTrigger id="group-by">
                           <SelectValue placeholder="None" />
@@ -1830,29 +1846,24 @@ export default function CompositeReportView() {
                       {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
                         <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 print:gap-x-3">
                           {chartGroupValues.map((groupVal, idx) => {
-                            const isActive = selectedGroups.length === 0 || selectedGroups.includes(groupVal);
+                            const isIsolated = isolatedGroups.includes(groupVal);
+                            const isActive = isolatedGroups.length === 0 || isIsolated;
                             const color = CHART_COLORS[idx % CHART_COLORS.length];
 
                             return (
                               <button
                                 key={groupVal}
                                 onClick={() => {
-                                  if (selectedGroups.length === 0) {
-                                    // No filter - click to filter to this one
-                                    setSelectedGroups([groupVal]);
-                                  } else if (selectedGroups.includes(groupVal) && selectedGroups.length === 1) {
-                                    // This is the only one selected - clear filter (show all)
-                                    setSelectedGroups([]);
-                                  } else {
-                                    // Filter to this one
-                                    setSelectedGroups([groupVal]);
-                                  }
+                                  // Clicking the sole isolated series clears the
+                                  // filter; any other click isolates that one.
+                                  const isSoleIsolated = isolatedGroups.length === 1 && isIsolated;
+                                  setSelectedGroups(isSoleIsolated ? [] : [groupVal]);
                                 }}
                                 className={`
                                   flex items-center gap-1.5 px-2 py-1 rounded-md text-sm transition-all
                                   hover:bg-muted/50 cursor-pointer
                                   ${isActive ? '' : 'opacity-40 grayscale'}
-                                  ${selectedGroups.includes(groupVal) && selectedGroups.length > 0 ? 'bg-muted ring-1 ring-primary/30' : ''}
+                                  ${isIsolated ? 'bg-muted ring-1 ring-primary/30' : ''}
                                 `}
                                 title={isActive ? 'Click to filter' : 'Click to show only this'}
                               >
@@ -1866,7 +1877,7 @@ export default function CompositeReportView() {
                               </button>
                             );
                           })}
-                          {selectedGroups.length > 0 && (
+                          {isolatedGroups.length > 0 && (
                             <button
                               onClick={() => setSelectedGroups([])}
                               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"

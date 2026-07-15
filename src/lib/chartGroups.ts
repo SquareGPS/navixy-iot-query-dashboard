@@ -38,3 +38,26 @@ export function resolvePlottedGroups(
   const picked = allGroups.filter(group => pickedGroups.includes(group));
   return picked.length > 0 ? picked : allGroups.slice(0, limit);
 }
+
+/**
+ * Add or remove one group from the picked set, returning the next pick list in
+ * data order — pick order must not leak in, or every click would recolour the
+ * chart.
+ *
+ * Removing the last plotted series returns the set unchanged. An empty list
+ * means "no explicit pick" to resolvePlottedGroups, so emitting one would tick
+ * ten boxes in answer to an uncheck; and a chart with no series is never the
+ * goal. So the last series holds.
+ */
+export function toggleGroup(
+  allGroups: readonly string[],
+  plottedGroups: readonly string[],
+  group: string,
+): string[] {
+  const next = plottedGroups.includes(group)
+    ? plottedGroups.filter(g => g !== group)
+    : [...plottedGroups, group];
+
+  if (next.length === 0) return [...plottedGroups];
+  return allGroups.filter(g => next.includes(g));
+}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { toggleGroup } from '@/lib/chartGroups';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -43,15 +44,6 @@ export function ChartSeriesPicker({
 }: ChartSeriesPickerProps) {
   const [open, setOpen] = useState(false);
 
-  const toggle = (group: string) => {
-    const next = plottedGroups.includes(group)
-      ? plottedGroups.filter(g => g !== group)
-      : [...plottedGroups, group];
-    // Emit in data order: position picks the colour, so ordering by pick order
-    // would recolour the chart on every click.
-    onChange(allGroups.filter(g => next.includes(g)));
-  };
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -77,9 +69,17 @@ export function ChartSeriesPicker({
                 const isPlotted = colorIdx >= 0;
 
                 return (
-                  <CommandItem key={group} value={group} onSelect={() => toggle(group)}>
+                  <CommandItem
+                    key={group}
+                    value={group}
+                    onSelect={() => onChange(toggleGroup(allGroups, plottedGroups, group))}
+                    // cmdk's aria-selected tracks the keyboard highlight, not
+                    // the checkmark, so plotted-ness needs saying out loud.
+                    aria-label={`${group}, ${isPlotted ? 'plotted' : 'not plotted'}`}
+                  >
                     <Check className={cn('mr-2 h-4 w-4 shrink-0', isPlotted ? 'opacity-100' : 'opacity-0')} />
                     <span
+                      aria-hidden="true"
                       className="mr-2 h-2.5 w-2.5 shrink-0 rounded-full border"
                       style={
                         isPlotted

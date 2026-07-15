@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_GROUP_LIMIT, resolvePlottedGroups } from '../chartGroups';
+import { DEFAULT_GROUP_LIMIT, resolvePlottedGroups, toggleGroup } from '../chartGroups';
 
 /** `count` distinct group values, in the order the rows first mention them. */
 function groups(count: number): string[] {
@@ -56,5 +56,39 @@ describe('resolvePlottedGroups', () => {
     // ExportService.generateGroupedChartHTML applies the same 10 when an older
     // client sends no group list; they have to agree.
     expect(DEFAULT_GROUP_LIMIT).toBe(10);
+  });
+});
+
+describe('toggleGroup', () => {
+  it('adds a group that is not plotted', () => {
+    expect(toggleGroup(groups(6), ['group 1'], 'group 3')).toEqual(['group 1', 'group 3']);
+  });
+
+  it('removes a group that is plotted', () => {
+    expect(toggleGroup(groups(6), ['group 1', 'group 3'], 'group 1')).toEqual(['group 3']);
+  });
+
+  it('returns picks in data order regardless of click order', () => {
+    // Position selects the colour, so a late pick must not jump the queue.
+    expect(toggleGroup(groups(6), ['group 5'], 'group 2')).toEqual(['group 2', 'group 5']);
+  });
+
+  // Unchecking the last series used to emit [], which resolvePlottedGroups
+  // reads as "no explicit pick" — so the chart answered an uncheck by ticking
+  // ten boxes, and the next pick then built on those ten.
+  it('holds the last plotted series rather than emptying the chart', () => {
+    expect(toggleGroup(groups(47), ['group 11'], 'group 11')).toEqual(['group 11']);
+  });
+
+  it('never emits an empty pick list, which would restore the default set', () => {
+    const sole = ['group 11'];
+    const after = toggleGroup(groups(47), sole, 'group 11');
+
+    expect(after).not.toEqual([]);
+    expect(resolvePlottedGroups(groups(47), after)).toEqual(['group 11']);
+  });
+
+  it('still allows unchecking down to one', () => {
+    expect(toggleGroup(groups(6), ['group 1', 'group 3'], 'group 3')).toEqual(['group 1']);
   });
 });
