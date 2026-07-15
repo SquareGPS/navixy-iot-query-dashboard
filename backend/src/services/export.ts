@@ -1044,6 +1044,18 @@ export class ExportService {
   }
 
   /**
+   * Serialise a value for interpolation into an inline <script> block.
+   *
+   * JSON.stringify does not escape "<", so a cell containing "</script>" would
+   * close the block early and let the rest of that cell parse as markup. "<"
+   * only ever occurs inside a JSON string, so escaping it to < keeps the
+   * output valid JSON while making the payload inert.
+   */
+  private jsonForScript(value: unknown): string {
+    return JSON.stringify(value).replace(/</g, '\\u003c');
+  }
+
+  /**
    * Generate Chart.js code for time series chart
    */
   private generateChartHTML(
@@ -1057,8 +1069,8 @@ export class ExportService {
     const { xColumn, yColumns } = chartConfig;
     if (!xColumn || !yColumns?.length) return '';
 
-    // Plot every row: callers already cap `rows` at config.table.maxRows, and a
-    // second cap here would silently drop rows that the exported table shows.
+    // Plot every row handed in: capping here would silently drop rows that the
+    // exported table shows. Bounding `rows` is the caller's job.
     const xIsDate = isDateColumn(columns, xColumn, rows);
     const labels = rows.map(row => {
       const val = row[xColumn];
@@ -1101,8 +1113,8 @@ export class ExportService {
         new Chart(canvas, {
           type: 'line',
           data: {
-            labels: ${JSON.stringify(labels)},
-            datasets: ${JSON.stringify(datasets)}
+            labels: ${this.jsonForScript(labels)},
+            datasets: ${this.jsonForScript(datasets)}
           },
           options: {
             responsive: true,
@@ -1117,7 +1129,7 @@ export class ExportService {
                 display: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(xColumn)}
+                  text: ${this.jsonForScript(xColumn)}
                 },
                 ticks: {
                   maxRotation: 45,
@@ -1164,9 +1176,9 @@ export class ExportService {
     });
     const groups = Array.from(groupValues).slice(0, 10); // Limit to 10 groups
 
-    // Sort rows by X value. No row cap: `rows` is already bounded by
-    // config.table.maxRows, and capping here would drop groups' points that the
-    // on-screen chart plots.
+    // Sort rows by X value. No row cap: capping here would drop points that the
+    // on-screen chart plots, and would strand groups whose rows all sort past
+    // the cut with empty datasets (`groups` is derived from every row).
     const sortedRows = [...rows].sort((a, b) => {
       const aVal = a[xColumn];
       const bVal = b[xColumn];
@@ -1244,8 +1256,8 @@ export class ExportService {
         new Chart(canvas, {
           type: 'line',
           data: {
-            labels: ${JSON.stringify(labels)},
-            datasets: ${JSON.stringify(datasets)}
+            labels: ${this.jsonForScript(labels)},
+            datasets: ${this.jsonForScript(datasets)}
           },
           options: {
             responsive: true,
@@ -1260,7 +1272,7 @@ export class ExportService {
                 display: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(xColumn)}
+                  text: ${this.jsonForScript(xColumn)}
                 },
                 ticks: {
                   maxRotation: 45,
@@ -1277,7 +1289,7 @@ export class ExportService {
                 beginAtZero: true,
                 title: {
                   display: true,
-                  text: ${JSON.stringify(yColumn)}
+                  text: ${this.jsonForScript(yColumn)}
                 }
               }
             }

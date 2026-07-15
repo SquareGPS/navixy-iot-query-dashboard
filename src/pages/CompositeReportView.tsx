@@ -558,9 +558,10 @@ export default function CompositeReportView() {
 
       return dataPoints;
     } else {
-      // No grouping - single series. Plot every row the table shows: the row
-      // count is already bounded server-side by config.table.maxRows, so an
-      // extra cap here would silently drop rows the user can see in the table.
+      // No grouping - single series. Plot every row the table shows; capping
+      // here would silently drop rows that are visible in the table right
+      // below. Row count is limited server-side (config.table.maxRows), so
+      // this is not the place to bound it.
       return rowObjects.map(row => {
         const point: Record<string, unknown> = {
           [chartXColumn]: formatChartLabel(row[chartXColumn], true, datetimePrefs),
