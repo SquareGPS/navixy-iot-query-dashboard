@@ -141,23 +141,6 @@ export default function CompositeReportView() {
   // Bumped by the inline "Retry" button to re-run the load effect.
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  // Reset the per-report load state *synchronously* when the `id` param changes.
-  // React Router reuses this component instance across a report switch, so the
-  // first render after the switch still holds the previous `report` with
-  // `loading` false — and since the load effect runs only *after* paint, that
-  // render would paint one stale frame of the previous report under the new URL
-  // before the spinner appears. Adjusting state during render (React's
-  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
-  // discards this render and re-renders with `loading` true before committing to
-  // the screen. The load effect below still drives the actual fetch. (DO-287.)
-  const [loadedId, setLoadedId] = useState(id);
-  if (id !== loadedId) {
-    setLoadedId(id);
-    setReport(null);
-    setLoadError(null);
-    setLoading(true);
-  }
-
   const [execution, setExecution] = useState<ExecutionState>({
     loading: false,
     error: null,
@@ -209,6 +192,30 @@ export default function CompositeReportView() {
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Isolate one plotted series via the legend
   const [pickedGroups, setPickedGroups] = useState<string[]>([]); // Series to plot; empty = the default set
+
+  // Reset the per-report state *synchronously* when the `id` param changes.
+  // React Router reuses this component instance across a report switch, so the
+  // first render after the switch still holds the previous `report` with
+  // `loading` false — and since the load effect runs only *after* paint, that
+  // render would paint one stale frame of the previous report under the new URL
+  // before the spinner appears. Adjusting state during render (React's
+  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
+  // discards this render and re-renders with `loading` true before committing to
+  // the screen. The load effect below still drives the actual fetch. (DO-287.)
+  //
+  // The group selections are scoped to the report that was on screen when they
+  // were made, so they reset here too. A pick that the next report's data
+  // happens to share by name would otherwise read as that report's own explicit
+  // selection and silently narrow its chart to one series. (DO-335.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setReport(null);
+    setLoadError(null);
+    setLoading(true);
+    setSelectedGroups([]);
+    setPickedGroups([]);
+  }
 
   const templateParamNames = useMemo(
     () => (report?.sql_query ? extractParameterNames(report.sql_query) : []),
@@ -525,6 +532,16 @@ export default function CompositeReportView() {
     () => (isolatedGroups.length > 0 ? isolatedGroups : chartGroupValues),
     [isolatedGroups, chartGroupValues],
   );
+
+  // Picking a set that drops the isolated series must not leave the isolation
+  // lying in wait: isolatedGroups ignores it while it is unplotted, so the chart
+  // looks right, but re-adding that series later would silently isolate it again
+  // without a legend click. Drop isolation the pick has orphaned.
+  const handlePickedGroupsChange = useCallback((picked: string[]) => {
+    setPickedGroups(picked);
+    const nextPlotted = resolvePlottedGroups(allGroupValues, picked);
+    setSelectedGroups(prev => prev.filter(g => nextPlotted.includes(g)));
+  }, [allGroupValues]);
 
   // Prepare chart data using selected columns
   const chartData = useMemo(() => {
@@ -1891,7 +1908,7 @@ export default function CompositeReportView() {
                               plottedGroups={chartGroupValues}
                               colors={CHART_COLORS}
                               isDefaultSelection={pickedGroups.length === 0}
-                              onChange={setPickedGroups}
+                              onChange={handlePickedGroupsChange}
                             />
                           )}
                         </div>

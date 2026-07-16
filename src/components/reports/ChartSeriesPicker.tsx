@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { toggleGroup } from '@/lib/chartGroups';
+import { boundPickerRows, toggleGroup } from '@/lib/chartGroups';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -43,9 +43,27 @@ export function ChartSeriesPicker({
   onChange,
 }: ChartSeriesPickerProps) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  // Filtering is ours rather than cmdk's (`shouldFilter={false}` below): cmdk can
+  // only filter items that are mounted, and mounting all of them is the thing
+  // being avoided. Substring rather than cmdk's fuzzy scoring, which for a list
+  // of literal values is the more predictable of the two.
+  const { rows, hiddenCount } = useMemo(
+    () => boundPickerRows(allGroups, plottedGroups, search),
+    [allGroups, plottedGroups, search],
+  );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={next => {
+        setOpen(next);
+        // Reopening with the last search still applied would look like the
+        // group list had lost most of its values.
+        if (!next) setSearch('');
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -59,12 +77,12 @@ export function ChartSeriesPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[260px] p-0" align="center">
-        <Command>
-          <CommandInput placeholder="Search groups..." />
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search groups..." value={search} onValueChange={setSearch} />
           <CommandList className="max-h-[280px]">
             <CommandEmpty>No groups found.</CommandEmpty>
             <CommandGroup>
-              {allGroups.map(group => {
+              {rows.map(group => {
                 const colorIdx = plottedGroups.indexOf(group);
                 const isPlotted = colorIdx >= 0;
 
@@ -94,6 +112,11 @@ export function ChartSeriesPicker({
             </CommandGroup>
           </CommandList>
         </Command>
+        {hiddenCount > 0 && (
+          <div className="border-t px-2 py-1.5 text-center text-xs text-muted-foreground">
+            {hiddenCount.toLocaleString()} more match. Search to narrow them down.
+          </div>
+        )}
         {!isDefaultSelection && (
           <div className="border-t p-1">
             <Button

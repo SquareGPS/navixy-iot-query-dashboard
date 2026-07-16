@@ -40,6 +40,48 @@ export function resolvePlottedGroups(
 }
 
 /**
+ * How many non-plotted matches the series picker mounts at once. The group
+ * universe is uncapped by design and a report may load up to 100k rows, so
+ * "Group by" on a high-cardinality column would otherwise mount one row per
+ * distinct value the moment the popover opens.
+ */
+export const RENDERED_MATCH_LIMIT = 100;
+
+/**
+ * The rows the series picker should mount, and how many matches it left out.
+ *
+ * Bounds the *rendering* only: `search` runs over every group, so a value at
+ * index 9000 stays reachable by typing it. Plotted series always come back —
+ * otherwise a pick made beyond the window could never be undone from here — and
+ * the rest fill the window in data order.
+ */
+export function boundPickerRows(
+  allGroups: readonly string[],
+  plottedGroups: readonly string[],
+  search: string,
+  limit: number = RENDERED_MATCH_LIMIT,
+): { rows: string[]; hiddenCount: number } {
+  const needle = search.trim().toLowerCase();
+  const matches = needle
+    ? allGroups.filter(group => group.toLowerCase().includes(needle))
+    : allGroups;
+
+  const plotted = new Set(plottedGroups);
+  const rows: string[] = [];
+  let windowed = 0;
+  for (const group of matches) {
+    if (plotted.has(group)) {
+      rows.push(group);
+    } else if (windowed < limit) {
+      rows.push(group);
+      windowed++;
+    }
+  }
+
+  return { rows, hiddenCount: matches.length - rows.length };
+}
+
+/**
  * Add or remove one group from the picked set, returning the next pick list in
  * data order — pick order must not leak in, or every click would recolour the
  * chart.
