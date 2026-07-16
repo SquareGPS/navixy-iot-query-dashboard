@@ -199,15 +199,16 @@ interface ZoneComponents {
 /**
  * Constructing an `Intl.DateTimeFormat` resolves the locale and timezone data
  * and costs orders of magnitude more than the `.format()` / `.formatToParts()`
- * call that follows it. A chart or table formats every row against the same
- * preferences, so we keep one formatter per distinct key for the lifetime of
- * the page instead of rebuilding it per row. `backend/src/services/export.ts`
- * does the same for exports.
+ * call that follows it. The helpers below format or convert many values
+ * against the same handful of preferences, so we keep one formatter per
+ * distinct key for the lifetime of the page instead of rebuilding it every
+ * call. `backend/src/services/export.ts` does the same for exports.
  *
- * Keys are the user's saved locale/zone/clock, so the map stays at a handful
- * of entries. A construction failure (unknown zone, malformed locale) is
- * cached as `null` so a bad preference takes the fallback path once rather
- * than throwing on every row.
+ * Keys come from the user's saved locale/zone/clock, so the map stays at a
+ * handful of entries. A construction failure (unknown zone, malformed locale)
+ * is cached as `null`, so a bad preference reaches its caller's fallback — or
+ * {@link requireZoneComponents}'s throw — without rebuilding and failing
+ * again on every row.
  */
 const formatterCache = new Map<string, Intl.DateTimeFormat | null>();
 
@@ -253,6 +254,11 @@ function getCachedFormatter(
 /**
  * Decompose a Date into wall-clock components in `timeZone` (or the host
  * zone when undefined). Returns null on Intl failure (e.g. unknown zone).
+ *
+ * Every field is read back by part type, so the locale only has to give Latin
+ * digits on a Gregorian calendar — the order it would arrange them in, and the
+ * literals between them, never reach the caller. That is what lets one
+ * formatter serve the display, offset and datetime-input helpers alike.
  */
 function getZoneComponents(date: Date, timeZone?: string): ZoneComponents | null {
   const fmt = getCachedFormatter(
@@ -288,6 +294,19 @@ function getZoneComponents(date: Date, timeZone?: string): ZoneComponents | null
   } catch {
     return null;
   }
+}
+
+/**
+ * {@link getZoneComponents} for the conversion helpers below. They have no
+ * cruder rendering to fall back on the way the display helpers do: a zone Intl
+ * cannot resolve has to fail loudly rather than quietly yield the wrong
+ * instant. The message matches the one `new Intl.DateTimeFormat` raised from
+ * these call sites before they shared the cached formatter.
+ */
+function requireZoneComponents(date: Date, timeZone: string): ZoneComponents {
+  const components = getZoneComponents(date, timeZone);
+  if (!components) throw new RangeError(`Invalid time zone specified: ${timeZone}`);
+  return components;
 }
 
 function pad2(n: number): string {
@@ -366,25 +385,14 @@ function getZoneOffsetMinutes(date: Date, timeZone: string): number {
   // delta so callers that iterate the offset (for DST boundary
   // refinement) don't accumulate sub-second drift.
   const aligned = new Date(date.getTime() - date.getMilliseconds());
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const lookup: Record<string, string> = {};
-  for (const part of fmt.formatToParts(aligned)) lookup[part.type] = part.value;
+  const c = requireZoneComponents(aligned, timeZone);
   const wallClockAsUtc = Date.UTC(
-    Number(lookup.year),
-    Number(lookup.month) - 1,
-    Number(lookup.day),
-    Number(lookup.hour) === 24 ? 0 : Number(lookup.hour),
-    Number(lookup.minute),
-    Number(lookup.second),
+    c.year,
+    c.month - 1,
+    c.day,
+    c.hour,
+    c.minute,
+    c.second,
   );
   return (wallClockAsUtc - aligned.getTime()) / 60_000;
 }
@@ -440,25 +448,13 @@ export function toUtcIsoInZone(naive: string, timeZone?: string): string {
 export function formatLocalInputInZone(date: Date, timeZone?: string): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
   if (!timeZone || timeZone === 'auto') {
-    const pad = (n: number) => String(n).padStart(2, '0');
     return (
-      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-      `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+      `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}` +
+      `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
     );
   }
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  });
-  const lookup: Record<string, string> = {};
-  for (const part of fmt.formatToParts(date)) lookup[part.type] = part.value;
-  const hour = lookup.hour === '24' ? '00' : lookup.hour;
-  return `${lookup.year}-${lookup.month}-${lookup.day}T${hour}:${lookup.minute}`;
+  const c = requireZoneComponents(date, timeZone);
+  return `${c.year}-${pad2(c.month)}-${pad2(c.day)}T${pad2(c.hour)}:${pad2(c.minute)}`;
 }
 
 /**

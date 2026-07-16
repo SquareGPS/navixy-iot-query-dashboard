@@ -32,6 +32,28 @@ const prefsNY = {
   timeFormat: 'h12' as const,
 };
 
+/**
+ * Count the `Intl.DateTimeFormat` instances built while `run` executes. The
+ * formatter caches are keyed by locale/zone, so tests that count must use a
+ * combination no earlier test has warmed, or they start at zero regardless.
+ */
+function countFormatterConstructions(run: () => void): number {
+  const real = Intl.DateTimeFormat;
+  let count = 0;
+  Intl.DateTimeFormat = new Proxy(real, {
+    construct: (target, args) => {
+      count++;
+      return Reflect.construct(target, args);
+    },
+  });
+  try {
+    run();
+  } finally {
+    Intl.DateTimeFormat = real;
+  }
+  return count;
+}
+
 describe('isDateLikeParam', () => {
   it.each([
     'date_from',
@@ -148,23 +170,6 @@ describe('formatTimestamp formatter reuse', () => {
     (_, i) => new Date(Date.UTC(2026, 4, 12, 3, 0, 0) + i * 60_000),
   );
 
-  function countFormatterConstructions(run: () => void): number {
-    const real = Intl.DateTimeFormat;
-    let count = 0;
-    Intl.DateTimeFormat = new Proxy(real, {
-      construct: (target, args) => {
-        count++;
-        return Reflect.construct(target, args);
-      },
-    });
-    try {
-      run();
-    } finally {
-      Intl.DateTimeFormat = real;
-    }
-    return count;
-  }
-
   it('builds each formatter once, not once per row', () => {
     let rendered: string[] = [];
     const constructions = countFormatterConstructions(() => {
@@ -259,6 +264,60 @@ describe('formatTimestamp formatter reuse', () => {
     expect(
       formatTimestamp(instant, { ...prefsAuckland, timeZone: 'auto' }),
     ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+describe('zone conversion formatter reuse', () => {
+  it('builds one formatter per zone across toUtcIsoInZone calls', () => {
+    const constructions = countFormatterConstructions(() => {
+      for (let i = 0; i < 50; i++) {
+        expect(toUtcIsoInZone('2026-05-12T05:00', 'America/Chicago')).toBe(
+          '2026-05-12T10:00:00.000Z',
+        );
+      }
+    });
+    // Each call probes the offset twice to settle DST, so this was 100.
+    expect(constructions).toBe(1);
+  });
+
+  it('builds one formatter per zone across formatLocalInputInZone calls', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    const constructions = countFormatterConstructions(() => {
+      for (let i = 0; i < 50; i++) {
+        expect(formatLocalInputInZone(instant, 'Asia/Kolkata')).toBe(
+          '2026-05-12T08:30',
+        );
+      }
+    });
+    expect(constructions).toBe(1);
+  });
+
+  it('serves both helpers from one formatter per zone', () => {
+    const tz = 'America/Denver';
+    const constructions = countFormatterConstructions(() => {
+      expect(formatLocalInputInZone(new Date('2026-07-16T18:00:00Z'), tz)).toBe(
+        '2026-07-16T12:00',
+      );
+      expect(toUtcIsoInZone('2026-07-16T12:00', tz)).toBe(
+        '2026-07-16T18:00:00.000Z',
+      );
+    });
+    // Both helpers decompose the instant the same way, so the offset probe
+    // reuses the formatter the input renderer warmed rather than building its
+    // own two. Only the probe reads seconds: if the shared decomposition ever
+    // stopped carrying them, the offset would read NaN and the second
+    // assertion would blow up rather than quietly drift.
+    expect(constructions).toBe(1);
+  });
+
+  it('still throws for a zone Intl cannot resolve', () => {
+    // The display helpers degrade to a cruder rendering; these have nothing to
+    // degrade to, so the caller must keep seeing a RangeError rather than a
+    // silently wrong instant. The cached null has to reach that throw.
+    expect(() => toUtcIsoInZone('2026-05-12T05:00', 'Not/AZone')).toThrow(RangeError);
+    expect(() =>
+      formatLocalInputInZone(new Date('2026-05-12T03:00:00Z'), 'Not/AZone'),
+    ).toThrow(RangeError);
   });
 });
 
