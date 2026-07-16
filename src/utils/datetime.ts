@@ -212,27 +212,68 @@ interface ZoneComponents {
  */
 const formatterCache = new Map<string, Intl.DateTimeFormat | null>();
 
+/** How long a resolved host zone is trusted before being read again. */
+const HOST_ZONE_TTL_MS = 1_000;
+
+let hostZone: string | null = null;
+let hostZoneReadAt = 0;
+
+/**
+ * The host's IANA zone name, re-read at most once per
+ * {@link HOST_ZONE_TTL_MS}.
+ *
+ * `Intl.DateTimeFormat().resolvedOptions()` is the only way to ask, and it
+ * builds a formatter to answer: 26.5µs against the 29µs construction this
+ * cache exists to avoid, so reading it per value would undo the cache
+ * entirely. Sampling it on an interval keeps the identity exact for the price
+ * of one read per second of formatting; the `Date.now()` guarding it costs
+ * 0.03µs.
+ *
+ * Nothing cheaper identifies a zone. The current offset does not: two zones
+ * can share it now and still disagree on the timestamp being rendered —
+ * London and Lagos are both UTC+1 in July, but in January London is UTC+0
+ * while Lagos stays UTC+1, so an offset-keyed entry would render January in
+ * the zone the host had left. Sampling offsets at fixed instants only narrows
+ * that hole (New York and Havana agree in both seasons yet switch on
+ * different days), so we read the name itself.
+ *
+ * The staleness window costs nothing in practice: an OS zone change triggers
+ * no re-render, so whatever is on screen stays until something redraws it —
+ * and by then the key has caught up.
+ */
+function currentHostZone(): string {
+  const now = Date.now();
+  const elapsed = now - hostZoneReadAt;
+  // Re-read when the sample ages out, and when the clock jumps backwards
+  // under us — an NTP correction or a manual clock fix is exactly when the
+  // zone is likely to have moved too, and negative elapsed would otherwise
+  // pin the sample until wall-clock caught up.
+  if (hostZone === null || elapsed >= HOST_ZONE_TTL_MS || elapsed < 0) {
+    hostZoneReadAt = now;
+    try {
+      hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      // Intl is unusable here; every build will fail the same way and the
+      // callers fall back, so one shared key is fine.
+      hostZone = 'unresolved';
+    }
+  }
+  return hostZone;
+}
+
 /**
  * Key fragment for the zone half of a formatter key. An absent zone means
  * "host zone" and resolves to a usable formatter, so it must never share a
- * key with a named zone — not even `''`, which Intl rejects. Prefixing every
- * named zone keeps the two apart whatever the stored preference holds.
+ * key with a named zone — not even `''`, which Intl rejects. Prefixing both
+ * keeps them apart whatever the stored preference holds.
  *
- * A formatter built for the host zone pins whichever zone was current when it
- * was constructed, so caching one under a fixed key would keep rendering a
- * stale zone after the OS clock moves under a live page (a laptop woken up
- * somewhere else). The host key therefore carries the current offset, which
- * moves with the OS and costs ~0.06µs to read — reading the zone name back
- * via `Intl.DateTimeFormat().resolvedOptions()` instead would cost about as
- * much as the construction this cache exists to avoid. It re-keys harmlessly
- * at each DST change (one extra formatter, same behaviour), and cannot tell
- * apart two zones sharing an offset at that moment, which is the residual
- * staleness we accept for the price.
+ * The host formatter pins whichever zone it resolved at construction, so its
+ * key carries that zone by name: without it a `timeZone: 'auto'` pref — the
+ * default — would go on rendering a zone the host has left, for the life of
+ * the page.
  */
 function zoneKeyPart(timeZone?: string): string {
-  return timeZone === undefined
-    ? `host@${new Date().getTimezoneOffset()}`
-    : `tz=${timeZone}`;
+  return timeZone === undefined ? `host=${currentHostZone()}` : `tz=${timeZone}`;
 }
 
 function getCachedFormatter(
