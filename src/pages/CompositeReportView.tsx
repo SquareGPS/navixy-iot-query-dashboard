@@ -72,6 +72,8 @@ import {
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { ExportDialog } from '@/components/export/ExportDialog';
+import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
+import { resolvePlottedGroups } from '@/lib/chartGroups';
 import { MapPanel, MapViewState } from '@/components/reports/visualizations/MapPanel';
 import {
   Table,
@@ -93,7 +95,10 @@ import {
   ComposedChart,
 } from 'recharts';
 
-// Chart color palette
+// Chart color palette. A series' position in the plotted list picks its colour,
+// and that list is sent to the export, so ExportService.generateGroupedChartHTML
+// keeps a copy of this palette in the same order — change both together or
+// exported charts will recolour.
 const CHART_COLORS = [
   '#3b82f6', // blue
   '#10b981', // green
@@ -135,23 +140,6 @@ export default function CompositeReportView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Bumped by the inline "Retry" button to re-run the load effect.
   const [reloadNonce, setReloadNonce] = useState(0);
-
-  // Reset the per-report load state *synchronously* when the `id` param changes.
-  // React Router reuses this component instance across a report switch, so the
-  // first render after the switch still holds the previous `report` with
-  // `loading` false — and since the load effect runs only *after* paint, that
-  // render would paint one stale frame of the previous report under the new URL
-  // before the spinner appears. Adjusting state during render (React's
-  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
-  // discards this render and re-renders with `loading` true before committing to
-  // the screen. The load effect below still drives the actual fetch. (DO-287.)
-  const [loadedId, setLoadedId] = useState(id);
-  if (id !== loadedId) {
-    setLoadedId(id);
-    setReport(null);
-    setLoadError(null);
-    setLoading(true);
-  }
 
   const [execution, setExecution] = useState<ExecutionState>({
     loading: false,
@@ -202,7 +190,32 @@ export default function CompositeReportView() {
 
   const [chartYColumn, setChartYColumn] = useState<string>('');
   const [chartColorColumn, setChartColorColumn] = useState<string>('');
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Filter by specific group values
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]); // Isolate one plotted series via the legend
+  const [pickedGroups, setPickedGroups] = useState<string[]>([]); // Series to plot; empty = the default set
+
+  // Reset the per-report state *synchronously* when the `id` param changes.
+  // React Router reuses this component instance across a report switch, so the
+  // first render after the switch still holds the previous `report` with
+  // `loading` false — and since the load effect runs only *after* paint, that
+  // render would paint one stale frame of the previous report under the new URL
+  // before the spinner appears. Adjusting state during render (React's
+  // "reset-on-prop-change" idiom) makes the switch visually atomic: React
+  // discards this render and re-renders with `loading` true before committing to
+  // the screen. The load effect below still drives the actual fetch. (DO-287.)
+  //
+  // The group selections are scoped to the report that was on screen when they
+  // were made, so they reset here too. A pick that the next report's data
+  // happens to share by name would otherwise read as that report's own explicit
+  // selection and silently narrow its chart to one series. (DO-335.)
+  const [loadedId, setLoadedId] = useState(id);
+  if (id !== loadedId) {
+    setLoadedId(id);
+    setReport(null);
+    setLoadError(null);
+    setLoading(true);
+    setSelectedGroups([]);
+    setPickedGroups([]);
+  }
 
   const templateParamNames = useMemo(
     () => (report?.sql_query ? extractParameterNames(report.sql_query) : []),
@@ -480,8 +493,9 @@ export default function CompositeReportView() {
     return geocodedAddresses.get(key) || null;
   }, [geocodedAddresses]);
 
-  // Get unique group values for the chart - scan ALL rows to find all groups
-  const chartGroupValues = useMemo(() => {
+  // Every group value in the data - scan ALL rows to find all groups. Uncapped:
+  // this is what the series picker offers, not what gets plotted.
+  const allGroupValues = useMemo(() => {
     if (!chartColorColumn || chartColorColumn === 'none' || !rowObjects.length) return [];
 
     const uniqueValues = new Set<string>();
@@ -491,16 +505,43 @@ export default function CompositeReportView() {
         uniqueValues.add(String(groupVal));
       }
     }
-    return Array.from(uniqueValues).slice(0, 10); // Limit to 10 groups for readability
+    return Array.from(uniqueValues);
   }, [chartColorColumn, rowObjects]);
 
-  // Get active groups to display (filtered if any selected, otherwise all)
-  const activeGroups = useMemo(() => {
-    if (selectedGroups.length > 0) {
-      return chartGroupValues.filter(g => selectedGroups.includes(g));
-    }
-    return chartGroupValues;
-  }, [chartGroupValues, selectedGroups]);
+  // The series the chart plots and the legend lists: the user's picks, or the
+  // first DEFAULT_GROUP_LIMIT of them. Position here also picks the colour.
+  const chartGroupValues = useMemo(
+    () => resolvePlottedGroups(allGroupValues, pickedGroups),
+    [allGroupValues, pickedGroups],
+  );
+
+  // The series isolated via the legend, narrowed to those actually plotted.
+  // Both the chart and the legend read this rather than selectedGroups: a pick
+  // that drops the isolated series leaves selectedGroups pointing at something
+  // absent, and two readers deriving that separately drift apart - the chart
+  // drawing everything while the legend greys everything out.
+  const isolatedGroups = useMemo(
+    () => chartGroupValues.filter(g => selectedGroups.includes(g)),
+    [chartGroupValues, selectedGroups],
+  );
+
+  // Get active groups to display (isolated via the legend, otherwise all
+  // plotted). Nothing isolated means nothing to narrow to, so draw the lot -
+  // an isolate stranded by the picker must not blank the chart.
+  const activeGroups = useMemo(
+    () => (isolatedGroups.length > 0 ? isolatedGroups : chartGroupValues),
+    [isolatedGroups, chartGroupValues],
+  );
+
+  // Picking a set that drops the isolated series must not leave the isolation
+  // lying in wait: isolatedGroups ignores it while it is unplotted, so the chart
+  // looks right, but re-adding that series later would silently isolate it again
+  // without a legend click. Drop isolation the pick has orphaned.
+  const handlePickedGroupsChange = useCallback((picked: string[]) => {
+    setPickedGroups(picked);
+    const nextPlotted = resolvePlottedGroups(allGroupValues, picked);
+    setSelectedGroups(prev => prev.filter(g => nextPlotted.includes(g)));
+  }, [allGroupValues]);
 
   // Prepare chart data using selected columns
   const chartData = useMemo(() => {
@@ -511,7 +552,7 @@ export default function CompositeReportView() {
 
     if (hasGrouping) {
       // Filter rows to only include active groups
-      const groupsToShow = activeGroups.length > 0 ? activeGroups : chartGroupValues;
+      const groupsToShow = activeGroups;
       const filteredRows = rowObjects.filter(row => {
         const groupVal = String(row[chartColorColumn] ?? 'Unknown');
         return groupsToShow.includes(groupVal);
@@ -811,6 +852,16 @@ export default function CompositeReportView() {
     };
   };
 
+  // The chart the export should reproduce. `groups` matters because the export
+  // re-queries: left to itself it would re-derive its own first ten groups and
+  // disagree with the series picked here (DO-335).
+  const getExportChartSettings = () => ({
+    xColumn: chartXColumn || undefined,
+    yColumn: chartYColumn || undefined,
+    groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
+    groups: chartGroupValues.length > 0 ? chartGroupValues : undefined,
+  });
+
   // Export handlers
   const openExportDialog = (format: 'xlsx' | 'csv') => {
     setExportDialogFormat(format);
@@ -911,11 +962,7 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
-        chartSettings: {
-          xColumn: chartXColumn || undefined,
-          yColumn: chartYColumn || undefined,
-          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
-        },
+        chartSettings: getExportChartSettings(),
         mapSettings: mapViewState ? {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
@@ -946,11 +993,7 @@ export default function CompositeReportView() {
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
-        chartSettings: {
-          xColumn: chartXColumn || undefined,
-          yColumn: chartYColumn || undefined,
-          groupColumn: chartColorColumn && chartColorColumn !== 'none' ? chartColorColumn : undefined,
-        },
+        chartSettings: getExportChartSettings(),
         mapSettings: mapViewState ? {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
@@ -1687,7 +1730,13 @@ export default function CompositeReportView() {
                       <Label htmlFor="group-by">Group by</Label>
                       <Select value={chartColorColumn} onValueChange={(val) => {
                         setChartColorColumn(val);
-                        setSelectedGroups([]); // Reset filter when group column changes
+                        // Both are scoped to the old column's values. Clear them
+                        // together: resolvePlottedGroups only falls back when
+                        // every pick is stale, so a value the new column happens
+                        // to share (status/previous_status) would survive and
+                        // silently become the whole chart.
+                        setSelectedGroups([]);
+                        setPickedGroups([]);
                       }}>
                         <SelectTrigger id="group-by">
                           <SelectValue placeholder="None" />
@@ -1814,29 +1863,24 @@ export default function CompositeReportView() {
                       {chartColorColumn && chartColorColumn !== 'none' && chartGroupValues.length > 0 && (
                         <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 print:gap-x-3">
                           {chartGroupValues.map((groupVal, idx) => {
-                            const isActive = selectedGroups.length === 0 || selectedGroups.includes(groupVal);
+                            const isIsolated = isolatedGroups.includes(groupVal);
+                            const isActive = isolatedGroups.length === 0 || isIsolated;
                             const color = CHART_COLORS[idx % CHART_COLORS.length];
 
                             return (
                               <button
                                 key={groupVal}
                                 onClick={() => {
-                                  if (selectedGroups.length === 0) {
-                                    // No filter - click to filter to this one
-                                    setSelectedGroups([groupVal]);
-                                  } else if (selectedGroups.includes(groupVal) && selectedGroups.length === 1) {
-                                    // This is the only one selected - clear filter (show all)
-                                    setSelectedGroups([]);
-                                  } else {
-                                    // Filter to this one
-                                    setSelectedGroups([groupVal]);
-                                  }
+                                  // Clicking the sole isolated series clears the
+                                  // filter; any other click isolates that one.
+                                  const isSoleIsolated = isolatedGroups.length === 1 && isIsolated;
+                                  setSelectedGroups(isSoleIsolated ? [] : [groupVal]);
                                 }}
                                 className={`
                                   flex items-center gap-1.5 px-2 py-1 rounded-md text-sm transition-all
                                   hover:bg-muted/50 cursor-pointer
                                   ${isActive ? '' : 'opacity-40 grayscale'}
-                                  ${selectedGroups.includes(groupVal) && selectedGroups.length > 0 ? 'bg-muted ring-1 ring-primary/30' : ''}
+                                  ${isIsolated ? 'bg-muted ring-1 ring-primary/30' : ''}
                                 `}
                                 title={isActive ? 'Click to filter' : 'Click to show only this'}
                               >
@@ -1850,13 +1894,22 @@ export default function CompositeReportView() {
                               </button>
                             );
                           })}
-                          {selectedGroups.length > 0 && (
+                          {isolatedGroups.length > 0 && (
                             <button
                               onClick={() => setSelectedGroups([])}
                               className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
                             >
                               Show all
                             </button>
+                          )}
+                          {allGroupValues.length > 1 && (
+                            <ChartSeriesPicker
+                              allGroups={allGroupValues}
+                              plottedGroups={chartGroupValues}
+                              colors={CHART_COLORS}
+                              isDefaultSelection={pickedGroups.length === 0}
+                              onChange={handlePickedGroupsChange}
+                            />
                           )}
                         </div>
                       )}

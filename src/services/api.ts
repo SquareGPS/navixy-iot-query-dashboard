@@ -749,6 +749,8 @@ class ApiService {
       xColumn?: string;
       yColumn?: string;
       groupColumn?: string;
+      /** Grouped series to plot, in colour order. Omit to let the export pick. */
+      groups?: string[];
     };
     mapSettings?: {
       center: [number, number];
@@ -793,6 +795,8 @@ class ApiService {
       xColumn?: string;
       yColumn?: string;
       groupColumn?: string;
+      /** Grouped series to plot, in colour order. Omit to let the export pick. */
+      groups?: string[];
     };
     mapSettings?: {
       center: [number, number];

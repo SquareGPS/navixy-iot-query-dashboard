@@ -17,7 +17,7 @@ type ChartGenerators = {
   generateGroupedChartHTML(
     columns: ExportColumn[],
     rows: Record<string, unknown>[],
-    chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
+    chartConfig: { xColumn: string; yColumn: string; groupColumn: string; groups?: string[] },
   ): string;
 };
 
@@ -45,13 +45,38 @@ function parseLabels(script: string): string[] {
   return JSON.parse(match[1]!);
 }
 
-/** Pull every dataset's `data: [...]` back out of the generated config. */
-function parseDataArrays(script: string): unknown[][] {
+interface ParsedDataset {
+  label: string;
+  data: unknown[];
+  borderColor?: string;
+}
+
+/** Pull the datasets back out of the generated Chart.js config. */
+function parseDatasets(script: string): ParsedDataset[] {
   const match = script.match(/datasets:\s*(\[[\s\S]*?\])\n/);
   if (!match) throw new Error('no datasets array in generated script');
-  const datasets = JSON.parse(match[1]!) as Array<{ data: unknown[] }>;
-  return datasets.map(d => d.data);
+  return JSON.parse(match[1]!) as ParsedDataset[];
 }
+
+/** Pull every dataset's `data: [...]` back out of the generated config. */
+function parseDataArrays(script: string): unknown[][] {
+  return parseDatasets(script).map(d => d.data);
+}
+
+/** Rows spanning `count` distinct groups, two x-points each. */
+function groupedRows(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, i) => [
+    { driver_name: 'day 1', total_score: i, vehicle_model: `model ${i}` },
+    { driver_name: 'day 2', total_score: i + 1, vehicle_model: `model ${i}` },
+  ]).flat();
+}
+
+/** The chart columns shared by the DO-335 group-selection tests. */
+const GROUPED_CONFIG = {
+  xColumn: 'driver_name',
+  yColumn: 'total_score',
+  groupColumn: 'vehicle_model',
+};
 
 describe('ExportService chart generation', () => {
   describe('generateChartHTML (ungrouped)', () => {
@@ -141,6 +166,73 @@ describe('ExportService chart generation', () => {
 
       expect(lateModel).toBeDefined();
       expect(lateModel.data.filter((v: unknown) => v !== null)).toHaveLength(10);
+    });
+  });
+
+  // DO-335: the generator kept the first ten groups and dropped the rest, so a
+  // "Group by" over a high-cardinality column lost series 11+ with nothing in
+  // the export to say so. The frontend now sends the series it plotted.
+  describe('generateGroupedChartHTML group selection', () => {
+    it('plots the picked groups, past the old 10-group cap', () => {
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), {
+        ...GROUPED_CONFIG,
+        groups: ['model 11', 'model 13'],
+      });
+
+      expect(parseDatasets(script).map(d => d.label)).toEqual(['model 11', 'model 13']);
+    });
+
+    it('keeps the requested order, which is what assigns the colours', () => {
+      // The frontend colours a series by its position in the list it sends, so
+      // re-deriving the order here would repaint the exported chart.
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), {
+        ...GROUPED_CONFIG,
+        groups: ['model 9', 'model 2'],
+      });
+
+      const datasets = parseDatasets(script);
+      expect(datasets.map(d => d.label)).toEqual(['model 9', 'model 2']);
+      expect(datasets[0]!.borderColor).toBe('#3b82f6'); // CHART_COLORS[0], as on screen
+    });
+
+    it('drops picked groups the re-query no longer returns', () => {
+      // The export re-runs the query, so its rows need not still carry every
+      // group the browser saw; a stale pick must not become an empty series.
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), {
+        ...GROUPED_CONFIG,
+        groups: ['model 3', 'retired model'],
+      });
+
+      expect(parseDatasets(script).map(d => d.label)).toEqual(['model 3']);
+    });
+
+    it('falls back to the first ten groups when no list is sent', () => {
+      // An older client sends only the columns; both sides still default to 10.
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), GROUPED_CONFIG);
+
+      expect(parseDatasets(script).map(d => d.label)).toEqual(
+        Array.from({ length: 10 }, (_, i) => `model ${i}`),
+      );
+    });
+
+    it('falls back to the default set when the re-query strands every pick', () => {
+      // resolvePlottedGroups does the same on screen rather than blank the chart.
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), {
+        ...GROUPED_CONFIG,
+        groups: ['gone a', 'gone b'],
+      });
+
+      expect(parseDatasets(script)).toHaveLength(10);
+    });
+
+    it('ignores a groups value that is not an array', () => {
+      // chartSettings is forwarded straight off the request body, unvalidated.
+      const script = service.generateGroupedChartHTML(COLUMNS, groupedRows(14), {
+        ...GROUPED_CONFIG,
+        groups: 'model 3' as unknown as string[],
+      });
+
+      expect(parseDatasets(script)).toHaveLength(10);
     });
   });
 });

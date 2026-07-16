@@ -10,6 +10,14 @@ import { isTimestampLikeValue, parseTimestampValue } from '../utils/datetime.js'
 import { isDisplayableCoordinate } from '../utils/gpsDetection.js';
 import type { DateFormat, TimeFormat } from './userPreferences.js';
 
+/**
+ * Grouped series plotted when an export request carries no explicit list.
+ * Mirrors DEFAULT_GROUP_LIMIT in src/lib/chartGroups.ts (DO-335) — the frontend
+ * normally sends the series it plotted, and this is the shared answer for when
+ * it does not.
+ */
+const DEFAULT_GROUP_LIMIT = 10;
+
 export interface ExportColumn {
   name: string;
   type: string;
@@ -58,6 +66,7 @@ export interface HTMLExportOptions {
     xColumn?: string;
     yColumn?: string;
     groupColumn?: string;
+    groups?: string[];
   };
   // Map view state from frontend (center and zoom)
   mapSettings?: {
@@ -764,6 +773,7 @@ export class ExportService {
           xColumn: effectiveXColumn,
           yColumn: effectiveYColumns[0],
           groupColumn: effectiveGroupColumn,
+          ...(chartSettings?.groups ? { groups: chartSettings.groups } : {}),
         }, timeZone, dateFormat, timeFormat);
       } else {
         const chartConfigForGeneration: { type?: string; xColumn?: string; yColumns?: string[] } = {
@@ -1158,7 +1168,7 @@ export class ExportService {
   private generateGroupedChartHTML(
     columns: ExportColumn[],
     rows: Record<string, unknown>[],
-    chartConfig: { xColumn: string; yColumn: string; groupColumn: string },
+    chartConfig: { xColumn: string; yColumn: string; groupColumn: string; groups?: string[] },
     timeZone?: string,
     dateFormat?: DateFormat,
     timeFormat?: TimeFormat,
@@ -1174,7 +1184,19 @@ export class ExportService {
         groupValues.add(String(groupVal));
       }
     });
-    const groups = Array.from(groupValues).slice(0, 10); // Limit to 10 groups
+
+    // Plot the series the request picked, keeping its order: that order assigned
+    // the colours on screen. Picks the re-query no longer returns drop out
+    // instead of becoming empty legend entries. With no usable list — an older
+    // client, or every pick stranded — fall back to the first groups, as
+    // resolvePlottedGroups does on the frontend for those same cases. The list
+    // comes straight off the request body, so it is not trusted to be an array.
+    const requestedGroups = Array.isArray(chartConfig.groups)
+      ? chartConfig.groups.filter(group => groupValues.has(group))
+      : [];
+    const groups = requestedGroups.length > 0
+      ? requestedGroups
+      : Array.from(groupValues).slice(0, DEFAULT_GROUP_LIMIT);
 
     // Sort rows by X value. No row cap: capping here would drop points that the
     // on-screen chart plots, and would strand groups whose rows all sort past
@@ -1206,7 +1228,9 @@ export class ExportService {
     });
     const labels = Array.from(xValuesSet);
 
-    // Create datasets for each group
+    // Create datasets for each group. Same palette in the same order as
+    // CHART_COLORS in src/pages/CompositeReportView.tsx: a series takes its
+    // colour from its position, so the two lists have to stay in step.
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'];
     const datasets = groups.map((group, idx) => {
       const color = colors[idx % colors.length];
