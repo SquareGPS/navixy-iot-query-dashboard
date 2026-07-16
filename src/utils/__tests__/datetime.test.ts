@@ -130,6 +130,138 @@ describe('formatTimestamp', () => {
   });
 });
 
+describe('formatTimestamp formatter reuse', () => {
+  // The formatter cache lives for the lifetime of the module, so these tests
+  // use a locale/zone pair no other test in this file touches — otherwise the
+  // first call here would already be a cache hit and count zero constructions.
+  const prefsAuckland = {
+    locale: 'en-NZ',
+    timeZone: 'Pacific/Auckland',
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+
+  const rows = Array.from(
+    { length: 500 },
+    (_, i) => new Date(Date.UTC(2026, 4, 12, 3, 0, 0) + i * 60_000),
+  );
+
+  function countFormatterConstructions(run: () => void): number {
+    const real = Intl.DateTimeFormat;
+    let count = 0;
+    Intl.DateTimeFormat = new Proxy(real, {
+      construct: (target, args) => {
+        count++;
+        return Reflect.construct(target, args);
+      },
+    });
+    try {
+      run();
+    } finally {
+      Intl.DateTimeFormat = real;
+    }
+    return count;
+  }
+
+  it('builds each formatter once, not once per row', () => {
+    let rendered: string[] = [];
+    const constructions = countFormatterConstructions(() => {
+      rendered = rows.map(row => formatTimestamp(row, prefsAuckland));
+    });
+    // One formatter for the date components, one for the time — and nothing
+    // more, however many rows follow.
+    expect(constructions).toBe(2);
+    expect(rendered[0]).toBe('2026-05-12 15:00');
+    expect(rendered[499]).toBe('2026-05-12 23:19');
+  });
+
+  it('does not retry a formatter that cannot be built', () => {
+    const badZone = { ...prefsAuckland, timeZone: 'Not/AZone' };
+    let rendered: string[] = [];
+    const constructions = countFormatterConstructions(() => {
+      rendered = rows.map(row => formatTimestamp(row, badZone));
+    });
+    // Both attempts fail on the first row; the failures are cached, so an
+    // unusable preference degrades to the ISO fallback without re-throwing
+    // per row.
+    expect(constructions).toBe(2);
+    expect(rendered[0]).toContain('2026-05-12T03:00:00.000Z');
+  });
+
+  it('keeps cached formatters apart per zone and locale', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    for (let i = 0; i < 3; i++) {
+      expect(formatTimestamp(instant, prefsBerlin)).toBe('12.05.2026 05:00');
+      expect(formatTimestamp(instant, prefsNY)).toMatch(/^05-11-2026 11:00\s?PM$/);
+      expect(formatTimestamp(instant, prefsAuckland)).toBe('2026-05-12 15:00');
+    }
+  });
+
+  it('keys the time formatter by hour cycle', () => {
+    // Settings changes prefs without a reload, so one locale and zone must not
+    // serve a 24-hour formatter to a user who just picked the 12-hour clock.
+    // Atlantic/Reykjavik is UTC+0 year-round, so the wall-clock never drifts.
+    const base = {
+      locale: 'en-US',
+      timeZone: 'Atlantic/Reykjavik',
+      hourCycle: 'h23' as const,
+      dateStyle: 'short' as const,
+      dateFormat: 'yyyy-mm-dd' as const,
+    };
+    const instant = new Date('2026-05-12T15:00:00Z');
+    expect(formatTimestamp(instant, { ...base, timeFormat: 'h24' })).toBe(
+      '2026-05-12 15:00',
+    );
+    expect(formatTimestamp(instant, { ...base, timeFormat: 'h12' })).toMatch(
+      /^2026-05-12 03:00\s?PM$/,
+    );
+  });
+
+  it('follows the host zone when the OS moves under a live page', () => {
+    // A formatter built for the host zone pins whichever zone it resolved at
+    // construction. Caching one under a fixed key would leave an 'auto' pref —
+    // the default — rendering a stale zone for the life of the page after the
+    // OS clock moves, e.g. a laptop woken up somewhere else.
+    const prefs = {
+      locale: 'en-GB',
+      timeZone: 'auto' as const,
+      hourCycle: 'h23' as const,
+      dateStyle: 'short' as const,
+      dateFormat: 'yyyy-mm-dd' as const,
+      timeFormat: 'h24' as const,
+    };
+    const instant = new Date('2026-05-12T03:00:00Z');
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = 'Europe/Berlin';
+      expect(formatTimestamp(instant, prefs)).toBe('2026-05-12 05:00');
+      process.env.TZ = 'Asia/Tokyo';
+      expect(formatTimestamp(instant, prefs)).toBe('2026-05-12 12:00');
+      process.env.TZ = 'America/New_York';
+      expect(formatTimestamp(instant, prefs)).toBe('2026-05-11 23:00');
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  it('does not let an unusable zone poison the host-zone formatter', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    // A stored pref with an empty zone is not 'auto': it reaches Intl as a
+    // named zone and fails. Cache it apart from 'auto', which resolves to the
+    // host zone and renders normally — the poisoned order is the risky one, so
+    // format the empty zone first.
+    expect(formatTimestamp(instant, { ...prefsAuckland, timeZone: '' })).toContain(
+      '2026-05-12T03:00:00.000Z',
+    );
+    expect(
+      formatTimestamp(instant, { ...prefsAuckland, timeZone: 'auto' }),
+    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+});
+
 describe('normaliseParamForApi', () => {
   it('converts a date-like param string from local to UTC ISO', () => {
     const out = normaliseParamForApi('date_from', '2026-05-12T05:00');
