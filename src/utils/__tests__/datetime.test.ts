@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   detectDefaultPrefs,
   formatLocalInputInZone,
@@ -31,6 +31,80 @@ const prefsNY = {
   dateFormat: 'mm-dd-yyyy' as const,
   timeFormat: 'h12' as const,
 };
+
+/**
+ * Count the `Intl.DateTimeFormat` instances built while `run` executes. The
+ * formatter caches are keyed by locale/zone, so tests that count must use a
+ * combination no earlier test has warmed, or they start at zero regardless.
+ *
+ * Both traps matter: reading the host zone calls `Intl.DateTimeFormat()`
+ * without `new`, and that builds a formatter just as expensively.
+ */
+function countFormatterConstructions(run: () => void): number {
+  const real = Intl.DateTimeFormat;
+  let count = 0;
+  Intl.DateTimeFormat = new Proxy(real, {
+    construct: (target, args) => {
+      count++;
+      return Reflect.construct(target, args);
+    },
+    apply: (target, thisArg, args) => {
+      count++;
+      return Reflect.apply(target, thisArg, args);
+    },
+  });
+  try {
+    run();
+  } finally {
+    Intl.DateTimeFormat = real;
+  }
+  return count;
+}
+
+// Mirrors HOST_ZONE_TTL_MS in ../datetime: how long a sampled host zone is
+// trusted. If the two drift apart these tests read a stale zone and fail.
+const HOST_ZONE_TTL_MS = 1_000;
+
+/**
+ * Render `instant` under each host zone in turn and assert what comes out.
+ *
+ * The host zone is sampled rather than read per value, so the clock advances
+ * past the sample's TTL between moves. `now` pins the wall clock where a
+ * scenario needs it: which zones currently share an offset — the collision an
+ * offset-based key would make — depends on the season, so a test that relies
+ * on one must not drift with the calendar.
+ */
+function withHostZones(
+  steps: Array<[zone: string, expected: string]>,
+  instant: Date,
+  now?: Date,
+): void {
+  const prefs = {
+    locale: 'en-GB',
+    timeZone: 'auto' as const,
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+  const originalTz = process.env.TZ;
+  vi.useFakeTimers();
+  if (now) vi.setSystemTime(now);
+  try {
+    for (const [zone, expected] of steps) {
+      process.env.TZ = zone;
+      vi.advanceTimersByTime(HOST_ZONE_TTL_MS + 1);
+      expect(formatTimestamp(instant, prefs), `host ${zone}`).toBe(expected);
+    }
+  } finally {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+    // Handing back the real clock rewinds it behind the sample; datetime.ts
+    // re-reads on a backwards jump, so the next caller is not left pinned to
+    // the last zone set here.
+    vi.useRealTimers();
+  }
+}
 
 describe('isDateLikeParam', () => {
   it.each([
@@ -127,6 +201,194 @@ describe('formatTimestamp', () => {
     expect(formatTimestamp(utcInstant, prefsBerlin, { includeTime: false })).toBe(
       '12.05.2026',
     );
+  });
+});
+
+describe('formatTimestamp formatter reuse', () => {
+  // The formatter cache lives for the lifetime of the module, so these tests
+  // use a locale/zone pair no other test in this file touches — otherwise the
+  // first call here would already be a cache hit and count zero constructions.
+  const prefsAuckland = {
+    locale: 'en-NZ',
+    timeZone: 'Pacific/Auckland',
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+
+  const rows = Array.from(
+    { length: 500 },
+    (_, i) => new Date(Date.UTC(2026, 4, 12, 3, 0, 0) + i * 60_000),
+  );
+
+  it('builds each formatter once, not once per row', () => {
+    let rendered: string[] = [];
+    const constructions = countFormatterConstructions(() => {
+      rendered = rows.map(row => formatTimestamp(row, prefsAuckland));
+    });
+    // One formatter for the date components, one for the time — and nothing
+    // more, however many rows follow.
+    expect(constructions).toBe(2);
+    expect(rendered[0]).toBe('2026-05-12 15:00');
+    expect(rendered[499]).toBe('2026-05-12 23:19');
+  });
+
+  it('does not retry a formatter that cannot be built', () => {
+    const badZone = { ...prefsAuckland, timeZone: 'Not/AZone' };
+    let rendered: string[] = [];
+    const constructions = countFormatterConstructions(() => {
+      rendered = rows.map(row => formatTimestamp(row, badZone));
+    });
+    // Both attempts fail on the first row; the failures are cached, so an
+    // unusable preference degrades to the ISO fallback without re-throwing
+    // per row.
+    expect(constructions).toBe(2);
+    expect(rendered[0]).toContain('2026-05-12T03:00:00.000Z');
+  });
+
+  it('keeps cached formatters apart per zone and locale', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    for (let i = 0; i < 3; i++) {
+      expect(formatTimestamp(instant, prefsBerlin)).toBe('12.05.2026 05:00');
+      expect(formatTimestamp(instant, prefsNY)).toMatch(/^05-11-2026 11:00\s?PM$/);
+      expect(formatTimestamp(instant, prefsAuckland)).toBe('2026-05-12 15:00');
+    }
+  });
+
+  it('keys the time formatter by hour cycle', () => {
+    // Settings changes prefs without a reload, so one locale and zone must not
+    // serve a 24-hour formatter to a user who just picked the 12-hour clock.
+    // Atlantic/Reykjavik is UTC+0 year-round, so the wall-clock never drifts.
+    const base = {
+      locale: 'en-US',
+      timeZone: 'Atlantic/Reykjavik',
+      hourCycle: 'h23' as const,
+      dateStyle: 'short' as const,
+      dateFormat: 'yyyy-mm-dd' as const,
+    };
+    const instant = new Date('2026-05-12T15:00:00Z');
+    expect(formatTimestamp(instant, { ...base, timeFormat: 'h24' })).toBe(
+      '2026-05-12 15:00',
+    );
+    expect(formatTimestamp(instant, { ...base, timeFormat: 'h12' })).toMatch(
+      /^2026-05-12 03:00\s?PM$/,
+    );
+  });
+
+  it('follows the host zone when the OS moves under a live page', () => {
+    // A formatter built for the host zone pins whichever zone it resolved at
+    // construction. Caching one under a fixed key would leave an 'auto' pref —
+    // the default — rendering a stale zone for the life of the page after the
+    // OS clock moves, e.g. a laptop woken up somewhere else. The zone is
+    // sampled rather than read per value, so each move needs the sample to
+    // age out before the key catches up.
+    withHostZones(
+      [
+        ['Europe/Berlin', '2026-05-12 05:00'],
+        ['Asia/Tokyo', '2026-05-12 12:00'],
+        ['America/New_York', '2026-05-11 23:00'],
+      ],
+      new Date('2026-05-12T03:00:00Z'),
+    );
+  });
+
+  it('separates host zones that share the current offset', () => {
+    // Why the key cannot be built from the current offset: London and Lagos
+    // are both UTC+1 in July, so an offset key gives them one entry — yet they
+    // disagree in January, when London is UTC+0 and Lagos stays UTC+1. Moving
+    // the host between them would then render January in the zone the host had
+    // left. "now" is pinned to July so the collision is there whatever day the
+    // suite runs; in January the two offsets differ and the bug would hide.
+    withHostZones(
+      [
+        ['Europe/London', '2026-01-15 12:00'],
+        ['Africa/Lagos', '2026-01-15 13:00'],
+      ],
+      new Date('2026-01-15T12:00:00Z'),
+      new Date('2026-07-15T12:00:00Z'),
+    );
+  });
+
+  it('reads the host zone once per batch, not once per value', () => {
+    // Resolving the host zone builds a formatter (~26µs) — as costly as the
+    // ones this cache exists to avoid — so it has to be sampled. Reading it
+    // per value would cost more than the cache saves.
+    const prefsAuto = { ...prefsAuckland, timeZone: 'auto' as const };
+    formatTimestamp(rows[0], prefsAuto); // warm the key and both formatters
+    const builds = countFormatterConstructions(() => {
+      rows.forEach(row => formatTimestamp(row, prefsAuto));
+    });
+    // At most the one sample the TTL may take mid-loop — not 500.
+    expect(builds).toBeLessThanOrEqual(1);
+  });
+
+  it('does not let an unusable zone poison the host-zone formatter', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    // A stored pref with an empty zone is not 'auto': it reaches Intl as a
+    // named zone and fails. Cache it apart from 'auto', which resolves to the
+    // host zone and renders normally — the poisoned order is the risky one, so
+    // format the empty zone first.
+    expect(formatTimestamp(instant, { ...prefsAuckland, timeZone: '' })).toContain(
+      '2026-05-12T03:00:00.000Z',
+    );
+    expect(
+      formatTimestamp(instant, { ...prefsAuckland, timeZone: 'auto' }),
+    ).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+describe('zone conversion formatter reuse', () => {
+  it('builds one formatter per zone across toUtcIsoInZone calls', () => {
+    const constructions = countFormatterConstructions(() => {
+      for (let i = 0; i < 50; i++) {
+        expect(toUtcIsoInZone('2026-05-12T05:00', 'America/Chicago')).toBe(
+          '2026-05-12T10:00:00.000Z',
+        );
+      }
+    });
+    // Each call probes the offset twice to settle DST, so this was 100.
+    expect(constructions).toBe(1);
+  });
+
+  it('builds one formatter per zone across formatLocalInputInZone calls', () => {
+    const instant = new Date('2026-05-12T03:00:00Z');
+    const constructions = countFormatterConstructions(() => {
+      for (let i = 0; i < 50; i++) {
+        expect(formatLocalInputInZone(instant, 'Asia/Kolkata')).toBe(
+          '2026-05-12T08:30',
+        );
+      }
+    });
+    expect(constructions).toBe(1);
+  });
+
+  it('serves both helpers from one formatter per zone', () => {
+    const tz = 'America/Denver';
+    const constructions = countFormatterConstructions(() => {
+      expect(formatLocalInputInZone(new Date('2026-07-16T18:00:00Z'), tz)).toBe(
+        '2026-07-16T12:00',
+      );
+      expect(toUtcIsoInZone('2026-07-16T12:00', tz)).toBe(
+        '2026-07-16T18:00:00.000Z',
+      );
+    });
+    // Both helpers decompose the instant the same way, so the offset probe
+    // reuses the formatter the input renderer warmed rather than building its
+    // own two. Only the probe reads seconds: if the shared decomposition ever
+    // stopped carrying them, the offset would read NaN and the second
+    // assertion would blow up rather than quietly drift.
+    expect(constructions).toBe(1);
+  });
+
+  it('still throws for a zone Intl cannot resolve', () => {
+    // The display helpers degrade to a cruder rendering; these have nothing to
+    // degrade to, so the caller must keep seeing a RangeError rather than a
+    // silently wrong instant. The cached null has to reach that throw.
+    expect(() => toUtcIsoInZone('2026-05-12T05:00', 'Not/AZone')).toThrow(RangeError);
+    expect(() =>
+      formatLocalInputInZone(new Date('2026-05-12T03:00:00Z'), 'Not/AZone'),
+    ).toThrow(RangeError);
   });
 });
 
