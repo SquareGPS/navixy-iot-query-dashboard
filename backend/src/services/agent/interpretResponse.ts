@@ -135,7 +135,12 @@ function fromProseHeuristic(raw: string): AgentIntent {
   }
 
   // The URL is backtick-wrapped in the observed output and often sentence-final.
-  const artifactUrl = urlMatch.replace(/[.,`]+$/, '');
+  // The class covers everything S3_URL_RE lets through that reads as punctuation
+  // or markdown wrapping (!;?:*_~ widened per the MR !57 review — a polluted URL
+  // passes parseS3Url and turns a SUCCESSFUL build into a NoSuchKey error). The
+  // observed key format always ends in `.json`, so stripping these cannot bite a
+  // legitimate key tail.
+  const artifactUrl = urlMatch.replace(/[.,:;!?*_~`]+$/, '');
   const jobId = JOB_ID_RE.exec(raw)?.[1];
 
   return {

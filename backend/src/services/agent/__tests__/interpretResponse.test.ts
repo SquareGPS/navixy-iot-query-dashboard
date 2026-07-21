@@ -70,6 +70,19 @@ describe('interpretAgentResponse — prose heuristic (§3.4.2)', () => {
     expect(period.artifactUrl?.endsWith('.json')).toBe(true);
   });
 
+  it('strips the full trailing-punctuation family the URL character class lets through (MR !57 review)', () => {
+    // Each of these reached parseS3Url polluted before the fix, turning a
+    // SUCCESSFUL build into a NoSuchKey "no longer available" error.
+    const clean = 's3://bucket/jobs/a/report_schema.json';
+    for (const punct of ['!', ';', '?', ':', '...', '!?', '~']) {
+      const intent = interpretAgentResponse(`Saved to ${clean}${punct} enjoy.`);
+      expect(intent.artifactUrl).toBe(clean);
+    }
+    // Markdown emphasis wrapping: the leading ** is outside the match, the
+    // trailing ** must be stripped.
+    expect(interpretAgentResponse(`Saved to **${clean}**`).artifactUrl).toBe(clean);
+  });
+
   it('flags a job id with no URL as a possible missed result, still classified as question', () => {
     const prose = 'Your dashboard has been built! Job ID: `1b7f3c3a-0000-4abc-9def-123456789abc`.';
     const intent = interpretAgentResponse(prose);
