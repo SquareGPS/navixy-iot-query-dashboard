@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseS3Url, assertDashboardShape } from '../artifactStore.js';
+import { parseS3Url, assertDashboardShape, envInt } from '../artifactStore.js';
 
 // Pure functions only — no S3Client is ever constructed and no network is
 // touched. fetchArtifact is deliberately untested here: there is no
@@ -88,5 +88,25 @@ describe('assertDashboardShape', () => {
 
   it('accepts an EMPTY panels array — MISSING_PANELS is validateDashboard\'s rule, not this one\'s', () => {
     expect(() => assertDashboardShape({ title: 'x', panels: [] })).not.toThrow();
+  });
+});
+
+describe('envInt — feeds every tuning knob (MR !57 review gap)', () => {
+  it('rejects "0" — load-bearing: requestTimeout: 0 means NO timeout in smithy, the exact failure the throwOnRequestTimeout pin exists to prevent', () => {
+    expect(envInt('0', 120_000)).toBe(120_000);
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['an empty string', ''],
+    ['a non-number', 'abc'],
+    ['a negative number', '-1'],
+    ['NaN', 'NaN'],
+  ])('falls back on %s', (_label, raw) => {
+    expect(envInt(raw, 5_000)).toBe(5_000);
+  });
+
+  it('accepts a positive integer string', () => {
+    expect(envInt('120000', 5_000)).toBe(120_000);
   });
 });
