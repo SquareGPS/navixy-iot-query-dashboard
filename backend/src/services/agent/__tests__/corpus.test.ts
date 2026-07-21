@@ -59,6 +59,19 @@ describe('agent corpus', () => {
     expect(rebuilt).toEqual(AGENT_CORPUS);
   });
 
+  // (a2) Byte gate: the committed file must be exactly what the generator would
+  // write, so idempotence is enforced in CI rather than by whoever remembers to
+  // regenerate. .gitattributes pins the file to eol=lf, so a checkout cannot
+  // mangle the comparison.
+  it('committed corpus.generated.ts is byte-identical to the generator output', async () => {
+    const generator = (await import(GENERATOR_URL)) as unknown as GeneratorModule;
+    const notes: DropNote[] = [];
+    const corpus = generator.buildCorpus(generator.loadFixtures(SCHEMAS_DIR), notes);
+    const committed = readFileSync(
+      fileURLToPath(new URL('../corpus.generated.ts', import.meta.url)), 'utf8');
+    expect(generator.renderModule(corpus, notes)).toBe(committed);
+  });
+
   // (b) Every shipped statement passes the real guard — the exact module
   // /api/sql-new/execute runs. A guard pass says NOTHING about execution: the real
   // agent's hallucinated `o.employee_id` passed this exact guard and failed at the

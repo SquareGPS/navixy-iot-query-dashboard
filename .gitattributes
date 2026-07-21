@@ -1,0 +1,4 @@
+# corpus.generated.ts is a committed build artifact (see backend/scripts/
+# build-agent-corpus.mjs). Collapse it in diffs and pin LF so the byte-gate
+# test in corpus.test.ts cannot be broken by checkout EOL translation.
+backend/src/services/agent/corpus.generated.ts linguist-generated=true gitlab-generated=true eol=lf
