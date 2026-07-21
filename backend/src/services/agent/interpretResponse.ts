@@ -1,0 +1,163 @@
+/**
+ * Classification of the Bedrock agent's raw prose response (DO-342, §3.4.2-§3.4.4).
+ *
+ * PURE — string in, AgentIntent out. No AWS import of any kind, no logger, no
+ * side effects: that is what makes the single most fragile decision in this
+ * feature testable with no client, no mock and no DI seam. The caller
+ * (bedrockAgent.ts) owns every log line and every S3 byte.
+ *
+ * Strategy: trailer-first, heuristic-as-fallback, from day one. fromTrailer
+ * returns null against every response the agent emits today — that is the
+ * INTENDED state, costing one failed regex per turn. The day the structured
+ * trailer is agreed the agent starts emitting it, `via` flips from 'heuristic'
+ * to 'trailer' in our logs, and the cutover is observable rather than deployed,
+ * with zero code change on our side.
+ */
+
+/** What the agent's final text told us, before any S3 fetch. */
+export interface AgentIntent {
+  type: 'question' | 'result';
+  /** Prose rendered verbatim in the chat bubble. Never synthesized by us. */
+  message: string;
+  /** Present iff type === 'result'. The raw s3:// URL, unparsed. */
+  artifactUrl?: string;
+  /** Diagnostic only — logged, never returned to the client. */
+  jobId?: string;
+  /** Which strategy produced this. Logged so the cutover is observable. */
+  via: 'trailer' | 'heuristic';
+}
+
+/** Matches every fenced code block. The LAST match is the trailer candidate —
+ *  last, not first, so a code sample in the prose cannot be mistaken for the
+ *  trailer. */
+const FENCED_BLOCK_RE = /```(?:json)?\s*([\s\S]*?)```/g;
+
+/** s3://<non-empty bucket>/<non-empty key>, within the same 1024-char bound the
+ *  strict parser enforces. SYNTACTIC shape only: the strict parseS3Url gate
+ *  (artifactStore.ts) still runs before any fetch, and duplicating its full
+ *  bucket rules here would couple the pure classifier to the S3 module for no
+ *  behavioural gain. */
+function isPlausibleS3Url(url: string): boolean {
+  if (url.length > 1024 || !url.startsWith('s3://')) return false;
+  const rest = url.slice('s3://'.length);
+  const slash = rest.indexOf('/');
+  return slash > 0 && slash < rest.length - 1;
+}
+
+/**
+ * §3.4.4 — the PROPOSED trailer: the prose unchanged, plus one fenced JSON
+ * block appended as the last thing in the response —
+ * `{"type":"result","job_id":"…","artifact":"s3://…"}` or `{"type":"question"}`.
+ * Proposed to the agent's author, NOT agreed. Do not plan as though it exists.
+ *
+ * Returns null when the trailer is absent or unusable — NEVER throws.
+ */
+function fromTrailer(raw: string): AgentIntent | null {
+  const matches = [...raw.matchAll(FENCED_BLOCK_RE)];
+  const last = matches[matches.length - 1];
+  const body = last?.[1];
+  if (last === undefined || last.index === undefined || body === undefined) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const trailer = parsed as Record<string, unknown>;
+
+  // `type` must be exactly 'question' or 'result'. Anything else — including an
+  // agent-emitted 'error', which would be a contract violation (type:'error' is
+  // OURS, §3.2) — falls through to the heuristic.
+  const type = trailer.type;
+  if (type !== 'question' && type !== 'result') return null;
+
+  // The trailer is machinery; the user must never see it. Strip exactly the
+  // matched block by index — a replace() could hit an earlier identical block.
+  const message = (raw.slice(0, last.index) + raw.slice(last.index + last[0].length)).trim();
+
+  // job_id is lifted for logging only.
+  const jobId = typeof trailer.job_id === 'string' ? trailer.job_id : undefined;
+
+  if (type === 'question') {
+    return { type, message, via: 'trailer', ...(jobId !== undefined ? { jobId } : {}) };
+  }
+
+  // A result we cannot fetch is not a result: missing or implausible artifact
+  // URL falls through to the heuristic.
+  const artifact = trailer.artifact;
+  if (typeof artifact !== 'string' || !isPlausibleS3Url(artifact)) return null;
+
+  return {
+    type,
+    message,
+    artifactUrl: artifact,
+    via: 'trailer',
+    ...(jobId !== undefined ? { jobId } : {}),
+  };
+}
+
+/** First s3:// URL in the prose. The character class excludes whitespace, the
+ *  backtick wrapping observed in real output, and common markdown/quote
+ *  delimiters; trailing punctuation is stripped after matching because the
+ *  markdown wrapping is not guaranteed stable. */
+const S3_URL_RE = /s3:\/\/[^\s`'")<>]+/;
+
+/** The observed build reply labels the artifact with a "Job ID" UUID. Lifted
+ *  for logging only. */
+const JOB_ID_RE = /job\s*id\W*([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/i;
+
+/**
+ * §3.4.2 — question vs result. There is no contract for this; the only signal
+ * available today:
+ *
+ *   prose contains an s3:// URL  -> type:'result', fetch the artifact
+ *   prose contains no s3:// URL  -> type:'question', message = prose verbatim
+ *
+ * This is a regex over prose, not a contract. It breaks the first time anyone
+ * rewords the agent's instructions — a completely normal thing for its author
+ * to do — and nothing will error. A build turn whose wording drops the URL is
+ * simply rendered as a clarifying question: the user sees friendly prose, no
+ * preview appears, and no log line fires. Log every classification decision
+ * (`sessionId`, `classifiedAs`, `urlFound`, `promptLength`) so the silent mode
+ * is at least visible in aggregate after the fact.
+ *
+ * Degrade direction is deliberate: absence of signal means question. A missed
+ * result costs the user one retry. A false result sends us fetching a key we
+ * do not have and surfaces an error bubble on a perfectly good clarifying
+ * question.
+ */
+function fromProseHeuristic(raw: string): AgentIntent {
+  const urlMatch = S3_URL_RE.exec(raw)?.[0];
+  if (urlMatch === undefined) {
+    return { type: 'question', message: raw, via: 'heuristic' };
+  }
+
+  // The URL is backtick-wrapped in the observed output and often sentence-final.
+  const artifactUrl = urlMatch.replace(/[.,`]+$/, '');
+  const jobId = JOB_ID_RE.exec(raw)?.[1];
+
+  return {
+    type: 'result',
+    message: raw,
+    artifactUrl,
+    via: 'heuristic',
+    ...(jobId !== undefined ? { jobId } : {}),
+  };
+}
+
+export function interpretAgentResponse(raw: string): AgentIntent {
+  return fromTrailer(raw) ?? fromProseHeuristic(raw);
+}
+
+/** The cheap guard from §3.4.2: when a turn classifies as 'question' but the
+ *  prose carries any of these markers, the caller logs POSSIBLE_MISSED_RESULT
+ *  with the raw preview. It changes no behaviour; it turns an invisible
+ *  regression (a reworded build reply losing its URL) into a greppable one. */
+const MISSED_RESULT_MARKERS = ['job id', 'dashboard has been built', 'report_schema'];
+
+export function looksLikeMissedResult(raw: string): boolean {
+  const haystack = raw.toLowerCase();
+  return MISSED_RESULT_MARKERS.some((marker) => haystack.includes(marker));
+}
