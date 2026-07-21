@@ -108,6 +108,32 @@ describe('mockAgentService', () => {
     expect(result.title).toBe(titleOf('driver-performance'));
   });
 
+  // 7b — the MR !56 review regression: the COMPOSITION of 6 and 7. After a
+  // switch, a keyword-free refinement must stay on the switched-to fixture. A
+  // concatenated fallback re-ties mileage against driver 1-1 and array order
+  // reverts to the abandoned fixture; the newest-signal-bearing-user-turn walk
+  // must win here.
+  it('MR !56: a keyword-free refinement after a switch keeps the switched-to fixture', async () => {
+    const history = [
+      user('I want to track vehicle mileage'),
+      assistant(CLARIFY_MESSAGE),
+      user('actually show driver performance instead'),
+      assistant('built driver performance'),
+    ];
+    const result = resultOf(await chat('narrow it to last 7 days', history));
+    expect(result.title).toBe(titleOf('driver-performance'));
+  });
+
+  // 7c — pins the user-turns-only filter in the fallback walk (MR !56 review:
+  // deleting the role filter used to pass the whole suite). Assistant turns
+  // routinely carry keywords — MENU_MESSAGE names all six topics — and must
+  // never outvote the user's own words.
+  it('fallback ignores assistant turns even when they carry keywords', async () => {
+    const history = [user('I want to track vehicle mileage'), assistant(MENU_MESSAGE)];
+    const result = resultOf(await chat('looks good, build it', history));
+    expect(result.title).toBe(titleOf('vehicle-mileage'));
+  });
+
   // 8
   it('zero matches anywhere falls back to the default entry', async () => {
     const cold = await chat('asdf qwerty');

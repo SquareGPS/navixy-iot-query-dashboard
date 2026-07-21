@@ -107,29 +107,43 @@ function bestMatch(haystack: string): CorpusEntry | null {
 }
 
 /**
- * Two-stage selection — recency beats accumulation (MR2-C2). Score the newest
- * message ALONE first; only when it matches nothing fall back to the combined
- * user-turn history. Scoring the combined text unconditionally breaks the
- * refinement-switch scenario. Measured against the literal script:
+ * Two-stage selection — recency beats accumulation (MR2-C2, tightened after the
+ * MR !56 review). Score the newest message ALONE first; only when it matches
+ * nothing, walk PRIOR USER turns newest-first and take the first that carries
+ * any signal. Both halves are load-bearing:
  *
- *   turn 1: "I want to track vehicle mileage"          -> vehicle-mileage 1
- *   turn 3: "actually show driver performance instead" -> driver-performance 1
- *   combined                                           -> 1-1 TIE -> array order -> vehicle-mileage
+ * - Scoring the combined text unconditionally breaks the refinement-switch
+ *   scenario. Measured against the literal script:
  *
- * `vehicle-mileage` precedes `driver-performance` in corpus order, so
- * combined-text scoring returns the dashboard the user just asked to replace.
- * Recency beating accumulation is also the semantically correct reading of a
- * chat.
+ *     turn 1: "I want to track vehicle mileage"          -> vehicle-mileage 1
+ *     turn 3: "actually show driver performance instead" -> driver-performance 1
+ *     combined                                           -> 1-1 TIE -> array order -> vehicle-mileage
+ *
+ *   `vehicle-mileage` precedes `driver-performance` in corpus order, so
+ *   combined-text scoring returns the dashboard the user just asked to replace.
+ *
+ * - CONCATENATING the fallback breaks the very next turn of that same script
+ *   (MR !56 review finding): after the switch, a keyword-free refinement
+ *   ("narrow it to last 7 days") re-ties mileage against driver 1-1 in the
+ *   concatenated text, and array order reverts to the abandoned fixture. The
+ *   newest-first walk keeps the LATEST topical signal authoritative, which is
+ *   the semantically correct reading of a chat.
+ *
+ * Only USER turns are consulted. Assistant turns routinely carry keywords — the
+ * menu names all six topics, result messages embed the dashboard title — and
+ * folding them in would let the mock's own words outvote the user's.
  */
 function resolveEntry(message: string, history: AgentTurn[]): CorpusEntry | null {
   const fromNewest = bestMatch(message);
   if (fromNewest) return fromNewest;
 
-  const combined = [
-    ...history.filter((t) => t.role === 'user').map((t) => t.content),
-    message,
-  ].join(' \n ');
-  return bestMatch(combined);
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const turn = history[i];
+    if (turn?.role !== 'user') continue;
+    const match = bestMatch(turn.content);
+    if (match) return match;
+  }
+  return null;
 }
 
 /** The throw is unreachable (a generator assertion guarantees DEFAULT_CORPUS_ID
@@ -152,7 +166,11 @@ function buildResult(entry: CorpusEntry, input: AgentTurnInput, ctx: AgentContex
   // Node 17+ global; the runtime image is node:18-alpine.
   const schema = structuredClone(entry.schema) as Record<string, unknown>;
 
-  const turnIndex = input.history.length; // NOT a field on the interface. Do not add one.
+  // NOT a field on the interface. Do not add one. KNOWN LIMIT: once the route
+  // (MR 4) starts truncating history to its cap, this saturates at the cap and
+  // late-session results repeat a uid. Acceptable for the mock; the route owns
+  // truncation and MR 4 decides whether that matters there.
+  const turnIndex = input.history.length;
 
   schema.id = null; // 09-vehicle-mileage ships "id": 1; the other five are already null.
   // The six fixtures ship fixed uids — applying the same fixture twice would
@@ -201,9 +219,9 @@ export const mockAgentService: AgentService = {
     }
 
     // 3. Any later turn produces a result. resolveEntry already encodes the
-    // refinement semantics: no new keyword -> combined-history fallback keeps the
-    // fixture; a new keyword resolves on the new message alone and switches. No
-    // extra branch is needed and none should be added.
+    // refinement semantics: no new keyword -> the newest signal-bearing user turn
+    // keeps the current fixture; a new keyword resolves on the new message alone
+    // and switches. No extra branch is needed and none should be added.
     const result = buildResult(entry ?? defaultEntry(), input, ctx);
     return { type: 'result', message: resultMessage(result.title), result };
   },
