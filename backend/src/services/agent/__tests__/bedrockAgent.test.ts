@@ -101,6 +101,23 @@ describe('buildInvokeInput', () => {
   it('does not throw when both ids are set', () => {
     expect(() => buildInvokeInput({ message: 'hi', history: [] }, ctx)).not.toThrow();
   });
+
+  it.each([
+    ['BEDROCK_AGENT_ID'],
+    ['BEDROCK_AGENT_ALIAS_ID'],
+  ])('throws the same 500 when %s is set but EMPTY — the shape .env.example itself ships', (envKey) => {
+    // dotenv turns `BEDROCK_AGENT_ID=` into '', not undefined; the guard must
+    // catch both, and must keep catching '' across a `=== undefined` refactor
+    // (MR !57 review).
+    process.env[envKey] = '';
+    try {
+      buildInvokeInput({ message: 'hi', history: [] }, ctx);
+      throw new Error('expected buildInvokeInput to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(CustomError);
+      expect((err as CustomError).statusCode).toBe(500);
+    }
+  });
 });
 
 describe('collectCompletion', () => {
@@ -183,6 +200,40 @@ describe('safeUserMessage', () => {
     expect(safeUserMessage('SomeNameNobodyListed')).toBe(
       'The assistant is temporarily unavailable. Please try again.',
     );
+  });
+
+  // Every row of the taxonomy, pinned individually (MR !57 review): the
+  // name→sentence coupling is stringly-typed across two modules, and the
+  // comment above SAFE_MESSAGES plans future pruning (Q4) — a foreseen edit
+  // that would otherwise regress invisibly.
+  it.each([
+    ['SyntaxError', 'malformed'],
+    ['ArtifactTooLarge', 'malformed'],
+    ['MalformedArtifact', 'malformed'],
+    ['ThrottlingException', 'busy'],
+    ['TooManyRequestsException', 'busy'],
+    ['ServiceQuotaExceededException', 'busy'],
+    ['TimeoutError', 'timeout'],
+    ['AbortError', 'timeout'],
+    ['RequestAbortedError', 'timeout'],
+    ['AccessDeniedException', 'config'],
+    ['ResourceNotFoundException', 'config'],
+    ['ValidationException', 'config'],
+    ['NoSuchBucket', 'config'],
+    ['AccessDenied', 'config'],
+    ['ArtifactBucketMismatch', 'config'],
+    ['InternalServerException', 'generic'],
+    ['DependencyFailedException', 'generic'],
+    ['BadGatewayException', 'generic'],
+  ] as const)('maps %s to the %s sentence', (name, family) => {
+    const SENTENCES = {
+      malformed: 'The assistant returned a malformed dashboard. Please try again.',
+      busy: 'The assistant is busy right now. Please try again in a moment.',
+      timeout: 'The assistant took too long to respond. Please try again.',
+      config: 'The assistant is unavailable due to a configuration problem.',
+      generic: 'The assistant is temporarily unavailable. Please try again.',
+    } as const;
+    expect(safeUserMessage(name)).toBe(SENTENCES[family]);
   });
 
   it('never echoes the error name into the user-facing text', () => {

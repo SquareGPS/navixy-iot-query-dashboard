@@ -92,6 +92,18 @@ describe('interpretAgentResponse — prose heuristic (§3.4.2)', () => {
     expect(looksLikeMissedResult(FIVE_QUESTIONS)).toBe(false);
   });
 
+  // One probe per marker (MR !57 review): this guard is the mitigation for the
+  // heuristic's silent failure mode, and each marker must be individually
+  // load-bearing — deletable only with a red suite.
+  it.each([
+    ['job id', 'The job id will be emailed to you shortly.'],
+    ['dashboard has been built', 'Your dashboard has been built and is being uploaded now.'],
+    ['report_schema', 'Writing report_schema now, one moment.'],
+  ])('looksLikeMissedResult fires on the "%s" marker alone', (_marker, prose) => {
+    expect(looksLikeMissedResult(prose)).toBe(true);
+    expect(interpretAgentResponse(prose).type).toBe('question');
+  });
+
   it('returns question with the input verbatim for empty and whitespace-only prose', () => {
     expect(interpretAgentResponse('')).toEqual({ type: 'question', via: 'heuristic', message: '' });
     expect(interpretAgentResponse('  \n\t ')).toEqual({
