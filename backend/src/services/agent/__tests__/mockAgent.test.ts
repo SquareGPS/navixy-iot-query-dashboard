@@ -147,7 +147,7 @@ describe('mockAgentService', () => {
 
   // 9
   describe('error branch (deliberately not a model of real agent behaviour)', () => {
-    it.each(['no', 'nothing', 'stop', 'cancel', '  Cancel me'])(
+    it.each(['stop', 'cancel', '  Cancel me'])(
       'fires on %j on a cold session', async (message) => {
         const turn = await chat(message);
         expect(turn.type).toBe('error');
@@ -166,10 +166,21 @@ describe('mockAgentService', () => {
       expect(turn.result).toBeNull();
     });
 
-    it.each(['nobody', 'cancellation policy'])('does not fire on %j', async (message) => {
-      const turn = await chat(message);
-      expect(turn.type).toBe('question');
-    });
+    it.each(['nobody', 'cancellation policy', 'stopwatch report'])(
+      'does not fire on %j', async (message) => {
+        const turn = await chat(message);
+        expect(turn.type).toBe('question');
+      });
+
+    // The MR !56 review regression: CLARIFY_MESSAGE invites "no" as the build-it
+    // answer. A leading "no"/"nothing" must fall through to the result path, not
+    // dead-end the dialogue as an error.
+    it.each(["No, that's all", 'nothing to narrow, just build it', 'no thanks, build it'])(
+      '%j after the clarify beat builds the dashboard', async (message) => {
+        const history = [user('I want to track vehicle mileage'), assistant(CLARIFY_MESSAGE)];
+        const result = resultOf(await chat(message, history));
+        expect(result.title).toBe(titleOf('vehicle-mileage'));
+      });
   });
 
   // 10 — both halves: the second response is pristine AND the corpus singleton
