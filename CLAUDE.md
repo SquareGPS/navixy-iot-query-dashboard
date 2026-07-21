@@ -49,13 +49,13 @@ Express layered stack. Entry: `backend/src/index.ts`. Routes mounted under `/api
 Auth middleware (`middleware/auth.ts`) validates JWTs and rehydrates the user's DB URLs onto `req.user` — handlers expect that shape (`AuthenticatedRequest`).
 
 ### Frontend (`src/`)
-- **`pages/`** — route components. Routes (see `src/App.tsx`): `/`, `/login`, `/app`, `/app/report/:reportId`, `/app/settings`, `/app/sql-editor`, `/app/composite-report/:id[/edit]`. Note both `ReportView.tsx` and `ReportViewNew.tsx` exist; `ReportView.tsx` is the one wired into the router.
+- **`pages/`** — route components. Routes (see `src/App.tsx`): `/`, `/login`, `/app`, `/app/report/:reportId`, `/app/settings`, `/app/sql-editor`, `/app/composite-report/:id[/edit]`. `ReportView.tsx` is the page wired into the router.
 - **`layout/`** — the dashboard editor (separate from `components/layout/`, which is app shell). This is the core complexity:
   - `geometry/` — pure functions for the 24-column Grafana grid: `collisions.ts`, `autopack.ts`, `grid.ts` (snapping), `rows.ts`, `move.ts`, `resize.ts`, `add.ts`, `tidyUp.ts`. These are the unit-tested algorithms.
   - `state/editorStore.ts` — Zustand store holding `dashboard`, `selectedPanelId`, `isEditingLayout`, plus a history stack for undo/redo.
   - `state/commands.ts` — all mutations go through `cmdMovePanel`, `cmdResizePanel`, `cmdMovePanelToRow`, `cmdReorderRows`, etc. These produce new immutable dashboard states and push to history. **Do not mutate dashboard JSON directly anywhere else.**
-  - `ui/` — Canvas, PanelCard, RowHeader; integrates `@dnd-kit` and emits an `onDashboardChange` callback that `ReportView` persists via `POST /api/reports/:id`.
-- **`renderer-core/`** + **`renderer-adapters/react/`** — schema-driven dashboard renderer. `renderer-core/schema/` defines the panel/visual types; `renderer-adapters/react/` maps them to React components. Adding a new visualization means: define the schema (renderer-core), add the adapter (renderer-adapters), and register it where `DashboardRenderer.tsx` dispatches on `type`.
+  - `ui/` — Canvas, PanelCard, RowHeader; integrates `@dnd-kit` and emits an `onDashboardChange` callback that `ReportView` persists via `PUT /api/reports/:id`.
+- **`renderer-core/`** — schema-driven renderer types. `renderer-core/schema/` defines the panel/visual types, but `renderer-core/schema/grafana-dashboard.ts` is dead — its `{dashboard, "x-navixy"}` wrapper matches no fixture. Adding a new visualization means: define the visual's types and register it where `DashboardRenderer.tsx` dispatches on `type`.
 - **`components/reports/visualizations/`** — concrete visuals (BarChart, PieChart, Table, Tile, etc.) built on Recharts / `@tanstack/react-table` / Leaflet.
 - **`services/api.ts`** — single API client. `services/demoApi.ts` intercepts the same surface when demo mode is active and routes to `services/demoStorage.ts` (Dexie/IndexedDB).
 - **`contexts/AuthContext.tsx`** — owns `signIn`, `signInDemo`, `reseedDemoData`. Token stored in `localStorage` as `auth_token`.
