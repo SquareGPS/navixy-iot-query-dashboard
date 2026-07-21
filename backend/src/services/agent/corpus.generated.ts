@@ -18,10 +18,10 @@
  *     `verbatimModuleSyntax` will not synthesize; there is zero precedent for a JSON
  *     import anywhere in backend/src.
  *
- * Panels dropped by the generator (see PANEL_EXCLUSIONS and drop rule (a) there):
+ * Panels dropped by the generator (derived from the actual transform; the rules
+ * live in backend/scripts/build-agent-corpus.mjs — PANEL_EXCLUSIONS and rule (a)):
  *   05-heavy-machinery-engine-operation-schema.json panel id 6 — Workload by band (7d): ORDER BY category, series names columns the SELECT does not project (object_label, engine_hours, load_band). Fails at execution with 42703 and has never worked in this app — it renders as an error tile today (PF-1).
- *   05-heavy-machinery-engine-operation-schema.json panel id 11 — empty SQL statement
- *   (drop rule (a)): renders as a dead "No SQL configured" tile.
+ *   05-heavy-machinery-engine-operation-schema.json panel id 11 — empty SQL statement (drop rule (a)): renders as a dead "No SQL configured" tile.
  *
  * Shipped: 6 entries, 52 panels, 49 SQL statements.
  *   fleet-anomaly: 9 panels

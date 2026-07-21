@@ -9,14 +9,23 @@ import { validateSQLQuerySafe } from '../../../utils/sqlValidationIntegration.js
 const SCHEMAS_DIR = fileURLToPath(new URL('../../../../../schemas/', import.meta.url));
 const GENERATOR_URL = new URL('../../../../scripts/build-agent-corpus.mjs', import.meta.url).href;
 
+interface DropNote {
+  source: string;
+  panelId: number;
+  reason: string;
+}
+
 interface GeneratorModule {
   loadFixtures(dir: string): Record<string, unknown>;
-  buildCorpus(fixtures: Record<string, unknown>): CorpusEntry[];
+  buildCorpus(fixtures: Record<string, unknown>, notes?: DropNote[]): CorpusEntry[];
+  renderModule(corpus: CorpusEntry[], notes: DropNote[]): string;
+  statementHash(statement: string): string;
   PANEL_EXCLUSIONS: Array<{
     corpusId: string;
     source: string;
     panelId: number;
     mustMatch: RegExp;
+    sha256: string;
     reason: string;
   }>;
 }
@@ -172,9 +181,12 @@ describe('agent corpus', () => {
     }
   });
 
-  // (h) Anti-rot: each declared exclusion must still match its source fixture.
-  // The day upstream fixes fixture 05's ORDER BY, this fails and the exclusion
-  // must be removed — otherwise a now-good panel stays dropped forever.
+  // (h) Anti-rot: each declared exclusion must still match its source fixture —
+  // the offending clause is still there AND the whole statement is byte-for-byte
+  // (modulo whitespace) the one the exclusion was declared against. Any upstream
+  // edit to that statement, including one that fixes the 42703 while keeping the
+  // ORDER BY text, fails here and forces the exclusion to be re-evaluated —
+  // otherwise a now-good panel stays dropped forever.
   it('every declared exclusion still matches its source fixture', async () => {
     const generator = (await import(GENERATOR_URL)) as unknown as GeneratorModule;
     expect(generator.PANEL_EXCLUSIONS.length).toBeGreaterThan(0);
@@ -184,7 +196,9 @@ describe('agent corpus', () => {
       };
       const panel = fixture.panels.find((p) => p.id === exclusion.panelId);
       expect(panel).toBeDefined();
-      expect(exclusion.mustMatch.test(statementOf(panel as Panelish) ?? '')).toBe(true);
+      const statement = statementOf(panel as Panelish) ?? '';
+      expect(exclusion.mustMatch.test(statement)).toBe(true);
+      expect(generator.statementHash(statement)).toBe(exclusion.sha256);
     }
   });
 
