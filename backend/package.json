@@ -42,7 +42,7 @@
     "winston": "^3.11.0"
   },
   "overrides": {
-    "@smithy/node-http-handler": ">=4.4.0"
+    "@smithy/node-http-handler": ">=4.4.0 <5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
