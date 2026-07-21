@@ -235,6 +235,18 @@ describe('mockAgentService', () => {
     expect(otherSession.report_schema.uid).toBe('ai-deadbeef-2');
   });
 
+  // 12b — MR !56 review pin: the mock is a pure function of (input, ctx), so the
+  // same input must replay to a deep-equal turn (persisted history has to render
+  // exactly as the live session did), and the result message must be tied to the
+  // dashboard it announces — a timestamp or random component in either would
+  // pass every other test.
+  it('is deterministic: same input twice yields deep-equal turns', async () => {
+    const first = await chat('mileage', warmHistory);
+    const second = await chat('mileage', warmHistory);
+    expect(first).toEqual(second);
+    expect(first.message).toContain(resultOf(first).title);
+  });
+
   // 13
   it('never throws', async () => {
     const resultNullTurn: AgentTurn = { role: 'assistant', content: 'x', result: null };
