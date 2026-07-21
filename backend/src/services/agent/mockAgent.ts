@@ -55,8 +55,14 @@ const resultMessage = (title: string): string =>
  * Under AGENT_BACKEND=mock it is the ONLY reachable in-band error, which is why the
  * manual error-path checks depend on it. Keep it; do not let a reader mistake it for
  * agent behaviour, and do not extend it into anything resembling an error taxonomy.
+ *
+ * Only `stop` and `cancel` — NOT `no`/`nothing`. CLARIFY_MESSAGE asks "Anything
+ * you'd like me to narrow down before I build it…?", and the natural build-it
+ * answer is a leading "no": "No, that's all" must fall through to the result
+ * path, not dead-end the dialogue as an error (MR !56 review finding). The two
+ * remaining words keep the error path reachable at any depth.
  */
-const CANCEL_RE = /^\s*(no|nothing|stop|cancel)\b/i;
+const CANCEL_RE = /^\s*(stop|cancel)\b/i;
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
