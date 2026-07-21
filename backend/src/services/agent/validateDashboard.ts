@@ -11,14 +11,16 @@
  * exist`. Only execution catches that; preview-before-Apply is the actual
  * safety mechanism.
  *
- * CALIBRATION CAVEAT: the error/warning boundary below was fitted to six
- * shipped fixtures, not derived. MISSING_NAVIXY_EXT is a warning because
- * fixture 01 has no top-level `x-navixy` and renders fine; PANEL_OVERLAP is a
- * warning because fixture 12 contains three real one-row overlaps
- * (section-header text panels over the table below them) and renders
- * correctly today. Promoting either to an error blocks dashboards the app
- * ships. This is fitting the gate to the sample — expect to re-tune it
- * against the first real agent responses.
+ * CALIBRATION CAVEAT: the error/warning boundary below was fitted to the 14
+ * shipped fixtures, not derived. Swept against all 14 (2026-07-21): ZERO
+ * errors, 47 warnings — PANEL_OVERLAP on 02/10/11/12/13 (45 real overlapping
+ * pairs that render correctly today, e.g. fixture 12's section-header text
+ * panels over the table below them), MISSING_NAVIXY_EXT on 01 (no top-level
+ * `x-navixy`, renders fine), EMPTY_SQL on 05 (a "New barchart" placeholder
+ * with "statement": "" that renders as a "No SQL configured" tile). Promoting
+ * any of these to an error blocks a dashboard the app ships. This is fitting
+ * the gate to the sample — expect to re-tune it against the first real agent
+ * responses.
  *
  * Hand-rolled rather than joi: joi IS a runtime dependency of this backend
  * (backend/package.json) but is unused anywhere in backend/src, and the rules
@@ -74,29 +76,38 @@ function issue(code: string, message: string, path?: string): DashboardIssue {
   return path === undefined ? { code, message } : { code, message, path };
 }
 
-/** True when the last non-blank line of the statement starts a `--` comment
+/** True when the last non-blank line of the statement contains a `--` comment
  *  outside single- or double-quoted text. Such a statement passes validation,
  *  but the server-appended row cap lands inside the comment, so the query
- *  runs unbounded and dies on the 10 000-row limit (O8). */
+ *  runs unbounded and dies on the 10 000-row limit (O8).
+ *
+ *  Quote state is tracked across the WHOLE statement, not just the last line:
+ *  a multi-line string literal whose final line begins with `--` is inside the
+ *  literal, not a comment. Earlier-line `--` comments are skipped to their end
+ *  of line so quotes inside comment text cannot corrupt the state. Dollar
+ *  quoting is not handled — acceptable for a gate that fails toward a warning
+ *  log line, and no fixture or probe statement uses it. */
 function hasTrailingLineComment(sql: string): boolean {
-  const lines = sql.split('\n');
-  let last: string | undefined;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (line !== undefined && line.trim() !== '') {
-      last = line;
+  // Locate the last non-blank line.
+  let end = sql.length;
+  let lineStart = -1;
+  while (end > 0) {
+    const nl = sql.lastIndexOf('\n', end - 1);
+    if (sql.slice(nl + 1, end).trim() !== '') {
+      lineStart = nl + 1;
       break;
     }
+    end = nl < 0 ? 0 : nl;
   }
-  if (last === undefined) return false;
+  if (lineStart < 0) return false;
 
   let inSingle = false;
   let inDouble = false;
-  for (let i = 0; i < last.length; i++) {
-    const ch = last[i];
+  for (let i = 0; i < end; i++) {
+    const ch = sql[i];
     if (inSingle) {
       if (ch === "'") {
-        if (last[i + 1] === "'") i++; // '' escape inside a literal
+        if (sql[i + 1] === "'") i++; // '' escape inside a literal
         else inSingle = false;
       }
     } else if (inDouble) {
@@ -105,8 +116,13 @@ function hasTrailingLineComment(sql: string): boolean {
       inSingle = true;
     } else if (ch === '"') {
       inDouble = true;
-    } else if (ch === '-' && last[i + 1] === '-') {
-      return true;
+    } else if (ch === '-' && sql[i + 1] === '-') {
+      if (i >= lineStart) return true;
+      // A comment on an earlier line runs to its end of line; skip it so
+      // apostrophes inside the comment text do not open a phantom literal.
+      const eol = sql.indexOf('\n', i);
+      if (eol === -1) return false;
+      i = eol;
     }
   }
   return false;
@@ -250,10 +266,24 @@ export function validateDashboard(schema: unknown): DashboardValidation {
       const nav = panel['x-navixy'];
       const sqlNode = isPlainObject(nav) && isPlainObject(nav.sql) ? nav.sql : undefined;
       const statement = sqlNode?.statement;
-      if (!isNonEmptyString(statement)) {
+      if (typeof statement !== 'string') {
         errors.push(issue(
           'MISSING_SQL',
-          '`x-navixy.sql.statement` must be a non-empty string on every panel that is not text/row.',
+          '`x-navixy.sql.statement` must be a string on every panel that is not text/row.',
+          `${path}.x-navixy.sql.statement`,
+        ));
+        return;
+      }
+      if (statement.trim() === '') {
+        // Warning, not error: fixture 05 ships a "New barchart" placeholder with
+        // "statement": "" and the live renderer handles it gracefully ("No SQL
+        // configured") — it renders, so by this file's own boundary it is
+        // suspicious, not broken. An ABSENT statement stays an error above:
+        // a data panel with no SQL config at all is malformed output, not a
+        // placeholder anyone shipped.
+        warnings.push(issue(
+          'EMPTY_SQL',
+          'Statement is empty — the panel renders as a "No SQL configured" placeholder.',
           `${path}.x-navixy.sql.statement`,
         ));
         return;

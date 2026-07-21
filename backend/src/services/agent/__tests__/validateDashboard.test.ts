@@ -1,4 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateDashboard, RENDERABLE_PANEL_TYPES } from '../validateDashboard.js';
 
 // Table-qualified on purpose: genuinely dotless queries are rejected by the
@@ -131,11 +134,21 @@ describe('validateDashboard', () => {
       expect(codes(result.errors)).toContain('GRIDPOS_OVERFLOW');
     });
 
-    it('MISSING_SQL: an empty statement produces exactly MISSING_SQL', () => {
+    it('MISSING_SQL: a non-string statement is an error (no SQL config is malformed output, not a placeholder)', () => {
       const result = validateDashboard(makeSchema({
-        panels: [makePanel({ 'x-navixy': { sql: { statement: '' } } })],
+        panels: [makePanel({ 'x-navixy': { sql: { statement: 42 } } })],
       }));
       expect(codes(result.errors)).toEqual(['MISSING_SQL']);
+    });
+
+    it('UNKNOWN_PANEL_TYPE: a null panel entry is reported, never thrown on', () => {
+      const result = validateDashboard(makeSchema({ panels: [null, makePanel()] }));
+      expect(codes(result.errors)).toEqual(['UNKNOWN_PANEL_TYPE']);
+    });
+
+    it('UNKNOWN_PANEL_TYPE: a panel with no type at all', () => {
+      const result = validateDashboard(makeSchema({ panels: [makePanel({ type: undefined })] }));
+      expect(codes(result.errors)).toContain('UNKNOWN_PANEL_TYPE');
     });
 
     it('MISSING_SQL: a non-text/row panel with no x-navixy at all', () => {
@@ -173,6 +186,22 @@ describe('validateDashboard', () => {
       }));
       expect(codes(result.errors)).not.toContain('TRAILING_COMMENT');
     });
+
+    it('TRAILING_COMMENT: a multi-line literal whose last line starts with -- is not a comment', () => {
+      const statement = "SELECT d.id, 'note:\n-- not a comment' AS note FROM public.devices d";
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(codes(result.errors)).not.toContain('TRAILING_COMMENT');
+    });
+
+    it('TRAILING_COMMENT: an apostrophe inside an earlier-line comment does not mask a real trailing comment', () => {
+      const statement = "SELECT d.id -- don't let this apostrophe leak\nFROM public.devices d -- cap lands here";
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(codes(result.errors)).toContain('TRAILING_COMMENT');
+    });
   });
 
   describe('warnings — never block', () => {
@@ -191,6 +220,34 @@ describe('validateDashboard', () => {
       }));
       expect(result.errors).toEqual([]);
       expect(codes(result.warnings)).toEqual(['PANEL_OVERLAP']);
+    });
+
+    it('PANEL_OVERLAP: edge-adjacent panels never warn (real dashboards are wall-to-wall adjacencies)', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [
+          makePanel({ id: 1, gridPos: { x: 0, y: 0, w: 12, h: 4 } }),
+          makePanel({ id: 2, gridPos: { x: 12, y: 0, w: 12, h: 4 } }),
+          makePanel({ id: 3, gridPos: { x: 0, y: 4, w: 24, h: 4 } }),
+        ],
+      }));
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('EMPTY_SQL: an empty statement is a warning, not an error (fixture 05 ships such a placeholder)', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement: '' } } })],
+      }));
+      expect(result.errors).toEqual([]);
+      expect(codes(result.warnings)).toEqual(['EMPTY_SQL']);
+    });
+
+    it('EMPTY_SQL: whitespace-only statements count as empty', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement: '   \n  ' } } })],
+      }));
+      expect(result.errors).toEqual([]);
+      expect(codes(result.warnings)).toEqual(['EMPTY_SQL']);
     });
 
     it('GEOMAP_NO_COORD_ALIAS: geomap SQL with no lat/lon token warns, never errors', () => {
@@ -229,6 +286,24 @@ describe('validateDashboard', () => {
       const all = [...result.errors, ...result.warnings];
       expect(all).toEqual([]);
       expect(GOOD_SQL).not.toContain(':');
+    });
+  });
+
+  describe('calibration against the shipped fixtures', () => {
+    // The design invariant behind the whole error/warning boundary: a
+    // dashboard the app ships today must never be rewritten to type:'error'.
+    // Warnings are expected (overlaps in 02/10/11/12/13, missing x-navixy in
+    // 01, an empty placeholder statement in 05) and deliberately unasserted
+    // here — pinning them per fixture is the corpus test's job (MR 2).
+    it('all 14 schemas/*.json produce zero errors', () => {
+      const dir = fileURLToPath(new URL('../../../../../schemas/', import.meta.url));
+      const files = readdirSync(dir).filter((f) => f.endsWith('-schema.json')).sort();
+      expect(files).toHaveLength(14);
+      for (const file of files) {
+        const schema = JSON.parse(readFileSync(join(dir, file), 'utf8')) as unknown;
+        const result = validateDashboard(schema);
+        expect({ file, errors: result.errors }).toEqual({ file, errors: [] });
+      }
     });
   });
 });
