@@ -226,8 +226,10 @@ raises `MULTI_STATEMENT` (`:138-143`); one trailing `;` is tolerated (`:232-235`
   FROM public.devices`. `string_agg(x, '; ')` and `to_char(ts,'HH24;MI')` are exactly what a
   report-writing model emits. **Highest-probability omission.**
 - **O2 — double-quoted aliases are scanned as bare text by all four keyword scans.** Verified
-  rejected ✅: `AS "User Name"` → `BLOCKED_FUNC 'user'`; `AS "Update Time"` → `NON_SELECT_CTE:
-  UPDATE`; `AS "Create Date"` → `NON_SELECT_CTE: CREATE`; `AS "Trips Into Zone"` → `SELECT_INTO`.
+  rejected ✅: `AS "User Name"` → `BLOCKED_FUNC 'user'` and `AS "Trips Into Zone"` →
+  `SELECT_INTO` (any query); `AS "Update Time"` → `NON_SELECT_CTE: UPDATE` and
+  `AS "Create Date"` → `NON_SELECT_CTE: CREATE` (in `WITH` queries — the CTE scan runs only
+  when the statement contains `WITH` ✅ (`:300`), and report SQL very often does).
   (`AS "Users Online"` and `AS "Deleted Devices"` **pass** — the trailing `s`/`d` kills the word
   boundary, which is precisely why the rule must be stated rather than inferred.)
 - **O3 — the CTE-op list is 16 operations, not just `DO`/`CALL`** ✅ (`:305-322`): INSERT, UPDATE,
@@ -239,13 +241,14 @@ raises `MULTI_STATEMENT` (`:138-143`); one trailing `;` is tolerated (`:232-235`
   anywhere after the first `SELECT` is rejected.
 - **O6 — the presence of `${` silently switches to the *looser* template validator** ✅
   (`sqlValidationIntegration.ts:38-43`, `:102-105`), which guesses each placeholder's type from its
-  **name** ✅ (`sqlSelectGuard.ts:65-81`): contains `id`/`count`/`num` → numeric `1`;
-  `__from`/`__to`/`time`/`date` → a TIMESTAMP literal; **everything else → `'PLACEHOLDER'`**, a
-  quoted string. A **naming constraint**, not a style preference. Dormant for v1: no shipped
-  fixture uses `${}` inside SQL.
+  **name** ✅ (`sqlSelectGuard.ts:65-81`), checked in this order: name is exactly
+  `__from`/`__to`/`from`/`to` or contains `time`/`date` → a TIMESTAMP literal; else contains
+  `id`/`count`/`num` → numeric `1`; **else → `'PLACEHOLDER'`**, a quoted string — the date
+  family wins ties, so `start_date_id` binds as a TIMESTAMP. A **naming constraint**, not a
+  style preference. Dormant for v1: no shipped fixture uses `${}` inside SQL.
 - **O7 — genuinely dotless queries take a hard 422 `PARSE_ERROR`.** `new Parser()` runs in its
   default **MySQL** dialect ✅ (`:25`, `astify` at `:183`); `isPostgreSQLSyntax` ✅ (`:398-458`)
-  rescues it, but one of 40 patterns must match and the workhorse is `\w+\.\w+` ✅ (`:454`).
+  rescues it, but one of 52 patterns must match and the workhorse is `\w+\.\w+` ✅ (`:454`).
   Verified rejected ✅: `count(*) FILTER (WHERE ok)`, `LATERAL`, `GROUPING SETS`,
   `FETCH FIRST 10 ROWS ONLY`. Verified passing ✅: `date_trunc`, `generate_series`, `CASE`,
   `EXTRACT(EPOCH FROM …)`, `NULLS LAST`, `ILIKE`, `INTERVAL`, `array_agg`, `EXCEPT`,
@@ -351,7 +354,7 @@ documents a per-asset `${object_label}` selector while all six SQL panels select
 no predicate, and its `templating.list` Asset dropdown does nothing — it remains a perfectly valid
 **shape** example and is attached as one.
 
-Panel-type census across all 14 fixtures (274 panels) ✅: `kpi` 102, `barchart` 42, `table` 33,
+Panel-type census across all 14 fixtures (234 panels) ✅: `kpi` 102, `barchart` 42, `table` 33,
 `text` 19, `piechart` 18, `stat` 11, `timeseries` 4, `linechart` 3, `geomap` 2, `bargauge` 0,
 `row` 0.
 
@@ -403,7 +406,7 @@ them instead of `{}` is request 6 of §6.
 the last 7 days":
 
 ```json
-{ "orientation": "auto" }
+{ "orientation": "vertical" }
 ```
 
 `text` — `12-driver-performance-dashboard-schema.json`, panel "Block 2 – Violation Counts":
