@@ -91,6 +91,9 @@ export async function fetchArtifact(loc: S3Location, signal: AbortSignal): Promi
   // Check ContentLength BEFORE consuming the body. Never transformToString() an unbounded
   // object into the heap.
   if (typeof res.ContentLength === 'number' && res.ContentLength > maxBytes) {
+    // Tear the unconsumed body down or the keep-alive socket never returns to
+    // the pool (MR !57 review; reproduced against the installed handler).
+    (res.Body as unknown as { destroy?: (error?: Error) => void }).destroy?.();
     throw namedError('ArtifactTooLarge', `Artifact too large: ${res.ContentLength} > ${maxBytes}`);
   }
 
