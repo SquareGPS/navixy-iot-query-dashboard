@@ -26,6 +26,7 @@
  *     `verbatimModuleSyntax` will not synthesize; there is zero precedent for a
  *     JSON import anywhere in backend/src.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -104,11 +105,16 @@ export const DEFAULT_CORPUS_ID = 'fleet-anomaly';
  * unverified SQL into the one place in this feature that is supposed to be
  * known-good.
  *
- * Each entry is asserted against the source fixture on every run: the panel must
- * still exist and its statement must still match `mustMatch` (whitespace-tolerant
- * because the fixture breaks the clause across CRLF lines). If upstream fixes the
- * fixture, the build fails loudly instead of silently dropping a now-good panel
- * forever.
+ * Each entry is asserted against the source fixture on every run, two ways:
+ * the panel must still exist with a statement matching `mustMatch`
+ * (whitespace-tolerant because the fixture breaks the clause across CRLF lines),
+ * AND the whole statement's whitespace-normalized sha256 must equal the pinned
+ * `sha256`. The clause check alone pins the ORDER BY text, not the defect: an
+ * upstream "fix" that re-aliases the SELECT list to AS category / AS series
+ * (genuinely curing the 42703) while keeping the clause would slip past it and
+ * the now-good panel would stay dropped forever (MR !56 review). Any statement
+ * change trips the hash and forces a re-evaluation. If upstream touches the
+ * fixture, the build fails loudly instead of silently dropping a good panel.
  */
 export const PANEL_EXCLUSIONS = [
   {
@@ -116,12 +122,18 @@ export const PANEL_EXCLUSIONS = [
     source: '05-heavy-machinery-engine-operation-schema.json',
     panelId: 6,
     mustMatch: /ORDER\s+BY\s+category\s*,\s*series/i,
+    sha256: 'c2766ed56c399733a1e5874ffdd2091129e274b7bc3e8418608d87aa6a63ea37',
     reason:
       'Workload by band (7d): ORDER BY category, series names columns the SELECT does not ' +
       'project (object_label, engine_hours, load_band). Fails at execution with 42703 and has ' +
       'never worked in this app — it renders as an error tile today (PF-1).',
   },
 ];
+
+/** Whitespace-normalized sha256 of a statement — the exclusion pin above. */
+export function statementHash(statement) {
+  return createHash('sha256').update(statement.replace(/\s+/g, ' ').trim()).digest('hex');
+}
 
 /** Panel types that legitimately carry no SQL statement (drop rule (a) exempts
  *  them). `row` appears in zero of the 14 fixtures; it is exempt defensively so
@@ -142,8 +154,12 @@ function fail(message) {
 /**
  * Transform one raw fixture into its shipped corpus schema:
  * drop all (rules (a) and (b)) -> compact -> canonical panel sort.
+ *
+ * `notes`, when given, collects one {source, panelId, reason} record per dropped
+ * panel — the generated file's header derives its dropped-panels section from
+ * the ACTUAL transform rather than a hand-written list that could drift.
  */
-export function transformFixture(config, raw) {
+export function transformFixture(config, raw, notes) {
   const schema = structuredClone(raw);
   if (!Array.isArray(schema.panels) || schema.panels.length === 0) {
     fail(`${config.id}: source fixture has no panels array`);
@@ -153,15 +169,30 @@ export function transformFixture(config, raw) {
   for (const panel of schema.panels) {
     if (seenIds.has(panel.id)) fail(`${config.id}: duplicate panel id ${panel.id} in source fixture`);
     seenIds.add(panel.id);
+    const gp = panel.gridPos;
+    if (!gp || typeof gp !== 'object'
+      || ![gp.x, gp.y, gp.w, gp.h].every((v) => Number.isInteger(v))) {
+      // Fail with a diagnostic naming the fixture and panel instead of dying in
+      // a sort comparator with a bare TypeError.
+      fail(`${config.id}: panel id ${panel.id} has no usable gridPos (integer x/y/w/h required)`);
+    }
   }
 
   const exclusions = PANEL_EXCLUSIONS.filter((e) => e.corpusId === config.id);
   for (const exclusion of exclusions) {
     const panel = schema.panels.find((p) => p.id === exclusion.panelId);
-    if (!panel || !exclusion.mustMatch.test(sqlStatement(panel) ?? '')) {
+    const statement = panel ? sqlStatement(panel) ?? '' : '';
+    if (!panel || !exclusion.mustMatch.test(statement)) {
       fail(
         `declared exclusion ${exclusion.source}/#${exclusion.panelId} no longer matches — ` +
         'remove it from PANEL_EXCLUSIONS',
+      );
+    }
+    if (statementHash(statement) !== exclusion.sha256) {
+      fail(
+        `declared exclusion ${exclusion.source}/#${exclusion.panelId} statement changed ` +
+        `(normalized sha256 ${statementHash(statement)}, pinned ${exclusion.sha256}) — ` +
+        're-evaluate the exclusion and update PANEL_EXCLUSIONS',
       );
     }
   }
@@ -178,8 +209,18 @@ export function transformFixture(config, raw) {
     // statement renders as a dead "No SQL configured" tile.
     const emptySql = !NO_SQL_TYPES.has(panel.type) && (statement === undefined || statement.trim() === '');
     // Rule (b) — the declared exclusion list above.
-    if (emptySql || excludedIds.has(panel.id)) dropped.push(panel);
-    else kept.push(panel);
+    if (emptySql || excludedIds.has(panel.id)) {
+      dropped.push(panel);
+      notes?.push({
+        source: config.source,
+        panelId: panel.id,
+        reason: excludedIds.has(panel.id)
+          ? exclusions.find((e) => e.panelId === panel.id)?.reason ?? ''
+          : 'empty SQL statement (drop rule (a)): renders as a dead "No SQL configured" tile.',
+      });
+    } else {
+      kept.push(panel);
+    }
   }
   if (kept.length === 0) fail(`${config.id}: every panel was dropped`);
 
@@ -234,12 +275,21 @@ export function loadFixtures(schemasDir) {
   return fixtures;
 }
 
-/** The full transform: config + raw fixtures -> the AGENT_CORPUS value. */
-export function buildCorpus(fixtures) {
+/** The full transform: config + raw fixtures -> the AGENT_CORPUS value.
+ *  `notes`, when given, collects the dropped-panel records for renderModule. */
+export function buildCorpus(fixtures, notes) {
   const ids = new Set();
   for (const config of CORPUS_CONFIG) {
     if (ids.has(config.id)) fail(`duplicate corpus id ${config.id}`);
     ids.add(config.id);
+    for (const keyword of config.keywords) {
+      // Keywords are embedded into generated single-quoted string literals and
+      // compiled into regexes; anything outside [a-z] either breaks the emitted
+      // module's syntax (an apostrophe) or silently never matches (a `+`).
+      if (!/^[a-z]+$/.test(keyword)) {
+        fail(`keyword "${keyword}" (${config.id}) must be lowercase a-z only`);
+      }
+    }
   }
   if (!ids.has(DEFAULT_CORPUS_ID)) fail(`DEFAULT_CORPUS_ID "${DEFAULT_CORPUS_ID}" is not a corpus row`);
   for (const exclusion of PANEL_EXCLUSIONS) {
@@ -266,7 +316,7 @@ export function buildCorpus(fixtures) {
     return {
       id: config.id,
       keywords: [...config.keywords],
-      schema: transformFixture(config, raw),
+      schema: transformFixture(config, raw, notes),
     };
   });
 }
@@ -278,16 +328,20 @@ function indentBlock(text, indent) {
     .join('\n');
 }
 
-/** Render the corpus module source text. Deterministic: same input -> same bytes. */
-export function renderModule(corpus) {
+/** Render the corpus module source text. Deterministic: same input -> same bytes.
+ *  `notes` is the dropped-panel list collected by buildCorpus — the header
+ *  documents what the transform ACTUALLY dropped, not a hand-written claim. */
+export function renderModule(corpus, notes) {
   const totalPanels = corpus.reduce((n, e) => n + e.schema.panels.length, 0);
   const totalSql = corpus.reduce(
     (n, e) => n + e.schema.panels.filter((p) => !NO_SQL_TYPES.has(p.type)).length, 0);
   const perEntry = corpus
     .map((e) => ` *   ${e.id}: ${e.schema.panels.length} panels`)
     .join('\n');
-  const exclusionNotes = PANEL_EXCLUSIONS
-    .map((e) => ` *   ${e.source} panel id ${e.panelId} — ${e.reason}`)
+  // Sorted so the header is invariant to source panel-array order (B2-R7).
+  const droppedNotes = [...notes]
+    .sort((a, b) => a.source.localeCompare(b.source) || a.panelId - b.panelId)
+    .map((n) => ` *   ${n.source} panel id ${n.panelId} — ${n.reason}`)
     .join('\n');
 
   const entries = corpus
@@ -318,10 +372,9 @@ export function renderModule(corpus) {
  *     \`verbatimModuleSyntax\` will not synthesize; there is zero precedent for a JSON
  *     import anywhere in backend/src.
  *
- * Panels dropped by the generator (see PANEL_EXCLUSIONS and drop rule (a) there):
-${exclusionNotes}
- *   05-heavy-machinery-engine-operation-schema.json panel id 11 — empty SQL statement
- *   (drop rule (a)): renders as a dead "No SQL configured" tile.
+ * Panels dropped by the generator (derived from the actual transform; the rules
+ * live in backend/scripts/build-agent-corpus.mjs — PANEL_EXCLUSIONS and rule (a)):
+${droppedNotes}
  *
  * Shipped: ${corpus.length} entries, ${totalPanels} panels, ${totalSql} SQL statements.
 ${perEntry}
@@ -346,9 +399,10 @@ const OUTPUT_PATH = resolve(SCRIPT_DIR, '../src/services/agent/corpus.generated.
 const SCHEMAS_DIR = resolve(SCRIPT_DIR, '../../schemas');
 
 function main() {
-  const corpus = buildCorpus(loadFixtures(SCHEMAS_DIR));
+  const notes = [];
+  const corpus = buildCorpus(loadFixtures(SCHEMAS_DIR), notes);
   mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
-  writeFileSync(OUTPUT_PATH, renderModule(corpus), 'utf8');
+  writeFileSync(OUTPUT_PATH, renderModule(corpus, notes), 'utf8');
   const totalPanels = corpus.reduce((n, e) => n + e.schema.panels.length, 0);
   console.log(
     `corpus.generated.ts written: ${corpus.length} entries, ${totalPanels} panels ` +
