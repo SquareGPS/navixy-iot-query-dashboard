@@ -58,8 +58,14 @@ function getClient(): BedrockAgentRuntimeClient {
       // timeout"), and requestTimeout WITHOUT this flag only emits
       //   "[WARN] a request has exceeded the configured N ms requestTimeout"
       // and lets the request keep running. Requires @smithy/node-http-handler >= 4.4.0
-      // (see "overrides"). If that floor is ever lost, ctx.signal is the ONLY remaining
-      // deadline — which is exactly why the route owns it (D21).
+      // (see "overrides").
+      //
+      // SCOPE (verified against the installed 4.9.8 during the MR !57 review): the
+      // handler clears ALL its timers when response HEADERS arrive, and InvokeAgent
+      // answers headers quickly then does its ~36 s of work in the event-stream BODY.
+      // So this bounds only connection + time-to-headers; the drain is bounded by
+      // ctx.signal ALONE (D21) — which is why the route owns the deadline, and why
+      // chat()'s catch reclassifies a deadline abort onto the timeout taxonomy.
       throwOnRequestTimeout: true,
     },
 
@@ -212,7 +218,14 @@ export async function collectCompletion(
     }
     // $unknown: a member this SDK version does not model. Nothing to decode.
   }
-  return text + decoder.decode();
+  const out = text + decoder.decode();
+  if (!out.trim()) {
+    // A drain that ends with no text — only trace/returnControl/unknown events, or
+    // nothing at all — must not surface as a "successful" question turn with an
+    // empty chat bubble. Fail the turn in band instead (D14; MR !57 review).
+    throw namedError('EmptyCompletion', 'Agent stream produced no text');
+  }
+  return out;
 }
 
 export function toDashboardResult(prose: string, schema: DashboardSchema): AgentTurnResult {
@@ -389,6 +402,17 @@ export const bedrockAgentService: AgentService = {
       return toDashboardResult(intent.message, doc);
     } catch (err) {
       const d = describeError(err);
+      // A route-deadline abort mid-drain does NOT arrive as a named AbortError:
+      // the smithy handler clears its request timer once response HEADERS arrive
+      // (verified against 4.9.8, MR !57 review), so ctx.signal is the only
+      // deadline for the ~36 s body phase — and its firing surfaces as a socket
+      // teardown (name 'Error', message 'aborted'/'ECONNRESET'). Reclassify so a
+      // routine deadline hit gets the timeout sentence at warn instead of
+      // polluting error-rate metrics as a generic fault. The message keeps the
+      // underlying detail for the log line.
+      if (ctx.signal.aborted && !(err instanceof CustomError)) {
+        d.name = 'AbortError';
+      }
       const level = WARN_LEVEL_NAMES.has(d.name) ? 'warn' : 'error';
       logger[level]('[Agent] Bedrock turn failed', {
         sessionId: ctx.sessionId,

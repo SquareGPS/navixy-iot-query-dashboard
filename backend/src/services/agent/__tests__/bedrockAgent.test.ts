@@ -151,6 +151,19 @@ describe('collectCompletion', () => {
       name: 'EmptyCompletion',
     });
   });
+
+  it('throws EmptyCompletion when the drain ends with no text — an empty bubble is not a turn', async () => {
+    // Only non-chunk events (a future RETURN_CONTROL-configured agent).
+    const nonChunk = asCompletion([{ returnControl: { invocationId: 'x' } }, { trace: {} }]);
+    await expect(collectCompletion(nonChunk, 's')).rejects.toMatchObject({
+      name: 'EmptyCompletion',
+    });
+    // Whitespace-only chunk text is the same empty bubble.
+    const blank = asCompletion([{ chunk: { bytes: encoder.encode('  \n ') } }]);
+    await expect(collectCompletion(blank, 's')).rejects.toMatchObject({
+      name: 'EmptyCompletion',
+    });
+  });
 });
 
 describe('safeUserMessage', () => {
