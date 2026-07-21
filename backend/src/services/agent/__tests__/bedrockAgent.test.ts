@@ -1,0 +1,235 @@
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { InvokeAgentCommandOutput } from '@aws-sdk/client-bedrock-agent-runtime';
+import {
+  buildInvokeInput,
+  collectCompletion,
+  describeError,
+  safeUserMessage,
+  toDashboardResult,
+  bedrockAgentService,
+} from '../bedrockAgent.js';
+import { CustomError } from '../../../middleware/errorHandler.js';
+import type { AgentContext, AgentTurn, AgentTurnInput } from '../types.js';
+
+// Pure exports only. Anything that talks to AWS is deliberately untested: there
+// is no aws-sdk-client-mock / nock / msw in this repo, and adding one is its own
+// ticket (MR 3 §6). The network paths are covered by the optional manual probe.
+
+const ctx: AgentContext = {
+  userId: 'u-1',
+  role: 'admin',
+  sessionId: 'session-abc-123',
+  signal: new AbortController().signal,
+};
+
+const FIVE_TURN_HISTORY: AgentTurn[] = [
+  { role: 'user', content: 'I want to build a dashboard.' },
+  { role: 'assistant', type: 'question', content: 'What do you want to monitor?' },
+  { role: 'user', content: 'Vehicle mileage for the whole fleet.' },
+  { role: 'assistant', type: 'question', content: 'Over which time range?' },
+  { role: 'user', content: 'The last 30 days, in kilometres.' },
+];
+
+describe('buildInvokeInput', () => {
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    saved.BEDROCK_AGENT_ID = process.env.BEDROCK_AGENT_ID;
+    saved.BEDROCK_AGENT_ALIAS_ID = process.env.BEDROCK_AGENT_ALIAS_ID;
+    saved.BEDROCK_ENABLE_TRACE = process.env.BEDROCK_ENABLE_TRACE;
+    process.env.BEDROCK_AGENT_ID = 'AGENT123456';
+    process.env.BEDROCK_AGENT_ALIAS_ID = 'ALIAS654321';
+    delete process.env.BEDROCK_ENABLE_TRACE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it(
+    'R18: sends ONLY the newest turn — history is never prepended to inputText ' +
+      '(guards the mechanical double-feed; the quality damage it causes is not testable here)',
+    () => {
+      const input: AgentTurnInput = {
+        message: 'Yes, build it now please.',
+        history: FIVE_TURN_HISTORY,
+      };
+
+      const invoke = buildInvokeInput(input, ctx);
+
+      // Exactly the newest message — not a transcript render, not a concatenation.
+      expect(invoke.inputText).toBe('Yes, build it now please.');
+      // And no fragment of any history turn leaked in.
+      for (const turn of FIVE_TURN_HISTORY) {
+        expect(invoke.inputText).not.toContain(turn.content);
+      }
+    },
+  );
+
+  it('passes the route-minted sessionId VERBATIM — Bedrock keys its memory on it (D19)', () => {
+    const invoke = buildInvokeInput({ message: 'hi', history: [] }, ctx);
+    expect(invoke.sessionId).toBe('session-abc-123');
+    expect(invoke.agentId).toBe('AGENT123456');
+    expect(invoke.agentAliasId).toBe('ALIAS654321');
+    expect(invoke.enableTrace).toBe(false);
+  });
+
+  it('enables trace only on the exact string "true"', () => {
+    process.env.BEDROCK_ENABLE_TRACE = 'true';
+    expect(buildInvokeInput({ message: 'hi', history: [] }, ctx).enableTrace).toBe(true);
+    process.env.BEDROCK_ENABLE_TRACE = '1';
+    expect(buildInvokeInput({ message: 'hi', history: [] }, ctx).enableTrace).toBe(false);
+  });
+
+  it.each([
+    ['BEDROCK_AGENT_ID'],
+    ['BEDROCK_AGENT_ALIAS_ID'],
+  ])('throws CustomError 500 when %s is unset — the ONE throw in the module (D14)', (envKey) => {
+    delete process.env[envKey];
+    try {
+      buildInvokeInput({ message: 'hi', history: [] }, ctx);
+      throw new Error('expected buildInvokeInput to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(CustomError);
+      expect((err as CustomError).statusCode).toBe(500);
+    }
+  });
+
+  it('does not throw when both ids are set', () => {
+    expect(() => buildInvokeInput({ message: 'hi', history: [] }, ctx)).not.toThrow();
+  });
+});
+
+describe('collectCompletion', () => {
+  const encoder = new TextEncoder();
+  const asCompletion = (events: unknown[]): InvokeAgentCommandOutput['completion'] =>
+    (async function* () {
+      yield* events;
+    })() as unknown as InvokeAgentCommandOutput['completion'];
+
+  it('joins chunk bytes across the stream', async () => {
+    const completion = asCompletion([
+      { chunk: { bytes: encoder.encode('Hello ') } },
+      { chunk: { bytes: encoder.encode('world') } },
+    ]);
+    await expect(collectCompletion(completion, 's')).resolves.toBe('Hello world');
+  });
+
+  it('decodes a UTF-8 sequence split across chunk boundaries', async () => {
+    const bytes = encoder.encode('🎉'); // 4 bytes
+    const completion = asCompletion([
+      { chunk: { bytes: bytes.slice(0, 2) } },
+      { chunk: { bytes: bytes.slice(2) } },
+    ]);
+    await expect(collectCompletion(completion, 's')).resolves.toBe('🎉');
+  });
+
+  it('throws a PascalCase-named error for an in-stream exception member', async () => {
+    const completion = asCompletion([
+      { throttlingException: { message: 'slow down' } },
+    ]);
+    await expect(collectCompletion(completion, 's')).rejects.toMatchObject({
+      name: 'ThrottlingException',
+      message: 'slow down',
+    });
+  });
+
+  it('ignores returnControl and trace events rather than acting on them', async () => {
+    const completion = asCompletion([
+      { returnControl: { invocationId: 'x' } },
+      { trace: { trace: {} } },
+      { chunk: { bytes: encoder.encode('done') } },
+    ]);
+    await expect(collectCompletion(completion, 's')).resolves.toBe('done');
+  });
+
+  it('throws EmptyCompletion when the stream is missing entirely', async () => {
+    await expect(collectCompletion(undefined, 's')).rejects.toMatchObject({
+      name: 'EmptyCompletion',
+    });
+  });
+});
+
+describe('safeUserMessage', () => {
+  it('maps configuration faults to the configuration sentence', () => {
+    expect(safeUserMessage('AccessDeniedException')).toBe(
+      'The assistant is unavailable due to a configuration problem.',
+    );
+  });
+
+  it('maps an expired artifact to the actionable ask-again sentence', () => {
+    expect(safeUserMessage('NoSuchKey')).toBe(
+      'The generated dashboard is no longer available. Please ask for it again.',
+    );
+  });
+
+  it('degrades an unlisted name to the safe generic sentence', () => {
+    expect(safeUserMessage('SomeNameNobodyListed')).toBe(
+      'The assistant is temporarily unavailable. Please try again.',
+    );
+  });
+
+  it('never echoes the error name into the user-facing text', () => {
+    for (const name of ['AccessDeniedException', 'NoSuchKey', 'ArtifactBucketMismatch', 'X']) {
+      expect(safeUserMessage(name)).not.toContain(name);
+    }
+  });
+});
+
+describe('toDashboardResult', () => {
+  it('lifts the title from the schema and passes the prose through as message', () => {
+    const schema = { title: 'Fleet Overview', panels: [], uid: 'u1' };
+    const out = toDashboardResult('Here is your dashboard.', schema);
+    expect(out).toEqual({
+      type: 'result',
+      message: 'Here is your dashboard.',
+      result: { title: 'Fleet Overview', report_schema: schema },
+    });
+    // The route owns session_id; the service cannot see or set it (§3.1).
+    expect(out).not.toHaveProperty('session_id');
+  });
+});
+
+describe('describeError', () => {
+  it('handles a non-Error throw', () => {
+    expect(describeError('boom')).toEqual({ name: 'UnknownError', message: 'boom' });
+  });
+
+  it('handles an object with no name', () => {
+    expect(describeError({ message: 'nameless' })).toEqual({
+      name: 'UnknownError',
+      message: 'nameless',
+    });
+  });
+
+  it('lifts $metadata.httpStatusCode from an AWS-shaped error', () => {
+    const err = Object.assign(new Error('denied'), {
+      name: 'AccessDeniedException',
+      $metadata: { httpStatusCode: 403 },
+    });
+    expect(describeError(err)).toEqual({
+      name: 'AccessDeniedException',
+      message: 'denied',
+      httpStatus: 403,
+    });
+  });
+
+  it('OMITS httpStatus rather than setting it to undefined (exactOptionalPropertyTypes)', () => {
+    const facts = describeError(new Error('plain'));
+    expect('httpStatus' in facts).toBe(false);
+  });
+
+  it('handles null and undefined', () => {
+    expect(describeError(null).name).toBe('UnknownError');
+    expect(describeError(undefined).name).toBe('UnknownError');
+  });
+});
+
+describe('bedrockAgentService surface', () => {
+  it('is the bedrock kind', () => {
+    expect(bedrockAgentService.kind).toBe('bedrock');
+  });
+});
