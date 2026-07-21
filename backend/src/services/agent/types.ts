@@ -31,16 +31,23 @@ export interface AgentChatRequest {
   message: string;
 }
 
-/** POST /api/agent/chat 200 body. Note: type:'error' arrives with HTTP 200. */
-export interface AgentChatResponse {
-  session_id: string;
-  type: AgentChatType;
-  message: string;
-  result: AgentChatResult | null;
-}
+/** POST /api/agent/chat 200 body. Note: type:'error' arrives with HTTP 200.
+ *
+ *  Discriminated on `type` so the compiler enforces what the contract says in
+ *  prose: `result` is non-null exactly when type === 'result'. The wire JSON
+ *  is unchanged by this shape. */
+export type AgentChatResponse =
+  | { session_id: string; type: 'question' | 'error'; message: string; result: null }
+  | { session_id: string; type: 'result'; message: string; result: AgentChatResult };
 
 export interface AgentTurn {
   role: 'user' | 'assistant';
+  /** Assistant turns only: the AgentChatType the turn had when it was
+   *  delivered live, persisted so a reloaded transcript renders exactly as
+   *  the live session did — a past 'error' must not come back as ordinary
+   *  assistant prose. Absent on user turns; absent on legacy assistant rows,
+   *  which render as 'question'. */
+  type?: AgentChatType;
   content: string;
   /** Only ever set on assistant turns of type 'result'.
    *
@@ -91,9 +98,13 @@ export interface AgentTurnInput {
   history: AgentTurn[];
 }
 
+/** Distributes Omit over each union arm — plain Omit over a union collapses
+ *  the type/result discrimination. Internal helper, not part of the wire. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
 /** session_id is deliberately absent: the route owns it, so an implementation
  *  cannot corrupt session handling. */
-export type AgentTurnResult = Omit<AgentChatResponse, 'session_id'>;
+export type AgentTurnResult = DistributiveOmit<AgentChatResponse, 'session_id'>;
 
 /**
  * The seam. Implementations MUST be storage-free and MUST be pure functions of
@@ -102,5 +113,9 @@ export type AgentTurnResult = Omit<AgentChatResponse, 'session_id'>;
 export interface AgentService {
   /** Diagnostic only — logged at boot. */
   readonly kind: 'mock' | 'bedrock';
+  /** MUST NOT reject for agent-level failures: AWS faults, S3 faults,
+   *  off-contract replies — everything a user can trigger comes back IN BAND
+   *  as type:'error' (D14). A rejected promise here is a programming bug; the
+   *  route lets it surface through errorHandler as a 500. */
   chat(input: AgentTurnInput, ctx: AgentContext): Promise<AgentTurnResult>;
 }
