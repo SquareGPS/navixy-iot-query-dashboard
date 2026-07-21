@@ -30,3 +30,14 @@ export function pickAgent(backend: string): AgentService {
 export const agentService: AgentService = pickAgent(AGENT_BACKEND);
 
 logger.info('Agent service initialised', { kind: agentService.kind, backend: AGENT_BACKEND });
+
+if (agentService.kind === 'bedrock' && !process.env.BEDROCK_ARTIFACT_BUCKET?.trim()) {
+  // The empty-pin fail-open exists only so dev works before the bucket name is
+  // known — it must never be SILENT (MR !57 review): unpinned, fetchArtifact
+  // will read whatever bucket the agent's LLM-generated prose names, across
+  // everything the task role can reach, and render it to the user.
+  logger.warn(
+    '[Agent] BEDROCK_ARTIFACT_BUCKET is empty — artifact fetches will accept ANY bucket ' +
+      'the agent names. Set the pin in every bedrock environment.',
+  );
+}
