@@ -323,6 +323,13 @@ None of these block anything on our side; they are batched here so one message c
    `"options": {}` on its `kpi`, `barchart` and `table` panels ✅, so panels render on component
    defaults. Every fixture panel of those types carries populated `options` ✅ — §7 lists a real
    example per panel type. Cosmetic, not blocking.
+7. **R33 — please stamp artifact objects with the requesting session** (raised by security review,
+   MR !57 round 3). When the Lambda writes `jobs/<job-id>/report_schema.json`, add S3 object
+   metadata: `x-amz-meta-session-id: <the InvokeAgent sessionId>` (and, if available,
+   `x-amz-meta-user-id`). Our backend will then verify the metadata against the requesting
+   session before rendering the artifact, which closes the bearer-capability property described
+   in §8. Until this lands, §8's interim model applies. This is the one request in this list
+   with a security consequence — it gates enabling the real agent in shared environments.
 
 ---
 
@@ -420,3 +427,52 @@ ship `"options": {}`. For geomap what matters is not `options` but the coordinat
 in §4.
 
 `bargauge` and `row` appear in zero fixtures; no example exists.
+
+
+---
+
+## 8. Artifact access model — current state, and what closes it
+
+*Added after MR !57 review round 3. This section is the explicit documentation the review
+requires before `AGENT_BACKEND=bedrock` is enabled anywhere shared; the sign-off itself is a
+product decision and is NOT given by this document.*
+
+### How an artifact is fetched
+
+The agent's reply names an `s3://` URL inside prose. The backend fetches it with the shared task
+role only after every gate passes:
+
+1. `BEDROCK_ARTIFACT_BUCKET` pin — required config, fails closed when unset; any other bucket is
+   refused before the network.
+2. Key shape — exactly `jobs/<uuid>/report_schema.json`, enforced at parse AND re-asserted at the
+   fetch sink. Nothing outside the artifact namespace is fetchable.
+3. Freshness — the object's S3 `LastModified` (trusted metadata, not agent prose) must be within
+   `AGENT_ARTIFACT_MAX_AGE_MS` (default 15 minutes). The intended flow fetches exactly once,
+   seconds after the build; the route persists the schema and never re-fetches.
+
+### The property that remains
+
+A URL that passes all three gates is a **bearer capability**: the backend cannot yet verify that
+the artifact belongs to the requesting user/session, because nothing trustworthy carries that
+fact — the object has no metadata (see request R33 in §6), this backend deliberately owns no
+application database, and per-tenant IAM prefixes do not exist.
+
+- **Guessing is infeasible**: the job id is a 122-bit-random UUID that appears only in the
+  owner's own session.
+- **Replay is the residual risk**: an attacker who obtains a victim's URL out of band AND
+  induces the agent to repeat it in their own session's reply gets the backend to fetch it —
+  but only within the freshness window of the victim's build (minutes), which requires
+  near-real-time exfiltration from the victim's session.
+
+### What a successful replay yields (data classification)
+
+The artifact is a dashboard **definition**: titles, layout, panel config and SQL statement
+text. It contains **no query results, no row data, no credentials**. SQL text can reveal schema
+and table naming. The definition executes only against the viewer's own `iotDbUrl` — replaying
+a definition does not read the victim's data.
+
+### What closes it
+
+R33 (§6): the Lambda stamps `x-amz-meta-session-id` on the object; the backend equality-checks
+it against the requesting session and refuses mismatches. That converts the bearer capability
+into a session-bound reference and retires this section's interim model.

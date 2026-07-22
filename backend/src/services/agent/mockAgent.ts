@@ -169,7 +169,7 @@ function buildResult(entry: CorpusEntry, input: AgentTurnInput, ctx: AgentContex
   // Stamping uid/id/version onto a returned reference mutates the corpus for every
   // later request in the process — a cross-request data leak that only shows up on the
   // second call, which is why there is a dedicated test for it (R15).
-  // Node 17+ global; the runtime image is node:18-alpine.
+  // Node 17+ global; the runtime image is node:22-alpine.
   const schema = structuredClone(entry.schema) as Record<string, unknown>;
 
   // NOT a field on the interface. Do not add one. KNOWN LIMIT: once the route

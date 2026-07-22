@@ -1,5 +1,7 @@
 # Backend Dockerfile
-FROM node:18-alpine AS builder
+# Node 22 (maintained LTS): Node 18 went EOL 2025-04 and the AWS SDK versions that
+# clear the 2025/2026 advisory ranges declare engines.node >= 20 (MR !57 review).
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 

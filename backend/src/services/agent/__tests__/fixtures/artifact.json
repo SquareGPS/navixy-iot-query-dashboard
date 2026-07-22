@@ -1,0 +1,167 @@
+{
+  "id": null,
+  "uid": "fleet-distance-trip-summary-last-7-days",
+  "title": "Fleet Distance & Trip Summary — Last 7 Days",
+  "description": "Shows total fleet mileage and trip count as KPI cards, plus a per-vehicle breakdown table for the last 7 days.",
+  "tags": [],
+  "style": "dark",
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "schemaVersion": 38,
+  "version": 1,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Attention",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "This dashboard was created using an AI agent.\nThe AI agent is in Alpha stage, so the results may contain inaccuracies. Please verify the data before using it.\nJob ID: `c5954ed0-088e-4667-a6e6-9434369fb853` · Generated: 2026-07-20 19:56:31 UTC"
+      },
+      "x-navixy": {
+        "sql": {
+          "statement": "",
+          "params": {}
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {}
+        },
+        "verify": {
+          "max_rows": null,
+          "min_rows": null,
+          "required_columns": null
+        },
+        "filters": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "kpi",
+      "title": "Total Fleet Distance (km)",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "options": {},
+      "x-navixy": {
+        "sql": {
+          "statement": "SELECT ROUND(SUM(trip_distance_meters) / 1000.0, 1) AS value\nFROM processed_common_data.trips\nWHERE trip_start_time >= NOW() - INTERVAL '7 days'\n  AND trip_start_time < NOW()",
+          "params": {}
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "number"
+            }
+          }
+        },
+        "verify": {
+          "max_rows": 1,
+          "min_rows": null,
+          "required_columns": null
+        },
+        "filters": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "kpi",
+      "title": "Total Fleet Trip Count",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "options": {},
+      "x-navixy": {
+        "sql": {
+          "statement": "SELECT COUNT(*) AS value\nFROM processed_common_data.trips\nWHERE trip_start_time >= NOW() - INTERVAL '7 days'\n  AND trip_start_time < NOW()",
+          "params": {}
+        },
+        "dataset": {
+          "shape": "kpi",
+          "columns": {
+            "value": {
+              "type": "integer"
+            }
+          }
+        },
+        "verify": {
+          "max_rows": 1,
+          "min_rows": null,
+          "required_columns": null
+        },
+        "filters": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Distance & Trip Count per Vehicle",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 14
+      },
+      "options": {},
+      "x-navixy": {
+        "sql": {
+          "statement": "SELECT\n  o.object_label AS object_label,\n  COUNT(t.trip_start_time) AS trip_count,\n  ROUND(SUM(t.trip_distance_meters) / 1000.0, 2) AS total_distance_km\nFROM processed_common_data.trips t\nJOIN raw_business_data.objects o ON o.device_id = t.device_id\nWHERE o.is_deleted IS NOT TRUE\n  AND t.trip_start_time >= NOW() - INTERVAL '7 days'\n  AND t.trip_start_time < NOW()\nGROUP BY o.object_label\nORDER BY total_distance_km DESC",
+          "params": {}
+        },
+        "dataset": {
+          "shape": "table",
+          "columns": {
+            "object_label": {
+              "type": "string"
+            },
+            "trip_count": {
+              "type": "integer"
+            },
+            "total_distance_km": {
+              "type": "number"
+            }
+          }
+        },
+        "verify": {
+          "max_rows": 1000,
+          "min_rows": null,
+          "required_columns": null
+        },
+        "filters": []
+      }
+    }
+  ],
+  "x-navixy": {
+    "schemaVersion": "1.0.0",
+    "execution": {
+      "dialect": "postgresql",
+      "endpoint": "/api/v1/sql/run",
+      "max_rows": 10000,
+      "read_only": true,
+      "timeout_ms": 30000
+    },
+    "parameters": {
+      "bindings": {}
+    }
+  }
+}
