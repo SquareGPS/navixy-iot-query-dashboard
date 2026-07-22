@@ -24,6 +24,13 @@ const BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
  *  prefix, one UUID segment, one fixed filename), hex casing is not. The `..` and
  *  empty-key rejects the shape rule subsumes are still pinned by tests. */
 const KEY_RE = /^jobs\/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\/report_schema\.json$/;
+
+/** The key invariant as a predicate — parseS3Url applies it on the way in, and
+ *  fetchArtifact re-asserts it at the sink (MR !57 review round 3): the invariant
+ *  must hold even for a future caller that builds an S3Location by hand. */
+export function isArtifactKey(key: string): boolean {
+  return KEY_RE.test(key);
+}
 /** Default 5 MiB. The observed artifact is 5385 bytes — ~1000x headroom — and this
  *  still bounds a pathological object out of the heap. */
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
@@ -43,7 +50,7 @@ export function parseS3Url(url: string): S3Location | null {
   // slash only and never re-split.
   const key = rest.slice(slash + 1);
   if (!BUCKET_RE.test(bucket)) return null;
-  if (!KEY_RE.test(key)) return null;
+  if (!isArtifactKey(key)) return null;
   return { bucket, key };
 }
 
@@ -73,6 +80,13 @@ export function __resetS3ClientForTests(): void {
   s3 = null;
 }
 
+/** Test-only, the other half of the seam (MR !57 review round 3): inject a stub so
+ *  fetchArtifact's send/abort/body/error behaviour is testable with no network and no
+ *  mocking library. Production never calls it. */
+export function __setS3ClientForTests(client: S3Client): void {
+  s3 = client;
+}
+
 export async function fetchArtifact(loc: S3Location, signal: AbortSignal): Promise<unknown> {
   // SSRF-shaped guard, FAIL CLOSED (MR !57 review). The bucket name arrives inside
   // LLM-GENERATED PROSE. An agent that is confused — or prompt-injected through a
@@ -88,6 +102,14 @@ export async function fetchArtifact(loc: S3Location, signal: AbortSignal): Promi
   if (loc.bucket !== allowed) {
     logger.error('[Agent] ARTIFACT_BUCKET_MISMATCH', { requested: loc.bucket, allowed });
     throw namedError('ArtifactBucketMismatch', `Artifact bucket not allowed: ${loc.bucket}`);
+  }
+
+  // Sink-side re-assert of the key invariant (MR !57 review round 3). parseS3Url is the
+  // normal gate; this keeps the invariant true for any future caller that builds an
+  // S3Location by hand. Unreachable via bedrockAgent.chat() today, by construction.
+  if (!isArtifactKey(loc.key)) {
+    logger.error('[Agent] ARTIFACT_KEY_MISMATCH', { bucket: loc.bucket, key: loc.key });
+    throw namedError('ArtifactKeyMismatch', `Artifact key outside the artifact namespace: ${loc.key}`);
   }
 
   const maxBytes = envInt(process.env.AGENT_ARTIFACT_MAX_BYTES, DEFAULT_MAX_BYTES);

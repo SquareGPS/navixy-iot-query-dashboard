@@ -273,6 +273,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   SyntaxError: MALFORMED_MESSAGE,
   ArtifactTooLarge: MALFORMED_MESSAGE,
   MalformedArtifact: MALFORMED_MESSAGE,
+  ArtifactKeyMismatch: MALFORMED_MESSAGE, // sink-side re-assert; unreachable via chat()
 };
 
 /**

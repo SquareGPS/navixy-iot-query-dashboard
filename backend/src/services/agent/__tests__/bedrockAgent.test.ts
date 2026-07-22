@@ -216,6 +216,7 @@ describe('safeUserMessage', () => {
     ['SyntaxError', 'malformed'],
     ['ArtifactTooLarge', 'malformed'],
     ['MalformedArtifact', 'malformed'],
+    ['ArtifactKeyMismatch', 'malformed'],
     ['ThrottlingException', 'busy'],
     ['TooManyRequestsException', 'busy'],
     ['ServiceQuotaExceededException', 'busy'],

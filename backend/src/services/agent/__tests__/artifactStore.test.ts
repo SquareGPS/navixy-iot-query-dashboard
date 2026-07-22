@@ -1,12 +1,38 @@
-import { describe, it, expect, afterEach } from '@jest/globals';
+import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseS3Url, assertDashboardShape, envInt, fetchArtifact } from '../artifactStore.js';
+import type { S3Client } from '@aws-sdk/client-s3';
+import {
+  parseS3Url,
+  assertDashboardShape,
+  envInt,
+  fetchArtifact,
+  isArtifactKey,
+  __setS3ClientForTests,
+  __resetS3ClientForTests,
+} from '../artifactStore.js';
 
-// No S3Client is ever constructed and no network is touched. fetchArtifact's
-// NETWORK paths are deliberately untested here: there is no aws-sdk-client-mock
-// / nock / msw in this repo, and adding one is its own ticket (MR 3 §6). Its
-// unpinned-bucket guard IS tested — it throws before the lazy client exists.
+// No REAL S3Client is ever constructed and no network is touched. fetchArtifact
+// runs against an injected stub via __setS3ClientForTests (MR !57 review round 3)
+// — no aws-sdk-client-mock / nock / msw needed. The guards that fire BEFORE the
+// client (unpinned pin, bucket mismatch, key shape) additionally assert the stub
+// was never called.
+
+/** A GetObject response stub. Every field defaults to a healthy fresh artifact. */
+function stubS3(overrides: Record<string, unknown> = {}) {
+  const destroy = jest.fn();
+  const send = jest.fn(async () => ({
+    Body: {
+      transformToString: async () => JSON.stringify({ title: 'T', panels: [] }),
+      destroy,
+    },
+    ContentLength: 64,
+    LastModified: new Date(),
+    ...overrides,
+  }));
+  __setS3ClientForTests({ send } as unknown as S3Client);
+  return { send, destroy };
+}
 
 /** The REAL artifact the live agent produced on 2026-07-20, vendored
  *  byte-for-byte from ai-chat-plan.local/probe/artifact.json (which is
@@ -74,35 +100,60 @@ describe('parseS3Url', () => {
   });
 });
 
-describe('fetchArtifact — fails closed without the bucket pin (MR !57 review)', () => {
+describe('fetchArtifact — pre-network guards (MR !57 review rounds 2-3)', () => {
   const savedPin = process.env.BEDROCK_ARTIFACT_BUCKET;
 
   afterEach(() => {
     if (savedPin === undefined) delete process.env.BEDROCK_ARTIFACT_BUCKET;
     else process.env.BEDROCK_ARTIFACT_BUCKET = savedPin;
+    __resetS3ClientForTests();
   });
 
-  const loc = { bucket: 'any-bucket', key: 'jobs/x/report_schema.json' };
+  const GOOD_KEY = 'jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json';
+  const loc = { bucket: 'any-bucket', key: GOOD_KEY };
 
   it('refuses BEFORE any client construction when the pin is unset', async () => {
     delete process.env.BEDROCK_ARTIFACT_BUCKET;
+    const { send } = stubS3();
     await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
       name: 'ArtifactBucketUnpinned',
     });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('treats a whitespace-only pin as unset — dotenv ships `BEDROCK_ARTIFACT_BUCKET=` as ""', async () => {
     process.env.BEDROCK_ARTIFACT_BUCKET = '   ';
+    const { send } = stubS3();
     await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
       name: 'ArtifactBucketUnpinned',
     });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('still refuses a bucket that does not match a set pin, pre-network', async () => {
     process.env.BEDROCK_ARTIFACT_BUCKET = 'the-pinned-bucket';
+    const { send } = stubS3();
     await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
       name: 'ArtifactBucketMismatch',
     });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('re-asserts the key invariant at the sink — a hand-built bad-key location never reaches send', async () => {
+    process.env.BEDROCK_ARTIFACT_BUCKET = 'any-bucket';
+    const { send } = stubS3();
+    await expect(
+      fetchArtifact({ bucket: 'any-bucket', key: 'private/admin.json' }, new AbortController().signal),
+    ).rejects.toMatchObject({ name: 'ArtifactKeyMismatch' });
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('isArtifactKey', () => {
+  it('is the same invariant parseS3Url enforces', () => {
+    expect(isArtifactKey('jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json')).toBe(true);
+    expect(isArtifactKey('private/admin.json')).toBe(false);
+    expect(isArtifactKey('jobs/abc/report_schema.json')).toBe(false);
   });
 });
 
