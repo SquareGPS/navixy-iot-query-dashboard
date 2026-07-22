@@ -1,12 +1,9 @@
 import { Router } from 'express';
 import { DatabaseService } from '../services/database.js';
 import {
-  DATE_FORMAT_VALUES,
-  TIME_FORMAT_VALUES,
   readUserPreferences,
+  validatePreferencesPatch,
   writeUserPreferences,
-  type DateFormat,
-  type TimeFormat,
   type UserPreferences,
 } from '../services/userPreferences.js';
 import { authenticateToken, requireAdmin, requireAdminOrEditor } from '../middleware/auth.js';
@@ -242,49 +239,10 @@ router.get('/user/preferences', authenticateToken, async (req: AuthenticatedRequ
 router.put('/user/preferences', authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const patch: Partial<UserPreferences> = {};
-
-    if (body.timezone !== undefined) {
-      const tz = body.timezone;
-      if (typeof tz !== 'string' || tz.trim().length === 0) {
-        throw new CustomError('`timezone` must be a non-empty string', 400);
-      }
-      // Validate against the host's ICU timezone database. `Intl.DateTimeFormat`
-      // throws RangeError for unknown identifiers, which is exactly what we want.
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: tz });
-      } catch {
-        throw new CustomError(`Invalid timezone identifier: ${tz}`, 400);
-      }
-      patch.timezone = tz;
-    }
-
-    if (body.dateFormat !== undefined) {
-      if (!(DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat as string)) {
-        throw new CustomError(
-          `Invalid dateFormat. Allowed: ${DATE_FORMAT_VALUES.join(', ')}`,
-          400,
-        );
-      }
-      patch.dateFormat = body.dateFormat as DateFormat;
-    }
-
-    if (body.timeFormat !== undefined) {
-      if (!(TIME_FORMAT_VALUES as readonly string[]).includes(body.timeFormat as string)) {
-        throw new CustomError(
-          `Invalid timeFormat. Allowed: ${TIME_FORMAT_VALUES.join(', ')}`,
-          400,
-        );
-      }
-      patch.timeFormat = body.timeFormat as TimeFormat;
-    }
-
-    if (Object.keys(patch).length === 0) {
-      throw new CustomError(
-        'At least one of `timezone`, `dateFormat`, `timeFormat` is required',
-        400,
-      );
-    }
+    // Field validation (incl. sanitizeTimeZone on `timezone` — the same rules
+    // as the SQL session zone) lives in validatePreferencesPatch; it throws
+    // CustomError(400) with a field-specific message.
+    const patch = validatePreferencesPatch(body);
 
     if (!req.user?.userId) {
       throw new CustomError('User ID not found', 400);
