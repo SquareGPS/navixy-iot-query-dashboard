@@ -40,23 +40,23 @@ export type AgentChatResponse =
   | { session_id: string; type: 'question' | 'error'; message: string; result: null }
   | { session_id: string; type: 'result'; message: string; result: AgentChatResult };
 
-export interface AgentTurn {
-  role: 'user' | 'assistant';
-  /** Assistant turns only: the AgentChatType the turn had when it was
-   *  delivered live, persisted so a reloaded transcript renders exactly as
-   *  the live session did — a past 'error' must not come back as ordinary
-   *  assistant prose. Absent on user turns; absent on legacy assistant rows,
-   *  which render as 'question'. */
-  type?: AgentChatType;
-  content: string;
-  /** Only ever set on assistant turns of type 'result'.
-   *
-   *  THIS CARRIES THE FULL DASHBOARD JSON, NEVER THE s3:// URL. The artifact is
-   *  fetched exactly once, at the moment the turn is produced, and persisted
-   *  here. Preview, Apply, history load and page reload all read from here and
-   *  NEVER re-fetch S3. See §3.4.6 and R28. */
-  result?: AgentChatResult | null;
-}
+/** One transcript turn. A union so the compiler enforces what used to be
+ *  prose: `type` exists on assistant turns only, and `result` is non-null
+ *  exactly on assistant turns of type 'result'.
+ *
+ *  `type` is the AgentChatType the turn had when it was delivered live,
+ *  persisted so a reloaded transcript renders exactly as the live session
+ *  did — a past 'error' must not come back as ordinary assistant prose.
+ *  Absent on legacy assistant rows, which render as 'question'.
+ *
+ *  On the 'result' arm, `result` CARRIES THE FULL DASHBOARD JSON, NEVER THE
+ *  s3:// URL. The artifact is fetched exactly once, at the moment the turn
+ *  is produced, and persisted here. Preview, Apply, history load and page
+ *  reload all read from here and NEVER re-fetch S3. See §3.4.6 and R28. */
+export type AgentTurn =
+  | { role: 'user'; type?: never; content: string; result?: never }
+  | { role: 'assistant'; type?: 'question' | 'error'; content: string; result?: null }
+  | { role: 'assistant'; type: 'result'; content: string; result: AgentChatResult };
 
 /** GET /api/agent/session 200 body. */
 export interface AgentSessionResponse {
