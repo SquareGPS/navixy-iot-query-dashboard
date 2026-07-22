@@ -33,6 +33,7 @@ import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
 import { isDisplayableCoordinate } from '@/utils/gps';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { resolveEffectiveTimeZone } from '@/utils/datetime';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
 import { PanelFilterIndicator } from './PanelFilterIndicator';
@@ -1764,16 +1765,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       // Resolve "auto" to the browser's IANA name so the backend doesn't
       // have to re-detect it. Excel cells need an explicit zone to render
       // wall-clock times — see shiftDateToZone in backend export service.
-      const resolvedTz =
-        datetimePrefs.timeZone === 'auto'
-          ? (() => {
-              try {
-                return Intl.DateTimeFormat().resolvedOptions().timeZone;
-              } catch {
-                return undefined;
-              }
-            })()
-          : datetimePrefs.timeZone;
+      // The same zone drives the export's server-side re-query session
+      // (DO-352), keeping SQL-rendered times identical to the live panel.
+      const resolvedTz = resolveEffectiveTimeZone(datetimePrefs.timeZone);
 
       // The export re-runs the query server-side, where the per-type row ceiling
       // is owned (see resolvePanelExportMaxRows). Send only the panel type and

@@ -112,6 +112,26 @@ export function detectInitialTimeFormat(): TimeFormat {
 }
 
 /**
+ * Resolve the zone the user actually sees times in: an explicit preference
+ * wins, `'auto'` (or absence) falls back to the host's IANA zone. Returns
+ * undefined only when Intl itself cannot answer.
+ *
+ * This is the single resolution used everywhere a concrete zone name has to
+ * leave the client — SQL execution (the session timezone the query renders
+ * in, DO-352) and export requests (Excel cell shifting) — so what the
+ * database renders, what {@link formatTimestamp} renders, and what exports
+ * render all agree.
+ */
+export function resolveEffectiveTimeZone(timeZone?: string): string | undefined {
+  if (timeZone && timeZone !== 'auto') return timeZone;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Heuristic: does a SQL parameter name look like a date/datetime?
  * Matches: date_from, dateTo, __from, __to, since, until, created_at,
  * start_time, my_date, period_from, period_to.

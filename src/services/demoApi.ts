@@ -5,6 +5,7 @@
  */
 import { demoStorageService } from './demoStorage';
 import type { DemoReport } from './demoStorage';
+import { resolveSqlTimeZone } from './sqlTimeZone';
 import { toErrorMeta } from '@/utils/errors';
 import type { ChartCatalog } from '@/types/chart-catalog';
 import type { MenuTree, ReorderResponse, RenameResponse, DeleteSectionResponse, DeleteReportResponse } from '@/types/menu-editor';
@@ -195,6 +196,9 @@ class DemoApiService {
       total: number;
     };
   }>> {
+    // Mirrors apiService.executeSQL: demo SQL still hits the real backend, so
+    // it carries the same session timezone (DO-352).
+    const timeZone = resolveSqlTimeZone();
     const requestBody: Record<string, unknown> = {
       dialect: 'postgresql',
       statement: params.sql,
@@ -203,7 +207,8 @@ class DemoApiService {
         timeout_ms: params.timeout_ms || 30000,
         max_rows: params.row_limit || 10000
       },
-      read_only: true
+      read_only: true,
+      ...(timeZone && { time_zone: timeZone })
     };
 
     if (params.pagination) {

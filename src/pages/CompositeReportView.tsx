@@ -69,6 +69,7 @@ import {
   isTimestampLike,
   normaliseParamForApi,
   parseServerTimestamp,
+  resolveEffectiveTimeZone,
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
 import { ExportDialog } from '@/components/export/ExportDialog';
@@ -873,16 +874,7 @@ export default function CompositeReportView() {
   // export service) — otherwise ExcelJS serializes Date via UTC and the
   // user sees their wall-clock time shifted by their UTC offset.
   const getExportPrefsOptions = () => {
-    const resolvedTz =
-      datetimePrefs.timeZone === 'auto'
-        ? (() => {
-            try {
-              return Intl.DateTimeFormat().resolvedOptions().timeZone;
-            } catch {
-              return undefined;
-            }
-          })()
-        : datetimePrefs.timeZone;
+    const resolvedTz = resolveEffectiveTimeZone(datetimePrefs.timeZone);
     return {
       ...(resolvedTz && { timeZone: resolvedTz }),
       ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),

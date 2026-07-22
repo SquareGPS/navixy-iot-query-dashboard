@@ -9,6 +9,7 @@ import {
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ServerPreferences } from '@/contexts/AuthContext';
+import { setSqlTimeZonePreference } from '@/services/sqlTimeZone';
 
 const STORAGE_KEY = 'navixy.datetimePrefs.v1';
 
@@ -109,12 +110,23 @@ function applyServerPreferences(
 
 export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsState] = useState<DatetimePrefs>(() => {
-    return readFromStorage() ?? detectDefaultPrefs();
+    const initial = readFromStorage() ?? detectDefaultPrefs();
+    // Seed the SQL-session zone during the initializer, not an effect:
+    // children's data-fetching effects run before this provider's would, and
+    // the first panel queries must already carry the right zone (DO-352).
+    setSqlTimeZonePreference(initial.timeZone);
+    return initial;
   });
 
   useEffect(() => {
     writeToStorage(prefs);
   }, [prefs]);
+
+  // Keep the SQL-session zone in step with preference changes (Settings save,
+  // server preferences merged after login).
+  useEffect(() => {
+    setSqlTimeZonePreference(prefs.timeZone);
+  }, [prefs.timeZone]);
 
   const setPrefs = useCallback((next: Partial<DatetimePrefs>) => {
     setPrefsState((prev) => ({ ...prev, ...next }));

@@ -7,6 +7,7 @@ import {
   isTimestampLike,
   normaliseParamForApi,
   parseServerTimestamp,
+  resolveEffectiveTimeZone,
   toUtcIsoInZone,
 } from '../datetime';
 
@@ -531,5 +532,27 @@ describe('detectDefaultPrefs', () => {
     expect(p.timeZone).toBe('auto');
     expect(['h12', 'h23']).toContain(p.hourCycle);
     expect(['short', 'medium', 'long']).toContain(p.dateStyle);
+  });
+});
+
+describe('resolveEffectiveTimeZone', () => {
+  it('passes an explicit zone through unchanged', () => {
+    expect(resolveEffectiveTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    expect(resolveEffectiveTimeZone('UTC')).toBe('UTC');
+  });
+
+  it("resolves 'auto' to the host zone", () => {
+    expect(resolveEffectiveTimeZone('auto')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
+  it('resolves an absent preference to the host zone', () => {
+    expect(resolveEffectiveTimeZone(undefined)).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+    expect(resolveEffectiveTimeZone('')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   });
 });

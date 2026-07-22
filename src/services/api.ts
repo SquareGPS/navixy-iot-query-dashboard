@@ -1,6 +1,7 @@
 // API service for backend communication
 import { isDemoMode } from './demoApi';
 import { demoApiService } from './demoApi';
+import { resolveSqlTimeZone } from './sqlTimeZone';
 import { invalidateDashboardSearchCache } from '@/lib/queryClient';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import type { DateFormat, TimeFormat } from '@/utils/datetime';
@@ -168,6 +169,10 @@ class ApiService {
     };
   }>> {
     // SQL queries always go to real backend, even in demo mode
+    // time_zone: the session zone the query renders times in (DO-352) — keeps
+    // to_char()/NOW()-derived values in step with how formatTimestamp displays
+    // raw timestamps.
+    const timeZone = resolveSqlTimeZone();
     const requestBody: Record<string, unknown> = {
       dialect: 'postgresql',
       statement: params.sql,
@@ -176,7 +181,8 @@ class ApiService {
         timeout_ms: params.timeout_ms || 30000,
         max_rows: params.row_limit || 10000
       },
-      read_only: true
+      read_only: true,
+      ...(timeZone && { time_zone: timeZone })
     };
 
     // Add pagination if provided
@@ -655,9 +661,11 @@ class ApiService {
     if (isDemoMode()) {
       return demoApiService.executeCompositeReport(id, params);
     }
+    // Same session-timezone contract as executeSQL (DO-352).
+    const timeZone = resolveSqlTimeZone();
     const response = await this.request(`/api/composite-reports/${id}/execute`, {
       method: 'POST',
-      body: JSON.stringify(params || {}),
+      body: JSON.stringify({ ...(params || {}), ...(timeZone && { time_zone: timeZone }) }),
     });
     if (response.data && (response.data as Record<string, unknown>).data) {
       return { data: (response.data as { data: CompositeReportExecutionResult }).data };
