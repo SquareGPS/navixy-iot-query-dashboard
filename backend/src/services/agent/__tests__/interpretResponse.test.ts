@@ -83,6 +83,15 @@ describe('interpretAgentResponse — prose heuristic (§3.4.2)', () => {
     expect(interpretAgentResponse(`Saved to **${clean}**`).artifactUrl).toBe(clean);
   });
 
+  it('keeps square brackets out of the URL — a bracket-wrapped key polluted the fetch (MR !57 review)', () => {
+    const clean = 's3://bucket/jobs/a/report_schema.json';
+    // Plain bracket wrapping, as markdown renderers and citation styles emit it.
+    expect(interpretAgentResponse(`Saved to [${clean}]`).artifactUrl).toBe(clean);
+    // A markdown link whose TEXT is the URL: the match must stop at the closing
+    // bracket instead of swallowing "](...)" into the key.
+    expect(interpretAgentResponse(`Download [${clean}](${clean})`).artifactUrl).toBe(clean);
+  });
+
   it('flags a job id with no URL as a possible missed result, still classified as question', () => {
     const prose = 'Your dashboard has been built! Job ID: `1b7f3c3a-0000-4abc-9def-123456789abc`.';
     const intent = interpretAgentResponse(prose);

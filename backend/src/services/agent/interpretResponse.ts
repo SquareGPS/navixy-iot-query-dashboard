@@ -106,9 +106,11 @@ function fromTrailer(raw: string): AgentIntent | null {
 
 /** First s3:// URL in the prose. The character class excludes whitespace, the
  *  backtick wrapping observed in real output, and common markdown/quote
- *  delimiters; trailing punctuation is stripped after matching because the
- *  markdown wrapping is not guaranteed stable. */
-const S3_URL_RE = /s3:\/\/[^\s`'")<>]+/;
+ *  delimiters — square brackets included (MR !57 review: a bracket-wrapped URL
+ *  kept the `]` in the object key, and no legitimate key contains one);
+ *  trailing punctuation is stripped after matching because the markdown
+ *  wrapping is not guaranteed stable. */
+const S3_URL_RE = /s3:\/\/[^\s`'")<>[\]]+/;
 
 /** The observed build reply labels the artifact with a "Job ID" UUID. Lifted
  *  for logging only. */
