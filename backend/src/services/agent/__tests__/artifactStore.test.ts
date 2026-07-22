@@ -211,6 +211,101 @@ describe('isArtifactKey', () => {
   });
 });
 
+describe('fetchArtifact — send/abort/body/error behaviour through the stub (MR !57 review round 3)', () => {
+  const savedPin = process.env.BEDROCK_ARTIFACT_BUCKET;
+
+  beforeEach(() => {
+    process.env.BEDROCK_ARTIFACT_BUCKET = 'pinned';
+  });
+
+  afterEach(() => {
+    if (savedPin === undefined) delete process.env.BEDROCK_ARTIFACT_BUCKET;
+    else process.env.BEDROCK_ARTIFACT_BUCKET = savedPin;
+    __resetS3ClientForTests();
+  });
+
+  const loc = {
+    bucket: 'pinned',
+    key: 'jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json',
+  };
+
+  it('sends GetObject with the parsed bucket/key and forwards ctx.signal VERBATIM', async () => {
+    const { send } = stubS3();
+    const signal = new AbortController().signal;
+    await fetchArtifact(loc, signal);
+    expect(send).toHaveBeenCalledTimes(1);
+    const [command, opts] = send.mock.calls[0] as unknown as [
+      { input: { Bucket: string; Key: string } },
+      { abortSignal: AbortSignal },
+    ];
+    expect(command.input).toEqual({ Bucket: loc.bucket, Key: loc.key });
+    // Identity, not equivalence: the S3 leg must live inside the SAME turn deadline (D21).
+    expect(opts.abortSignal).toBe(signal);
+  });
+
+  it('propagates a rejected send untouched — the AWS error name reaches the taxonomy', async () => {
+    const err = Object.assign(new Error('The specified key does not exist.'), {
+      name: 'NoSuchKey',
+    });
+    const send = jest.fn(async () => {
+      throw err;
+    });
+    __setS3ClientForTests({ send } as unknown as S3Client);
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toBe(err);
+  });
+
+  it('rejects a response with no Body', async () => {
+    stubS3({ Body: undefined });
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toThrow(
+      'Empty artifact body',
+    );
+  });
+
+  it('rejects an oversize ContentLength before consuming the body, and tears it down', async () => {
+    const transform = jest.fn(async () => '{}');
+    const destroy = jest.fn();
+    stubS3({
+      Body: { transformToString: transform, destroy },
+      ContentLength: 6 * 1024 * 1024,
+    });
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactTooLarge',
+    });
+    expect(transform).not.toHaveBeenCalled(); // BEFORE the body, as specified
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it('bounds a chunked response (no ContentLength) by the decoded text length', async () => {
+    stubS3({
+      Body: {
+        transformToString: async () => 'x'.repeat(6 * 1024 * 1024),
+        destroy: jest.fn(),
+      },
+      ContentLength: undefined,
+    });
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactTooLarge',
+    });
+  });
+
+  it('surfaces non-JSON bodies as SyntaxError after logging the raw preview', async () => {
+    stubS3({
+      Body: { transformToString: async () => 'not json at all', destroy: jest.fn() },
+    });
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toBeInstanceOf(
+      SyntaxError,
+    );
+  });
+
+  it('returns the parsed document on the happy path', async () => {
+    stubS3();
+    await expect(fetchArtifact(loc, new AbortController().signal)).resolves.toEqual({
+      title: 'T',
+      panels: [],
+    });
+  });
+});
+
 describe('assertDashboardShape', () => {
   it('accepts the real probe artifact', () => {
     const doc: unknown = JSON.parse(readFileSync(PROBE_ARTIFACT_PATH, 'utf8'));
