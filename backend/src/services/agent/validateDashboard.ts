@@ -354,14 +354,19 @@ export function validateDashboard(schema: unknown): DashboardValidation {
     let gh: number | undefined;
     if (isPlainObject(gridPos)) {
       const { x, y, w, h } = gridPos;
-      if (isGridInt(x) && isGridInt(y) && isGridInt(w) && isGridInt(h) && w >= 1 && h >= 1 && x >= 0) {
+      // y >= 0 everywhere (review round 3): Grafana never emits negative y,
+      // and row expansion (src/layout/geometry/rows.ts, toggleRowCollapsed)
+      // trusts a collapsed child's stored y — bandTop + (-10) promotes the
+      // child ABOVE the canvas. Collapse itself can only ever store y >= 0
+      // (children sit below the header), so a negative y is foreign JSON.
+      if (isGridInt(x) && isGridInt(y) && isGridInt(w) && isGridInt(h) && w >= 1 && h >= 1 && x >= 0 && y >= 0) {
         gx = x; gy = y; gw = w; gh = h;
       }
     }
     if (gx === undefined || gy === undefined || gw === undefined || gh === undefined) {
       errors.push(issue(
         'BAD_GRIDPOS',
-        '`gridPos` must be an object with integer x/y/w/h, w >= 1, h >= 1, x >= 0.',
+        '`gridPos` must be an object with integer x/y/w/h, w >= 1, h >= 1, x >= 0, y >= 0.',
         `${path}.gridPos`,
       ));
     } else {

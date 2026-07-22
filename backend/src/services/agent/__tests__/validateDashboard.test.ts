@@ -113,18 +113,37 @@ describe('validateDashboard', () => {
       expect(codes(result.errors)).toContain('DUPLICATE_PANEL_ID');
     });
 
-    it('BAD_GRIDPOS: missing, non-integer, w<1, h<1 or x<0', () => {
+    it('BAD_GRIDPOS: missing, non-integer, w<1, h<1, x<0 or y<0', () => {
       for (const gridPos of [
         undefined,
         { x: 0, y: 0, w: 0, h: 4 },
         { x: 0, y: 0, w: 6, h: 0 },
         { x: -1, y: 0, w: 6, h: 4 },
+        { x: 0, y: -1, w: 6, h: 4 },
         { x: 0.5, y: 0, w: 6, h: 4 },
         { x: 0, y: 0, w: 6 },
       ]) {
         const result = validateDashboard(makeSchema({ panels: [makePanel({ gridPos })] }));
         expect(codes(result.errors)).toContain('BAD_GRIDPOS');
       }
+    });
+
+    it('BAD_GRIDPOS: a collapsed row child with negative y is rejected (review round 3)', () => {
+      // toggleRowCollapsed (src/layout/geometry/rows.ts) restores children at
+      // bandTop + child.y on expansion; y:-10 under a row at y:0 lands the
+      // panel at absolute y:-9, off-canvas. Collapse can only store y >= 0,
+      // so this shape can only arrive from generated/hand-authored JSON.
+      const result = validateDashboard(makeSchema({
+        panels: [{
+          id: 1,
+          type: 'row',
+          title: 'Section',
+          gridPos: { x: 0, y: 0, w: 24, h: 1 },
+          panels: [makePanel({ id: 2, gridPos: { x: 0, y: -10, w: 6, h: 4 } })],
+        }],
+      }));
+      const gridIssue = result.errors.find((i) => i.code === 'BAD_GRIDPOS');
+      expect(gridIssue?.path).toBe('panels[0].panels[0].gridPos');
     });
 
     it('GRIDPOS_OVERFLOW: {x:20,w:8} exceeds the 24-column grid', () => {
