@@ -158,9 +158,10 @@ export function buildInvokeInput(input: AgentTurnInput, ctx: AgentContext): Invo
   };
 }
 
-/** Every exception member of the ResponseStream union in SDK 3.840.0. The member
- *  key is camelCase; the exception's own name (and safeUserMessage's taxonomy)
- *  is the same word in PascalCase. */
+/** Every exception member of the ResponseStream union in SDK 3.1092.0 (unchanged
+ *  from 3.840.0 — re-verified against the installed d.ts on the MR !57 dependency
+ *  bump). The member key is camelCase; the exception's own name (and
+ *  safeUserMessage's taxonomy) is the same word in PascalCase. */
 const STREAM_EXCEPTION_MEMBERS = [
   'accessDeniedException',
   'badGatewayException',
