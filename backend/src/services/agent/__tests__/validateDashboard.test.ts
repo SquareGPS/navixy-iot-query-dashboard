@@ -289,6 +289,96 @@ describe('validateDashboard', () => {
     });
   });
 
+  describe('row children are validated recursively', () => {
+    function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: 100,
+        type: 'row',
+        title: 'Section',
+        gridPos: { x: 0, y: 8, w: 24, h: 1 },
+        ...overrides,
+      };
+    }
+    const child = (overrides: Record<string, unknown> = {}): Record<string, unknown> =>
+      makePanel({ id: 101, gridPos: { x: 0, y: 9, w: 12, h: 4 }, ...overrides });
+
+    it('a row with well-formed children has zero errors', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel(), makeRow({ panels: [child(), child({ id: 102, gridPos: { x: 12, y: 9, w: 12, h: 4 } })] })],
+      }));
+      expect(result.errors).toEqual([]);
+    });
+
+    it('a malformed child is reported instead of crashing row expansion later', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makeRow({ panels: [child({ gridPos: undefined }), null] })],
+      }));
+      expect(codes(result.errors)).toContain('BAD_GRIDPOS');
+      expect(codes(result.errors)).toContain('UNKNOWN_PANEL_TYPE');
+      const gridIssue = result.errors.find((i) => i.code === 'BAD_GRIDPOS');
+      expect(gridIssue?.path).toBe('panels[0].panels[0].gridPos');
+    });
+
+    it('a child with no id is an error (expansion promotes it to a real panel)', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makeRow({ panels: [child({ id: undefined })] })],
+      }));
+      expect(codes(result.errors)).toContain('MISSING_PANEL_ID');
+    });
+
+    it('a child data panel is held to the SQL rules (DELETE cannot hide inside a row)', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makeRow({ panels: [child({ 'x-navixy': { sql: { statement: 'DELETE FROM public.devices' } } })] })],
+      }));
+      expect(codes(result.errors)).toContain('SQL_REJECTED');
+    });
+
+    it('NESTED_ROW: a row inside a row is an error, never descended into', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makeRow({ panels: [makeRow({ id: 101, panels: [child({ id: 102 })] })] })],
+      }));
+      expect(codes(result.errors)).toContain('NESTED_ROW');
+    });
+
+    it('BAD_ROW_PANELS: a non-array `panels` on a row is an error', () => {
+      const result = validateDashboard(makeSchema({
+        panels: [makeRow({ panels: 'not-an-array' })],
+      }));
+      expect(codes(result.errors)).toContain('BAD_ROW_PANELS');
+    });
+
+    it('SQL carried BY a row or text panel is validated when present (the renderer submits it)', () => {
+      for (const type of ['row', 'text']) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel({ type, 'x-navixy': { sql: { statement: 'DELETE FROM public.devices' } } })],
+        }));
+        expect(codes(result.errors)).toContain('SQL_REJECTED');
+      }
+    });
+
+    it('a row carrying a valid SELECT, an empty statement or no SQL at all stays clean', () => {
+      for (const nav of [
+        { sql: { statement: GOOD_SQL } },
+        { sql: { statement: '' } },
+        undefined,
+      ]) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel(), makeRow({ 'x-navixy': nav })],
+        }));
+        expect(result.errors).toEqual([]);
+        expect(result.warnings).toEqual([]);
+      }
+    });
+
+    it('children are excluded from the overlap heuristic (their gridPos is post-expansion)', () => {
+      // Child rect would "overlap" the top-level panel if compared naively.
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel(), makeRow({ panels: [child({ gridPos: { x: 0, y: 0, w: 6, h: 4 } })] })],
+      }));
+      expect(result.warnings).toEqual([]);
+    });
+  });
+
   describe('calibration against the shipped fixtures', () => {
     // The design invariant behind the whole error/warning boundary: a
     // dashboard the app ships today must never be rewritten to type:'error'.
