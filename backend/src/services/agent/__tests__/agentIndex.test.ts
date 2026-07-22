@@ -20,11 +20,29 @@ describe('agent service selection (AGENT_BACKEND)', () => {
     expect(m.agentService.kind).toBe('mock');
   });
 
-  it('pickAgent selects bedrock on exactly "bedrock" and the mock on everything else', async () => {
+  it('pickAgent defaults to the mock ONLY on absent/empty values', async () => {
     const { pickAgent } = await import('../index.js');
-    expect(pickAgent('bedrock').kind).toBe('bedrock');
-    expect(pickAgent('mock').kind).toBe('mock');
+    expect(pickAgent(undefined).kind).toBe('mock');
     expect(pickAgent('').kind).toBe('mock');
-    expect(pickAgent('http').kind).toBe('mock');
+    expect(pickAgent('   ').kind).toBe('mock');
+  });
+
+  it('pickAgent accepts exactly "mock" and "bedrock", case- and whitespace-insensitively', async () => {
+    const { pickAgent } = await import('../index.js');
+    expect(pickAgent('mock').kind).toBe('mock');
+    expect(pickAgent(' MOCK ').kind).toBe('mock');
+    expect(pickAgent('bedrock').kind).toBe('bedrock');
+    expect(pickAgent(' Bedrock ').kind).toBe('bedrock');
+  });
+
+  it('pickAgent REJECTS unknown values instead of silently mocking (MR !57 review round 3)', async () => {
+    const { pickAgent } = await import('../index.js');
+    // The reviewer's exact scenario: a deployment typo must not boot a backend
+    // that serves plausible fixture dashboards while everyone believes Bedrock
+    // is live.
+    expect(() => pickAgent('bedrok')).toThrow(/Unknown AGENT_BACKEND/);
+    for (const junk of ['http', 'aws', 'true', '1', 'bedrock ok', 'mock,bedrock']) {
+      expect(() => pickAgent(junk)).toThrow(/Unknown AGENT_BACKEND/);
+    }
   });
 });
