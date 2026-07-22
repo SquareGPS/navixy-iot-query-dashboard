@@ -239,6 +239,35 @@ describe('validateDashboard', () => {
       }));
       expect(codes(result.errors)).toContain('TRAILING_COMMENT');
     });
+
+    it('TRAILING_COMMENT: a $-suffixed identifier is not an opener — the real comment still fires (review round 3)', () => {
+      // PG lexes foo$bar$ / foo$$ as SINGLE identifiers (a dollar quote must
+      // be separated from a preceding identifier by whitespace). Treating the
+      // tail as an opener made the scanner see an unterminated quote and
+      // swallow the genuine trailing comment — the appended row cap would
+      // have been commented out (O8).
+      for (const statement of [
+        'SELECT 1 AS foo$bar$ -- trailing comment',
+        'SELECT 1 AS foo$$ -- trailing comment',
+        'SELECT d.id AS foo$bar$ FROM public.devices d -- trailing comment',
+      ]) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+        }));
+        expect({ statement, hasTrailing: codes(result.errors).includes('TRAILING_COMMENT') })
+          .toEqual({ statement, hasTrailing: true });
+      }
+    });
+
+    it('TRAILING_COMMENT: a $-suffixed identifier coexisting with a real dollar quote', () => {
+      // a$b is identifier; the whitespace-separated $$x -- y$$ is a real
+      // literal. Neither the identifier tail nor the literal content may flag.
+      const statement = 'SELECT d.id AS a$b, $$x -- y$$ AS note FROM public.devices d';
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(result.errors).toEqual([]);
+    });
   });
 
   describe('warnings — never block', () => {

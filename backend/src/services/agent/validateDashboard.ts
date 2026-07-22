@@ -99,6 +99,18 @@ function issue(code: string, message: string, path?: string): DashboardIssue {
  *  params (`$1`) never match — a digit cannot start the tag. */
 const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_][A-Za-z_0-9]*)?\$/y;
 
+/** PostgreSQL identifiers may CONTAIN dollar signs after the first character,
+ *  and a dollar quote "must be separated from a preceding identifier by
+ *  whitespace; otherwise the delimiter would be taken as part of the
+ *  identifier" (PG lexical rules). So `foo$bar$` and `foo$$` are single
+ *  identifiers, not identifier-plus-opener — treating them as openers would
+ *  swallow the rest of the statement and hide a REAL trailing comment.
+ *  Digits are included: `x123$$` continues an identifier. The cost is one
+ *  false corner the other way (`123$$…$$` — a numeric literal butted against
+ *  a quote with no space — would be mis-read as identifier continuation),
+ *  which no real SQL writes and which fails toward flagging, not hiding. */
+const IDENTIFIER_CHAR = /[A-Za-z0-9_$]/;
+
 /** True when the last non-blank line of the statement contains a `--` comment
  *  outside quoted text. Such a statement passes validation, but the
  *  server-appended row cap lands inside the comment, so the query runs
@@ -110,7 +122,10 @@ const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_][A-Za-z_0-9]*)?\$/y;
  *  of line so quotes inside comment text cannot corrupt the state.
  *  Dollar-quoted strings (`$$ ... $$`, `$tag$ ... $tag$`) are skipped to their
  *  closing delimiter — TRAILING_COMMENT is an ERROR, so a false positive here
- *  would block safe SQL, not merely log a warning. An unterminated dollar
+ *  would block safe SQL, not merely log a warning. An opener is only
+ *  recognized at a token boundary (see IDENTIFIER_CHAR): `foo$bar$` is one
+ *  identifier, and mis-reading its tail as an opener would hide a real
+ *  trailing comment behind an "unterminated" quote. An unterminated dollar
  *  quote swallows the rest of the statement: nothing after it can be a
  *  comment, and the statement is broken SQL the guard deals with anyway. */
 function hasTrailingLineComment(sql: string): boolean {
@@ -142,7 +157,7 @@ function hasTrailingLineComment(sql: string): boolean {
       inSingle = true;
     } else if (ch === '"') {
       inDouble = true;
-    } else if (ch === '$') {
+    } else if (ch === '$' && (i === 0 || !IDENTIFIER_CHAR.test(sql[i - 1] ?? ''))) {
       DOLLAR_QUOTE_OPEN.lastIndex = i;
       const open = DOLLAR_QUOTE_OPEN.exec(sql);
       if (open !== null) {
