@@ -15,9 +15,11 @@ const PROBE_ARTIFACT_PATH = fileURLToPath(new URL('./fixtures/artifact.json', im
 
 describe('parseS3Url', () => {
   it('splits bucket from key on the FIRST slash — the key keeps its slashes', () => {
-    expect(parseS3Url('s3://bucket/jobs/abc/report_schema.json')).toEqual({
+    expect(
+      parseS3Url('s3://bucket/jobs/1b7f3c3a-0000-4abc-9def-123456789abc/report_schema.json'),
+    ).toEqual({
       bucket: 'bucket',
-      key: 'jobs/abc/report_schema.json',
+      key: 'jobs/1b7f3c3a-0000-4abc-9def-123456789abc/report_schema.json',
     });
   });
 
@@ -28,6 +30,12 @@ describe('parseS3Url', () => {
       bucket: 'iot-query-dashboard-ai-agent-dev-dashboard-artifacts-fe0e8aa7',
       key: 'jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json',
     });
+  });
+
+  it('accepts uppercase hex in the job id — structure is rigid, casing is not', () => {
+    expect(
+      parseS3Url('s3://bucket/jobs/39F24779-A09E-4CC9-B901-0CF062C9B853/report_schema.json'),
+    ).not.toBeNull();
   });
 
   it.each([
@@ -41,6 +49,15 @@ describe('parseS3Url', () => {
     ['a bucket with an illegal underscore', 's3://buck_et/key'],
     ['a key containing ..', 's3://bucket/jobs/../secrets.json'],
     ['an empty string', ''],
+    // Key-shape enforcement (MR !57 review, blocking finding 2): with the pin alone,
+    // every non-empty key was still sent to GetObject — including objects that are not
+    // artifacts at all. The fetch surface is exactly jobs/<uuid>/report_schema.json.
+    ['a key outside jobs/', 's3://bucket/private/admin.json'],
+    ['a non-UUID job segment', 's3://bucket/jobs/abc/report_schema.json'],
+    ['a filename that is not report_schema.json', 's3://bucket/jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/other.json'],
+    ['an extra path segment inside the job dir', 's3://bucket/jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/x/report_schema.json'],
+    ['a job-id prefix attack', 's3://bucket/jobs/39f24779-a09e-4cc9-b901-0cf062c9b853x/report_schema.json'],
+    ['a bracket-polluted key tail', 's3://bucket/jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json]'],
   ])('rejects %s', (_label, url) => {
     expect(parseS3Url(url)).toBeNull();
   });

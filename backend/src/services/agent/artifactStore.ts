@@ -18,14 +18,20 @@ export interface S3Location {
 
 const MAX_URL_LEN = 1024;
 const BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+/** The DOCUMENTED artifact key shape and nothing else (MR !57 review): the agent's
+ *  Lambda writes exactly jobs/<uuid v4>/report_schema.json, and with only a bucket pin
+ *  every other object in that bucket was still fetchable. Structure is rigid (jobs/
+ *  prefix, one UUID segment, one fixed filename), hex casing is not. The `..` and
+ *  empty-key rejects the shape rule subsumes are still pinned by tests. */
+const KEY_RE = /^jobs\/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\/report_schema\.json$/;
 /** Default 5 MiB. The observed artifact is 5385 bytes — ~1000x headroom — and this
  *  still bounds a pathological object out of the heap. */
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 
 /** PURE and TOTAL — never throws; returns null on anything it does not like.
- *  Accepts s3://<bucket>/<key...> ONLY. https:// S3 URLs are deliberately NOT
- *  accepted: the agent does not emit them, and accepting a scheme we have never
- *  observed widens the fetch surface for nothing. */
+ *  Accepts s3://<bucket>/jobs/<uuid>/report_schema.json ONLY. https:// S3 URLs are
+ *  deliberately NOT accepted: the agent does not emit them, and accepting a scheme we
+ *  have never observed widens the fetch surface for nothing. */
 export function parseS3Url(url: string): S3Location | null {
   if (!url || url.length > MAX_URL_LEN) return null;
   if (!url.startsWith('s3://')) return null;
@@ -37,7 +43,7 @@ export function parseS3Url(url: string): S3Location | null {
   // slash only and never re-split.
   const key = rest.slice(slash + 1);
   if (!BUCKET_RE.test(bucket)) return null;
-  if (!key || key.includes('..')) return null;
+  if (!KEY_RE.test(key)) return null;
   return { bucket, key };
 }
 
