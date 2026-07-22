@@ -1,5 +1,7 @@
 # Navixy IoT Query Dashboard
 
+[![CI](https://github.com/Navixy/navixy-iot-query-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/Navixy/navixy-iot-query-dashboard/actions/workflows/ci.yml)
+
 A modern, full-stack web application for creating, managing, and viewing SQL-based reports with interactive dashboards for IoT data. Built for teams who need self-service business intelligence without requiring deep SQL expertise.
 
 ## 🎯 Overview
