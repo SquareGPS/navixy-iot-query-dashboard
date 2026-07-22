@@ -351,6 +351,13 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
   );
 };
 
+// The editor store (src/layout/state/editorStore.ts:66) is a module-level singleton and
+// this component PREFERS it over its `dashboard` prop (:444), re-seeding it on mount
+// (:430), so a second mounted instance silently takes over the first — both then paint
+// the second dashboard. Nothing structurally prevents that, so warn loudly in dev.
+// If you hit this, the store must be context-scoped first. (DO-313)
+let mountedRendererCount = 0;
+
 export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRendererProps>(({
                                                                                              dashboard,
                                                                                              timeRange = {
@@ -376,6 +383,17 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
   const exportRootRef = useRef<HTMLDivElement>(null); // View-mode grid wrapper, captured for PDF export
+
+  useEffect(() => {
+    mountedRendererCount += 1;
+    if (mountedRendererCount > 1 && import.meta.env.DEV) {
+      console.error(
+        `[DashboardRenderer] ${mountedRendererCount} instances mounted at once. ` +
+        'They share one global editor store and will overwrite each other. See DO-313.'
+      );
+    }
+    return () => { mountedRendererCount -= 1; };
+  }, []);
 
   // Keep ref in sync with state
   useEffect(() => {
