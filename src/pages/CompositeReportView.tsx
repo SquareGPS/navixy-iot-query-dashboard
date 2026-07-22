@@ -288,14 +288,19 @@ export default function CompositeReportView() {
     };
   }, [id, reloadNonce]);
 
-  // Execute query when report loads
+  // The viewer's effective SQL-session zone: when it changes, SQL-rendered
+  // times in the current result are stale and the query must re-run (DO-352).
+  const effectiveSqlTimeZone = resolveEffectiveTimeZone(datetimePrefs.timeZone);
+
+  // Execute query when the report loads, and re-execute when the effective
+  // zone changes (server preferences can merge in after the first execution).
   useEffect(() => {
     if (report) {
       executeQuery();
     }
-    // Intentionally only when report identity changes — parameters are applied via Refresh / Apply
+    // Intentionally not on parameter changes — those are applied via Refresh / Apply
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report?.id]);
+  }, [report?.id, effectiveSqlTimeZone]);
 
   // Execute the SQL query
   const sqlQuery = report?.sql_query ?? '';

@@ -109,24 +109,21 @@ function applyServerPreferences(
 }
 
 export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
-  const [prefs, setPrefsState] = useState<DatetimePrefs>(() => {
-    const initial = readFromStorage() ?? detectDefaultPrefs();
-    // Seed the SQL-session zone during the initializer, not an effect:
-    // children's data-fetching effects run before this provider's would, and
-    // the first panel queries must already carry the right zone (DO-352).
-    setSqlTimeZonePreference(initial.timeZone);
-    return initial;
-  });
+  const [prefs, setPrefsState] = useState<DatetimePrefs>(
+    () => readFromStorage() ?? detectDefaultPrefs(),
+  );
+
+  // Keep the SQL-session zone registry in step during render, not in an
+  // effect: children's data-fetching effects run before a parent's, so an
+  // effect here would hand the first queries after mount — and the ones
+  // re-fired when server preferences merge in — the previous zone (DO-352).
+  // Writing a module variable is idempotent, so re-renders and StrictMode
+  // double-renders are harmless.
+  setSqlTimeZonePreference(prefs.timeZone);
 
   useEffect(() => {
     writeToStorage(prefs);
   }, [prefs]);
-
-  // Keep the SQL-session zone in step with preference changes (Settings save,
-  // server preferences merged after login).
-  useEffect(() => {
-    setSqlTimeZonePreference(prefs.timeZone);
-  }, [prefs.timeZone]);
 
   const setPrefs = useCallback((next: Partial<DatetimePrefs>) => {
     setPrefsState((prev) => ({ ...prev, ...next }));

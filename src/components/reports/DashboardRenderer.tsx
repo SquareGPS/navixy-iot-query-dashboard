@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { parse, isValid, format } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -372,6 +372,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              onLoadingChange,
                                                                                            }, ref) => {
   const { prefs: datetimePrefs } = useDatetimePrefs();
+  // The viewer's effective SQL-session zone. Part of the execution cache key
+  // below: when it changes — server preferences merging in after the first
+  // queries fired, a Settings change — SQL-rendered times (to_char, "today"
+  // windows) are stale and every panel must re-query (DO-352).
+  const effectiveSqlTimeZone = useMemo(
+    () => resolveEffectiveTimeZone(datetimePrefs.timeZone),
+    [datetimePrefs.timeZone],
+  );
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -809,8 +817,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         }
       });
 
-      // Include refreshTrigger to force re-execution when Refresh is clicked
-      return `${ JSON.stringify(cacheData) }:${ JSON.stringify(timeRange) }:${ JSON.stringify(serializedParams) }:${ refreshTrigger }`;
+      // Include refreshTrigger to force re-execution when Refresh is clicked,
+      // and the effective SQL zone so a zone change re-runs every query — the
+      // results embed zone-rendered strings and day windows (DO-352).
+      return `${ JSON.stringify(cacheData) }:${ JSON.stringify(timeRange) }:${ JSON.stringify(serializedParams) }:${ refreshTrigger }:${ effectiveSqlTimeZone ?? '' }`;
     };
 
     const cacheKey = createStableCacheKey(displayDashboard);
@@ -1032,7 +1042,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, effectiveSqlTimeZone, resolveParameterBindings, executePanelQuery]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -1762,12 +1772,13 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     try {
-      // Resolve "auto" to the browser's IANA name so the backend doesn't
-      // have to re-detect it. Excel cells need an explicit zone to render
-      // wall-clock times — see shiftDateToZone in backend export service.
-      // The same zone drives the export's server-side re-query session
-      // (DO-352), keeping SQL-rendered times identical to the live panel.
-      const resolvedTz = resolveEffectiveTimeZone(datetimePrefs.timeZone);
+      // "auto" is already resolved to the browser's IANA name so the backend
+      // doesn't have to re-detect it. Excel cells need an explicit zone to
+      // render wall-clock times — see shiftDateToZone in backend export
+      // service. The same zone drives the export's server-side re-query
+      // session (DO-352), keeping SQL-rendered times identical to the live
+      // panel.
+      const resolvedTz = effectiveSqlTimeZone;
 
       // The export re-runs the query server-side, where the per-type row ceiling
       // is owned (see resolvePanelExportMaxRows). Send only the panel type and

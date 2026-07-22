@@ -555,4 +555,20 @@ describe('resolveEffectiveTimeZone', () => {
       Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
   });
+
+  it('degrades to undefined when Intl is unavailable, keeping explicit zones', () => {
+    // Some embedded WebViews ship without ICU — host-zone detection must
+    // degrade to "no zone" (server default), not crash the panel.
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new Error('ICU unavailable');
+    });
+    try {
+      expect(resolveEffectiveTimeZone('auto')).toBeUndefined();
+      expect(resolveEffectiveTimeZone(undefined)).toBeUndefined();
+      // The explicit-preference path never consults Intl.
+      expect(resolveEffectiveTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
