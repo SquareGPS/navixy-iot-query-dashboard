@@ -72,6 +72,7 @@ import {
   resolveEffectiveTimeZone,
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { createRunGate } from '@/utils/runGate';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
 import { resolvePlottedGroups } from '@/lib/chartGroups';
@@ -134,6 +135,11 @@ export default function CompositeReportView() {
   const navigate = useNavigate();
   const { token } = useAuth();
   const { prefs: datetimePrefs } = useDatetimePrefs();
+
+  // Latest-run tracking for query executions: a re-run (Refresh, timezone
+  // change) supersedes any run still in flight so the run that finishes last
+  // cannot overwrite newer results (DO-352 review).
+  const [runGate] = useState(createRunGate);
 
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
@@ -324,12 +330,18 @@ export default function CompositeReportView() {
   const executeQuery = useCallback(async () => {
     if (!id || !sqlQuery) return;
 
+    // Supersede any execution still in flight: the run that finishes last
+    // must not win (e.g. the pre-merge-zone request completing after the
+    // timezone re-run — DO-352 review).
+    const isCurrent = runGate.start();
+
     setExecution(prev => ({ ...prev, loading: true, error: null }));
 
     try {
       const response = await apiService.executeCompositeReport(id, {
         params: buildQueryParams(),
       });
+      if (!isCurrent()) return; // Superseded while awaiting — drop the result.
 
       if (response.error) {
         throw new Error(interpretSqlError(response.error));
@@ -343,6 +355,7 @@ export default function CompositeReportView() {
       });
       setTablePage(1);
     } catch (rawErr: unknown) {
+      if (!isCurrent()) return; // Superseded while awaiting — drop the error too.
       const error = toErrorMeta(rawErr);
       setExecution({
         loading: false,
@@ -351,7 +364,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, sqlQuery, buildQueryParams]);
+  }, [id, sqlQuery, buildQueryParams, runGate]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
