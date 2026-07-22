@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 import { logger } from '../utils/logger.js';
 
 // The preference values live inside the existing `raw_user_meta_data` JSONB
@@ -167,16 +168,12 @@ export async function resolveExportPreferences(
   req: AuthenticatedRequest,
   body?: { timeZone?: unknown; dateFormat?: unknown; timeFormat?: unknown },
 ): Promise<ExportPreferences> {
-  let bodyTimeZone: string | undefined;
-  if (typeof body?.timeZone === 'string' && body.timeZone.trim()) {
-    const tz = body.timeZone.trim();
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: tz });
-      bodyTimeZone = tz;
-    } catch {
-      // Ignore invalid IANA names; stored prefs may still supply one.
-    }
-  }
+  // Same validator as the live SQL path (sql-new): besides invalid IANA
+  // names this also drops bare "+05:00" offsets, which Intl would accept but
+  // Postgres reads with the POSIX inverted sign — an export must never run
+  // its re-query in a zone the live view refused (DO-352 review). When the
+  // body value is dropped, stored prefs may still supply one.
+  const bodyTimeZone = sanitizeTimeZone(body?.timeZone);
   const bodyDateFormat: DateFormat | undefined =
     typeof body?.dateFormat === 'string' &&
     (DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat)
@@ -226,10 +223,13 @@ export async function getUserExportPreferences(
 
     const tz = prefs.timezone.trim();
     if (tz) {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: tz });
-        result.timeZone = tz;
-      } catch {
+      // sanitizeTimeZone, not a bare Intl check: stored values feed the SQL
+      // session of export re-queries, so they obey the same rules as the
+      // live path (no bare offsets — see resolveExportPreferences).
+      const validTz = sanitizeTimeZone(tz);
+      if (validTz) {
+        result.timeZone = validTz;
+      } else {
         logger.warn('Ignoring invalid user timezone preference', { userId, timezone: tz });
       }
     }

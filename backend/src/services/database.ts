@@ -7,6 +7,7 @@ import { RedisService } from './redis.js';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
 import { toErrorMeta, isTransientDbError, type ErrorWithMeta } from '../utils/errors.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 
 export interface DatabaseConfig {
   user: string;
@@ -1892,11 +1893,22 @@ export class DatabaseService {
     const timeout = Number.isFinite(floored) && floored > 0
       ? Math.min(floored, 2147483647)
       : 30000;
-    if (timeZone) {
+    // Re-validate at the choke point, whatever route supplied the zone: the
+    // sql-new route sanitizes early (its cache key must carry the sanitized
+    // zone), but export routes resolve theirs from request bodies and stored
+    // preferences — no caller may put an unvetted string into the session
+    // GUC. A value that fails — e.g. a bare "+05:00" offset, which Postgres
+    // would read with the POSIX inverted sign — degrades to the server
+    // default exactly like an absent zone (DO-352 review).
+    const sessionZone = sanitizeTimeZone(timeZone);
+    if (timeZone && !sessionZone) {
+      logger.warn('Session timezone failed validation; using the server default', { timeZone });
+    }
+    if (sessionZone) {
       try {
         await client.query(
           "SELECT set_config('statement_timeout', $1, false), set_config('TimeZone', $2, false)",
-          [String(timeout), timeZone],
+          [String(timeout), sessionZone],
         );
         return;
       } catch (rawError: unknown) {
@@ -1905,7 +1917,7 @@ export class DatabaseService {
           // invalid_parameter_value: the zone passed Intl but is missing from
           // the server's tzdata. Degrading to the server default is the point.
           logger.warn('Session timezone rejected by the database; using the server default', {
-            timeZone,
+            timeZone: sessionZone,
             error: meta.message,
           });
         } else {
@@ -1913,7 +1925,7 @@ export class DatabaseService {
           // through: the SET below will surface the real error to the caller
           // instead of this log blaming the timezone.
           logger.warn('Session state init failed; retrying with the server default', {
-            timeZone,
+            timeZone: sessionZone,
             code: meta.code,
             error: meta.message,
           });

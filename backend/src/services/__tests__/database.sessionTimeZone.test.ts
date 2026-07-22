@@ -30,7 +30,10 @@ function makeFakeClient(failOnSetConfig = false) {
       const text = typeof arg === 'string' ? arg : arg.text ?? '';
       queries.push({ text, values });
       if (failOnSetConfig && text.includes('set_config')) {
-        throw new Error('invalid value for parameter "TimeZone": "Mars/Olympus"');
+        throw Object.assign(
+          new Error('invalid value for parameter "TimeZone": "Pacific/Kanton"'),
+          { code: '22023' },
+        );
       }
       return { rows: [], fields: [] };
     },
@@ -92,19 +95,37 @@ describe('executeParameterizedQuery session state', () => {
 
   it('falls back to the server default when the database rejects the zone', async () => {
     // Intl and the server tzdata ship separately, so a zone can pass
-    // sanitizeTimeZone and still be unknown to Postgres. The panel must then
-    // render in the session default rather than fail.
+    // sanitizeTimeZone (Pacific/Kanton is Intl-valid) and still be unknown to
+    // an older server's tzdata — the fake models that by rejecting the
+    // set_config with 22023. The panel must then render in the session
+    // default rather than fail.
     const { client, queries } = makeFakeClient(true);
     stubPool(service, async () => client);
 
     const result = await service.executeParameterizedQuery(
-      'SELECT 1', {}, 12345, 100, IOT_DB_URL, undefined, 'Mars/Olympus',
+      'SELECT 1', {}, 12345, 100, IOT_DB_URL, undefined, 'Pacific/Kanton',
     );
 
     expect(queries[0]?.text).toContain('set_config');
     expect(queries[1]?.text).toBe('SET statement_timeout = 12345; RESET TIME ZONE');
     expect(queries.some((q) => q.text.startsWith('SELECT 1'))).toBe(true);
     expect(result.stats?.rowCount).toBe(0);
+  });
+
+  it('strips a zone that fails sanitizeTimeZone before it reaches the session', async () => {
+    // The choke-point re-validation: export routes resolve their zone from
+    // request bodies / stored preferences, so executeParameterizedQuery must
+    // not trust its caller. A bare offset (Intl-valid, POSIX-inverted in
+    // Postgres) degrades to the RESET path — no set_config ever fires.
+    const { client, queries } = makeFakeClient();
+    stubPool(service, async () => client);
+
+    await service.executeParameterizedQuery(
+      'SELECT 1', {}, 12345, 100, IOT_DB_URL, undefined, '+05:00',
+    );
+
+    expect(queries[0]?.text).toBe('SET statement_timeout = 12345; RESET TIME ZONE');
+    expect(queries.every((q) => !q.text.includes('set_config'))).toBe(true);
   });
 
   it('never interpolates a non-numeric timeout into the SET statement', async () => {
