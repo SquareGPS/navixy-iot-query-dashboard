@@ -1,11 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  DATE_FORMAT_VALUES,
   DatetimePrefs,
-  TIME_FORMAT_VALUES,
   detectDefaultPrefs,
-  detectInitialTimeFormat,
+  mergeServerPreferences,
+  normalizeStoredPrefs,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ServerPreferences } from '@/contexts/AuthContext';
@@ -28,39 +27,11 @@ function readFromStorage(): DatetimePrefs | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DatetimePrefs>;
-    if (!parsed || typeof parsed !== 'object') return null;
-    const defaults = detectDefaultPrefs();
-    return {
-      locale: typeof parsed.locale === 'string' ? parsed.locale : defaults.locale,
-      timeZone:
-        typeof parsed.timeZone === 'string' ? parsed.timeZone : defaults.timeZone,
-      hourCycle:
-        parsed.hourCycle === 'h12' || parsed.hourCycle === 'h23'
-          ? parsed.hourCycle
-          : defaults.hourCycle,
-      dateStyle:
-        parsed.dateStyle === 'short' ||
-        parsed.dateStyle === 'medium' ||
-        parsed.dateStyle === 'long'
-          ? parsed.dateStyle
-          : defaults.dateStyle,
-      // Legacy 'default' and missing values map to 'dd/mm/yyyy', which is the
-      // shape the previous dropdown label promised ("01/12/2021 (DD/MM/YYYY)").
-      dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
-        parsed.dateFormat as string,
-      )
-        ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
-        : 'dd/mm/yyyy',
-      // Legacy 'default' and missing values seed from the auto-detected
-      // hourCycle so users who never opened Settings still see the clock style
-      // their locale conventionally uses.
-      timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
-        parsed.timeFormat as string,
-      )
-        ? (parsed.timeFormat as DatetimePrefs['timeFormat'])
-        : detectInitialTimeFormat(),
-    };
+    // Field validation (incl. the legacy bare-offset timezone migration,
+    // DO-352 review round 4) lives in normalizeStoredPrefs so it is
+    // unit-testable without a window; the writeToStorage effect then
+    // persists the cleaned prefs on first render, completing the migration.
+    return normalizeStoredPrefs(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -79,33 +50,10 @@ function applyServerPreferences(
   data: ServerPreferences,
   setPrefsState: React.Dispatch<React.SetStateAction<DatetimePrefs>>,
 ) {
-  setPrefsState((prev) => {
-    const next: DatetimePrefs = { ...prev };
-    let changed = false;
-    if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
-      if (next.timeZone !== data.timezone) {
-        next.timeZone = data.timezone;
-        changed = true;
-      }
-    }
-    if (
-      data.dateFormat &&
-      (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
-      next.dateFormat !== data.dateFormat
-    ) {
-      next.dateFormat = data.dateFormat as DatetimePrefs['dateFormat'];
-      changed = true;
-    }
-    if (
-      data.timeFormat &&
-      (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
-      next.timeFormat !== data.timeFormat
-    ) {
-      next.timeFormat = data.timeFormat as DatetimePrefs['timeFormat'];
-      changed = true;
-    }
-    return changed ? next : prev;
-  });
+  // Merge semantics (incl. refusing malformed or bare-offset zones from an
+  // older backend / stale demo storage) live in mergeServerPreferences,
+  // which returns `prev` untouched when nothing changed.
+  setPrefsState((prev) => mergeServerPreferences(prev, data));
 }
 
 export function DatetimePrefsProvider({ children }: { children: ReactNode }) {

@@ -5,9 +5,12 @@ import {
   formatTimestamp,
   isDateLikeParam,
   isTimestampLike,
+  mergeServerPreferences,
   normaliseParamForApi,
+  normalizeStoredPrefs,
   parseServerTimestamp,
   resolveEffectiveTimeZone,
+  sanitizeStoredTimeZone,
   toUtcIsoInZone,
 } from '../datetime';
 
@@ -565,10 +568,133 @@ describe('resolveEffectiveTimeZone', () => {
     try {
       expect(resolveEffectiveTimeZone('auto')).toBeUndefined();
       expect(resolveEffectiveTimeZone(undefined)).toBeUndefined();
-      // The explicit-preference path never consults Intl.
+      // Without ICU the sanitizer cannot judge the name, so an explicit
+      // preference is kept — the backend sanitizer stays the enforcement
+      // point for what reaches the SQL session.
       expect(resolveEffectiveTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('falls back to the host zone for a stale bare offset instead of passing it through', () => {
+    expect(resolveEffectiveTimeZone('+05:00')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+});
+
+describe('sanitizeStoredTimeZone', () => {
+  it('keeps valid IANA names (trimmed) and the auto sentinel', () => {
+    expect(sanitizeStoredTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    expect(sanitizeStoredTimeZone('  Europe/Berlin  ')).toBe('Europe/Berlin');
+    expect(sanitizeStoredTimeZone('Etc/GMT+2')).toBe('Etc/GMT+2');
+    expect(sanitizeStoredTimeZone('auto')).toBe('auto');
+  });
+
+  it.each(['+05:00', '-08:00', '+02'])(
+    'rejects the bare offset %s (mirrors the backend sanitizeTimeZone)',
+    (tz) => {
+      expect(sanitizeStoredTimeZone(tz)).toBeUndefined();
+    },
+  );
+
+  it('rejects unknown names, oversized values, and non-strings', () => {
+    expect(sanitizeStoredTimeZone('Nowhere/Special')).toBeUndefined();
+    expect(sanitizeStoredTimeZone(`Europe/${'x'.repeat(64)}`)).toBeUndefined();
+    expect(sanitizeStoredTimeZone('')).toBeUndefined();
+    expect(sanitizeStoredTimeZone(42)).toBeUndefined();
+    expect(sanitizeStoredTimeZone(null)).toBeUndefined();
+  });
+
+  it('keeps a name it cannot judge when Intl is unavailable, but still drops offsets', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new TypeError('no ICU');
+    });
+    try {
+      expect(sanitizeStoredTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+      // The offset check is syntactic and does not need Intl.
+      expect(sanitizeStoredTimeZone('+05:00')).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('normalizeStoredPrefs (localStorage migration)', () => {
+  it('migrates a legacy stored bare offset to auto (host zone)', () => {
+    // Persisted by builds that still accepted "+05:00" from the server
+    // (DO-352 review round 4): on read it must fall back to 'auto' so client
+    // formatting and the SQL session agree again.
+    const prefs = normalizeStoredPrefs({
+      locale: 'de-DE',
+      timeZone: '+05:00',
+      hourCycle: 'h23',
+      dateStyle: 'short',
+      dateFormat: 'dd.mm.yyyy',
+      timeFormat: 'h24',
+    });
+    expect(prefs?.timeZone).toBe('auto');
+    // Sibling fields survive the migration untouched.
+    expect(prefs?.dateFormat).toBe('dd.mm.yyyy');
+    expect(prefs?.timeFormat).toBe('h24');
+  });
+
+  it('keeps a valid stored zone and returns null for non-objects', () => {
+    expect(normalizeStoredPrefs({ timeZone: 'Europe/Berlin' })?.timeZone).toBe('Europe/Berlin');
+    expect(normalizeStoredPrefs(null)).toBeNull();
+    expect(normalizeStoredPrefs('junk')).toBeNull();
+  });
+
+  it('maps legacy or missing format values to the documented defaults', () => {
+    const prefs = normalizeStoredPrefs({ dateFormat: 'default', timeFormat: 'default' });
+    expect(prefs?.dateFormat).toBe('dd/mm/yyyy');
+    expect(['h12', 'h24']).toContain(prefs?.timeFormat);
+  });
+});
+
+describe('mergeServerPreferences', () => {
+  const base = {
+    locale: 'en-US',
+    timeZone: 'auto',
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'dd/mm/yyyy' as const,
+    timeFormat: 'h24' as const,
+  };
+
+  it('applies a valid server zone', () => {
+    expect(mergeServerPreferences(base, { timezone: 'Europe/Berlin' }).timeZone).toBe(
+      'Europe/Berlin',
+    );
+  });
+
+  it('leaves the previous object identity for empty or invalid server zones', () => {
+    // '' is how the backend reports "unset" (including normalized-away
+    // legacy offsets); an offset can still arrive from an older backend.
+    expect(mergeServerPreferences(base, { timezone: '' })).toBe(base);
+    expect(mergeServerPreferences(base, { timezone: '+05:00' })).toBe(base);
+    expect(mergeServerPreferences(base, {})).toBe(base);
+  });
+
+  it('merges format fields independently of the zone', () => {
+    const next = mergeServerPreferences(base, { timezone: '+05:00', timeFormat: 'h12' });
+    expect(next.timeZone).toBe('auto');
+    expect(next.timeFormat).toBe('h12');
+  });
+
+  it('regression: legacy localStorage offset plus server empty zone ends at the host zone', () => {
+    // The round-4 scenario end to end: a stale "+05:00" in
+    // navixy.datetimePrefs.v1 and a backend that has normalized the stored
+    // preference to ''. The storage read migrates to 'auto', the server
+    // merge leaves it, and the effective SQL zone is the host zone — the
+    // same zone formatTimestamp uses. No split.
+    const fromStorage = normalizeStoredPrefs({ ...base, timeZone: '+05:00' });
+    expect(fromStorage?.timeZone).toBe('auto');
+    const merged = mergeServerPreferences(fromStorage!, { timezone: '' });
+    expect(merged).toBe(fromStorage);
+    expect(resolveEffectiveTimeZone(merged.timeZone)).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   });
 });

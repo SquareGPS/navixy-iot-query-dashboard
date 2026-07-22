@@ -112,9 +112,128 @@ export function detectInitialTimeFormat(): TimeFormat {
 }
 
 /**
- * Resolve the zone the user actually sees times in: an explicit preference
- * wins, `'auto'` (or absence) falls back to the host's IANA zone. Returns
- * undefined only when Intl itself cannot answer.
+ * Validate a persisted or server-delivered timezone preference. Mirrors the
+ * backend's `sanitizeTimeZone` (same trim / length cap / bare-offset
+ * rejection) plus the frontend-only `'auto'` sentinel.
+ *
+ * Bare offsets ("+05:00") are rejected even though Intl accepts them: the
+ * backend refuses them for the SQL session (Postgres reads offset strings
+ * with the POSIX inverted sign), so keeping one client-side would split
+ * client-formatted timestamps from SQL-rendered strings — the exact DO-352
+ * symptom. Legacy localStorage entries persisted before the server started
+ * refusing offsets are the main source (review round 4).
+ *
+ * Intl throwing a RangeError means it rejected the name. Any other failure
+ * means Intl itself is unavailable (no-ICU WebViews) — then the name is kept:
+ * this sanitizer cannot judge it, and the backend sanitizer remains the
+ * enforcement point for what reaches the SQL session.
+ */
+export function sanitizeStoredTimeZone(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) return undefined;
+  if (trimmed === 'auto') return 'auto';
+  if (trimmed.startsWith('+') || trimmed.startsWith('-')) return undefined;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: trimmed });
+  } catch (err) {
+    if (err instanceof RangeError) return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * Validate a parsed persisted-preferences object (localStorage) into a full
+ * DatetimePrefs, defaulting every invalid field. Returns null for
+ * non-objects so callers treat unreadable storage as absent.
+ *
+ * The timeZone goes through {@link sanitizeStoredTimeZone}: a legacy stored
+ * bare offset ("+05:00", persisted by builds that still accepted one from
+ * the server) falls back to 'auto' — the host zone — instead of splitting
+ * client formatting from the SQL session (DO-352 review round 4). The next
+ * storage write then persists the cleaned value, completing the migration.
+ */
+export function normalizeStoredPrefs(parsed: unknown): DatetimePrefs | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const p = parsed as Partial<DatetimePrefs>;
+  const defaults = detectDefaultPrefs();
+  return {
+    locale: typeof p.locale === 'string' ? p.locale : defaults.locale,
+    timeZone: sanitizeStoredTimeZone(p.timeZone) ?? defaults.timeZone,
+    hourCycle:
+      p.hourCycle === 'h12' || p.hourCycle === 'h23'
+        ? p.hourCycle
+        : defaults.hourCycle,
+    dateStyle:
+      p.dateStyle === 'short' || p.dateStyle === 'medium' || p.dateStyle === 'long'
+        ? p.dateStyle
+        : defaults.dateStyle,
+    // Legacy 'default' and missing values map to 'dd/mm/yyyy', which is the
+    // shape the previous dropdown label promised ("01/12/2021 (DD/MM/YYYY)").
+    dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
+      p.dateFormat as string,
+    )
+      ? (p.dateFormat as DateFormat)
+      : 'dd/mm/yyyy',
+    // Legacy 'default' and missing values seed from the auto-detected
+    // hourCycle so users who never opened Settings still see the clock style
+    // their locale conventionally uses.
+    timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
+      p.timeFormat as string,
+    )
+      ? (p.timeFormat as TimeFormat)
+      : detectInitialTimeFormat(),
+  };
+}
+
+/**
+ * Merge server-delivered preferences (AuthContext's ServerPreferences, from
+ * login / /auth/me / demo storage) into the current prefs. Returns the
+ * previous object identity when nothing changed, so a React state setter
+ * can skip the update.
+ *
+ * The timezone is validated with {@link sanitizeStoredTimeZone}: a malformed
+ * or bare-offset zone from an older backend or stale demo storage must not
+ * displace a sane local preference. An empty or absent server timezone means
+ * "unset" (the backend normalizes legacy invalid stored zones to '') and
+ * leaves the local preference in place.
+ */
+export function mergeServerPreferences(
+  prev: DatetimePrefs,
+  data: { timezone?: string; dateFormat?: string; timeFormat?: string },
+): DatetimePrefs {
+  const next: DatetimePrefs = { ...prev };
+  let changed = false;
+  const serverTz = sanitizeStoredTimeZone(data.timezone);
+  if (serverTz && serverTz !== 'auto' && next.timeZone !== serverTz) {
+    next.timeZone = serverTz;
+    changed = true;
+  }
+  if (
+    data.dateFormat &&
+    (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
+    next.dateFormat !== data.dateFormat
+  ) {
+    next.dateFormat = data.dateFormat as DateFormat;
+    changed = true;
+  }
+  if (
+    data.timeFormat &&
+    (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
+    next.timeFormat !== data.timeFormat
+  ) {
+    next.timeFormat = data.timeFormat as TimeFormat;
+    changed = true;
+  }
+  return changed ? next : prev;
+}
+
+/**
+ * Resolve the zone the user actually sees times in: an explicit valid
+ * preference wins, `'auto'` (or absence, or a value that fails
+ * {@link sanitizeStoredTimeZone} — e.g. a stale bare offset that slipped
+ * past older builds) falls back to the host's IANA zone. Returns undefined
+ * only when Intl itself cannot answer.
  *
  * This is the single resolution used everywhere a concrete zone name has to
  * leave the client — SQL execution (the session timezone the query renders
@@ -123,7 +242,8 @@ export function detectInitialTimeFormat(): TimeFormat {
  * render all agree.
  */
 export function resolveEffectiveTimeZone(timeZone?: string): string | undefined {
-  if (timeZone && timeZone !== 'auto') return timeZone;
+  const preferred = sanitizeStoredTimeZone(timeZone);
+  if (preferred && preferred !== 'auto') return preferred;
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch {

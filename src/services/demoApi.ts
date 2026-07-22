@@ -14,6 +14,7 @@ import {
   DATE_FORMAT_VALUES,
   TIME_FORMAT_VALUES,
   detectInitialTimeFormat,
+  sanitizeStoredTimeZone,
 } from '@/utils/datetime';
 import type { DateFormat, TimeFormat } from '@/utils/datetime';
 import type {
@@ -48,7 +49,11 @@ function readDemoUserPreferences(): Partial<UserPreferences> {
     const parsed = JSON.parse(raw) as Partial<UserPreferences>;
     if (!parsed || typeof parsed !== 'object') return {};
     const out: Partial<UserPreferences> = {};
-    if (typeof parsed.timezone === 'string') out.timezone = parsed.timezone;
+    // Sanitized like the real backend's read path: a legacy stored bare
+    // offset ("+05:00") behaves like an unset zone instead of splitting
+    // client formatting from the SQL session (DO-352 review round 4).
+    const storedTz = sanitizeStoredTimeZone(parsed.timezone);
+    if (storedTz && storedTz !== 'auto') out.timezone = storedTz;
     if (
       typeof parsed.dateFormat === 'string' &&
       (DATE_FORMAT_VALUES as readonly string[]).includes(parsed.dateFormat)
@@ -1101,13 +1106,28 @@ class DemoApiService {
   async updateUserPreferences(
     preferences: Partial<UserPreferences>,
   ): Promise<ApiResponse<UserPreferences>> {
+    // Mirror the real backend's validatePreferencesPatch: an invalid or
+    // bare-offset timezone 400s instead of being persisted, and the stored
+    // value is the sanitized (trimmed) form.
+    let patchTimezone: string | undefined;
+    if (preferences.timezone !== undefined) {
+      patchTimezone = sanitizeStoredTimeZone(preferences.timezone);
+      if (!patchTimezone || patchTimezone === 'auto') {
+        return {
+          error: {
+            code: 'CLIENT_ERROR',
+            message: `Invalid timezone identifier: ${String(preferences.timezone).trim()}`,
+          },
+        };
+      }
+    }
     // Merge the patch with any previously stored prefs and persist to
     // localStorage so a page reload doesn't reset the user's choice. The
     // returned shape matches the real backend's RETURNING payload.
     const stored = readDemoUserPreferences();
     const merged: UserPreferences = {
       timezone:
-        preferences.timezone ??
+        patchTimezone ??
         stored.timezone ??
         Intl.DateTimeFormat().resolvedOptions().timeZone,
       dateFormat: preferences.dateFormat ?? stored.dateFormat ?? 'dd/mm/yyyy',
