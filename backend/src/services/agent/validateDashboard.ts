@@ -22,6 +22,13 @@
  * the gate to the sample — expect to re-tune it against the first real agent
  * responses.
  *
+ * BOUNDED BY CONSTRUCTION: the artifact arrives from an untrusted S3 fetch,
+ * so the validator refuses oversized input (TOO_MANY_PANELS at MAX_PANELS,
+ * counted from array lengths before any per-panel work) and caps quadratic
+ * overlap reporting at MAX_OVERLAP_REPORTS pairs plus one aggregate line.
+ * A 10 000-panel artifact is well under a megabyte of JSON but would
+ * otherwise allocate ~50M warning objects in the pair loop.
+ *
  * Hand-rolled rather than joi: joi IS a runtime dependency of this backend
  * (backend/package.json) but is unused anywhere in backend/src, and the rules
  * here are cross-field semantic checks (recursive row-child validation, id
@@ -58,6 +65,16 @@ export const RENDERABLE_PANEL_TYPES = [
 /** Mirrors GRID_COLUMNS = 24 (src/layout/geometry/grid.ts:5). The backend
  *  cannot import frontend modules, so the constant is restated here. */
 const GRID_COLUMNS = 24;
+
+/** Census cap: top-level panels plus declared row children. The largest
+ *  shipped fixture declares 49 panels, so 200 is generous headroom for a
+ *  generated dashboard, not a rendering limit. */
+const MAX_PANELS = 200;
+
+/** Per-pair PANEL_OVERLAP warnings emitted before collapsing the remainder
+ *  into one aggregate warning. The largest shipped fixture produces 16
+ *  pairs; the worst case at the census cap is 19 900. */
+const MAX_OVERLAP_REPORTS = 50;
 
 const RENDERABLE = new Set<string>(RENDERABLE_PANEL_TYPES);
 
@@ -180,6 +197,28 @@ export function validateDashboard(schema: unknown): DashboardValidation {
   // renders fine (see the calibration caveat in the header).
   if (schema['x-navixy'] === undefined) {
     warnings.push(issue('MISSING_NAVIXY_EXT', 'No top-level `x-navixy` extension object.', 'x-navixy'));
+  }
+
+  // DoS guard — this gate is fed by an UNTRUSTED artifact fetched from S3.
+  // The census uses array lengths only, so it costs O(top-level panels) no
+  // matter what the artifact declares; past the cap, per-panel work is
+  // refused outright rather than truncated (a 10 000-panel "dashboard" is
+  // garbage, and 10 000 diagnostics about it are too).
+  if (Array.isArray(panels)) {
+    let declared = panels.length;
+    for (const p of panels) {
+      if (isPlainObject(p) && p.type === 'row' && Array.isArray(p.panels)) {
+        declared += p.panels.length;
+      }
+    }
+    if (declared > MAX_PANELS) {
+      errors.push(issue(
+        'TOO_MANY_PANELS',
+        `Dashboard declares ${declared} panels including row children; the validator caps at ${MAX_PANELS}. Per-panel checks were skipped.`,
+        'panels',
+      ));
+      return { errors, warnings };
+    }
   }
 
   // Panel ids are collected as String(id) because the renderer keys per-panel
@@ -383,14 +422,28 @@ export function validateDashboard(schema: unknown): DashboardValidation {
 
   // Warning, not error: fixture 12 (a corpus member) contains three real
   // one-row overlaps and renders correctly today (see the header caveat).
+  // The comparison loop is already bounded by the census cap (<= 19 900
+  // iterations); the REPORTING is capped separately because per-pair warning
+  // objects are where an adversarial artifact turns quadratic into heap.
+  let overlapPairs = 0;
   for (let a = 0; a < rects.length; a++) {
     for (let b = a + 1; b < rects.length; b++) {
       const first = rects[a];
       const second = rects[b];
       if (first !== undefined && second !== undefined && rectsIntersect(first, second)) {
-        warnings.push(issue('PANEL_OVERLAP', `Panels ${first.path} and ${second.path} overlap on the grid.`, first.path));
+        overlapPairs++;
+        if (overlapPairs <= MAX_OVERLAP_REPORTS) {
+          warnings.push(issue('PANEL_OVERLAP', `Panels ${first.path} and ${second.path} overlap on the grid.`, first.path));
+        }
       }
     }
+  }
+  if (overlapPairs > MAX_OVERLAP_REPORTS) {
+    warnings.push(issue(
+      'PANEL_OVERLAP',
+      `${overlapPairs - MAX_OVERLAP_REPORTS} more overlapping pairs were found (per-pair reporting capped at ${MAX_OVERLAP_REPORTS}).`,
+      'panels',
+    ));
   }
 
   return { errors, warnings };

@@ -379,6 +379,46 @@ describe('validateDashboard', () => {
     });
   });
 
+  describe('bounds against oversized artifacts (the input is untrusted)', () => {
+    it('TOO_MANY_PANELS: 10 000 panels yield one error and no per-panel work', () => {
+      // The reviewer scenario: ~619 KB of valid JSON that would otherwise
+      // produce ~50M overlap warnings. Panels are deliberately broken
+      // (no gridPos) to prove per-panel checks were skipped, not run.
+      const panels = Array.from({ length: 10_000 }, (_, i) => ({ id: i, type: 'kpi' }));
+      const result = validateDashboard(makeSchema({ panels }));
+      expect(codes(result.errors)).toEqual(['TOO_MANY_PANELS']);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('TOO_MANY_PANELS: declared row children count toward the census', () => {
+      const children = Array.from({ length: 200 }, (_, i) => ({ id: 1000 + i }));
+      const result = validateDashboard(makeSchema({
+        panels: [{ id: 1, type: 'row', gridPos: { x: 0, y: 0, w: 24, h: 1 }, panels: children }],
+      }));
+      expect(codes(result.errors)).toEqual(['TOO_MANY_PANELS']);
+    });
+
+    it('exactly 200 well-formed panels validate normally (the cap is exclusive)', () => {
+      const panels = Array.from({ length: 200 }, (_, i) => makePanel({
+        id: i,
+        gridPos: { x: 0, y: i * 4, w: 6, h: 4 },
+      }));
+      const result = validateDashboard(makeSchema({ panels }));
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('PANEL_OVERLAP reporting caps at 50 pairs plus one aggregate warning', () => {
+      // 25 stacked panels = C(25,2) = 300 intersecting pairs.
+      const panels = Array.from({ length: 25 }, (_, i) => makePanel({ id: i }));
+      const result = validateDashboard(makeSchema({ panels }));
+      expect(result.errors).toEqual([]);
+      const overlaps = result.warnings.filter((w) => w.code === 'PANEL_OVERLAP');
+      expect(overlaps).toHaveLength(51);
+      expect(overlaps[50]?.message).toContain('250 more overlapping pairs');
+    });
+  });
+
   describe('calibration against the shipped fixtures', () => {
     // The design invariant behind the whole error/warning boundary: a
     // dashboard the app ships today must never be rewritten to type:'error'.
