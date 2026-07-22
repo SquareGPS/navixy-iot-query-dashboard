@@ -95,9 +95,13 @@ function issue(code: string, message: string, path?: string): DashboardIssue {
 }
 
 /** Matches a PostgreSQL dollar-quote delimiter at the regex lastIndex:
- *  `$$` or `$tag$` where the tag starts with a letter/underscore. Positional
- *  params (`$1`) never match — a digit cannot start the tag. */
-const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_][A-Za-z_0-9]*)?\$/y;
+ *  `$$` or `$tag$`. A tag follows unquoted-identifier rules minus the dollar
+ *  sign (PG scan.l: dolq_start = [A-Za-z\200-\377_], dolq_cont adds digits):
+ *  it starts with a letter/underscore OR any non-ASCII character, never a
+ *  digit — so positional params (`$1`) never match. \u0080-\uFFFF covers
+ *  every non-ASCII UTF-16 code unit including surrogate halves, so
+ *  astral-plane tags (e.g. emoji) match as pairs without the `u` flag. */
+const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_\u0080-\uFFFF][A-Za-z_0-9\u0080-\uFFFF]*)?\$/y;
 
 /** PostgreSQL identifiers may CONTAIN dollar signs after the first character,
  *  and a dollar quote "must be separated from a preceding identifier by
@@ -105,11 +109,15 @@ const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_][A-Za-z_0-9]*)?\$/y;
  *  identifier" (PG lexical rules). So `foo$bar$` and `foo$$` are single
  *  identifiers, not identifier-plus-opener — treating them as openers would
  *  swallow the rest of the statement and hide a REAL trailing comment.
- *  Digits are included: `x123$$` continues an identifier. The cost is one
- *  false corner the other way (`123$$…$$` — a numeric literal butted against
- *  a quote with no space — would be mis-read as identifier continuation),
- *  which no real SQL writes and which fails toward flagging, not hiding. */
-const IDENTIFIER_CHAR = /[A-Za-z0-9_$]/;
+ *  Digits are included: `x123$$` continues an identifier. NON-ASCII is
+ *  included too (review round 4): PG's lexer treats every byte >= 0x80 as an
+ *  identifier character (scan.l: ident_cont = [A-Za-z\200-\377_0-9$]), so
+ *  `café$bar$` is ONE identifier — the é must not break the token. The cost
+ *  is one false corner the other way (`123$$…$$` — a numeric literal butted
+ *  against a quote with no space — would be mis-read as identifier
+ *  continuation), which no real SQL writes and which fails toward flagging,
+ *  not hiding. */
+const IDENTIFIER_CHAR = /[A-Za-z0-9_$\u0080-\uFFFF]/;
 
 /** True when the last non-blank line of the statement contains a `--` comment
  *  outside quoted text. Such a statement passes validation, but the

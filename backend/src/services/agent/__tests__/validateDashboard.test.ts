@@ -287,6 +287,40 @@ describe('validateDashboard', () => {
       }));
       expect(result.errors).toEqual([]);
     });
+
+    it('TRAILING_COMMENT: non-ASCII identifier characters do not break the token (review round 4)', () => {
+      // PG's lexer treats every non-ASCII character as an identifier
+      // character (scan.l ident_cont), so café$bar$ and 名前$bar$ are SINGLE
+      // identifiers — the é / 前 before the $ must not let the tail open a
+      // quote that swallows the real trailing comment.
+      for (const statement of [
+        'SELECT d.id AS café$bar$ FROM public.devices d -- trailing comment',
+        'SELECT d.id AS café$$ FROM public.devices d -- trailing comment',
+        'SELECT d.id AS 名前$bar$ FROM public.devices d -- trailing comment',
+      ]) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+        }));
+        expect({ statement, hasTrailing: codes(result.errors).includes('TRAILING_COMMENT') })
+          .toEqual({ statement, hasTrailing: true });
+      }
+    });
+
+    it('TRAILING_COMMENT: Unicode dollar-quote tags are recognized (review round 4)', () => {
+      // Tags follow unquoted-identifier rules, so $é$, $日本$ and even an
+      // astral-plane $🙂$ (surrogate pair) are valid delimiters — the --
+      // inside such a literal is content, not a comment.
+      for (const statement of [
+        'SELECT d.id, $é$x -- y$é$ AS note FROM public.devices d',
+        'SELECT d.id, $日本$x -- y$日本$ AS note FROM public.devices d',
+        'SELECT d.id, $🙂$x -- y$🙂$ AS note FROM public.devices d',
+      ]) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+        }));
+        expect({ statement, errors: result.errors }).toEqual({ statement, errors: [] });
+      }
+    });
   });
 
   describe('warnings — never block', () => {
