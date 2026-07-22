@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { getTimeoutFromGlobalVars, resolveExportTimeoutMs, clampRowsToHardCap } from '../utils/exportPolicy.js';
 import { detectAllGPSColumnPairs, detectValidGPSColumns, selectValidGPSPair, toRowObjects, extractGPSPoints, suggestLabelColumn, isDisplayableCoordinate, type ColumnInfo } from '../utils/gpsDetection.js';
 import { applyGeocodedAddresses } from '../utils/geocodeColumns.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 import { toErrorMeta } from '../utils/errors.js';
 
 const router = Router();
@@ -259,8 +260,12 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
     if (!id) {
       throw new CustomError('Report ID is required', 400);
     }
-    const { params = {} } = req.body;
+    const { params = {}, time_zone } = req.body;
     const { userDbUrl, userId, iotDbUrl } = getUserInfo(req);
+
+    // Viewer's zone for SQL-side time rendering; invalid names degrade to the
+    // server default (DO-352).
+    const timeZone = sanitizeTimeZone(time_zone);
 
     if (!iotDbUrl) {
       throw new CustomError('IoT database URL not configured', 400);
@@ -268,7 +273,7 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
 
     const dbService = DatabaseService.getInstance();
     const pool = dbService.getClientSettingsPool(userDbUrl);
-    
+
     // Get the composite report
     const compositeReport = await dbService.getCompositeReportById(id, pool, userId) as CompositeReportRecord | null;
     if (!compositeReport) {
@@ -310,6 +315,8 @@ router.post('/composite-reports/:id/execute', async (req: Request, res: Response
         timeoutMs,
         maxRows,
         iotDbUrl,
+        undefined,
+        timeZone,
       );
     } catch (queryError) {
       // Return empty result with error message for SQL errors
@@ -504,6 +511,10 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
       throw new CustomError('Composite report not found', 404);
     }
 
+    // Resolved before the optional re-query so the export SQL runs in the same
+    // zone the live view ran in (DO-352).
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
+
     // Use cached data from the frontend when available (prevents data drift with relative time queries)
     let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
     if (cachedData?.columns && cachedData?.rows) {
@@ -517,7 +528,9 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
         mergedParams,
         exportTimeoutMs,
         exportMaxRows,
-        iotDbUrl
+        iotDbUrl,
+        undefined,
+        exportPrefs.timeZone
       );
       queryResult = { columns: result.columns, rows: result.rows };
     }
@@ -547,7 +560,6 @@ router.post('/composite-reports/:id/export/excel', async (req: Request, res: Res
     }
 
     const exportService = ExportService.getInstance();
-    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const exportOptions = {
       title: compositeReport.title,
       description: compositeReport.description,
@@ -625,6 +637,10 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
       throw new CustomError('Composite report not found', 404);
     }
 
+    // Resolved before the optional re-query so the export SQL runs in the same
+    // zone the live view ran in (DO-352).
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
+
     // Use cached data from the frontend when available
     let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
     if (cachedData?.columns && cachedData?.rows) {
@@ -638,7 +654,9 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
         mergedParams,
         exportTimeoutMs,
         htmlExportMaxRows,
-        iotDbUrl
+        iotDbUrl,
+        undefined,
+        exportPrefs.timeZone
       );
       queryResult = { columns: result.columns, rows: result.rows };
     }
@@ -672,7 +690,6 @@ router.post('/composite-reports/:id/export/html', async (req: Request, res: Resp
 
     // Generate HTML (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,
@@ -743,6 +760,10 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
       throw new CustomError('Composite report not found', 404);
     }
 
+    // Resolved before the optional re-query so the export SQL runs in the same
+    // zone the live view ran in (DO-352).
+    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
+
     // Use cached data from the frontend when available
     let queryResult: { columns: { name: string; type: string }[]; rows: unknown[][] };
     if (cachedData?.columns && cachedData?.rows) {
@@ -756,7 +777,9 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
         mergedParams,
         exportTimeoutMs,
         pdfExportMaxRows,
-        iotDbUrl
+        iotDbUrl,
+        undefined,
+        exportPrefs.timeZone
       );
       queryResult = { columns: result.columns, rows: result.rows };
     }
@@ -790,7 +813,6 @@ router.post('/composite-reports/:id/export/pdf', async (req: Request, res: Respo
 
     // Generate HTML first (use geocoded data for table, but original for map)
     const exportService = ExportService.getInstance();
-    const exportPrefs = await resolveExportPreferences(req as AuthenticatedRequest, req.body);
     const html = await exportService.generateHTML({
       title: compositeReport.title,
       description: compositeReport.description,

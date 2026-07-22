@@ -25,6 +25,31 @@ export function isTimestampLikeValue(value: unknown): value is string {
 }
 
 /**
+ * Validate an untrusted request value as an IANA timezone name.
+ *
+ * Returns the trimmed name when Intl can construct a formatter for it, and
+ * undefined otherwise — callers treat "no zone" as "keep the session default",
+ * so an invalid preference degrades to the pre-DO-352 behaviour instead of
+ * failing the query. The length cap bounds what we hand to Intl; real IANA
+ * names top out around 30 characters ("America/Argentina/ComodRivadavia").
+ *
+ * Intl accepting a name does not guarantee the Postgres server's tzdata knows
+ * it (the two ship separately); DatabaseService applies it via a bound
+ * set_config() and falls back to the session default if the server rejects it.
+ */
+export function sanitizeTimeZone(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) return undefined;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: trimmed });
+    return trimmed;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Parse a timestamp string to a Date, mirroring the frontend's
  * `parseServerTimestamp`. ISO-shaped strings without a TZ suffix are treated as
  * UTC (we append `Z`); strings that don't match the ISO shape fall back to the
