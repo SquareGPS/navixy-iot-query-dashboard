@@ -36,9 +36,11 @@ describe('buildInvokeInput', () => {
   beforeEach(() => {
     saved.BEDROCK_AGENT_ID = process.env.BEDROCK_AGENT_ID;
     saved.BEDROCK_AGENT_ALIAS_ID = process.env.BEDROCK_AGENT_ALIAS_ID;
+    saved.BEDROCK_ARTIFACT_BUCKET = process.env.BEDROCK_ARTIFACT_BUCKET;
     saved.BEDROCK_ENABLE_TRACE = process.env.BEDROCK_ENABLE_TRACE;
     process.env.BEDROCK_AGENT_ID = 'AGENT123456';
     process.env.BEDROCK_AGENT_ALIAS_ID = 'ALIAS654321';
+    process.env.BEDROCK_ARTIFACT_BUCKET = 'pinned-artifact-bucket';
     delete process.env.BEDROCK_ENABLE_TRACE;
   });
 
@@ -87,6 +89,9 @@ describe('buildInvokeInput', () => {
   it.each([
     ['BEDROCK_AGENT_ID'],
     ['BEDROCK_AGENT_ALIAS_ID'],
+    // The bucket pin is REQUIRED config in bedrock mode (MR !57 review): unpinned,
+    // artifact fetches would read whatever bucket the LLM-generated prose names.
+    ['BEDROCK_ARTIFACT_BUCKET'],
   ])('throws CustomError 500 when %s is unset — the ONE throw in the module (D14)', (envKey) => {
     delete process.env[envKey];
     try {
@@ -98,13 +103,14 @@ describe('buildInvokeInput', () => {
     }
   });
 
-  it('does not throw when both ids are set', () => {
+  it('does not throw when both ids and the bucket pin are set', () => {
     expect(() => buildInvokeInput({ message: 'hi', history: [] }, ctx)).not.toThrow();
   });
 
   it.each([
     ['BEDROCK_AGENT_ID'],
     ['BEDROCK_AGENT_ALIAS_ID'],
+    ['BEDROCK_ARTIFACT_BUCKET'],
   ])('throws the same 500 when %s is set but EMPTY — the shape .env.example itself ships', (envKey) => {
     // dotenv turns `BEDROCK_AGENT_ID=` into '', not undefined; the guard must
     // catch both, and must keep catching '' across a `=== undefined` refactor
@@ -222,6 +228,7 @@ describe('safeUserMessage', () => {
     ['NoSuchBucket', 'config'],
     ['AccessDenied', 'config'],
     ['ArtifactBucketMismatch', 'config'],
+    ['ArtifactBucketUnpinned', 'config'],
     ['InternalServerException', 'generic'],
     ['DependencyFailedException', 'generic'],
     ['BadGatewayException', 'generic'],

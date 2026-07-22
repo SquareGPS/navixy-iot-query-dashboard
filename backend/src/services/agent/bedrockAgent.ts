@@ -100,13 +100,20 @@ export interface InvokeInput {
 export function buildInvokeInput(input: AgentTurnInput, ctx: AgentContext): InvokeInput {
   const agentId = process.env.BEDROCK_AGENT_ID;
   const agentAliasId = process.env.BEDROCK_AGENT_ALIAS_ID;
-  if (!agentId || !agentAliasId) {
+  // The bucket pin is REQUIRED config in bedrock mode, validated here so the turn is
+  // refused BEFORE any AWS call (MR !57 review). It is not an input to InvokeAgent —
+  // fetchArtifact reads it — but a deploy that omits it must not get as far as one
+  // question turn: unpinned, artifact fetches would read whatever bucket the
+  // LLM-generated prose names, across everything the task role can reach.
+  const artifactBucket = process.env.BEDROCK_ARTIFACT_BUCKET?.trim();
+  if (!agentId || !agentAliasId || !artifactBucket) {
     // A DEPLOY MISCONFIGURATION, not a conversational state — so it throws, and it is the
     // ONE path in this file that does (D14). errorHandler swallows the text at >= 500
     // (errorHandler.ts:111-112), which is correct here: the detail belongs in the logs and
     // the user gets a generic 500 rather than our env var names.
     throw new CustomError(
-      'Bedrock agent is not configured (BEDROCK_AGENT_ID / BEDROCK_AGENT_ALIAS_ID)',
+      'Bedrock agent is not configured ' +
+        '(BEDROCK_AGENT_ID / BEDROCK_AGENT_ALIAS_ID / BEDROCK_ARTIFACT_BUCKET)',
       500,
     );
   }
@@ -250,6 +257,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   NoSuchBucket: CONFIG_MESSAGE,
   AccessDenied: CONFIG_MESSAGE,
   ArtifactBucketMismatch: CONFIG_MESSAGE,
+  ArtifactBucketUnpinned: CONFIG_MESSAGE,
   ThrottlingException: BUSY_MESSAGE,
   TooManyRequestsException: BUSY_MESSAGE,
   ServiceQuotaExceededException: BUSY_MESSAGE,

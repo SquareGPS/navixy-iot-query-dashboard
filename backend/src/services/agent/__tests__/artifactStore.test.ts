@@ -1,12 +1,12 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, afterEach } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseS3Url, assertDashboardShape, envInt } from '../artifactStore.js';
+import { parseS3Url, assertDashboardShape, envInt, fetchArtifact } from '../artifactStore.js';
 
-// Pure functions only — no S3Client is ever constructed and no network is
-// touched. fetchArtifact is deliberately untested here: there is no
-// aws-sdk-client-mock / nock / msw in this repo, and adding one is its own
-// ticket (MR 3 §6).
+// No S3Client is ever constructed and no network is touched. fetchArtifact's
+// NETWORK paths are deliberately untested here: there is no aws-sdk-client-mock
+// / nock / msw in this repo, and adding one is its own ticket (MR 3 §6). Its
+// unpinned-bucket guard IS tested — it throws before the lazy client exists.
 
 /** The REAL artifact the live agent produced on 2026-07-20, vendored
  *  byte-for-byte from ai-chat-plan.local/probe/artifact.json (which is
@@ -54,6 +54,38 @@ describe('parseS3Url', () => {
     for (const junk of ['s3:/bucket/key', 'S3://bucket/key', 'file:///etc/passwd', '://', '..']) {
       expect(parseS3Url(junk)).toBeNull();
     }
+  });
+});
+
+describe('fetchArtifact — fails closed without the bucket pin (MR !57 review)', () => {
+  const savedPin = process.env.BEDROCK_ARTIFACT_BUCKET;
+
+  afterEach(() => {
+    if (savedPin === undefined) delete process.env.BEDROCK_ARTIFACT_BUCKET;
+    else process.env.BEDROCK_ARTIFACT_BUCKET = savedPin;
+  });
+
+  const loc = { bucket: 'any-bucket', key: 'jobs/x/report_schema.json' };
+
+  it('refuses BEFORE any client construction when the pin is unset', async () => {
+    delete process.env.BEDROCK_ARTIFACT_BUCKET;
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactBucketUnpinned',
+    });
+  });
+
+  it('treats a whitespace-only pin as unset — dotenv ships `BEDROCK_ARTIFACT_BUCKET=` as ""', async () => {
+    process.env.BEDROCK_ARTIFACT_BUCKET = '   ';
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactBucketUnpinned',
+    });
+  });
+
+  it('still refuses a bucket that does not match a set pin, pre-network', async () => {
+    process.env.BEDROCK_ARTIFACT_BUCKET = 'the-pinned-bucket';
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactBucketMismatch',
+    });
   });
 });
 

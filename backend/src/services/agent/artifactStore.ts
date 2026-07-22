@@ -68,12 +68,18 @@ export function __resetS3ClientForTests(): void {
 }
 
 export async function fetchArtifact(loc: S3Location, signal: AbortSignal): Promise<unknown> {
-  // SSRF-shaped guard. The bucket name arrives inside LLM-GENERATED PROSE. An agent that
-  // is confused — or prompt-injected through a dashboard title — could name a different
-  // bucket, and GetObject against an arbitrary bucket with our credentials is a real, if
-  // small, capability leak. When BEDROCK_ARTIFACT_BUCKET is set, nothing else is readable.
+  // SSRF-shaped guard, FAIL CLOSED (MR !57 review). The bucket name arrives inside
+  // LLM-GENERATED PROSE. An agent that is confused — or prompt-injected through a
+  // dashboard title — could name a different bucket, and GetObject against an arbitrary
+  // bucket with our credentials is a real, if small, capability leak. An unset pin used
+  // to fail OPEN as a dev convenience; it no longer does: bedrockAgent refuses the whole
+  // turn in buildInvokeInput, and this guard keeps the property true for any future
+  // caller of this exported function. Nothing outside the pinned bucket is readable.
   const allowed = process.env.BEDROCK_ARTIFACT_BUCKET?.trim();
-  if (allowed && loc.bucket !== allowed) {
+  if (!allowed) {
+    throw namedError('ArtifactBucketUnpinned', 'BEDROCK_ARTIFACT_BUCKET is not set');
+  }
+  if (loc.bucket !== allowed) {
     logger.error('[Agent] ARTIFACT_BUCKET_MISMATCH', { requested: loc.bucket, allowed });
     throw namedError('ArtifactBucketMismatch', `Artifact bucket not allowed: ${loc.bucket}`);
   }

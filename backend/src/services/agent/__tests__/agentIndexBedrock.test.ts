@@ -20,22 +20,23 @@ afterAll(() => {
 });
 
 describe('agent service selection — the bedrock arm at import time', () => {
-  it('normalizes the env value and warns at boot when the artifact bucket pin is empty', async () => {
+  it('normalizes the env value and logs the fail-closed config error at boot when the pin is empty', async () => {
     process.env.AGENT_BACKEND = ' Bedrock '; // exercises .trim().toLowerCase()
     delete process.env.BEDROCK_ARTIFACT_BUCKET;
 
-    const warnSpy = jest.spyOn(logger, 'warn');
+    const errorSpy = jest.spyOn(logger, 'error');
     try {
       const m = await import('../index.js');
       expect(m.agentService.kind).toBe('bedrock');
 
-      // The empty-pin fail-open must not be silent (MR !57 review finding 3).
-      const warned = warnSpy.mock.calls.some((call) =>
+      // An unpinned bucket now FAILS CLOSED per request (MR !57 review); the boot
+      // line is how the operator learns it from the log rather than from users.
+      const logged = errorSpy.mock.calls.some((call) =>
         String(call[0]).includes('BEDROCK_ARTIFACT_BUCKET'),
       );
-      expect(warned).toBe(true);
+      expect(logged).toBe(true);
     } finally {
-      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 });

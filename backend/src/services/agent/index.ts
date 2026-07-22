@@ -32,12 +32,14 @@ export const agentService: AgentService = pickAgent(AGENT_BACKEND);
 logger.info('Agent service initialised', { kind: agentService.kind, backend: AGENT_BACKEND });
 
 if (agentService.kind === 'bedrock' && !process.env.BEDROCK_ARTIFACT_BUCKET?.trim()) {
-  // The empty-pin fail-open exists only so dev works before the bucket name is
-  // known — it must never be SILENT (MR !57 review): unpinned, fetchArtifact
-  // will read whatever bucket the agent's LLM-generated prose names, across
-  // everything the task role can reach, and render it to the user.
-  logger.warn(
-    '[Agent] BEDROCK_ARTIFACT_BUCKET is empty — artifact fetches will accept ANY bucket ' +
-      'the agent names. Set the pin in every bedrock environment.',
+  // FAIL CLOSED (MR !57 review): an unpinned bucket is a config error, not a permissive
+  // dev mode — unpinned, fetchArtifact would read whatever bucket the agent's
+  // LLM-generated prose names, across everything the task role can reach. So
+  // buildInvokeInput refuses every turn (CustomError 500) and fetchArtifact refuses
+  // every fetch until the pin is set; this boot line exists so the operator learns that
+  // from the log rather than from users.
+  logger.error(
+    '[Agent] BEDROCK_ARTIFACT_BUCKET is not set — bedrock mode fails closed and every ' +
+      'agent request will return a configuration error until the pin is configured.',
   );
 }
