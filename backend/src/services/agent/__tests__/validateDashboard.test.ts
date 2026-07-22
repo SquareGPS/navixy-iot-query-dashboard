@@ -202,6 +202,43 @@ describe('validateDashboard', () => {
       }));
       expect(codes(result.errors)).toContain('TRAILING_COMMENT');
     });
+
+    it('TRAILING_COMMENT: -- inside a dollar-quoted string is not a comment (the guard passes such SQL)', () => {
+      for (const statement of [
+        'SELECT d.id, $$note -- keep$$ AS note FROM public.devices d',
+        'SELECT d.id, $tag$a -- b$tag$ AS note FROM public.devices d',
+        'SELECT d.id, $$\n-- still inside the literal$$ AS note FROM public.devices d',
+      ]) {
+        const result = validateDashboard(makeSchema({
+          panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+        }));
+        expect({ statement, errors: result.errors }).toEqual({ statement, errors: [] });
+      }
+    });
+
+    it('TRAILING_COMMENT: a real comment after a CLOSED dollar quote still fires', () => {
+      const statement = 'SELECT d.id FROM public.devices d WHERE d.label = $$x$$ -- real comment';
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(codes(result.errors)).toContain('TRAILING_COMMENT');
+    });
+
+    it('TRAILING_COMMENT: an unterminated dollar quote swallows the rest, never flags', () => {
+      const statement = 'SELECT d.id, $$oops FROM public.devices d -- inside the broken literal';
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(codes(result.errors)).not.toContain('TRAILING_COMMENT');
+    });
+
+    it('TRAILING_COMMENT: a positional $1 is not a dollar-quote opener', () => {
+      const statement = 'SELECT d.id FROM public.devices d WHERE d.id > $1 -- cap lands here';
+      const result = validateDashboard(makeSchema({
+        panels: [makePanel({ 'x-navixy': { sql: { statement } } })],
+      }));
+      expect(codes(result.errors)).toContain('TRAILING_COMMENT');
+    });
   });
 
   describe('warnings — never block', () => {

@@ -94,17 +94,25 @@ function issue(code: string, message: string, path?: string): DashboardIssue {
   return path === undefined ? { code, message } : { code, message, path };
 }
 
+/** Matches a PostgreSQL dollar-quote delimiter at the regex lastIndex:
+ *  `$$` or `$tag$` where the tag starts with a letter/underscore. Positional
+ *  params (`$1`) never match — a digit cannot start the tag. */
+const DOLLAR_QUOTE_OPEN = /\$([A-Za-z_][A-Za-z_0-9]*)?\$/y;
+
 /** True when the last non-blank line of the statement contains a `--` comment
- *  outside single- or double-quoted text. Such a statement passes validation,
- *  but the server-appended row cap lands inside the comment, so the query
- *  runs unbounded and dies on the 10 000-row limit (O8).
+ *  outside quoted text. Such a statement passes validation, but the
+ *  server-appended row cap lands inside the comment, so the query runs
+ *  unbounded and dies on the 10 000-row limit (O8).
  *
  *  Quote state is tracked across the WHOLE statement, not just the last line:
  *  a multi-line string literal whose final line begins with `--` is inside the
  *  literal, not a comment. Earlier-line `--` comments are skipped to their end
- *  of line so quotes inside comment text cannot corrupt the state. Dollar
- *  quoting is not handled — acceptable for a gate that fails toward a warning
- *  log line, and no fixture or probe statement uses it. */
+ *  of line so quotes inside comment text cannot corrupt the state.
+ *  Dollar-quoted strings (`$$ ... $$`, `$tag$ ... $tag$`) are skipped to their
+ *  closing delimiter — TRAILING_COMMENT is an ERROR, so a false positive here
+ *  would block safe SQL, not merely log a warning. An unterminated dollar
+ *  quote swallows the rest of the statement: nothing after it can be a
+ *  comment, and the statement is broken SQL the guard deals with anyway. */
 function hasTrailingLineComment(sql: string): boolean {
   // Locate the last non-blank line.
   let end = sql.length;
@@ -134,6 +142,15 @@ function hasTrailingLineComment(sql: string): boolean {
       inSingle = true;
     } else if (ch === '"') {
       inDouble = true;
+    } else if (ch === '$') {
+      DOLLAR_QUOTE_OPEN.lastIndex = i;
+      const open = DOLLAR_QUOTE_OPEN.exec(sql);
+      if (open !== null) {
+        const delimiter = open[0];
+        const close = sql.indexOf(delimiter, i + delimiter.length);
+        if (close === -1) return false; // unterminated: the literal swallows the rest
+        i = close + delimiter.length - 1;
+      }
     } else if (ch === '-' && sql[i + 1] === '-') {
       if (i >= lineStart) return true;
       // A comment on an earlier line runs to its end of line; skip it so
