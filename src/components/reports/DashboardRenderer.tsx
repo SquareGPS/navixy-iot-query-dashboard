@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { useLocale } from '@/i18n/LocaleProvider';
 import type { VisualizationConfig, ExcelHeaderConfig } from '@/types/dashboard-types';
 import { Dashboard, Panel, QueryResult } from '@/types/dashboard-types';
 import { asDashboard } from '@/types/schema-conversions';
@@ -117,10 +118,11 @@ const DEFAULT_PANEL_ROW_LIMIT = 1000;
 
 // Pie Chart Panel Component
 const PieChartPanel = ({ data }: { data: QueryResult }) => {
+  const { t } = useLocale();
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
 
   if (!data.rows || data.rows.length === 0) {
-    return <div className="text-gray-500">No data</div>;
+    return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
   }
 
   const total = data.rows.reduce((sum, row) => sum + (Number(row[1]) || 0), 0);
@@ -134,12 +136,13 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
     .sort((a, b) => b.value - a.value); // Sort by descending value
 
   // Limit to top 10 items, group the rest into "Other"
+  const otherLabel = t('report_view.pie_chart.other_slice.label');
   const MAX_ITEMS = 10;
   if (chartData.length > MAX_ITEMS) {
     const topItems = chartData.slice(0, MAX_ITEMS);
     const remainingItems = chartData.slice(MAX_ITEMS);
     const otherValue = remainingItems.reduce((sum, item) => sum + item.value, 0);
-    chartData = [...topItems, { name: 'Other', value: otherValue }];
+    chartData = [...topItems, { name: otherLabel, value: otherValue }];
   }
 
   // Calculate angles for positioning largest slice
@@ -158,7 +161,7 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
 
   // Assign colors: use neutral for "Other", otherwise use palette colors
   const colors = chartData.map((entry, index) =>
-    entry.name === 'Other' ? chartColors.neutral : chartColors.getColor(index),
+    entry.name === otherLabel ? chartColors.neutral : chartColors.getColor(index),
   );
 
   // Active shape for hover effect
@@ -338,7 +341,7 @@ const PieChartPanel = ({ data }: { data: QueryResult }) => {
             zIndex: 1, // Lower z-index than tooltip
           } }
         >
-          <div className="text-sm font-semibold text-text-primary">Total</div>
+          <div className="text-sm font-semibold text-text-primary">{ t('report_view.pie_chart.total.label') }</div>
           <div className="text-lg font-bold text-text-muted mt-1">
             { total.toLocaleString() }
           </div>
@@ -364,6 +367,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              onLoadingChange,
                                                                                            }, ref) => {
   const { prefs: datetimePrefs } = useDatetimePrefs();
+  const { t } = useLocale();
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -719,11 +723,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           data: null,
           loading: false,
           refreshing: false,
-          error: getErrorMessage(err, 'Query execution failed'),
+          error: getErrorMessage(err, t('common.errors.query_failed')),
         },
       }));
     }
-  }, [displayDashboard, executePanelQuery]);
+  }, [displayDashboard, executePanelQuery, t]);
 
   // Expose refreshPanel via ref
   useImperativeHandle(ref, () => ({
@@ -917,7 +921,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             data: existingData?.data || null, // Preserve old data on error during refresh
             loading: false,
             refreshing: false, // Always clear refreshing even on error
-            error: getErrorMessage(err, 'Query execution failed'),
+            error: getErrorMessage(err, t('common.errors.query_failed')),
             lastUpdated: existingData?.lastUpdated,
           };
 
@@ -1013,7 +1017,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery, t]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -1063,7 +1067,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       case 'text':
         return <Info className="h-4 w-4" />;
       case 'geomap':
-        return <Circle className="h-3 w-3 fill-current" aria-label="Map" />;
+        return <Circle className="h-3 w-3 fill-current" aria-label={t('report_view.panel_viewer.map_icon.label')} />;
       default:
         return <Activity className="h-4 w-4" />;
     }
@@ -1071,7 +1075,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   const renderKpiPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0) {
-      return <div className="text-gray-500">No data</div>;
+      return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
     }
 
     const value = data.rows[0][0]; // First column, first row
@@ -1085,7 +1089,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   const renderBarChartPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0) {
-      return <div className="text-gray-500">No data</div>;
+      return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
     }
 
     const visualization: VisualizationConfig | undefined = panel['x-navixy']?.visualization;
@@ -1330,7 +1334,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   const renderLineChartPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0) {
-      return <div className="text-gray-500">No data</div>;
+      return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
     }
 
     // Get visualization options from Navixy config
@@ -1409,7 +1413,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       // long-format branch always yields >=1 series for non-empty rows, so this
       // guard is only meaningful here.
       if (seriesNames.length === 0) {
-        return <div className="text-gray-500">No data series found</div>;
+        return <div className="text-gray-500">{ t('report_view.line_chart.paragraph.empty') }</div>;
       }
     }
 
@@ -1663,7 +1667,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
   const renderMapPanel = (panel: Panel, data: QueryResult) => {
     if (!data.rows || data.rows.length === 0 || !data.columns) {
-      return <div className="text-gray-500">No data</div>;
+      return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
     }
 
     // Detect GPS columns
@@ -1672,9 +1676,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (!gpsColumns) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" aria-label="Map" />
-          <div className="text-sm font-medium">No GPS coordinates detected</div>
-          <div className="text-xs mt-1">Query should include lat/lon or latitude/longitude columns</div>
+          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" aria-label={t('report_view.panel_viewer.map_icon.label')} />
+          <div className="text-sm font-medium">{ t('report_view.map_panel.no_coordinates.paragraph.empty') }</div>
+          <div className="text-xs mt-1">{ t('report_view.map_panel.no_coordinates.paragraph.instruction') }</div>
         </div>
       );
     }
@@ -1685,9 +1689,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (gpsPoints.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" aria-label="Map" />
-          <div className="text-sm font-medium">No valid coordinates found</div>
-          <div className="text-xs mt-1">Check that lat/lon values are valid numbers</div>
+          <Circle className="h-4 w-4 mb-2 opacity-60 fill-current" aria-label={t('report_view.panel_viewer.map_icon.label')} />
+          <div className="text-sm font-medium">{ t('report_view.map_panel.invalid_coordinates.paragraph.empty') }</div>
+          <div className="text-xs mt-1">{ t('report_view.map_panel.invalid_coordinates.paragraph.instruction') }</div>
         </div>
       );
     }
@@ -1738,7 +1742,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     // is out of scope for the export path. asDashboard centralizes the assertion.
     const resolvedQuery = resolvePanelQuery(panel, asDashboard(displayDashboard));
     if (!resolvedQuery && (!panelState?.data?.rows || !panelState?.data?.columns)) {
-      toast.error('No data to export');
+      toast.error(t('common.no_data.export.paragraph.empty'));
       return;
     }
 
@@ -1788,12 +1792,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success(`${ format.toUpperCase() } exported successfully`);
+        toast.success(t('report_view.export_menu.paragraph.success', { format: format.toUpperCase() }));
       } else {
         throw new Error('Export failed');
       }
     } catch (error) {
-      toast.error(`Export failed: ${ getErrorMessage(error) }`);
+      toast.error(t('report_view.export_menu.paragraph.failure'), { description: getErrorMessage(error) });
     }
   };
 
@@ -1814,9 +1818,9 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             : p
         );
         await onSave({ ...dashboard, panels: updatedPanels });
-        toast.success('Export header settings saved');
+        toast.success(t('report_view.export_menu.header_settings_toast.paragraph.success'));
       } catch {
-        toast.error('Failed to save export header settings');
+        toast.error(t('report_view.export_menu.header_settings_toast.paragraph.failure'));
       }
     }
 
@@ -1853,12 +1857,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
           { isTablePanel && (
             <DropdownMenuItem onClick={ () => openPanelExportDialog(panel, 'xlsx') }>
               <FileSpreadsheet className="h-4 w-4 mr-2" />
-              Export Excel
+              { t('report_view.export_menu.excel_option.menu_item') }
             </DropdownMenuItem>
           ) }
           <DropdownMenuItem onClick={ () => openPanelExportDialog(panel, 'csv') }>
             <FileText className="h-4 w-4 mr-2" />
-            Export CSV
+            { t('report_view.export_menu.csv_option.menu_item') }
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1882,8 +1886,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       if (!hasSql) {
         return (
           <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-            <div className="text-sm font-medium mb-1">No SQL configured</div>
-            <div className="text-xs">Add SQL query to display data</div>
+            <div className="text-sm font-medium mb-1">{ t('report_view.panel_viewer.no_sql.paragraph.empty') }</div>
+            <div className="text-xs">{ t('report_view.panel_viewer.no_sql.paragraph.instruction') }</div>
           </div>
         );
       }
@@ -1908,8 +1912,8 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     if (!hasSql && !panelState.loading) {
       return (
         <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-          <div className="text-sm font-medium mb-1">No SQL configured</div>
-          <div className="text-xs">Add SQL query to display data</div>
+          <div className="text-sm font-medium mb-1">{ t('report_view.panel_viewer.no_sql.paragraph.empty') }</div>
+          <div className="text-xs">{ t('report_view.panel_viewer.no_sql.paragraph.instruction') }</div>
         </div>
       );
     }
@@ -1924,7 +1928,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     if (!panelState.data) {
-      return <div className="text-gray-500">No data available</div>;
+      return <div className="text-gray-500">{ t('common.no_data.paragraph.empty') }</div>;
     }
 
     // Map panel types to renderers
@@ -1952,7 +1956,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         panelContent = renderMapPanel(panel, panelState.data);
         break;
       default:
-        panelContent = <div className="text-gray-500">Unsupported panel type: { panel.type }</div>;
+        panelContent = <div className="text-gray-500">{ t('report_view.panel_viewer.unsupported_type.paragraph', { type: panel.type }) }</div>;
     }
 
     // Return panel content directly (refresh indicator is shown in title)

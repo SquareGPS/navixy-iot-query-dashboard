@@ -1,5 +1,6 @@
 import { marked } from 'marked';
 import type { Panel } from '@/types/dashboard-types';
+import { useLocale } from '@/i18n/LocaleProvider';
 
 interface TextPanelProps {
   panel: Panel;
@@ -14,6 +15,7 @@ interface TextPanelProps {
  * - options.content: The content string
  */
 export function TextPanel({ panel }: TextPanelProps) {
+  const { t } = useLocale();
   // Support both formats:
   // 1. Standard format: options.mode and options.content
   // 2. x-navixy format: x-navixy.text.format and x-navixy.text.content
@@ -31,7 +33,7 @@ export function TextPanel({ panel }: TextPanelProps) {
     if (!content) {
       return (
         <div className="text-muted-foreground text-sm italic">
-          No content provided
+          {t('report_view.text_panel.paragraph.empty')}
         </div>
       );
     }
@@ -50,7 +52,7 @@ export function TextPanel({ panel }: TextPanelProps) {
           console.error('Error parsing markdown:', error);
           return (
             <div className="text-destructive text-sm">
-              Error rendering markdown: {error instanceof Error ? error.message : 'Unknown error'}
+              {t('report_view.text_panel.error', { value: error instanceof Error ? error.message : String(error) })}
             </div>
           );
         }
