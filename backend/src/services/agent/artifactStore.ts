@@ -34,6 +34,11 @@ export function isArtifactKey(key: string): boolean {
 /** Default 5 MiB. The observed artifact is 5385 bytes — ~1000x headroom — and this
  *  still bounds a pathological object out of the heap. */
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
+/** Default 15 minutes. The artifact is written during the turn that emits its URL and
+ *  fetched seconds later, exactly once — the route persists the schema and never
+ *  re-fetches — so a tight window costs nothing in the intended flow while shrinking the
+ *  replay window for an exfiltrated URL from "until lifecycle expiry" to minutes. */
+const DEFAULT_MAX_AGE_MS = 15 * 60 * 1000;
 
 /** PURE and TOTAL — never throws; returns null on anything it does not like.
  *  Accepts s3://<bucket>/jobs/<uuid>/report_schema.json ONLY. https:// S3 URLs are
@@ -129,6 +134,25 @@ export async function fetchArtifact(loc: S3Location, signal: AbortSignal): Promi
     // the pool (MR !57 review; reproduced against the installed handler).
     (res.Body as unknown as { destroy?: (error?: Error) => void }).destroy?.();
     throw namedError('ArtifactTooLarge', `Artifact too large: ${res.ContentLength} > ${maxBytes}`);
+  }
+
+  // Freshness window (MR !57 review round 3): a valid artifact URL is a bearer
+  // capability, and S3's LastModified — OUR trusted metadata, not the agent's prose — is
+  // the one signal that distinguishes "built seconds ago in this turn" from a replayed
+  // URL exfiltrated from another session. Stale means the ask-again sentence, which
+  // triggers a rebuild and a fresh artifact. Absent LastModified fails closed: S3 always
+  // sends it, so absence is anomalous. Checked before the body is consumed.
+  const maxAgeMs = envInt(process.env.AGENT_ARTIFACT_MAX_AGE_MS, DEFAULT_MAX_AGE_MS);
+  const ageMs =
+    res.LastModified instanceof Date
+      ? Date.now() - res.LastModified.getTime()
+      : Number.POSITIVE_INFINITY;
+  if (ageMs > maxAgeMs) {
+    (res.Body as unknown as { destroy?: (error?: Error) => void }).destroy?.();
+    throw namedError(
+      'ArtifactExpired',
+      `Artifact is stale: age ${Math.round(ageMs / 1000)}s exceeds ${Math.round(maxAgeMs / 1000)}s`,
+    );
   }
 
   const text = await res.Body.transformToString();

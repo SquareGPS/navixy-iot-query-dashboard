@@ -270,6 +270,8 @@ const SAFE_MESSAGES: Record<string, string> = {
   BadGatewayException: UNAVAILABLE_MESSAGE,
   NoSuchKey: GONE_MESSAGE, // deliberately different and actionable: an expired
   // artifact is a recoverable, user-fixable state, not a system fault (§3.4.5)
+  ArtifactExpired: GONE_MESSAGE, // the freshness window (round 3) — same recovery:
+  // asking again triggers a rebuild and a fresh artifact
   SyntaxError: MALFORMED_MESSAGE,
   ArtifactTooLarge: MALFORMED_MESSAGE,
   MalformedArtifact: MALFORMED_MESSAGE,
@@ -330,7 +332,13 @@ export function toUpstreamError(err: unknown): CustomError {
 /** §3.4.5: an expired artifact and a timeout are recoverable, user-triggerable
  *  states, logged at warn. Everything else logs at error — AccessDenied and
  *  NoSuchBucket are deploy bugs and deliberately loud. */
-const WARN_LEVEL_NAMES = new Set(['NoSuchKey', 'TimeoutError', 'AbortError', 'RequestAbortedError']);
+const WARN_LEVEL_NAMES = new Set([
+  'NoSuchKey',
+  'ArtifactExpired',
+  'TimeoutError',
+  'AbortError',
+  'RequestAbortedError',
+]);
 
 function namedError(name: string, message: string): Error {
   const e = new Error(message);

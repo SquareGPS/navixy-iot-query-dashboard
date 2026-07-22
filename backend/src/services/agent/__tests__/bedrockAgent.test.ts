@@ -230,6 +230,7 @@ describe('safeUserMessage', () => {
     ['AccessDenied', 'config'],
     ['ArtifactBucketMismatch', 'config'],
     ['ArtifactBucketUnpinned', 'config'],
+    ['ArtifactExpired', 'gone'],
     ['InternalServerException', 'generic'],
     ['DependencyFailedException', 'generic'],
     ['BadGatewayException', 'generic'],
@@ -240,6 +241,7 @@ describe('safeUserMessage', () => {
       timeout: 'The assistant took too long to respond. Please try again.',
       config: 'The assistant is unavailable due to a configuration problem.',
       generic: 'The assistant is temporarily unavailable. Please try again.',
+      gone: 'The generated dashboard is no longer available. Please ask for it again.',
     } as const;
     expect(safeUserMessage(name)).toBe(SENTENCES[family]);
   });

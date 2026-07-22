@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, jest } from '@jest/globals';
+import { describe, it, expect, afterEach, beforeEach, jest } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { S3Client } from '@aws-sdk/client-s3';
@@ -146,6 +146,60 @@ describe('fetchArtifact — pre-network guards (MR !57 review rounds 2-3)', () =
       fetchArtifact({ bucket: 'any-bucket', key: 'private/admin.json' }, new AbortController().signal),
     ).rejects.toMatchObject({ name: 'ArtifactKeyMismatch' });
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('fetchArtifact — the freshness window narrows bearer replay (MR !57 review round 3)', () => {
+  const savedPin = process.env.BEDROCK_ARTIFACT_BUCKET;
+  const savedAge = process.env.AGENT_ARTIFACT_MAX_AGE_MS;
+
+  beforeEach(() => {
+    process.env.BEDROCK_ARTIFACT_BUCKET = 'any-bucket';
+    delete process.env.AGENT_ARTIFACT_MAX_AGE_MS;
+  });
+
+  afterEach(() => {
+    if (savedPin === undefined) delete process.env.BEDROCK_ARTIFACT_BUCKET;
+    else process.env.BEDROCK_ARTIFACT_BUCKET = savedPin;
+    if (savedAge === undefined) delete process.env.AGENT_ARTIFACT_MAX_AGE_MS;
+    else process.env.AGENT_ARTIFACT_MAX_AGE_MS = savedAge;
+    __resetS3ClientForTests();
+  });
+
+  const loc = {
+    bucket: 'any-bucket',
+    key: 'jobs/39f24779-a09e-4cc9-b901-0cf062c9b853/report_schema.json',
+  };
+
+  it('accepts an artifact written moments ago — the intended fetch-right-after-build flow', async () => {
+    stubS3({ LastModified: new Date(Date.now() - 40_000) }); // the ~36 s build, just finished
+    await expect(fetchArtifact(loc, new AbortController().signal)).resolves.toEqual({
+      title: 'T',
+      panels: [],
+    });
+  });
+
+  it('rejects an artifact older than the window and tears the body down', async () => {
+    const { destroy } = stubS3({ LastModified: new Date(Date.now() - 16 * 60_000) }); // 16 min > 15 min default
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactExpired',
+    });
+    expect(destroy).toHaveBeenCalled();
+  });
+
+  it('respects AGENT_ARTIFACT_MAX_AGE_MS', async () => {
+    process.env.AGENT_ARTIFACT_MAX_AGE_MS = '60000'; // 1 min
+    stubS3({ LastModified: new Date(Date.now() - 120_000) }); // 2 min old
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactExpired',
+    });
+  });
+
+  it('fails closed when LastModified is absent — S3 always sends it; absence is anomalous', async () => {
+    stubS3({ LastModified: undefined });
+    await expect(fetchArtifact(loc, new AbortController().signal)).rejects.toMatchObject({
+      name: 'ArtifactExpired',
+    });
   });
 });
 
