@@ -1884,8 +1884,13 @@ export class DatabaseService {
     timeoutMs: number,
     timeZone?: string,
   ): Promise<void> {
-    const timeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
-      ? Math.floor(Number(timeoutMs))
+    // Floor before the range check: a fractional value in (0, 1) would pass a
+    // raw `> 0` guard and floor to 0 afterwards — and statement_timeout = 0
+    // means "no timeout" to Postgres, not "immediately". The upper bound is
+    // the int4 GUC maximum; larger values would fail the SET outright.
+    const floored = Math.floor(Number(timeoutMs));
+    const timeout = Number.isFinite(floored) && floored > 0
+      ? Math.min(floored, 2147483647)
       : 30000;
     if (timeZone) {
       try {
@@ -1895,10 +1900,24 @@ export class DatabaseService {
         );
         return;
       } catch (rawError: unknown) {
-        logger.warn('Session timezone rejected by the database; using the server default', {
-          timeZone,
-          error: toErrorMeta(rawError).message,
-        });
+        const meta = toErrorMeta(rawError);
+        if (meta.code === '22023') {
+          // invalid_parameter_value: the zone passed Intl but is missing from
+          // the server's tzdata. Degrading to the server default is the point.
+          logger.warn('Session timezone rejected by the database; using the server default', {
+            timeZone,
+            error: meta.message,
+          });
+        } else {
+          // Not a zone problem (dead connection, network...). Still fall
+          // through: the SET below will surface the real error to the caller
+          // instead of this log blaming the timezone.
+          logger.warn('Session state init failed; retrying with the server default', {
+            timeZone,
+            code: meta.code,
+            error: meta.message,
+          });
+        }
       }
     }
     await client.query(`SET statement_timeout = ${timeout}; RESET TIME ZONE`);

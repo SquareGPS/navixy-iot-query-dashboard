@@ -35,6 +35,13 @@ describe('sanitizeTimeZone', () => {
     expect(sanitizeTimeZone(`Europe/${'x'.repeat(64)}`)).toBeUndefined();
   });
 
+  it.each(['+05:00', '-08:00', '+02'])(
+    'rejects the bare offset %s (Intl accepts it; Postgres would flip the sign)',
+    (tz) => {
+      expect(sanitizeTimeZone(tz)).toBeUndefined();
+    },
+  );
+
   it('rejects non-string values', () => {
     expect(sanitizeTimeZone(120)).toBeUndefined();
     expect(sanitizeTimeZone(null)).toBeUndefined();

@@ -23,10 +23,13 @@ describe('generateParameterizedCacheKey timezone partitioning', () => {
     expect(zoned).not.toBe(zoneless);
   });
 
-  it('treats an omitted zone the same as an undefined one (legacy callers)', () => {
-    const omitted = generateParameterizedCacheKey(statement, params, 'u1', 'db1');
-    const explicit = generateParameterizedCacheKey(statement, params, 'u1', 'db1', undefined, undefined);
-    expect(omitted).toBe(explicit);
+  it('never aliases a zone-less request to a concrete default zone', () => {
+    // A regression that defaulted the missing zone (most plausibly to UTC)
+    // would collide legacy zone-less entries — rendered in whatever the
+    // server default is — with genuine UTC viewers.
+    const zoneless = generateParameterizedCacheKey(statement, params, 'u1', 'db1');
+    const utc = generateParameterizedCacheKey(statement, params, 'u1', 'db1', undefined, 'UTC');
+    expect(zoneless).not.toBe(utc);
   });
 
   it('is stable for identical inputs', () => {

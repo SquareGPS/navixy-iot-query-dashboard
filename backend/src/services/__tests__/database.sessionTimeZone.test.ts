@@ -131,4 +131,65 @@ describe('executeParameterizedQuery session state', () => {
 
     expect(queries[0]?.values).toEqual(['1500', 'Europe/Berlin']);
   });
+
+  it.each([[0], [-100], [0.5]])(
+    'replaces the non-positive timeout %p with the default instead of disabling it',
+    async (timeoutMs) => {
+      // statement_timeout = 0 means "no timeout" to Postgres, so a value that
+      // floors to 0 must fall back to the default, never reach the session.
+      const { client, queries } = makeFakeClient();
+      stubPool(service, async () => client);
+
+      await service.executeParameterizedQuery('SELECT 1', {}, timeoutMs, 100, IOT_DB_URL);
+
+      expect(queries[0]?.text).toBe('SET statement_timeout = 30000; RESET TIME ZONE');
+    },
+  );
+
+  it('clamps a timeout beyond the int4 GUC range to the Postgres maximum', async () => {
+    // Anything above int4 max would fail the SET itself and with it the query.
+    const { client, queries } = makeFakeClient();
+    stubPool(service, async () => client);
+
+    await service.executeParameterizedQuery(
+      'SELECT 1', {}, 9999999999, 100, IOT_DB_URL, undefined, 'Europe/Berlin',
+    );
+
+    expect(queries[0]?.values).toEqual(['2147483647', 'Europe/Berlin']);
+  });
+});
+
+describe('legacy execution paths reset the session zone', () => {
+  // /table and /tile never take a zone, so their whole DO-352 surface is the
+  // RESET guard: without it they would inherit whatever zone the previous
+  // renter of the pooled connection set.
+  let service: DatabaseService;
+
+  beforeEach(() => {
+    service = new DatabaseService();
+  });
+
+  it('executeTableQuery resets the timezone before running the query', async () => {
+    const { client, queries, isReleased } = makeFakeClient();
+    stubPool(service, async () => client);
+
+    await service.executeTableQuery('SELECT 1', 1, 25, undefined, IOT_DB_URL, 12345);
+
+    expect(queries[0]?.text).toBe('SET statement_timeout = 12345; RESET TIME ZONE');
+    expect(queries[0]?.values).toBeUndefined();
+    expect(queries.length).toBeGreaterThan(1);
+    expect(isReleased()).toBe(true);
+  });
+
+  it('executeTileQuery resets the timezone before running the query', async () => {
+    const { client, queries, isReleased } = makeFakeClient();
+    stubPool(service, async () => client);
+
+    await service.executeTileQuery('SELECT 1', IOT_DB_URL, 12345);
+
+    expect(queries[0]?.text).toBe('SET statement_timeout = 12345; RESET TIME ZONE');
+    expect(queries[0]?.values).toBeUndefined();
+    expect(queries.length).toBeGreaterThan(1);
+    expect(isReleased()).toBe(true);
+  });
 });

@@ -36,11 +36,18 @@ export function isTimestampLikeValue(value: unknown): value is string {
  * Intl accepting a name does not guarantee the Postgres server's tzdata knows
  * it (the two ship separately); DatabaseService applies it via a bound
  * set_config() and falls back to the session default if the server rejects it.
+ *
+ * Bare offsets ("+05:00") are rejected even though Intl accepts them: Postgres
+ * reads offset strings with the POSIX sign convention (positive = west of
+ * Greenwich), the opposite of ISO, so passing one through would silently
+ * invert the viewer's clock. Named zones — including the genuinely
+ * POSIX-signed Etc/GMT+2 family — are unaffected.
  */
 export function sanitizeTimeZone(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed.length > 64) return undefined;
+  if (trimmed.startsWith('+') || trimmed.startsWith('-')) return undefined;
   try {
     new Intl.DateTimeFormat('en', { timeZone: trimmed });
     return trimmed;
