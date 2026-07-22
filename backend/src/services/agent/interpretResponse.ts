@@ -50,6 +50,11 @@ function isPlausibleS3Url(url: string): boolean {
  * `{"type":"result","job_id":"…","artifact":"s3://…"}` or `{"type":"question"}`.
  * Proposed to the agent's author, NOT agreed. Do not plan as though it exists.
  *
+ * "As the last thing" is enforced literally (MR !57 review): a trailer-shaped
+ * block with prose after it is prose — before this rule, a mid-response
+ * `{"type":"question"}` block suppressed a later, valid result URL. Only
+ * trailing whitespace may follow the fence.
+ *
  * Returns null when the trailer is absent or unusable — NEVER throws.
  */
 function fromTrailer(raw: string): AgentIntent | null {
@@ -57,6 +62,7 @@ function fromTrailer(raw: string): AgentIntent | null {
   const last = matches[matches.length - 1];
   const body = last?.[1];
   if (last === undefined || last.index === undefined || body === undefined) return null;
+  if (raw.slice(last.index + last[0].length).trim() !== '') return null;
 
   let parsed: unknown;
   try {

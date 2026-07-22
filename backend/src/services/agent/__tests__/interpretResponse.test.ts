@@ -153,6 +153,42 @@ describe('interpretAgentResponse — trailer (§3.4.4, proposed and NOT agreed)'
     expect(intent.message).not.toContain('"type"');
   });
 
+  it('ignores a NON-TERMINAL trailer-shaped block — prose after the fence means it is prose (MR !57 review)', () => {
+    // Reproduced defect: a mid-response {"type":"question"} block used to win over a
+    // later, perfectly valid result URL, turning a successful build into a question.
+    const raw = [
+      'Let me check something first:',
+      '```json',
+      '{"type":"question"}',
+      '```',
+      'Actually it is already done! Saved to',
+      `\`${RECONSTRUCTED_URL}\``,
+    ].join('\n');
+    const intent = interpretAgentResponse(raw);
+    expect(intent.type).toBe('result');
+    expect(intent.via).toBe('heuristic');
+    expect(intent.artifactUrl).toBe(RECONSTRUCTED_URL);
+    // Not a trailer, so nothing is stripped: the bubble shows the raw prose verbatim.
+    expect(intent.message).toBe(raw);
+  });
+
+  it('a non-terminal trailer-shaped block with no URL after it is still a question, shown verbatim', () => {
+    const raw = 'Thinking:\n```json\n{"type":"result"}\n```\nWhat time range do you want?';
+    expect(interpretAgentResponse(raw)).toEqual({
+      type: 'question',
+      via: 'heuristic',
+      message: raw,
+    });
+  });
+
+  it('still takes a terminal trailer that is followed only by whitespace', () => {
+    const raw = `${PROSE}\n\n\`\`\`json\n{"type":"question"}\n\`\`\`\n\n  `;
+    const intent = interpretAgentResponse(raw);
+    expect(intent.type).toBe('question');
+    expect(intent.via).toBe('trailer');
+    expect(intent.message).toBe(PROSE);
+  });
+
   it('falls through to the heuristic on any unusable trailer, and never throws', () => {
     // Malformed JSON.
     expect(interpretAgentResponse('Prose.\n```json\n{not json}\n```').via).toBe('heuristic');
