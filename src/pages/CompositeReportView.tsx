@@ -69,9 +69,9 @@ import {
   isTimestampLike,
   normaliseParamForApi,
   parseServerTimestamp,
-  resolveEffectiveTimeZone,
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 import { createRunGate } from '@/utils/runGate';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
@@ -294,9 +294,13 @@ export default function CompositeReportView() {
     };
   }, [id, reloadNonce]);
 
-  // The viewer's effective SQL-session zone: when it changes, SQL-rendered
-  // times in the current result are stale and the query must re-run (DO-352).
-  const effectiveSqlTimeZone = resolveEffectiveTimeZone(datetimePrefs.timeZone);
+  // The viewer's effective SQL-session zone: when it changes — server
+  // preferences merging in, the OS zone moving under an 'auto' preference
+  // (re-sampled on focus/visibility, review round 5) — SQL-rendered times in
+  // the current result are stale and the query must re-run (DO-352).
+  const [effectiveSqlTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
+    datetimePrefs.timeZone,
+  );
 
   // Execute query when the report loads, and re-execute when the effective
   // zone changes (server preferences can merge in after the first execution).
@@ -890,9 +894,11 @@ export default function CompositeReportView() {
   // Resolve the active session's prefs into request-body fields. Excel
   // cells need an explicit timezone (see shiftDateToZone in the backend
   // export service) — otherwise ExcelJS serializes Date via UTC and the
-  // user sees their wall-clock time shifted by their UTC offset.
+  // user sees their wall-clock time shifted by their UTC offset. Resampled
+  // at call time so the export can never trail a host-zone change the
+  // render state has not observed yet (review round 5).
   const getExportPrefsOptions = () => {
-    const resolvedTz = resolveEffectiveTimeZone(datetimePrefs.timeZone);
+    const resolvedTz = resampleEffectiveTimeZone();
     return {
       ...(resolvedTz && { timeZone: resolvedTz }),
       ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),

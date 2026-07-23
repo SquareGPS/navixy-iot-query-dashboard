@@ -33,7 +33,7 @@ import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
 import { isDisplayableCoordinate } from '@/utils/gps';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
-import { resolveEffectiveTimeZone } from '@/utils/datetime';
+import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 import { createRunGate } from '@/utils/runGate';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
@@ -375,11 +375,14 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const { prefs: datetimePrefs } = useDatetimePrefs();
   // The viewer's effective SQL-session zone. Part of the execution cache key
   // below: when it changes — server preferences merging in after the first
-  // queries fired, a Settings change — SQL-rendered times (to_char, "today"
-  // windows) are stale and every panel must re-query (DO-352).
-  const effectiveSqlTimeZone = useMemo(
-    () => resolveEffectiveTimeZone(datetimePrefs.timeZone),
-    [datetimePrefs.timeZone],
+  // queries fired, a Settings change, the OS zone moving under an 'auto'
+  // preference — SQL-rendered times (to_char, "today" windows) are stale and
+  // every panel must re-query (DO-352). Reactive state rather than a memo:
+  // with 'auto' the host zone lives outside React, so the hook re-samples it
+  // on focus/visibility and on resample() calls from the refresh and export
+  // paths (review round 5).
+  const [effectiveSqlTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
+    datetimePrefs.timeZone,
   );
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
@@ -1088,6 +1091,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Set up interval to trigger refresh
     const intervalId = setInterval(() => {
+      // An auto-refresh involves no interaction, so the focus/visibility
+      // listeners may not have observed a host-zone change yet. Re-sample
+      // first: if the zone moved, the batched state change joins this
+      // trigger and the single re-run re-queries and re-keys under the new
+      // zone together (DO-352).
+      resampleEffectiveTimeZone();
       // Mark as auto-refresh before triggering
       isAutoRefreshRef.current = true;
       // Increment refreshTrigger to force query re-execution
@@ -1098,7 +1107,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return () => {
       clearInterval(intervalId);
     };
-  }, [dashboard.refresh, editMode, isEditingLayout]);
+  }, [dashboard.refresh, editMode, isEditingLayout, resampleEffectiveTimeZone]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
@@ -1799,13 +1808,17 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     try {
-      // "auto" is already resolved to the browser's IANA name so the backend
-      // doesn't have to re-detect it. Excel cells need an explicit zone to
-      // render wall-clock times — see shiftDateToZone in backend export
-      // service. The same zone drives the export's server-side re-query
-      // session (DO-352), keeping SQL-rendered times identical to the live
-      // panel.
-      const resolvedTz = effectiveSqlTimeZone;
+      // "auto" is resolved to the browser's IANA name so the backend doesn't
+      // have to re-detect it. Excel cells need an explicit zone to render
+      // wall-clock times — see shiftDateToZone in backend export service.
+      // The same zone drives the export's server-side re-query session
+      // (DO-352), keeping SQL-rendered times identical to the live panel —
+      // which is why it is resolved at call time, not read from render
+      // state: the render value can trail a host-zone change (no event
+      // announces one), while the live panels' own re-queries resolve per
+      // request. Resampling also syncs the state, so a change noticed here
+      // re-runs the live panels too (review round 5).
+      const resolvedTz = resampleEffectiveTimeZone();
 
       // The export re-runs the query server-side, where the per-type row ceiling
       // is owned (see resolvePanelExportMaxRows). Send only the panel type and
