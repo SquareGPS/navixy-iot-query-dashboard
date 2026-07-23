@@ -33,7 +33,6 @@ import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
 import { isDisplayableCoordinate } from '@/utils/gps';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
-import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 import { createRunGate } from '@/utils/runGate';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
@@ -372,18 +371,20 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              globalVariables = [],
                                                                                              onLoadingChange,
                                                                                            }, ref) => {
-  const { prefs: datetimePrefs } = useDatetimePrefs();
   // The viewer's effective SQL-session zone. Part of the execution cache key
   // below: when it changes — server preferences merging in after the first
   // queries fired, a Settings change, the OS zone moving under an 'auto'
-  // preference — SQL-rendered times (to_char, "today" windows) are stale and
-  // every panel must re-query (DO-352). Reactive state rather than a memo:
-  // with 'auto' the host zone lives outside React, so the hook re-samples it
-  // on focus/visibility and on resample() calls from the refresh and export
-  // paths (review round 5).
-  const [effectiveSqlTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
-    datetimePrefs.timeZone,
-  );
+  // preference (re-sampled on focus/visibility and on resample() calls from
+  // the refresh and export paths, review round 5) — SQL-rendered times
+  // (to_char, "today" windows) are stale and every panel must re-query
+  // (DO-352). The provider owns the single reactive instance (round 6): the
+  // same observed zone drives formatTimestamp's host-zone formatters, so raw
+  // timestamp cells and SQL-rendered strings cannot land in different zones.
+  const {
+    prefs: datetimePrefs,
+    effectiveTimeZone: effectiveSqlTimeZone,
+    resampleEffectiveTimeZone,
+  } = useDatetimePrefs();
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

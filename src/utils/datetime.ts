@@ -229,11 +229,54 @@ export function mergeServerPreferences(
 }
 
 /**
+ * The host zone as last observed at an observation point — mount, window
+ * focus / visibilitychange, the auto-refresh tick, export building: the
+ * moments `useEffectiveTimeZone` re-samples. Between observations every
+ * `'auto'` consumer — SQL request resolution, execution cache keys, and the
+ * keyed formatters behind {@link formatTimestamp} — reads this one value,
+ * so they cannot disagree about which zone "the" host zone is.
+ *
+ * Without it, the formatter key's independent once-per-second sample could
+ * still be fresh during the very re-render a detected zone change triggers,
+ * leaving raw timestamp cells in the old zone next to SQL-rendered strings
+ * in the new one — and nothing schedules a render when that sample ages out
+ * (DO-352 review round 6).
+ *
+ * `null` until the first observation (contexts that never mount the hook,
+ * unit tests): reads then fall back to sampling Intl directly.
+ */
+let observedHostZone: string | null = null;
+
+/**
+ * Freshly sample the host's IANA zone and record it as the observed zone.
+ * Only `useEffectiveTimeZone` should call this — every other consumer must
+ * read through {@link resolveEffectiveTimeZone} or {@link formatTimestamp}
+ * so the zone they see moves only when the hook's state (and with it every
+ * dependent cache key, query and export) moves too.
+ */
+export function observeHostZone(): string | undefined {
+  try {
+    observedHostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return observedHostZone;
+  } catch {
+    // Intl is unusable; keep any earlier observation rather than wiping a
+    // good pin over a transient failure.
+    return observedHostZone ?? undefined;
+  }
+}
+
+/** Test-only: forget the observed zone so host-zone tests stay isolated. */
+export function __resetObservedHostZoneForTests(): void {
+  observedHostZone = null;
+}
+
+/**
  * Resolve the zone the user actually sees times in: an explicit valid
  * preference wins, `'auto'` (or absence, or a value that fails
  * {@link sanitizeStoredTimeZone} — e.g. a stale bare offset that slipped
- * past older builds) falls back to the host's IANA zone. Returns undefined
- * only when Intl itself cannot answer.
+ * past older builds) falls back to the host's IANA zone — the observed one
+ * when an observation has happened, a direct sample otherwise. Returns
+ * undefined only when Intl itself cannot answer.
  *
  * This is the single resolution used everywhere a concrete zone name has to
  * leave the client — SQL execution (the session timezone the query renders
@@ -244,11 +287,24 @@ export function mergeServerPreferences(
 export function resolveEffectiveTimeZone(timeZone?: string): string | undefined {
   const preferred = sanitizeStoredTimeZone(timeZone);
   if (preferred && preferred !== 'auto') return preferred;
+  if (observedHostZone !== null) return observedHostZone;
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * {@link observeHostZone} + {@link resolveEffectiveTimeZone} in one step —
+ * the sampler `useEffectiveTimeZone` uses at its observation points. Kept
+ * here so "observe, then resolve" cannot be separated by a future edit:
+ * resolving without observing would return the previous observation and
+ * never see a change.
+ */
+export function sampleEffectiveTimeZone(timeZone?: string): string | undefined {
+  observeHostZone();
+  return resolveEffectiveTimeZone(timeZone);
 }
 
 /**
@@ -359,15 +415,24 @@ let hostZone: string | null = null;
 let hostZoneReadAt = 0;
 
 /**
- * The host's IANA zone name, re-read at most once per
- * {@link HOST_ZONE_TTL_MS}.
+ * The host's IANA zone name for formatter keys: the observed zone once
+ * `useEffectiveTimeZone` has sampled it, a TTL-cached direct read before
+ * then.
  *
+ * Preferring the observation is what keeps a render coherent: the re-render
+ * a detected zone change triggers formats with the very zone the hook
+ * resolved, instead of consulting an independent sample that can still be
+ * fresh on the old zone (DO-352 review round 6). Between observations the
+ * key deliberately does not drift either — raw timestamps move zones only
+ * when the SQL side moves with them.
+ *
+ * The TTL path remains for contexts that never observe. There,
  * `Intl.DateTimeFormat().resolvedOptions()` is the only way to ask, and it
  * builds a formatter to answer: 26.5µs against the 29µs construction this
  * cache exists to avoid, so reading it per value would undo the cache
- * entirely. Sampling it on an interval keeps the identity exact for the price
- * of one read per second of formatting; the `Date.now()` guarding it costs
- * 0.03µs.
+ * entirely. Sampling it on an interval keeps the identity exact for the
+ * price of one read per second of formatting; the `Date.now()` guarding it
+ * costs 0.03µs.
  *
  * Nothing cheaper identifies a zone. The current offset does not: two zones
  * can share it now and still disagree on the timestamp being rendered —
@@ -376,12 +441,9 @@ let hostZoneReadAt = 0;
  * the zone the host had left. Sampling offsets at fixed instants only narrows
  * that hole (New York and Havana agree in both seasons yet switch on
  * different days), so we read the name itself.
- *
- * The staleness window costs nothing in practice: an OS zone change triggers
- * no re-render, so whatever is on screen stays until something redraws it —
- * and by then the key has caught up.
  */
 function currentHostZone(): string {
+  if (observedHostZone !== null) return observedHostZone;
   const now = Date.now();
   const elapsed = now - hostZoneReadAt;
   // Re-read when the sample ages out, and when the clock jumps backwards

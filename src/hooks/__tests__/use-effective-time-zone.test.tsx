@@ -13,6 +13,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { useEffectiveTimeZone } from '../use-effective-time-zone';
+import {
+  __resetObservedHostZoneForTests,
+  formatTimestamp,
+} from '@/utils/datetime';
+import {
+  resolveSqlTimeZone,
+  setSqlTimeZonePreference,
+} from '@/services/sqlTimeZone';
 
 // ---------------------------------------------------------------------------
 // Host-zone stub. `resolveEffectiveTimeZone` reads the host zone with
@@ -49,6 +57,9 @@ afterEach(() => {
   Intl.DateTimeFormat = realDateTimeFormat;
   cleanup();
   vi.restoreAllMocks();
+  // The hook records every sample as the observed host zone (round 6);
+  // forget it so no test inherits another's observation.
+  __resetObservedHostZoneForTests();
 });
 
 describe('useEffectiveTimeZone', () => {
@@ -140,6 +151,98 @@ describe('useEffectiveTimeZone', () => {
 
     rerender({ tz: 'auto' });
     expect(result.current[0]).toBe('Europe/Berlin');
+  });
+
+  // -------------------------------------------------------------------------
+  // Round-6 regression: the zone the hook resolves must be the zone
+  // formatTimestamp renders with — in the same render, regardless of the
+  // formatter key's own once-per-second host sample. The stub redirects the
+  // sampler while process.env.TZ moves what real formatters output; both are
+  // flipped together so they describe one host-zone change.
+  // -------------------------------------------------------------------------
+  const AUTO_PREFS = {
+    locale: 'en-GB',
+    timeZone: 'auto' as const,
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+  // Winter instant: Berlin renders 11:00 (UTC+1), Tokyo 19:00 (UTC+9).
+  const instant = new Date('2026-01-15T10:00:00Z');
+
+  /** Flip everything that means "the OS zone is now `zone`". */
+  function setHostZone(zone: string): void {
+    hostZone = zone;
+    process.env.TZ = zone;
+  }
+
+  function withFrozenClockAndTz(run: () => void): void {
+    const originalTz = process.env.TZ;
+    vi.useFakeTimers();
+    try {
+      run();
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+      vi.useRealTimers();
+    }
+  }
+
+  it('formats raw timestamps in the zone the rerun resolved, inside the formatter-sample TTL', () => {
+    // The review's deterministic sequence: warm the 'auto' formatter, change
+    // the host zone within the one-second sample TTL, detect it via focus
+    // (which supersedes the SQL run), and require the render of that fast
+    // result to format raw timestamps in the new zone — previously the
+    // still-fresh sample kept them on the old one, indefinitely.
+    withFrozenClockAndTz(() => {
+      setHostZone('Europe/Berlin');
+      setSqlTimeZonePreference('auto');
+
+      const { result } = renderHook(() => useEffectiveTimeZone('auto'));
+      expect(result.current[0]).toBe('Europe/Berlin');
+      // Warm the 'auto' formatter (and, pre-fix, the fresh host sample).
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 11:00');
+
+      // The OS zone moves; the frozen clock keeps us inside the TTL.
+      setHostZone('Asia/Tokyo');
+
+      act(() => {
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      // The rerun side: the state that re-keys and re-runs the queries, and
+      // the zone the superseding requests carry, both resolved Tokyo…
+      expect(result.current[0]).toBe('Asia/Tokyo');
+      expect(resolveSqlTimeZone()).toBe('Asia/Tokyo');
+      // …and the same render formats raw timestamp cells in Tokyo too.
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 19:00');
+    });
+  });
+
+  it('between observation points, formatting holds with the state instead of drifting ahead', () => {
+    // The reverse split: once the sample aged out, an unrelated re-render
+    // used to move raw timestamps to the new zone while the state keying
+    // the SQL runs still held the old one. Formatting must wait for the
+    // observation point that also re-runs the queries.
+    withFrozenClockAndTz(() => {
+      setHostZone('Europe/Berlin');
+
+      const { result } = renderHook(() => useEffectiveTimeZone('auto'));
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 11:00');
+
+      setHostZone('Asia/Tokyo');
+      vi.advanceTimersByTime(1_001); // past the formatter's host-sample TTL
+
+      expect(result.current[0]).toBe('Europe/Berlin');
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 11:00');
+
+      act(() => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(result.current[0]).toBe('Asia/Tokyo');
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 19:00');
+    });
   });
 
   it('detaches all listeners on unmount', () => {

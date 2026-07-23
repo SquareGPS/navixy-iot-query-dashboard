@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { resolveEffectiveTimeZone } from '@/utils/datetime';
+import { sampleEffectiveTimeZone } from '@/utils/datetime';
 
 /**
  * The viewer's effective timezone as reactive state: the stored preference
@@ -10,9 +10,16 @@ import { resolveEffectiveTimeZone } from '@/utils/datetime';
  * effects and cache keys: under the `'auto'` preference the host zone lives
  * outside React, so a memo on the preference would stay pinned to the old
  * sample after an OS timezone change while per-request resolution
- * (`resolveSqlTimeZone`) and `formatTimestamp`'s keyed formatters move to
- * the new zone — queries, cache keys and exports would disagree about "the"
- * zone (DO-352 review round 5).
+ * (`resolveSqlTimeZone`) moves to the new zone — queries, cache keys and
+ * exports would disagree about "the" zone (DO-352 review round 5).
+ *
+ * Each sample is also recorded as *the* observed host zone
+ * (`observeHostZone`), which `formatTimestamp`'s keyed formatters and
+ * per-request SQL resolution read for `'auto'`. Raw timestamp cells, SQL
+ * request sessions and this state therefore change zone together, in the
+ * same render — formatting can neither trail a detected change behind a
+ * still-fresh independent sample nor drift ahead between observation
+ * points (review round 6).
  *
  * No browser fires a standard event when the OS zone changes, so the hook
  * re-samples at the moments a change becomes observable:
@@ -32,11 +39,11 @@ export function useEffectiveTimeZone(
   timeZonePreference: string | undefined,
 ): [string | undefined, () => string | undefined] {
   const [zone, setZone] = useState(() =>
-    resolveEffectiveTimeZone(timeZonePreference),
+    sampleEffectiveTimeZone(timeZonePreference),
   );
 
   const resample = useCallback(() => {
-    const next = resolveEffectiveTimeZone(timeZonePreference);
+    const next = sampleEffectiveTimeZone(timeZonePreference);
     setZone(next);
     return next;
   }, [timeZonePreference]);

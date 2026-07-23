@@ -71,7 +71,6 @@ import {
   parseServerTimestamp,
 } from '@/utils/datetime';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
-import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 import { createRunGate } from '@/utils/runGate';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
@@ -134,7 +133,14 @@ export default function CompositeReportView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token } = useAuth();
-  const { prefs: datetimePrefs } = useDatetimePrefs();
+  // effectiveTimeZone is the provider's single reactive zone instance
+  // (DO-352 round 6) — the same observed zone formatTimestamp resolves, so
+  // SQL-rendered strings and raw timestamp cells cannot split.
+  const {
+    prefs: datetimePrefs,
+    effectiveTimeZone: effectiveSqlTimeZone,
+    resampleEffectiveTimeZone,
+  } = useDatetimePrefs();
 
   // Latest-run tracking for query executions: a re-run (Refresh, timezone
   // change) supersedes any run still in flight so the run that finishes last
@@ -294,16 +300,9 @@ export default function CompositeReportView() {
     };
   }, [id, reloadNonce]);
 
-  // The viewer's effective SQL-session zone: when it changes — server
-  // preferences merging in, the OS zone moving under an 'auto' preference
-  // (re-sampled on focus/visibility, review round 5) — SQL-rendered times in
-  // the current result are stale and the query must re-run (DO-352).
-  const [effectiveSqlTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
-    datetimePrefs.timeZone,
-  );
-
   // Execute query when the report loads, and re-execute when the effective
-  // zone changes (server preferences can merge in after the first execution).
+  // zone changes — server preferences merging in after the first execution,
+  // or the OS zone moving under an 'auto' preference (DO-352).
   useEffect(() => {
     if (report) {
       executeQuery();

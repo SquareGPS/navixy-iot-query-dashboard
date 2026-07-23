@@ -5,10 +5,13 @@ import {
   detectDefaultPrefs,
   mergeServerPreferences,
   normalizeStoredPrefs,
+  resolveEffectiveTimeZone,
+  sampleEffectiveTimeZone,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ServerPreferences } from '@/contexts/AuthContext';
 import { setSqlTimeZonePreference } from '@/services/sqlTimeZone';
+import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 
 const STORAGE_KEY = 'navixy.datetimePrefs.v1';
 
@@ -16,6 +19,19 @@ interface DatetimePrefsContextValue {
   prefs: DatetimePrefs;
   setPrefs: (next: Partial<DatetimePrefs>) => void;
   resetPrefs: () => void;
+  /**
+   * The concrete zone `prefs.timeZone` resolves to right now — the one
+   * value execution effects, cache keys, exports and timestamp formatting
+   * must agree on (DO-352). Undefined only when Intl cannot answer.
+   */
+  effectiveTimeZone: string | undefined;
+  /**
+   * Re-sample the effective zone at a moment no listener covers (the
+   * auto-refresh tick, building an export request). Returns the zone it
+   * resolved and syncs `effectiveTimeZone`, so a change noticed this way
+   * also re-runs everything depending on it.
+   */
+  resampleEffectiveTimeZone: () => string | undefined;
 }
 
 const DatetimePrefsContext = createContext<DatetimePrefsContextValue | undefined>(
@@ -69,6 +85,16 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   // double-renders are harmless.
   setSqlTimeZonePreference(prefs.timeZone);
 
+  // The app's one reactive effective-zone instance (DO-352 review round 6).
+  // Mounted here so its focus/visibility listeners outlive any single view,
+  // and exposed through the context so execution deps, cache keys, exports
+  // and formatTimestamp all follow the same observed zone — a change
+  // re-renders every prefs consumer, repainting already-formatted
+  // timestamps in the new zone.
+  const [effectiveTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
+    prefs.timeZone,
+  );
+
   useEffect(() => {
     writeToStorage(prefs);
   }, [prefs]);
@@ -94,8 +120,14 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   }, [serverPreferences]);
 
   const value = useMemo<DatetimePrefsContextValue>(
-    () => ({ prefs, setPrefs, resetPrefs }),
-    [prefs, setPrefs, resetPrefs],
+    () => ({
+      prefs,
+      setPrefs,
+      resetPrefs,
+      effectiveTimeZone,
+      resampleEffectiveTimeZone,
+    }),
+    [prefs, setPrefs, resetPrefs, effectiveTimeZone, resampleEffectiveTimeZone],
   );
 
   return (
@@ -109,13 +141,17 @@ export function useDatetimePrefs(): DatetimePrefsContextValue {
   const ctx = useContext(DatetimePrefsContext);
   if (!ctx) {
     // Tolerate usage outside the provider (e.g. legacy pages, tests) by
-    // returning a stable read-only snapshot of the detected defaults. This
-    // avoids hard runtime errors during incremental rollout.
+    // returning a read-only snapshot of the detected defaults. This avoids
+    // hard runtime errors during incremental rollout. Non-reactive: without
+    // the provider's hook instance nothing re-samples the zone, so resolve
+    // it per call and let resample() do the same.
     const fallback = detectDefaultPrefs();
     return {
       prefs: fallback,
       setPrefs: () => undefined,
       resetPrefs: () => undefined,
+      effectiveTimeZone: resolveEffectiveTimeZone(fallback.timeZone),
+      resampleEffectiveTimeZone: () => sampleEffectiveTimeZone(fallback.timeZone),
     };
   }
   return ctx;

@@ -25,8 +25,11 @@ export function setSqlTimeZonePreference(timeZone: string | undefined): void {
 /**
  * The concrete IANA zone to send with SQL execution requests: the pushed
  * preference when explicit, the host zone for `'auto'` / before the provider
- * has mounted. Undefined only when Intl cannot answer — the backend then
- * keeps the session default, which is the pre-DO-352 behaviour.
+ * has mounted. Under `'auto'` this reads the zone as last observed by
+ * `useEffectiveTimeZone` (review round 6), so the session a query runs in
+ * always matches the zone the requesting render keyed its cache on and
+ * formatted raw timestamps with. Undefined only when Intl cannot answer —
+ * the backend then keeps the session default, the pre-DO-352 behaviour.
  */
 export function resolveSqlTimeZone(): string | undefined {
   return resolveEffectiveTimeZone(timeZonePreference);

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
+  __resetObservedHostZoneForTests,
   detectDefaultPrefs,
   formatLocalInputInZone,
   formatTimestamp,
@@ -8,8 +9,10 @@ import {
   mergeServerPreferences,
   normaliseParamForApi,
   normalizeStoredPrefs,
+  observeHostZone,
   parseServerTimestamp,
   resolveEffectiveTimeZone,
+  sampleEffectiveTimeZone,
   sanitizeStoredTimeZone,
   toUtcIsoInZone,
 } from '../datetime';
@@ -696,5 +699,122 @@ describe('mergeServerPreferences', () => {
     expect(resolveEffectiveTimeZone(merged.timeZone)).toBe(
       Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
+  });
+});
+
+// Kept last in the file: these tests set the observed zone, and although each
+// resets it, nothing after them may rely on the TTL sample they also warm.
+describe('observed host zone (DO-352 round 6)', () => {
+  const autoPrefs = {
+    locale: 'en-GB',
+    timeZone: 'auto' as const,
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+  // Winter instant: Berlin is UTC+1 (11:00), Tokyo UTC+9 (19:00) — no DST
+  // ambiguity in either zone.
+  const instant = new Date('2026-01-15T10:00:00Z');
+
+  afterEach(() => {
+    __resetObservedHostZoneForTests();
+  });
+
+  /** Run with the host zone under our control, restoring TZ afterwards. */
+  function withTz(run: (setTz: (zone: string) => void) => void): void {
+    const originalTz = process.env.TZ;
+    try {
+      run((zone) => {
+        process.env.TZ = zone;
+      });
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  }
+
+  it('resolveEffectiveTimeZone holds the observed zone between observations', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      expect(observeHostZone()).toBe('Europe/Berlin');
+
+      setTz('Asia/Tokyo');
+      // The host moved but no observation point has fired: resolution stays
+      // with the observation, so requests, cache keys and formatting keep
+      // agreeing with the state that drove the last render.
+      expect(resolveEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+      expect(resolveEffectiveTimeZone(undefined)).toBe('Europe/Berlin');
+
+      expect(observeHostZone()).toBe('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+    });
+  });
+
+  it('sampleEffectiveTimeZone records the zone it resolves', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      expect(sampleEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+
+      setTz('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+      expect(sampleEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+    });
+  });
+
+  it('a named preference resolves past the observed zone', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      observeHostZone();
+      expect(resolveEffectiveTimeZone('Europe/Belgrade')).toBe('Europe/Belgrade');
+      expect(sampleEffectiveTimeZone('Europe/Belgrade')).toBe('Europe/Belgrade');
+    });
+  });
+
+  it('formatTimestamp follows an observation immediately, inside the sample TTL', () => {
+    // The round-6 review race: the once-per-second host sample is still
+    // fresh when a detected zone change re-renders, so formatting used to
+    // keep the old zone next to SQL strings in the new one. An observation
+    // must move formatting NOW, not when the sample ages out.
+    withTz((setTz) => {
+      vi.useFakeTimers();
+      try {
+        setTz('Europe/Berlin');
+        // Warm the 'auto' formatter and the once-per-second host sample.
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        setTz('Asia/Tokyo');
+        observeHostZone();
+        // The frozen clock guarantees the TTL sample is still fresh — yet
+        // formatting follows the observation, not the sample.
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 19:00');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('formatTimestamp does not drift ahead of the observation when the sample ages out', () => {
+    // The reverse direction: with no new observation point, an aged-out
+    // sample must not move formatting to the new host zone while the state
+    // that keys SQL runs still holds the old one.
+    withTz((setTz) => {
+      vi.useFakeTimers();
+      try {
+        setTz('Europe/Berlin');
+        observeHostZone();
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        setTz('Asia/Tokyo');
+        vi.advanceTimersByTime(HOST_ZONE_TTL_MS + 1);
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        observeHostZone();
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 19:00');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
