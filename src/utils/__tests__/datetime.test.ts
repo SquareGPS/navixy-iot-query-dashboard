@@ -795,6 +795,33 @@ describe('observed host zone (DO-352 round 6)', () => {
     });
   });
 
+  it('a cold formatter is built in the observed zone, not the live host zone', () => {
+    // Round-7 review: the observed zone went into the formatter cache KEY,
+    // but constructors still received `timeZone: undefined`, which Intl
+    // resolves to the live host zone at construction time. A key that was
+    // never warmed could then be built in a zone its own key — and the
+    // SQL/effect state — does not hold. Chicago and Adelaide appear in no
+    // other test in this file, so both formatter keys are cold here; the
+    // winter instant renders 04:00 in Chicago (UTC-6) and 20:30 in Adelaide
+    // (UTC+10:30, southern-summer DST).
+    withTz((setTz) => {
+      setTz('America/Chicago');
+      observeHostZone();
+
+      setTz('Australia/Adelaide');
+      // No observation point has fired: SQL resolution stays with Chicago…
+      expect(resolveEffectiveTimeZone(undefined)).toBe('America/Chicago');
+      // …and the first-ever 'auto' formatting must too, even though its
+      // formatters are constructed only now, under a live Adelaide zone.
+      expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 04:00');
+
+      // The next observation moves resolution and the (again cold)
+      // new-zone formatters together.
+      observeHostZone();
+      expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 20:30');
+    });
+  });
+
   it('formatTimestamp does not drift ahead of the observation when the sample ages out', () => {
     // The reverse direction: with no new observation point, an aged-out
     // sample must not move formatting to the new host zone while the state

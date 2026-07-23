@@ -415,9 +415,9 @@ let hostZone: string | null = null;
 let hostZoneReadAt = 0;
 
 /**
- * The host's IANA zone name for formatter keys: the observed zone once
- * `useEffectiveTimeZone` has sampled it, a TTL-cached direct read before
- * then.
+ * The host's IANA zone name for formatter keys and constructors: the
+ * observed zone once `useEffectiveTimeZone` has sampled it, a TTL-cached
+ * direct read before then.
  *
  * Preferring the observation is what keeps a render coherent: the re-render
  * a detected zone change triggers formats with the very zone the hook
@@ -456,7 +456,8 @@ function currentHostZone(): string {
       hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     } catch {
       // Intl is unusable here; every build will fail the same way and the
-      // callers fall back, so one shared key is fine.
+      // callers fall back, so one shared key is fine — and as an explicit
+      // constructor zone Intl rejects it into the same failed-build entry.
       hostZone = 'unresolved';
     }
   }
@@ -464,18 +465,23 @@ function currentHostZone(): string {
 }
 
 /**
- * Key fragment for the zone half of a formatter key. An absent zone means
- * "host zone" and resolves to a usable formatter, so it must never share a
- * key with a named zone — not even `''`, which Intl rejects. Prefixing both
- * keeps them apart whatever the stored preference holds.
+ * The one concrete zone a formatter is keyed by AND constructed with. An
+ * absent zone means "host zone", and resolving it here — once, with the
+ * same value flowing into both the cache key and the `Intl.DateTimeFormat`
+ * constructor — is what keeps the two from disagreeing: passing
+ * `timeZone: undefined` through to Intl instead would read the live host
+ * zone at construction time, which between observations can already have
+ * moved past the observed zone the key, the SQL session and the export
+ * requests still hold. A cold cache entry would then be built in a zone its
+ * own key does not name (DO-352 review round 7).
  *
- * The host formatter pins whichever zone it resolved at construction, so its
- * key carries that zone by name: without it a `timeZone: 'auto'` pref — the
- * default — would go on rendering a zone the host has left, for the life of
- * the page.
+ * With the zone pinned at construction, an `'auto'` pref and an explicit
+ * pref naming the same zone build interchangeable formatters, so they share
+ * a cache entry. `''` stays distinct from "absent" (`??`, not `||`): Intl
+ * rejects it, so it caches as a failed build like any other invalid name.
  */
-function zoneKeyPart(timeZone?: string): string {
-  return timeZone === undefined ? `host=${currentHostZone()}` : `tz=${timeZone}`;
+function resolveFormatterZone(timeZone?: string): string {
+  return timeZone ?? currentHostZone();
 }
 
 function getCachedFormatter(
@@ -504,11 +510,12 @@ function getCachedFormatter(
  * formatter serve the display, offset and datetime-input helpers alike.
  */
 function getZoneComponents(date: Date, timeZone?: string): ZoneComponents | null {
+  const zone = resolveFormatterZone(timeZone);
   const fmt = getCachedFormatter(
-    `components|${zoneKeyPart(timeZone)}`,
+    `components|tz=${zone}`,
     () =>
       new Intl.DateTimeFormat('en-GB', {
-        timeZone,
+        timeZone: zone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -590,14 +597,15 @@ function formatTimeWithPattern(
   timeZone?: string,
 ): string {
   const hour12 = fmt === 'h12';
-  // Prefer Intl so AM/PM follows locale conventions ("PM" vs "п.п." vs "下午"
-  // depending on locale); fall back to a manual render if Intl rejects the
-  // zone or locale.
+  const zone = resolveFormatterZone(timeZone);
+  // Prefer Intl so AM/PM follows locale conventions ("PM" vs "p. m." vs
+  // locale-specific ideographs); fall back to a manual render if Intl
+  // rejects the zone or locale.
   const formatter = getCachedFormatter(
-    `time|${prefs.locale}|${zoneKeyPart(timeZone)}|${hour12 ? 'h12' : 'h24'}`,
+    `time|${prefs.locale}|tz=${zone}|${hour12 ? 'h12' : 'h24'}`,
     () =>
       new Intl.DateTimeFormat(prefs.locale, {
-        timeZone,
+        timeZone: zone,
         hour: '2-digit',
         minute: '2-digit',
         hour12,
@@ -605,7 +613,9 @@ function formatTimeWithPattern(
   );
   if (formatter) return formatter.format(date);
 
-  const c = getZoneComponents(date, timeZone);
+  // The already-resolved zone, so the fallback cannot re-resolve across a
+  // TTL boundary into a different zone than the key above.
+  const c = getZoneComponents(date, zone);
   if (!c) return '';
   if (!hour12) return `${pad2(c.hour)}:${pad2(c.minute)}`;
   const period = c.hour >= 12 ? 'PM' : 'AM';

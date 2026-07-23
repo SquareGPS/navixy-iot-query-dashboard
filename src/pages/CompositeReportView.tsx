@@ -320,15 +320,18 @@ export default function CompositeReportView() {
   const buildQueryParams = useCallback((): Record<string, unknown> => {
     const merged: Record<string, unknown> = {};
     const filtered = filterUsedParameters(sqlQuery, parameterValues);
-    const paramTimeZone =
-      datetimePrefs.timeZone === 'auto' ? undefined : datetimePrefs.timeZone;
+    // The effective zone, not the raw pref: under 'auto' a naive
+    // datetime-local value must be interpreted in the same observed zone the
+    // SQL session runs in, not whatever the live host zone happens to be at
+    // this render (DO-352 review round 7). Undefined only when Intl cannot
+    // answer — then the helper keeps its legacy host-local interpretation.
     Object.entries(filtered).forEach(([k, v]) => {
       if (v === undefined || v === null) return;
       if (typeof v === 'string' && v.trim() === '') return;
-      merged[k] = normaliseParamForApi(k, v, { timeZone: paramTimeZone });
+      merged[k] = normaliseParamForApi(k, v, { timeZone: effectiveSqlTimeZone });
     });
     return merged;
-  }, [sqlQuery, parameterValues, datetimePrefs.timeZone]);
+  }, [sqlQuery, parameterValues, effectiveSqlTimeZone]);
 
   const executeQuery = useCallback(async () => {
     if (!id || !sqlQuery) return;
@@ -1203,10 +1206,11 @@ export default function CompositeReportView() {
                   // The user's preferred timezone (from Settings) is used so the
                   // input matches the timezone the table/chart are rendered in.
                   const hasTzSuffix = /(Z|[+-]\d{2}:?\d{2})$/.test(stored.trim());
-                  const inputTimeZone =
-                    datetimePrefs.timeZone === 'auto'
-                      ? undefined
-                      : datetimePrefs.timeZone;
+                  // The effective zone (observed under 'auto'), matching the
+                  // zone the table/chart render in and the SQL session runs
+                  // in — not a live host-zone read that could disagree with
+                  // both between observations (DO-352 review round 7).
+                  const inputTimeZone = effectiveSqlTimeZone;
                   let localValue = stored;
                   if (hasTzSuffix) {
                     const parsed = parseServerTimestamp(stored);
@@ -1240,7 +1244,10 @@ export default function CompositeReportView() {
                         }
                       />
                       <span className="text-[10px] text-muted-foreground leading-none">
-                        {inputTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+                        {/* Already the resolved host zone under 'auto' — a
+                            live Intl read here could disagree with it (and
+                            throws outright when Intl is unusable). */}
+                        {inputTimeZone}
                       </span>
                     </div>
                   );

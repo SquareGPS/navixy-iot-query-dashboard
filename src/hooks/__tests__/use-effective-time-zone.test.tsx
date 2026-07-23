@@ -245,6 +245,39 @@ describe('useEffectiveTimeZone', () => {
     });
   });
 
+  it('a cold formatter key follows the state, not the live host zone', () => {
+    // Round-7 cold-formatter version of the reverse-direction test: nothing
+    // has formatted in these zones before (Chicago and Adelaide appear in no
+    // other test in this file), so the 'auto' formatters are constructed
+    // only after the host has already moved on — and must still be built in
+    // the observed zone the hook state and SQL resolution hold, not the live
+    // zone `timeZone: undefined` would resolve to at construction time.
+    withFrozenClockAndTz(() => {
+      setHostZone('America/Chicago');
+      setSqlTimeZonePreference('auto');
+
+      const { result } = renderHook(() => useEffectiveTimeZone('auto'));
+      expect(result.current[0]).toBe('America/Chicago');
+
+      // The OS zone moves; no observation point fires.
+      setHostZone('Australia/Adelaide');
+
+      expect(result.current[0]).toBe('America/Chicago');
+      expect(resolveSqlTimeZone()).toBe('America/Chicago');
+      // First-ever 'auto' formatting: cold keys, constructed only now —
+      // 04:00 is the winter instant in Chicago (UTC-6); the live Adelaide
+      // zone would render 20:30 (UTC+10:30, southern-summer DST).
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 04:00');
+
+      act(() => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(result.current[0]).toBe('Australia/Adelaide');
+      expect(resolveSqlTimeZone()).toBe('Australia/Adelaide');
+      expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 20:30');
+    });
+  });
+
   it('detaches all listeners on unmount', () => {
     const windowRemovals = vi.spyOn(window, 'removeEventListener');
     const documentRemovals = vi.spyOn(document, 'removeEventListener');
