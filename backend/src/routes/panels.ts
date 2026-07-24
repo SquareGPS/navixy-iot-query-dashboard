@@ -37,6 +37,11 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
     let exportColumns = columns as { name: string; type: string }[] | undefined;
     let exportRows = rows as unknown[][] | undefined;
 
+    // Resolved before the re-query: the export must run its SQL in the same
+    // zone the live panel ran in, or SQL-rendered times (to_char) and "today"
+    // windows would disagree with what the user sees on screen (DO-352).
+    const exportPrefs = await resolveExportPreferences(req, req.body);
+
     const hasResolvedSql = typeof sql === 'string' && sql.trim().length > 0;
 
     if (hasResolvedSql) {
@@ -70,6 +75,8 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
         timeoutMs,
         exportMaxRows,
         iotDbUrl,
+        undefined,
+        exportPrefs.timeZone,
       );
       exportColumns = result.columns;
       exportRows = result.rows;
@@ -114,8 +121,6 @@ router.post('/panels/export', authenticateToken, async (req: AuthenticatedReques
       });
     }
     exportRows = cappedRows;
-
-    const exportPrefs = await resolveExportPreferences(req, req.body);
 
     const exportService = ExportService.getInstance();
     const exportOptions = {

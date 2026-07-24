@@ -1,12 +1,19 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
+  __resetObservedHostZoneForTests,
   detectDefaultPrefs,
   formatLocalInputInZone,
   formatTimestamp,
   isDateLikeParam,
   isTimestampLike,
+  mergeServerPreferences,
   normaliseParamForApi,
+  normalizeStoredPrefs,
+  observeHostZone,
   parseServerTimestamp,
+  resolveEffectiveTimeZone,
+  sampleEffectiveTimeZone,
+  sanitizeStoredTimeZone,
   toUtcIsoInZone,
 } from '../datetime';
 
@@ -531,5 +538,310 @@ describe('detectDefaultPrefs', () => {
     expect(p.timeZone).toBe('auto');
     expect(['h12', 'h23']).toContain(p.hourCycle);
     expect(['short', 'medium', 'long']).toContain(p.dateStyle);
+  });
+});
+
+describe('resolveEffectiveTimeZone', () => {
+  it('passes an explicit zone through unchanged', () => {
+    expect(resolveEffectiveTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    expect(resolveEffectiveTimeZone('UTC')).toBe('UTC');
+  });
+
+  it("resolves 'auto' to the host zone", () => {
+    expect(resolveEffectiveTimeZone('auto')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
+  it('resolves an absent preference to the host zone', () => {
+    expect(resolveEffectiveTimeZone(undefined)).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+    expect(resolveEffectiveTimeZone('')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+
+  it('degrades to undefined when Intl is unavailable, keeping explicit zones', () => {
+    // Some embedded WebViews ship without ICU — host-zone detection must
+    // degrade to "no zone" (server default), not crash the panel.
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new Error('ICU unavailable');
+    });
+    try {
+      expect(resolveEffectiveTimeZone('auto')).toBeUndefined();
+      expect(resolveEffectiveTimeZone(undefined)).toBeUndefined();
+      // Without ICU the sanitizer cannot judge the name, so an explicit
+      // preference is kept — the backend sanitizer stays the enforcement
+      // point for what reaches the SQL session.
+      expect(resolveEffectiveTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('falls back to the host zone for a stale bare offset instead of passing it through', () => {
+    expect(resolveEffectiveTimeZone('+05:00')).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+});
+
+describe('sanitizeStoredTimeZone', () => {
+  it('keeps valid IANA names (trimmed) and the auto sentinel', () => {
+    expect(sanitizeStoredTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+    expect(sanitizeStoredTimeZone('  Europe/Berlin  ')).toBe('Europe/Berlin');
+    expect(sanitizeStoredTimeZone('Etc/GMT+2')).toBe('Etc/GMT+2');
+    expect(sanitizeStoredTimeZone('auto')).toBe('auto');
+  });
+
+  it.each(['+05:00', '-08:00', '+02'])(
+    'rejects the bare offset %s (mirrors the backend sanitizeTimeZone)',
+    (tz) => {
+      expect(sanitizeStoredTimeZone(tz)).toBeUndefined();
+    },
+  );
+
+  it('rejects unknown names, oversized values, and non-strings', () => {
+    expect(sanitizeStoredTimeZone('Nowhere/Special')).toBeUndefined();
+    expect(sanitizeStoredTimeZone(`Europe/${'x'.repeat(64)}`)).toBeUndefined();
+    expect(sanitizeStoredTimeZone('')).toBeUndefined();
+    expect(sanitizeStoredTimeZone(42)).toBeUndefined();
+    expect(sanitizeStoredTimeZone(null)).toBeUndefined();
+  });
+
+  it('keeps a name it cannot judge when Intl is unavailable, but still drops offsets', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new TypeError('no ICU');
+    });
+    try {
+      expect(sanitizeStoredTimeZone('Europe/Berlin')).toBe('Europe/Berlin');
+      // The offset check is syntactic and does not need Intl.
+      expect(sanitizeStoredTimeZone('+05:00')).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('normalizeStoredPrefs (localStorage migration)', () => {
+  it('migrates a legacy stored bare offset to auto (host zone)', () => {
+    // Persisted by builds that still accepted "+05:00" from the server
+    // (DO-352 review round 4): on read it must fall back to 'auto' so client
+    // formatting and the SQL session agree again.
+    const prefs = normalizeStoredPrefs({
+      locale: 'de-DE',
+      timeZone: '+05:00',
+      hourCycle: 'h23',
+      dateStyle: 'short',
+      dateFormat: 'dd.mm.yyyy',
+      timeFormat: 'h24',
+    });
+    expect(prefs?.timeZone).toBe('auto');
+    // Sibling fields survive the migration untouched.
+    expect(prefs?.dateFormat).toBe('dd.mm.yyyy');
+    expect(prefs?.timeFormat).toBe('h24');
+  });
+
+  it('keeps a valid stored zone and returns null for non-objects', () => {
+    expect(normalizeStoredPrefs({ timeZone: 'Europe/Berlin' })?.timeZone).toBe('Europe/Berlin');
+    expect(normalizeStoredPrefs(null)).toBeNull();
+    expect(normalizeStoredPrefs('junk')).toBeNull();
+  });
+
+  it('maps legacy or missing format values to the documented defaults', () => {
+    const prefs = normalizeStoredPrefs({ dateFormat: 'default', timeFormat: 'default' });
+    expect(prefs?.dateFormat).toBe('dd/mm/yyyy');
+    expect(['h12', 'h24']).toContain(prefs?.timeFormat);
+  });
+});
+
+describe('mergeServerPreferences', () => {
+  const base = {
+    locale: 'en-US',
+    timeZone: 'auto',
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'dd/mm/yyyy' as const,
+    timeFormat: 'h24' as const,
+  };
+
+  it('applies a valid server zone', () => {
+    expect(mergeServerPreferences(base, { timezone: 'Europe/Berlin' }).timeZone).toBe(
+      'Europe/Berlin',
+    );
+  });
+
+  it('leaves the previous object identity for empty or invalid server zones', () => {
+    // '' is how the backend reports "unset" (including normalized-away
+    // legacy offsets); an offset can still arrive from an older backend.
+    expect(mergeServerPreferences(base, { timezone: '' })).toBe(base);
+    expect(mergeServerPreferences(base, { timezone: '+05:00' })).toBe(base);
+    expect(mergeServerPreferences(base, {})).toBe(base);
+  });
+
+  it('merges format fields independently of the zone', () => {
+    const next = mergeServerPreferences(base, { timezone: '+05:00', timeFormat: 'h12' });
+    expect(next.timeZone).toBe('auto');
+    expect(next.timeFormat).toBe('h12');
+  });
+
+  it('regression: legacy localStorage offset plus server empty zone ends at the host zone', () => {
+    // The round-4 scenario end to end: a stale "+05:00" in
+    // navixy.datetimePrefs.v1 and a backend that has normalized the stored
+    // preference to ''. The storage read migrates to 'auto', the server
+    // merge leaves it, and the effective SQL zone is the host zone — the
+    // same zone formatTimestamp uses. No split.
+    const fromStorage = normalizeStoredPrefs({ ...base, timeZone: '+05:00' });
+    expect(fromStorage?.timeZone).toBe('auto');
+    const merged = mergeServerPreferences(fromStorage!, { timezone: '' });
+    expect(merged).toBe(fromStorage);
+    expect(resolveEffectiveTimeZone(merged.timeZone)).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
+  });
+});
+
+// Kept last in the file: these tests set the observed zone, and although each
+// resets it, nothing after them may rely on the TTL sample they also warm.
+describe('observed host zone (DO-352 round 6)', () => {
+  const autoPrefs = {
+    locale: 'en-GB',
+    timeZone: 'auto' as const,
+    hourCycle: 'h23' as const,
+    dateStyle: 'short' as const,
+    dateFormat: 'yyyy-mm-dd' as const,
+    timeFormat: 'h24' as const,
+  };
+  // Winter instant: Berlin is UTC+1 (11:00), Tokyo UTC+9 (19:00) — no DST
+  // ambiguity in either zone.
+  const instant = new Date('2026-01-15T10:00:00Z');
+
+  afterEach(() => {
+    __resetObservedHostZoneForTests();
+  });
+
+  /** Run with the host zone under our control, restoring TZ afterwards. */
+  function withTz(run: (setTz: (zone: string) => void) => void): void {
+    const originalTz = process.env.TZ;
+    try {
+      run((zone) => {
+        process.env.TZ = zone;
+      });
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  }
+
+  it('resolveEffectiveTimeZone holds the observed zone between observations', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      expect(observeHostZone()).toBe('Europe/Berlin');
+
+      setTz('Asia/Tokyo');
+      // The host moved but no observation point has fired: resolution stays
+      // with the observation, so requests, cache keys and formatting keep
+      // agreeing with the state that drove the last render.
+      expect(resolveEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+      expect(resolveEffectiveTimeZone(undefined)).toBe('Europe/Berlin');
+
+      expect(observeHostZone()).toBe('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+    });
+  });
+
+  it('sampleEffectiveTimeZone records the zone it resolves', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      expect(sampleEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+
+      setTz('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Europe/Berlin');
+      expect(sampleEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+      expect(resolveEffectiveTimeZone('auto')).toBe('Asia/Tokyo');
+    });
+  });
+
+  it('a named preference resolves past the observed zone', () => {
+    withTz((setTz) => {
+      setTz('Europe/Berlin');
+      observeHostZone();
+      expect(resolveEffectiveTimeZone('Europe/Belgrade')).toBe('Europe/Belgrade');
+      expect(sampleEffectiveTimeZone('Europe/Belgrade')).toBe('Europe/Belgrade');
+    });
+  });
+
+  it('formatTimestamp follows an observation immediately, inside the sample TTL', () => {
+    // The round-6 review race: the once-per-second host sample is still
+    // fresh when a detected zone change re-renders, so formatting used to
+    // keep the old zone next to SQL strings in the new one. An observation
+    // must move formatting NOW, not when the sample ages out.
+    withTz((setTz) => {
+      vi.useFakeTimers();
+      try {
+        setTz('Europe/Berlin');
+        // Warm the 'auto' formatter and the once-per-second host sample.
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        setTz('Asia/Tokyo');
+        observeHostZone();
+        // The frozen clock guarantees the TTL sample is still fresh — yet
+        // formatting follows the observation, not the sample.
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 19:00');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('a cold formatter is built in the observed zone, not the live host zone', () => {
+    // Round-7 review: the observed zone went into the formatter cache KEY,
+    // but constructors still received `timeZone: undefined`, which Intl
+    // resolves to the live host zone at construction time. A key that was
+    // never warmed could then be built in a zone its own key — and the
+    // SQL/effect state — does not hold. Chicago and Adelaide appear in no
+    // other test in this file, so both formatter keys are cold here; the
+    // winter instant renders 04:00 in Chicago (UTC-6) and 20:30 in Adelaide
+    // (UTC+10:30, southern-summer DST).
+    withTz((setTz) => {
+      setTz('America/Chicago');
+      observeHostZone();
+
+      setTz('Australia/Adelaide');
+      // No observation point has fired: SQL resolution stays with Chicago…
+      expect(resolveEffectiveTimeZone(undefined)).toBe('America/Chicago');
+      // …and the first-ever 'auto' formatting must too, even though its
+      // formatters are constructed only now, under a live Adelaide zone.
+      expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 04:00');
+
+      // The next observation moves resolution and the (again cold)
+      // new-zone formatters together.
+      observeHostZone();
+      expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 20:30');
+    });
+  });
+
+  it('formatTimestamp does not drift ahead of the observation when the sample ages out', () => {
+    // The reverse direction: with no new observation point, an aged-out
+    // sample must not move formatting to the new host zone while the state
+    // that keys SQL runs still holds the old one.
+    withTz((setTz) => {
+      vi.useFakeTimers();
+      try {
+        setTz('Europe/Berlin');
+        observeHostZone();
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        setTz('Asia/Tokyo');
+        vi.advanceTimersByTime(HOST_ZONE_TTL_MS + 1);
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 11:00');
+
+        observeHostZone();
+        expect(formatTimestamp(instant, autoPrefs)).toBe('2026-01-15 19:00');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

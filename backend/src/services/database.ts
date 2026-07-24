@@ -7,6 +7,7 @@ import { RedisService } from './redis.js';
 import jwt from 'jsonwebtoken';
 import { existsSync } from 'fs';
 import { toErrorMeta, isTransientDbError, type ErrorWithMeta } from '../utils/errors.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 
 export interface DatabaseConfig {
   user: string;
@@ -1213,9 +1214,11 @@ export class DatabaseService {
 
     try {
       client = await pool.connect();
-      
-      // Set statement timeout to prevent long-running queries
-      await client.query(`SET statement_timeout = ${timeoutMs}`);
+
+      // Timeout + explicit RESET TIME ZONE: this endpoint never takes a zone,
+      // and must not inherit one left on the pooled connection by
+      // executeParameterizedQuery.
+      await this.initSessionState(client, timeoutMs);
 
       // Extract LIMIT from user's query if present
       const limitMatch = sql.trim().match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?(?:\s*;)?$/i);
@@ -1324,9 +1327,9 @@ export class DatabaseService {
 
     try {
       client = await pool.connect();
-      
-      // Set statement timeout to prevent long-running queries
-      await client.query(`SET statement_timeout = ${timeoutMs}`);
+
+      // Timeout + explicit RESET TIME ZONE — see executeTableQuery.
+      await this.initSessionState(client, timeoutMs);
 
       // Execute query with LIMIT 1 enforced
       const safeSql = sql.trim().replace(/;$/, '') + ' LIMIT 1';
@@ -1857,13 +1860,89 @@ export class DatabaseService {
    * @param iotDbUrl - User's IoT database URL for query execution
    * @param settingsPool - Pool for fetching user settings (optional, for global variables)
    */
+  /**
+   * Put a freshly checked-out client into a known session state before the
+   * user's query runs. External pools are shared per iotDbUrl, so a client can
+   * carry whatever the previous renter set — every execution must therefore
+   * state its own timezone explicitly: set it when the request resolved one,
+   * RESET back to the server default when it did not. Without the RESET, a
+   * legacy /table or /tile call after a zoned dashboard query would silently
+   * run in that viewer's zone.
+   *
+   * The zone is applied with a bound set_config() rather than SET because SET
+   * cannot take bind parameters, and the value originates in the request body.
+   * The timeout is clamped to a positive integer for the same reason — it is
+   * interpolated into the SET text, and `limits.timeout_ms` is client-typed
+   * only, so anything non-numeric must never reach the statement.
+   *
+   * A zone Intl accepted can still be missing from the server's tzdata (they
+   * ship separately). That failure degrades to the session default — the same
+   * rendering the panel showed before zones were passed at all — instead of
+   * failing a query that would otherwise succeed.
+   */
+  private async initSessionState(
+    client: PoolClient,
+    timeoutMs: number,
+    timeZone?: string,
+  ): Promise<void> {
+    // Floor before the range check: a fractional value in (0, 1) would pass a
+    // raw `> 0` guard and floor to 0 afterwards — and statement_timeout = 0
+    // means "no timeout" to Postgres, not "immediately". The upper bound is
+    // the int4 GUC maximum; larger values would fail the SET outright.
+    const floored = Math.floor(Number(timeoutMs));
+    const timeout = Number.isFinite(floored) && floored > 0
+      ? Math.min(floored, 2147483647)
+      : 30000;
+    // Re-validate at the choke point, whatever route supplied the zone: the
+    // sql-new route sanitizes early (its cache key must carry the sanitized
+    // zone), but export routes resolve theirs from request bodies and stored
+    // preferences — no caller may put an unvetted string into the session
+    // GUC. A value that fails — e.g. a bare "+05:00" offset, which Postgres
+    // would read with the POSIX inverted sign — degrades to the server
+    // default exactly like an absent zone (DO-352 review).
+    const sessionZone = sanitizeTimeZone(timeZone);
+    if (timeZone && !sessionZone) {
+      logger.warn('Session timezone failed validation; using the server default', { timeZone });
+    }
+    if (sessionZone) {
+      try {
+        await client.query(
+          "SELECT set_config('statement_timeout', $1, false), set_config('TimeZone', $2, false)",
+          [String(timeout), sessionZone],
+        );
+        return;
+      } catch (rawError: unknown) {
+        const meta = toErrorMeta(rawError);
+        if (meta.code === '22023') {
+          // invalid_parameter_value: the zone passed Intl but is missing from
+          // the server's tzdata. Degrading to the server default is the point.
+          logger.warn('Session timezone rejected by the database; using the server default', {
+            timeZone: sessionZone,
+            error: meta.message,
+          });
+        } else {
+          // Not a zone problem (dead connection, network...). Still fall
+          // through: the SET below will surface the real error to the caller
+          // instead of this log blaming the timezone.
+          logger.warn('Session state init failed; retrying with the server default', {
+            timeZone: sessionZone,
+            code: meta.code,
+            error: meta.message,
+          });
+        }
+      }
+    }
+    await client.query(`SET statement_timeout = ${timeout}; RESET TIME ZONE`);
+  }
+
   async executeParameterizedQuery(
     statement: string,
     params: Record<string, unknown>,
     timeoutMs: number = 30000,
     maxRows: number = 10000,
     iotDbUrl?: string,
-    pagination?: { page: number; pageSize: number }
+    pagination?: { page: number; pageSize: number },
+    timeZone?: string
   ): Promise<ParameterizedQueryResult> {
     const startTime = Date.now();
 
@@ -1887,9 +1966,9 @@ export class DatabaseService {
 
     try {
       client = await pool.connect();
-      
-      // Set statement timeout
-      await client.query(`SET statement_timeout = ${timeoutMs}`);
+
+      // Statement timeout + session timezone (viewer's zone, or server default)
+      await this.initSessionState(client, timeoutMs, timeZone);
 
       // Check if there are any parameters to process
       const hasParameters = Object.keys(params).length > 0;

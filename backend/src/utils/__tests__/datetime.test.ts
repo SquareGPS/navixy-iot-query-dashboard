@@ -3,7 +3,53 @@ import {
   TIMESTAMP_LIKE_RE,
   isTimestampLikeValue,
   parseTimestampValue,
+  sanitizeTimeZone,
 } from '../datetime.js';
+
+describe('sanitizeTimeZone', () => {
+  it.each(['Europe/Berlin', 'UTC', 'Etc/GMT+2', 'America/Argentina/Buenos_Aires'])(
+    'accepts the IANA name %s',
+    (tz) => {
+      expect(sanitizeTimeZone(tz)).toBe(tz);
+    },
+  );
+
+  it('trims surrounding whitespace', () => {
+    expect(sanitizeTimeZone('  Europe/Berlin  ')).toBe('Europe/Berlin');
+  });
+
+  it.each([
+    'Nowhere/Special',
+    'not a zone',
+    // SET-style injection must never survive: the value only ever reaches the
+    // database as a bind parameter, but rejecting it here keeps the log and
+    // cache key clean too.
+    "Europe/Berlin'; DROP TABLE users; --",
+    '',
+    '   ',
+  ])('rejects the invalid name %s', (tz) => {
+    expect(sanitizeTimeZone(tz)).toBeUndefined();
+  });
+
+  it('rejects names longer than 64 characters without calling Intl', () => {
+    expect(sanitizeTimeZone(`Europe/${'x'.repeat(64)}`)).toBeUndefined();
+  });
+
+  it.each(['+05:00', '-08:00', '+02'])(
+    'rejects the bare offset %s (Intl accepts it; Postgres would flip the sign)',
+    (tz) => {
+      expect(sanitizeTimeZone(tz)).toBeUndefined();
+    },
+  );
+
+  it('rejects non-string values', () => {
+    expect(sanitizeTimeZone(120)).toBeUndefined();
+    expect(sanitizeTimeZone(null)).toBeUndefined();
+    expect(sanitizeTimeZone(undefined)).toBeUndefined();
+    expect(sanitizeTimeZone({ timeZone: 'Europe/Berlin' })).toBeUndefined();
+    expect(sanitizeTimeZone(['Europe/Berlin'])).toBeUndefined();
+  });
+});
 
 describe('isTimestampLikeValue', () => {
   it.each([

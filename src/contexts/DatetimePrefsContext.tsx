@@ -1,14 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  DATE_FORMAT_VALUES,
   DatetimePrefs,
-  TIME_FORMAT_VALUES,
   detectDefaultPrefs,
-  detectInitialTimeFormat,
+  mergeServerPreferences,
+  normalizeStoredPrefs,
+  resolveEffectiveTimeZone,
+  sampleEffectiveTimeZone,
 } from '@/utils/datetime';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ServerPreferences } from '@/contexts/AuthContext';
+import { setSqlTimeZonePreference } from '@/services/sqlTimeZone';
+import { useEffectiveTimeZone } from '@/hooks/use-effective-time-zone';
 
 const STORAGE_KEY = 'navixy.datetimePrefs.v1';
 
@@ -16,6 +19,19 @@ interface DatetimePrefsContextValue {
   prefs: DatetimePrefs;
   setPrefs: (next: Partial<DatetimePrefs>) => void;
   resetPrefs: () => void;
+  /**
+   * The concrete zone `prefs.timeZone` resolves to right now — the one
+   * value execution effects, cache keys, exports and timestamp formatting
+   * must agree on (DO-352). Undefined only when Intl cannot answer.
+   */
+  effectiveTimeZone: string | undefined;
+  /**
+   * Re-sample the effective zone at a moment no listener covers (the
+   * auto-refresh tick, building an export request). Returns the zone it
+   * resolved and syncs `effectiveTimeZone`, so a change noticed this way
+   * also re-runs everything depending on it.
+   */
+  resampleEffectiveTimeZone: () => string | undefined;
 }
 
 const DatetimePrefsContext = createContext<DatetimePrefsContextValue | undefined>(
@@ -27,39 +43,11 @@ function readFromStorage(): DatetimePrefs | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DatetimePrefs>;
-    if (!parsed || typeof parsed !== 'object') return null;
-    const defaults = detectDefaultPrefs();
-    return {
-      locale: typeof parsed.locale === 'string' ? parsed.locale : defaults.locale,
-      timeZone:
-        typeof parsed.timeZone === 'string' ? parsed.timeZone : defaults.timeZone,
-      hourCycle:
-        parsed.hourCycle === 'h12' || parsed.hourCycle === 'h23'
-          ? parsed.hourCycle
-          : defaults.hourCycle,
-      dateStyle:
-        parsed.dateStyle === 'short' ||
-        parsed.dateStyle === 'medium' ||
-        parsed.dateStyle === 'long'
-          ? parsed.dateStyle
-          : defaults.dateStyle,
-      // Legacy 'default' and missing values map to 'dd/mm/yyyy', which is the
-      // shape the previous dropdown label promised ("01/12/2021 (DD/MM/YYYY)").
-      dateFormat: (DATE_FORMAT_VALUES as readonly string[]).includes(
-        parsed.dateFormat as string,
-      )
-        ? (parsed.dateFormat as DatetimePrefs['dateFormat'])
-        : 'dd/mm/yyyy',
-      // Legacy 'default' and missing values seed from the auto-detected
-      // hourCycle so users who never opened Settings still see the clock style
-      // their locale conventionally uses.
-      timeFormat: (TIME_FORMAT_VALUES as readonly string[]).includes(
-        parsed.timeFormat as string,
-      )
-        ? (parsed.timeFormat as DatetimePrefs['timeFormat'])
-        : detectInitialTimeFormat(),
-    };
+    // Field validation (incl. the legacy bare-offset timezone migration,
+    // DO-352 review round 4) lives in normalizeStoredPrefs so it is
+    // unit-testable without a window; the writeToStorage effect then
+    // persists the cleaned prefs on first render, completing the migration.
+    return normalizeStoredPrefs(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -78,39 +66,34 @@ function applyServerPreferences(
   data: ServerPreferences,
   setPrefsState: React.Dispatch<React.SetStateAction<DatetimePrefs>>,
 ) {
-  setPrefsState((prev) => {
-    const next: DatetimePrefs = { ...prev };
-    let changed = false;
-    if (typeof data.timezone === 'string' && data.timezone.trim().length > 0) {
-      if (next.timeZone !== data.timezone) {
-        next.timeZone = data.timezone;
-        changed = true;
-      }
-    }
-    if (
-      data.dateFormat &&
-      (DATE_FORMAT_VALUES as readonly string[]).includes(data.dateFormat) &&
-      next.dateFormat !== data.dateFormat
-    ) {
-      next.dateFormat = data.dateFormat as DatetimePrefs['dateFormat'];
-      changed = true;
-    }
-    if (
-      data.timeFormat &&
-      (TIME_FORMAT_VALUES as readonly string[]).includes(data.timeFormat) &&
-      next.timeFormat !== data.timeFormat
-    ) {
-      next.timeFormat = data.timeFormat as DatetimePrefs['timeFormat'];
-      changed = true;
-    }
-    return changed ? next : prev;
-  });
+  // Merge semantics (incl. refusing malformed or bare-offset zones from an
+  // older backend / stale demo storage) live in mergeServerPreferences,
+  // which returns `prev` untouched when nothing changed.
+  setPrefsState((prev) => mergeServerPreferences(prev, data));
 }
 
 export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
-  const [prefs, setPrefsState] = useState<DatetimePrefs>(() => {
-    return readFromStorage() ?? detectDefaultPrefs();
-  });
+  const [prefs, setPrefsState] = useState<DatetimePrefs>(
+    () => readFromStorage() ?? detectDefaultPrefs(),
+  );
+
+  // Keep the SQL-session zone registry in step during render, not in an
+  // effect: children's data-fetching effects run before a parent's, so an
+  // effect here would hand the first queries after mount — and the ones
+  // re-fired when server preferences merge in — the previous zone (DO-352).
+  // Writing a module variable is idempotent, so re-renders and StrictMode
+  // double-renders are harmless.
+  setSqlTimeZonePreference(prefs.timeZone);
+
+  // The app's one reactive effective-zone instance (DO-352 review round 6).
+  // Mounted here so its focus/visibility listeners outlive any single view,
+  // and exposed through the context so execution deps, cache keys, exports
+  // and formatTimestamp all follow the same observed zone — a change
+  // re-renders every prefs consumer, repainting already-formatted
+  // timestamps in the new zone.
+  const [effectiveTimeZone, resampleEffectiveTimeZone] = useEffectiveTimeZone(
+    prefs.timeZone,
+  );
 
   useEffect(() => {
     writeToStorage(prefs);
@@ -137,8 +120,14 @@ export function DatetimePrefsProvider({ children }: { children: ReactNode }) {
   }, [serverPreferences]);
 
   const value = useMemo<DatetimePrefsContextValue>(
-    () => ({ prefs, setPrefs, resetPrefs }),
-    [prefs, setPrefs, resetPrefs],
+    () => ({
+      prefs,
+      setPrefs,
+      resetPrefs,
+      effectiveTimeZone,
+      resampleEffectiveTimeZone,
+    }),
+    [prefs, setPrefs, resetPrefs, effectiveTimeZone, resampleEffectiveTimeZone],
   );
 
   return (
@@ -152,13 +141,17 @@ export function useDatetimePrefs(): DatetimePrefsContextValue {
   const ctx = useContext(DatetimePrefsContext);
   if (!ctx) {
     // Tolerate usage outside the provider (e.g. legacy pages, tests) by
-    // returning a stable read-only snapshot of the detected defaults. This
-    // avoids hard runtime errors during incremental rollout.
+    // returning a read-only snapshot of the detected defaults. This avoids
+    // hard runtime errors during incremental rollout. Non-reactive: without
+    // the provider's hook instance nothing re-samples the zone, so resolve
+    // it per call and let resample() do the same.
     const fallback = detectDefaultPrefs();
     return {
       prefs: fallback,
       setPrefs: () => undefined,
       resetPrefs: () => undefined,
+      effectiveTimeZone: resolveEffectiveTimeZone(fallback.timeZone),
+      resampleEffectiveTimeZone: () => sampleEffectiveTimeZone(fallback.timeZone),
     };
   }
   return ctx;

@@ -11,6 +11,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import { validateSQLQuery } from '../utils/sqlValidationIntegration.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 import crypto from 'crypto';
 import type { Pool } from 'pg';
 import { toErrorMeta } from '../utils/errors.js';
@@ -48,6 +49,14 @@ interface ParameterizedQueryRequest {
     page: number;
     pageSize: number;
   };
+  /**
+   * IANA zone the query session runs in (DO-352). Dashboards declare
+   * `timezone: 'browser'`, and their SQL renders and windows times in the
+   * database (to_char, DATE_TRUNC('day', NOW()), CURRENT_DATE) — without the
+   * viewer's zone on the session, all of that comes out in the server default
+   * (UTC) no matter what the client displays for raw timestamps.
+   */
+  time_zone?: string;
 }
 
 // Interface for the response
@@ -66,13 +75,16 @@ interface QueryResponse {
   };
 }
 
-// Generate cache key for parameterized queries
-function generateParameterizedCacheKey(
-  statement: string, 
+// Generate cache key for parameterized queries.
+// Exported for tests: the timezone must be part of the key, or a result
+// rendered for one viewer's zone would be served to another's (DO-352).
+export function generateParameterizedCacheKey(
+  statement: string,
   params: Record<string, unknown>,
   userId?: string,
   iotDbUrl?: string,
-  pagination?: { page: number; pageSize: number }
+  pagination?: { page: number; pageSize: number },
+  timeZone?: string
 ): string {
   const hash = crypto.createHash('sha256');
   const keyData = {
@@ -83,16 +95,21 @@ function generateParameterizedCacheKey(
     }, {} as Record<string, unknown>),
     userId: userId || 'anonymous',
     iotDbUrl: iotDbUrl || 'none',
-    pagination: pagination || null
+    pagination: pagination || null,
+    timeZone: timeZone || null
   };
-  
+
   hash.update(JSON.stringify(keyData));
   return `sql:param:${hash.digest('hex')}`;
 }
 
 // Execute parameterized SQL query
 router.post('/execute', validateSQLQuery, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const { dialect, statement, params, limits, read_only, pagination }: ParameterizedQueryRequest = req.body;
+  const { dialect, statement, params, limits, read_only, pagination, time_zone }: ParameterizedQueryRequest = req.body;
+
+  // Invalid/unknown zones degrade to "no zone" (server default) rather than
+  // failing the query — same lenience as resolveExportPreferences.
+  const timeZone = sanitizeTimeZone(time_zone);
 
   // Validate request structure
   if (!statement) {
@@ -174,9 +191,10 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
     source: globalTimeoutMs ? 'global_variable' : (limits?.timeout_ms ? 'request' : 'default')
   });
 
-  // Generate cache key (use merged params, userId, iotDbUrl, and pagination for caching)
-  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, iotDbUrl, pagination);
-  
+  // Generate cache key (use merged params, userId, iotDbUrl, pagination and
+  // timezone for caching — the timezone changes what the database renders)
+  const cacheKey = generateParameterizedCacheKey(statement, mergedParams, req.user?.userId, iotDbUrl, pagination, timeZone);
+
   try {
     // Try to get from cache first
     const cachedResult = await getRedisService().get(cacheKey);
@@ -187,12 +205,13 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
 
     // Execute parameterized query with merged params and pagination
     const result = await getDbService().executeParameterizedQuery(
-      statement, 
-      mergedParams, 
+      statement,
+      mergedParams,
       effectiveTimeoutMs,
       limits?.max_rows || 10000,
       iotDbUrl, // Pass iotDbUrl for database connection
-      pagination // Pass pagination if provided
+      pagination, // Pass pagination if provided
+      timeZone // Session timezone for SQL-side time rendering (DO-352)
     );
     
     // Cache result for 5 minutes
@@ -205,6 +224,7 @@ router.post('/execute', validateSQLQuery, asyncHandler(async (req: Authenticated
       totalParams: Object.keys(params).length,
       totalRows: result.stats?.rowCount || 0,
       pagination: pagination ? `page ${pagination.page}, size ${pagination.pageSize}` : 'none',
+      timeZone: timeZone || 'server default',
     });
 
     return res.json(result);

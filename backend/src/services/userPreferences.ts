@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { CustomError } from '../middleware/errorHandler.js';
+import { sanitizeTimeZone } from '../utils/datetime.js';
 import { logger } from '../utils/logger.js';
 
 // The preference values live inside the existing `raw_user_meta_data` JSONB
@@ -60,6 +62,77 @@ function isTimeFormat(value: unknown): value is TimeFormat {
 }
 
 /**
+ * Validate a PUT /user/preferences body into a storable patch. Throws
+ * CustomError(400) on any invalid field, so the route surfaces exactly what
+ * was wrong instead of silently dropping it.
+ *
+ * The timezone goes through sanitizeTimeZone — the same rules as the SQL
+ * session (DO-352 review round 3): a stored value the session zone guard
+ * would refuse (bare "+05:00" offsets in particular) must never be persisted,
+ * or frontend formatting and SQL-rendered strings split the moment the
+ * preference hydrates. The sanitized (trimmed) form is what gets stored.
+ */
+export function validatePreferencesPatch(
+  body: Record<string, unknown>,
+): Partial<UserPreferences> {
+  const patch: Partial<UserPreferences> = {};
+
+  if (body.timezone !== undefined) {
+    const tz = body.timezone;
+    if (typeof tz !== 'string' || tz.trim().length === 0) {
+      throw new CustomError('`timezone` must be a non-empty string', 400);
+    }
+    const validTz = sanitizeTimeZone(tz);
+    if (!validTz) {
+      throw new CustomError(`Invalid timezone identifier: ${tz.trim()}`, 400);
+    }
+    patch.timezone = validTz;
+  }
+
+  if (body.dateFormat !== undefined) {
+    if (!(DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat as string)) {
+      throw new CustomError(
+        `Invalid dateFormat. Allowed: ${DATE_FORMAT_VALUES.join(', ')}`,
+        400,
+      );
+    }
+    patch.dateFormat = body.dateFormat as DateFormat;
+  }
+
+  if (body.timeFormat !== undefined) {
+    if (!(TIME_FORMAT_VALUES as readonly string[]).includes(body.timeFormat as string)) {
+      throw new CustomError(
+        `Invalid timeFormat. Allowed: ${TIME_FORMAT_VALUES.join(', ')}`,
+        400,
+      );
+    }
+    patch.timeFormat = body.timeFormat as TimeFormat;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new CustomError(
+      'At least one of `timezone`, `dateFormat`, `timeFormat` is required',
+      400,
+    );
+  }
+
+  return patch;
+}
+
+/**
+ * Normalize a timezone read back from storage. Legacy rows may hold values
+ * written before validatePreferencesPatch guarded the PUT route (bare
+ * "+05:00" offsets in particular, which Intl accepts but the SQL session
+ * guard refuses). Ignoring them on read makes an invalid stored zone behave
+ * like an unset one, on every consumer at once: login//auth/me hydration,
+ * GET /user/preferences, the write readback, and export resolution.
+ */
+function normalizeStoredTimeZone(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) return '';
+  return sanitizeTimeZone(value) ?? '';
+}
+
+/**
  * Read the stored preferences for a user. Returns `{ timezone: '' }` when no
  * preferences row exists or `timezone` is unset. Throws on DB errors; the
  * caller decides whether to surface them.
@@ -78,7 +151,7 @@ export async function readUserPreferences(
     const metaData = (typeof raw === 'string' ? JSON.parse(raw) : raw) ?? {};
     const prefs =
       (metaData && typeof metaData === 'object' && metaData.preferences) || {};
-    const timezone = typeof prefs.timezone === 'string' ? prefs.timezone : '';
+    const timezone = normalizeStoredTimeZone(prefs.timezone);
     // Legacy 'default' and missing fields map to 'dd/mm/yyyy' (matches the
     // prior dropdown label "01/12/2021 (DD/MM/YYYY) — Default").
     const dateFormat = isDateFormat(prefs.dateFormat) ? prefs.dateFormat : 'dd/mm/yyyy';
@@ -126,7 +199,10 @@ export async function writeUserPreferences(
     if (stored == null) return null;
     const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored;
     return {
-      timezone: typeof parsed.timezone === 'string' ? parsed.timezone : '',
+      // Normalized like readUserPreferences: when the patch didn't touch the
+      // timezone, the merged row can still carry a legacy stored offset, and
+      // the readback must not hand it to the frontend.
+      timezone: normalizeStoredTimeZone(parsed.timezone),
       // See readUserPreferences: legacy 'default' / missing → 'dd/mm/yyyy'.
       dateFormat: isDateFormat(parsed.dateFormat) ? parsed.dateFormat : 'dd/mm/yyyy',
       // See readUserPreferences: legacy 'default' / missing → 'h12'.
@@ -167,16 +243,12 @@ export async function resolveExportPreferences(
   req: AuthenticatedRequest,
   body?: { timeZone?: unknown; dateFormat?: unknown; timeFormat?: unknown },
 ): Promise<ExportPreferences> {
-  let bodyTimeZone: string | undefined;
-  if (typeof body?.timeZone === 'string' && body.timeZone.trim()) {
-    const tz = body.timeZone.trim();
-    try {
-      new Intl.DateTimeFormat('en', { timeZone: tz });
-      bodyTimeZone = tz;
-    } catch {
-      // Ignore invalid IANA names; stored prefs may still supply one.
-    }
-  }
+  // Same validator as the live SQL path (sql-new): besides invalid IANA
+  // names this also drops bare "+05:00" offsets, which Intl would accept but
+  // Postgres reads with the POSIX inverted sign — an export must never run
+  // its re-query in a zone the live view refused (DO-352 review). When the
+  // body value is dropped, stored prefs may still supply one.
+  const bodyTimeZone = sanitizeTimeZone(body?.timeZone);
   const bodyDateFormat: DateFormat | undefined =
     typeof body?.dateFormat === 'string' &&
     (DATE_FORMAT_VALUES as readonly string[]).includes(body.dateFormat)
@@ -226,10 +298,13 @@ export async function getUserExportPreferences(
 
     const tz = prefs.timezone.trim();
     if (tz) {
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: tz });
-        result.timeZone = tz;
-      } catch {
+      // sanitizeTimeZone, not a bare Intl check: stored values feed the SQL
+      // session of export re-queries, so they obey the same rules as the
+      // live path (no bare offsets — see resolveExportPreferences).
+      const validTz = sanitizeTimeZone(tz);
+      if (validTz) {
+        result.timeZone = validTz;
+      } else {
         logger.warn('Ignoring invalid user timezone preference', { userId, timezone: tz });
       }
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { parse, isValid, format } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -33,6 +33,7 @@ import { apiService } from '@/services/api';
 import { getErrorMessage } from '@/utils/errors';
 import { isDisplayableCoordinate } from '@/utils/gps';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { createRunGate } from '@/utils/runGate';
 import { filterUsedParameters, dashboardPanelsHaveTemplateParameters } from '@/utils/sqlParameterExtractor';
 import { applyPanelFilters, getActivePanelFilters, resolveBindingExpression } from '@/utils/filterVariables';
 import { PanelFilterIndicator } from './PanelFilterIndicator';
@@ -370,7 +371,20 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
                                                                                              globalVariables = [],
                                                                                              onLoadingChange,
                                                                                            }, ref) => {
-  const { prefs: datetimePrefs } = useDatetimePrefs();
+  // The viewer's effective SQL-session zone. Part of the execution cache key
+  // below: when it changes — server preferences merging in after the first
+  // queries fired, a Settings change, the OS zone moving under an 'auto'
+  // preference (re-sampled on focus/visibility and on resample() calls from
+  // the refresh and export paths, review round 5) — SQL-rendered times
+  // (to_char, "today" windows) are stale and every panel must re-query
+  // (DO-352). The provider owns the single reactive instance (round 6): the
+  // same observed zone drives formatTimestamp's host-zone formatters, so raw
+  // timestamp cells and SQL-rendered strings cannot land in different zones.
+  const {
+    prefs: datetimePrefs,
+    effectiveTimeZone: effectiveSqlTimeZone,
+    resampleEffectiveTimeZone,
+  } = useDatetimePrefs();
   const [panelData, setPanelData] = useState<PanelData>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -379,6 +393,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportDialogFormat, setExportDialogFormat] = useState<'xlsx' | 'csv'>('xlsx');
   const [exportDialogPanel, setExportDialogPanel] = useState<Panel | null>(null);
+  // Latest-run tracking for query executions: a re-run (timezone change,
+  // refresh, parameter change) supersedes any run still in flight, and the
+  // superseded run's late completions are dropped instead of overwriting the
+  // newer results (DO-352 review). useState keeps one gate per instance
+  // without re-creating it on renders.
+  const [runGate] = useState(createRunGate);
   const isAutoRefreshRef = useRef(false); // Track if current refresh is from auto-refresh
   const refreshStartTimesRef = useRef<Record<string, number>>({}); // Track when each panel refresh started
   const panelDataRef = useRef<PanelData>({}); // Track latest panelData to avoid stale closures
@@ -690,6 +710,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       return;
     }
 
+    // join(), not start(): a later full run must invalidate this single-panel
+    // result, but refreshing one panel must not abandon an in-flight full run.
+    const isCurrent = runGate.join();
+
     const navixyConfig = panel['x-navixy'];
     const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
     const panelIdStr = String(panel.id);
@@ -719,6 +743,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       }
 
       const data = await executePanelQuery(panel, dashboardToUse);
+      if (!isCurrent()) return; // A full re-run superseded this refresh.
 
       setPanelData(prev => ({
         ...prev,
@@ -731,6 +756,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         },
       }));
     } catch (err) {
+      if (!isCurrent()) return; // A full re-run superseded this refresh.
       setPanelData(prev => ({
         ...prev,
         [panelIdStr]: {
@@ -741,7 +767,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         },
       }));
     }
-  }, [displayDashboard, executePanelQuery]);
+  }, [displayDashboard, executePanelQuery, runGate]);
 
   // Expose refreshPanel via ref
   useImperativeHandle(ref, () => ({
@@ -808,8 +834,10 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
         }
       });
 
-      // Include refreshTrigger to force re-execution when Refresh is clicked
-      return `${ JSON.stringify(cacheData) }:${ JSON.stringify(timeRange) }:${ JSON.stringify(serializedParams) }:${ refreshTrigger }`;
+      // Include refreshTrigger to force re-execution when Refresh is clicked,
+      // and the effective SQL zone so a zone change re-runs every query — the
+      // results embed zone-rendered strings and day windows (DO-352).
+      return `${ JSON.stringify(cacheData) }:${ JSON.stringify(timeRange) }:${ JSON.stringify(serializedParams) }:${ refreshTrigger }:${ effectiveSqlTimeZone ?? '' }`;
     };
 
     const cacheKey = createStableCacheKey(displayDashboard);
@@ -820,6 +848,11 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     prevDashboardRef.current = cacheKey;
+
+    // This run supersedes any execution still in flight. Started only after
+    // the cacheKey gate above — a skipped effect invocation must not
+    // invalidate the in-flight run it deduplicated against.
+    const isCurrent = runGate.start();
 
     const executeQueries = async () => {
       const isAutoRefresh = isAutoRefreshRef.current;
@@ -884,6 +917,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
       // Execute queries for each panel
       for (const panel of displayDashboard.panels) {
+        // Abandon a superseded run entirely: its writes would overwrite the
+        // newer run's results, and its remaining queries would execute with
+        // the newer run's zone (the registry is read per request), producing
+        // mixed-zone panels.
+        if (!isCurrent()) return;
+
         const panelIdStr = String(panel.id);
         const navixyConfig = panel['x-navixy'];
         const hasSql = navixyConfig?.sql?.statement && navixyConfig.sql.statement.trim().length > 0;
@@ -909,6 +948,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
         try {
           const data = await executePanelQuery(panel, displayDashboard);
+          if (!isCurrent()) return; // Superseded while awaiting — drop the result.
           const duration = Date.now() - startTime;
 
           // Update data and clear refresh/loading states
@@ -929,6 +969,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
             [panelIdStr]: newPanelData[panelIdStr],
           }));
         } catch (err) {
+          if (!isCurrent()) return; // Superseded while awaiting — drop the error too.
           console.error(`Error executing query for panel ${ panel.title } (${panelIdStr}):`, err);
           const existingData = panelDataRef.current[panelIdStr];
           newPanelData[panelIdStr] = {
@@ -951,6 +992,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
       }
 
       // Final state update to ensure consistency (though individual updates above should handle it)
+      if (!isCurrent()) return; // A newer run owns panelData now — this full replace would revert it.
       setPanelData(newPanelData);
       setLoading(false);
 
@@ -1031,7 +1073,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     };
 
     executeQueries();
-  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, resolveParameterBindings, executePanelQuery]);
+  }, [displayDashboard, timeRange, parameterValues, refreshTrigger, effectiveSqlTimeZone, resolveParameterBindings, executePanelQuery, runGate]);
 
   // Auto-refresh functionality based on dashboard.refresh field
   useEffect(() => {
@@ -1050,6 +1092,12 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
 
     // Set up interval to trigger refresh
     const intervalId = setInterval(() => {
+      // An auto-refresh involves no interaction, so the focus/visibility
+      // listeners may not have observed a host-zone change yet. Re-sample
+      // first: if the zone moved, the batched state change joins this
+      // trigger and the single re-run re-queries and re-keys under the new
+      // zone together (DO-352).
+      resampleEffectiveTimeZone();
       // Mark as auto-refresh before triggering
       isAutoRefreshRef.current = true;
       // Increment refreshTrigger to force query re-execution
@@ -1060,7 +1108,7 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     return () => {
       clearInterval(intervalId);
     };
-  }, [dashboard.refresh, editMode, isEditingLayout]);
+  }, [dashboard.refresh, editMode, isEditingLayout, resampleEffectiveTimeZone]);
 
   const getPanelIcon = (panelType: string) => {
     // Map Grafana panel types to icons
@@ -1761,19 +1809,17 @@ export const DashboardRenderer = forwardRef<DashboardRendererRef, DashboardRende
     }
 
     try {
-      // Resolve "auto" to the browser's IANA name so the backend doesn't
+      // "auto" is resolved to the browser's IANA name so the backend doesn't
       // have to re-detect it. Excel cells need an explicit zone to render
       // wall-clock times — see shiftDateToZone in backend export service.
-      const resolvedTz =
-        datetimePrefs.timeZone === 'auto'
-          ? (() => {
-              try {
-                return Intl.DateTimeFormat().resolvedOptions().timeZone;
-              } catch {
-                return undefined;
-              }
-            })()
-          : datetimePrefs.timeZone;
+      // The same zone drives the export's server-side re-query session
+      // (DO-352), keeping SQL-rendered times identical to the live panel —
+      // which is why it is resolved at call time, not read from render
+      // state: the render value can trail a host-zone change (no event
+      // announces one), while the live panels' own re-queries resolve per
+      // request. Resampling also syncs the state, so a change noticed here
+      // re-runs the live panels too (review round 5).
+      const resolvedTz = resampleEffectiveTimeZone();
 
       // The export re-runs the query server-side, where the per-type row ceiling
       // is owned (see resolvePanelExportMaxRows). Send only the panel type and

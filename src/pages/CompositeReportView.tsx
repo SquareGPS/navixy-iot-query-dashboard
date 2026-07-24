@@ -58,7 +58,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import type { CompositeReport, CompositeReportExecutionResult, GPSPoint, ExcelHeaderConfig } from '@/types/dashboard-types';
-import { extractParameterNames, filterUsedParameters } from '@/utils/sqlParameterExtractor';
+import { extractParameterNames } from '@/utils/sqlParameterExtractor';
 import { interpretSqlError } from '@/utils/sqlErrorInterpreter';
 import {
   DatetimePrefs,
@@ -67,10 +67,11 @@ import {
   formatTimestamp,
   isDateLikeParam,
   isTimestampLike,
-  normaliseParamForApi,
   parseServerTimestamp,
 } from '@/utils/datetime';
+import { buildExportZoneFields, normaliseUsedParams } from '@/utils/exportRequest';
 import { useDatetimePrefs } from '@/contexts/DatetimePrefsContext';
+import { createRunGate } from '@/utils/runGate';
 import { ExportDialog } from '@/components/export/ExportDialog';
 import { ChartSeriesPicker } from '@/components/reports/ChartSeriesPicker';
 import { resolvePlottedGroups } from '@/lib/chartGroups';
@@ -132,7 +133,19 @@ export default function CompositeReportView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { token } = useAuth();
-  const { prefs: datetimePrefs } = useDatetimePrefs();
+  // effectiveTimeZone is the provider's single reactive zone instance
+  // (DO-352 round 6) — the same observed zone formatTimestamp resolves, so
+  // SQL-rendered strings and raw timestamp cells cannot split.
+  const {
+    prefs: datetimePrefs,
+    effectiveTimeZone: effectiveSqlTimeZone,
+    resampleEffectiveTimeZone,
+  } = useDatetimePrefs();
+
+  // Latest-run tracking for query executions: a re-run (Refresh, timezone
+  // change) supersedes any run still in flight so the run that finishes last
+  // cannot overwrite newer results (DO-352 review).
+  const [runGate] = useState(createRunGate);
 
   // State
   const [report, setReport] = useState<CompositeReport | null>(null);
@@ -287,36 +300,43 @@ export default function CompositeReportView() {
     };
   }, [id, reloadNonce]);
 
-  // Execute query when report loads
+  // Execute query when the report loads, and re-execute when the effective
+  // zone changes — server preferences merging in after the first execution,
+  // or the OS zone moving under an 'auto' preference (DO-352).
   useEffect(() => {
     if (report) {
       executeQuery();
     }
-    // Intentionally only when report identity changes — parameters are applied via Refresh / Apply
+    // Intentionally not on parameter changes — those are applied via Refresh / Apply
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report?.id]);
+  }, [report?.id, effectiveSqlTimeZone]);
 
   // Execute the SQL query
   const sqlQuery = report?.sql_query ?? '';
 
-  // Resolved parameter map sent with the query. Exports reuse this so the
-  // backend re-runs the same query instead of receiving the full row set in
-  // the request body (which 413s for large tables).
-  const buildQueryParams = useCallback((): Record<string, unknown> => {
-    const merged: Record<string, unknown> = {};
-    const filtered = filterUsedParameters(sqlQuery, parameterValues);
-    const paramTimeZone =
-      datetimePrefs.timeZone === 'auto' ? undefined : datetimePrefs.timeZone;
-    Object.entries(filtered).forEach(([k, v]) => {
-      if (v === undefined || v === null) return;
-      if (typeof v === 'string' && v.trim() === '') return;
-      merged[k] = normaliseParamForApi(k, v, { timeZone: paramTimeZone });
-    });
-    return merged;
-  }, [sqlQuery, parameterValues, datetimePrefs.timeZone]);
+  // Resolved parameter map sent with the live query — only the used params,
+  // datetime values normalized to UTC (server-side re-query keeps request
+  // bodies small; the full row set would 413 for large tables). Live execution
+  // reads the render-state zone: it is itself the re-run trigger (the effect
+  // deps below), so a host-zone change re-renders and re-queries with the
+  // fresh value. Under 'auto' a naive datetime-local value must be interpreted
+  // in the same observed zone the SQL session runs in, not whatever the live
+  // host zone happens to be at this render (DO-352 review round 7). Exports do
+  // NOT reuse this: they resolve their own zone (see buildExportRequest)
+  // because an export takes no render pass to observe a host move.
+  const buildQueryParams = useCallback(
+    (): Record<string, unknown> =>
+      normaliseUsedParams(sqlQuery, parameterValues, effectiveSqlTimeZone),
+    [sqlQuery, parameterValues, effectiveSqlTimeZone],
+  );
 
   const executeQuery = useCallback(async () => {
     if (!id || !sqlQuery) return;
+
+    // Supersede any execution still in flight: the run that finishes last
+    // must not win (e.g. the pre-merge-zone request completing after the
+    // timezone re-run — DO-352 review).
+    const isCurrent = runGate.start();
 
     setExecution(prev => ({ ...prev, loading: true, error: null }));
 
@@ -324,6 +344,7 @@ export default function CompositeReportView() {
       const response = await apiService.executeCompositeReport(id, {
         params: buildQueryParams(),
       });
+      if (!isCurrent()) return; // Superseded while awaiting — drop the result.
 
       if (response.error) {
         throw new Error(interpretSqlError(response.error));
@@ -337,6 +358,7 @@ export default function CompositeReportView() {
       });
       setTablePage(1);
     } catch (rawErr: unknown) {
+      if (!isCurrent()) return; // Superseded while awaiting — drop the error too.
       const error = toErrorMeta(rawErr);
       setExecution({
         loading: false,
@@ -345,7 +367,7 @@ export default function CompositeReportView() {
         lastExecuted: null,
       });
     }
-  }, [id, sqlQuery, buildQueryParams]);
+  }, [id, sqlQuery, buildQueryParams, runGate]);
 
   // Convert rows to objects for easier processing
   const rowObjects = useMemo(() => {
@@ -868,27 +890,23 @@ export default function CompositeReportView() {
     setExportDialogOpen(true);
   };
 
-  // Resolve the active session's prefs into request-body fields. Excel
-  // cells need an explicit timezone (see shiftDateToZone in the backend
-  // export service) — otherwise ExcelJS serializes Date via UTC and the
-  // user sees their wall-clock time shifted by their UTC offset.
-  const getExportPrefsOptions = () => {
-    const resolvedTz =
-      datetimePrefs.timeZone === 'auto'
-        ? (() => {
-            try {
-              return Intl.DateTimeFormat().resolvedOptions().timeZone;
-            } catch {
-              return undefined;
-            }
-          })()
-        : datetimePrefs.timeZone;
-    return {
-      ...(resolvedTz && { timeZone: resolvedTz }),
-      ...(datetimePrefs.dateFormat && { dateFormat: datetimePrefs.dateFormat }),
-      ...(datetimePrefs.timeFormat && { timeFormat: datetimePrefs.timeFormat }),
-    };
-  };
+  // Resolve the export's datetime parameters and its preference fields from
+  // ONE zone, resampled once at call time. Excel cells need an explicit
+  // timezone (see shiftDateToZone in the backend export service) — otherwise
+  // ExcelJS serializes Date via UTC and the user sees their wall-clock time
+  // shifted by their UTC offset. Resampling here (not reading render state)
+  // catches a host-zone change no render has observed yet, and syncs the
+  // state so the live panels re-run too (review round 5); threading that one
+  // zone into buildExportZoneFields keeps the parameter instants and the
+  // declared session zone from splitting across the move (round 8).
+  const buildExportRequest = () =>
+    buildExportZoneFields({
+      sqlQuery,
+      parameterValues,
+      timeZone: resampleEffectiveTimeZone(),
+      dateFormat: datetimePrefs.dateFormat,
+      timeFormat: datetimePrefs.timeFormat,
+    });
 
   const handleExportExcel = async (
     format: 'xlsx' | 'csv' = excelFormat,
@@ -898,12 +916,14 @@ export default function CompositeReportView() {
 
     setExporting('excel');
     try {
+      // One resampled zone for the params and the preferences (round 8).
+      const { params, prefs } = buildExportRequest();
       const blob = await apiService.exportCompositeReportExcel(id, {
-        params: buildQueryParams(),
+        params,
         ...getExportGeocodingOptions(),
         format,
         ...(excelHeader && { excelHeader }),
-        ...getExportPrefsOptions(),
+        ...prefs,
       });
       if (blob) {
         const extension = format === 'csv' ? 'csv' : 'xlsx';
@@ -957,8 +977,10 @@ export default function CompositeReportView() {
 
     setExporting('html');
     try {
+      // One resampled zone for the params and the preferences (round 8).
+      const { params, prefs } = buildExportRequest();
       const blob = await apiService.exportCompositeReportHTML(id, {
-        params: buildQueryParams(),
+        params,
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
@@ -967,7 +989,7 @@ export default function CompositeReportView() {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
         } : undefined,
-        ...getExportPrefsOptions(),
+        ...prefs,
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.html`);
@@ -988,8 +1010,10 @@ export default function CompositeReportView() {
 
     setExporting('pdf');
     try {
+      // One resampled zone for the params and the preferences (round 8).
+      const { params, prefs } = buildExportRequest();
       const blob = await apiService.exportCompositeReportPDF(id, {
-        params: buildQueryParams(),
+        params,
         includeChart: report?.config.chart.enabled,
         includeMap: report?.config.map.enabled && gpsPoints.length > 0,
         ...getExportGeocodingOptions(),
@@ -998,7 +1022,7 @@ export default function CompositeReportView() {
           center: mapViewState.center,
           zoom: mapViewState.zoom,
         } : undefined,
-        ...getExportPrefsOptions(),
+        ...prefs,
       });
       if (blob) {
         downloadBlob(blob, `${report?.slug || 'composite-report'}.pdf`);
@@ -1188,10 +1212,11 @@ export default function CompositeReportView() {
                   // The user's preferred timezone (from Settings) is used so the
                   // input matches the timezone the table/chart are rendered in.
                   const hasTzSuffix = /(Z|[+-]\d{2}:?\d{2})$/.test(stored.trim());
-                  const inputTimeZone =
-                    datetimePrefs.timeZone === 'auto'
-                      ? undefined
-                      : datetimePrefs.timeZone;
+                  // The effective zone (observed under 'auto'), matching the
+                  // zone the table/chart render in and the SQL session runs
+                  // in — not a live host-zone read that could disagree with
+                  // both between observations (DO-352 review round 7).
+                  const inputTimeZone = effectiveSqlTimeZone;
                   let localValue = stored;
                   if (hasTzSuffix) {
                     const parsed = parseServerTimestamp(stored);
@@ -1225,7 +1250,10 @@ export default function CompositeReportView() {
                         }
                       />
                       <span className="text-[10px] text-muted-foreground leading-none">
-                        {inputTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+                        {/* Already the resolved host zone under 'auto' — a
+                            live Intl read here could disagree with it (and
+                            throws outright when Intl is unusable). */}
+                        {inputTimeZone}
                       </span>
                     </div>
                   );
