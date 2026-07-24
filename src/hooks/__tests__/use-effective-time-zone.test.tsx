@@ -17,6 +17,7 @@ import {
   __resetObservedHostZoneForTests,
   formatTimestamp,
 } from '@/utils/datetime';
+import { buildExportZoneFields } from '@/utils/exportRequest';
 import {
   resolveSqlTimeZone,
   setSqlTimeZonePreference,
@@ -275,6 +276,48 @@ describe('useEffectiveTimeZone', () => {
       expect(result.current[0]).toBe('Australia/Adelaide');
       expect(resolveSqlTimeZone()).toBe('Australia/Adelaide');
       expect(formatTimestamp(instant, AUTO_PREFS)).toBe('2026-01-15 20:30');
+    });
+  });
+
+  it('export resamples once and normalizes params in that same zone after an unobserved host move', () => {
+    // Round-8 export-coherence regression. Observe Berlin under 'auto', move
+    // the host to Tokyo with no focus/visibility/refresh — so the render state
+    // still holds Berlin — then export. The export path resamples the zone
+    // once and threads it into BOTH the datetime parameter normalization and
+    // the request preferences, so a naive datetime-local value and the
+    // request's declared session zone describe one zone. Before the fix the
+    // request object evaluated the params (stale Berlin render state) before
+    // the spread that resampled the zone (fresh Tokyo), sending an instant
+    // eight hours away from the zone the same request declared.
+    withFrozenClockAndTz(() => {
+      setHostZone('Europe/Berlin');
+      setSqlTimeZonePreference('auto');
+
+      const { result } = renderHook(() => useEffectiveTimeZone('auto'));
+      expect(result.current[0]).toBe('Europe/Berlin');
+
+      // The OS zone moves; no observation point fires.
+      setHostZone('Asia/Tokyo');
+      expect(result.current[0]).toBe('Europe/Berlin');
+
+      // The export path resamples once, up front…
+      let exportZone: string | undefined;
+      act(() => {
+        exportZone = result.current[1]();
+      });
+      expect(exportZone).toBe('Asia/Tokyo');
+
+      // …and both halves of the request read that one resampled zone: 09:00
+      // interpreted as Tokyo (UTC+9) is 00:00Z, not Berlin's 08:00Z.
+      const { params, prefs } = buildExportZoneFields({
+        sqlQuery: 'SELECT * FROM t WHERE ts >= ${date_from}',
+        parameterValues: { date_from: '2026-01-15T09:00' },
+        timeZone: exportZone,
+        dateFormat: 'yyyy-mm-dd',
+        timeFormat: 'h24',
+      });
+      expect(params.date_from).toBe('2026-01-15T00:00:00.000Z');
+      expect(prefs.timeZone).toBe('Asia/Tokyo');
     });
   });
 
